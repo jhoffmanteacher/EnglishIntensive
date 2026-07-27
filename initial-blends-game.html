@@ -18,7 +18,7 @@
   connect-src 'self' https://*.googleapis.com https://*.google.com https://*.gstatic.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com;
   frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://content.googleapis.com https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://docs.google.com https://drive.google.com https://www.google.com;
 ">
-<title>Blend Words — Say It Right!</title>
+<title>Starting Blends — Say It Right!</title>
 <style>
   :root{
     --bg:#111827;
@@ -176,7 +176,7 @@
   <!-- ================= START ================= -->
   <section id="s-start" class="screen on">
     <div class="card">
-      <h1>Blend Words 🎤</h1>
+      <h1>Starting Blends 🎤</h1>
       <p class="sub">Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!</p>
       <div id="compatWarn" class="warn" style="display:none"></div>
       <ol class="steps">
@@ -196,14 +196,14 @@
     <div class="hud">
       <div class="stat"><div class="lbl">Score</div><div class="val" id="uiScore">0</div></div>
       <div class="stat"><div class="lbl">Streak</div><div class="val flame" id="uiStreak">0</div></div>
-      <div class="stat"><div class="lbl">Word</div><div class="val" id="uiCount">1/31</div></div>
+      <div class="stat"><div class="lbl">Word</div><div class="val" id="uiCount">1/28</div></div>
     </div>
     <div class="bar"><i id="uiBar"></i></div>
 
     <div class="wordcard" id="wordCard">
       <div class="popup" id="popup"></div>
       <div class="hint">Say this word</div>
-      <div class="word" id="uiWord">soft</div>
+      <div class="word" id="uiWord">blip</div>
       <div class="micwrap">
         <button class="mic" id="btnMic" aria-label="Mute or unmute the microphone">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -250,10 +250,11 @@
 (function(){
   "use strict";
 
-  /* ---------------- word list ---------------- */
-  var WORDS = ["soft","golf","honk","cost","pond","vest","nest","tent","kelp","helm",
-               "elk","sect","tusk","dusk","lump","hunk","damp","sand","pant","sank",
-               "gasp","raft","wisp","lisp","risk","mink","link","kilt","silk","milk","sift"];
+  /* ---------------- word list ----------------
+     Initial consonant blends — from the classroom flashcard set. */
+  var WORDS = ["blip","crop","clam","grab","flub","grin","glad","prop","plop","trip",
+               "plum","trot","sled","bled","slug","fled","scam","glen","skip","spin",
+               "snip","spot","stem","drum","bran","drag","crab","frog"];
 
   /* ---------------- state ---------------- */
   var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
@@ -328,9 +329,9 @@
     for(var i=0;i<parts.length;i++){ if(parts[i] === target) return true; }
     return false;
   }
+  // These words all start with a two-letter blend.
   function markup(word){
-    var stem = word.slice(0, word.length-2), blend = word.slice(-2);
-    return stem + '<span class="blend">' + blend + '</span>';
+    return '<span class="blend">' + word.slice(0,2) + '</span>' + word.slice(2);
   }
 
   /* ---------------- render ---------------- */
