@@ -1,7 +1,13 @@
 # English Intensive
 
 Plain static HTML/JS games and activities for English language practice.
-No build step — open any `.html` file directly in a browser.
+No build step — open `index.html` directly in a browser.
+
+## Home page
+
+`index.html` shows a grid of game tiles. Add a new game by dropping an entry
+in the `GAMES` array in its inline `<script>` — `icon`, `title`,
+`description`, `url`.
 
 ## Games
 
