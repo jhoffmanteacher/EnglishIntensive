@@ -147,6 +147,22 @@
 
   .toolbar{display:flex;justify-content:center;gap:10px;margin-top:22px;flex-wrap:wrap}
 
+  /* ---- mic check meter ---- */
+  .meter{
+    position:relative;height:34px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:99px;overflow:hidden;margin:18px 0 12px;
+  }
+  .meter > i{display:block;height:100%;width:0;background:#4a5b7a;border-radius:99px;transition:width .05s linear, background .15s}
+  .meter .mark{position:absolute;top:0;bottom:0;left:14%;width:3px;background:rgba(255,255,255,.5)}
+  /* Labels are pinned to the bar, not spread evenly — the "loud enough"
+     one has to sit under the threshold line at 14%. */
+  .marklbl{position:relative;height:18px;color:var(--muted);font-size:13px;letter-spacing:1px;text-transform:uppercase}
+  .marklbl .lo{position:absolute;left:0}
+  .marklbl .hi{position:absolute;right:0}
+  .marklbl .at{position:absolute;left:14%;margin-left:-7px;white-space:nowrap;color:var(--ink)}
+  .meterMsg{font-size:19px;min-height:30px;margin:14px 0 0;line-height:1.5;color:var(--muted)}
+  .meterMsg b{color:var(--ink)}
+
   .popup{
     position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);
     font-size:52px;font-weight:800;pointer-events:none;opacity:0;
@@ -182,11 +198,30 @@
       <ol class="steps">
         <li>Put on your <b>headphones with a mic</b> (or use the built-in mic).</li>
         <li>Click <b>Allow</b> when Chrome asks to use your microphone.</li>
+        <li>Check the <b>mic meter</b> on the next screen before you play.</li>
         <li>The mic <b>stays on</b> the whole game — just say each word clearly.</li>
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
+        <button class="btn ghost" id="btnLevel">Listening: <span id="lvlLbl">Normal</span></button>
+      </div>
+      <p class="sub" id="lvlNote" style="margin:14px 0 0;font-size:15px"></p>
+    </div>
+  </section>
+
+  <!-- ================= MIC CHECK ================= -->
+  <section id="s-check" class="screen">
+    <div class="card">
+      <h1>Mic check 🎙️</h1>
+      <p class="sub">Say your name out loud. The bar should jump past the line and turn green.</p>
+      <div id="checkWarn" class="warn" style="display:none"></div>
+      <div class="meter"><i id="meterFill"></i><span class="mark"></span></div>
+      <div class="marklbl"><span class="lo">Quiet</span><span class="at">↑ Loud enough</span><span class="hi">Too loud</span></div>
+      <p class="meterMsg" id="meterMsg">Waiting for the microphone…</p>
+      <div class="row" style="margin-top:26px">
+        <button class="btn" id="btnPlay" disabled>Start Playing</button>
+        <button class="btn ghost" id="btnBack">Back</button>
       </div>
     </div>
   </section>
@@ -277,7 +312,7 @@
   function beep(freqs, dur){
     // Hold the mic for however long this sound will actually play, plus a
     // little slack for the speakers/room, so we never transcribe ourselves.
-    holdMic(((freqs.length - 1) * dur * 0.7 + dur) * 1000 + 320);
+    holdMic(((freqs.length - 1) * dur * 0.7 + dur) * 1000 + 180);
     try{
       if(!actx){ var C = window.AudioContext || window.webkitAudioContext; if(!C) return; actx = new C(); }
       if(actx.state === "suspended") actx.resume();
@@ -300,9 +335,101 @@
 
   /* ---------------- screens ---------------- */
   function show(id){
-    ["s-start","s-play","s-end"].forEach(function(s){ $(s).classList.toggle("on", s===id); });
+    ["s-start","s-check","s-play","s-end"].forEach(function(s){ $(s).classList.toggle("on", s===id); });
   }
   function playing(){ return $("s-play").classList.contains("on"); }
+
+  /* ---------------- mic check + level meter ----------------
+     Runs before the game so the student can see the mic is actually picking
+     them up, and so the permission prompt happens here rather than in the
+     middle of play. The analyser is never connected to the destination, so
+     there is no chance of feedback howl. */
+  var micStream = null, meterCtx = null, meterSrc = null, analyser = null;
+  var meterRAF = null, meterData = null, meterPeak = 0, meterState = "";
+
+  function meterSay(state, html){
+    if(meterState === state) return;
+    meterState = state;
+    $("meterMsg").innerHTML = html;
+  }
+
+  function tickMeter(){
+    meterRAF = requestAnimationFrame(tickMeter);
+    if(!analyser) return;
+    analyser.getByteTimeDomainData(meterData);
+    var sum = 0;
+    for(var i=0;i<meterData.length;i++){ var v = (meterData[i]-128)/128; sum += v*v; }
+    var rms = Math.sqrt(sum/meterData.length);
+    // Speech sits well below full scale, so curve it to make the bar lively.
+    var pct = Math.min(100, Math.pow(Math.min(rms,0.35)/0.35, 0.6) * 100);
+    meterPeak = Math.max(pct, meterPeak - 1.6);   // fall back slowly
+    var fill = $("meterFill");
+    fill.style.width = meterPeak.toFixed(1) + "%";
+    if(meterPeak < 14){
+      fill.style.background = "#4a5b7a";
+      meterSay("quiet", "Too quiet — talk louder, or move the mic closer to your mouth.");
+    } else if(meterPeak < 88){
+      fill.style.background = "var(--good)";
+      meterSay("good", "<b>That's the level 👍</b> You're ready.");
+    } else {
+      fill.style.background = "var(--bad)";
+      meterSay("loud", "A little too loud — move the mic away from your mouth a bit.");
+    }
+  }
+
+  function startMicCheck(){
+    show("s-check");
+    meterPeak = 0; meterState = "";
+    $("btnPlay").disabled = true;
+    $("checkWarn").style.display = "none";
+    $("meterMsg").textContent = "Waiting for the microphone…";
+
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      $("checkWarn").style.display = "block";
+      $("checkWarn").innerHTML = "<b>This browser can't show the meter,</b> but you can still play.";
+      $("btnPlay").disabled = false;
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      micStream = stream;
+      var C = window.AudioContext || window.webkitAudioContext;
+      if(!C){ $("btnPlay").disabled = false; return; }
+      meterCtx = new C();
+      if(meterCtx.state === "suspended") meterCtx.resume();
+      meterSrc = meterCtx.createMediaStreamSource(stream);
+      analyser = meterCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.5;
+      meterData = new Uint8Array(analyser.fftSize);
+      meterSrc.connect(analyser);          // deliberately not to destination
+      $("btnPlay").disabled = false;
+      meterSay("quiet", "Too quiet — talk louder, or move the mic closer to your mouth.");
+      tickMeter();
+    }).catch(function(err){
+      var name = err && err.name;
+      $("checkWarn").style.display = "block";
+      $("checkWarn").innerHTML = (name === "NotAllowedError" || name === "SecurityError")
+        ? "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar, choose Allow, then reload this page."
+        : "<b>No microphone found.</b> Plug in the headset, then reload this page.";
+      $("meterMsg").textContent = "";
+      // Don't dead-end the student — the game shows its own mic message too.
+      $("btnPlay").disabled = false;
+    });
+  }
+
+  // Release the mic before the game starts — speech recognition opens its own.
+  function stopMicCheck(){
+    if(meterRAF){ cancelAnimationFrame(meterRAF); meterRAF = null; }
+    if(meterSrc){ try{ meterSrc.disconnect(); }catch(e){} meterSrc = null; }
+    analyser = null;
+    if(meterCtx){ try{ meterCtx.close(); }catch(e){} meterCtx = null; }
+    if(micStream){
+      try{ micStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+      micStream = null;
+    }
+    $("meterFill").style.width = "0";
+  }
 
   /* ---------------- speech support ---------------- */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -323,13 +450,54 @@
   function normalize(s){
     return String(s||"").toLowerCase().replace(/[^a-z' ]/g," ").replace(/\s+/g," ").trim();
   }
-  // STRICT: the target word must appear as a whole word in what was heard.
-  function isMatch(heard, target){
-    var parts = normalize(heard).split(" ");
-    for(var i=0;i<parts.length;i++){ if(parts[i] === target) return true; }
+  /* ---------------- how forgiving the listening is ----------------
+     There is no microphone-gain setting in the Web Speech API, so being
+     "more sensitive" means accepting near-misses from the recogniser —
+     it mangles vowels constantly on short isolated words. But the blend
+     is the thing being practised, so it is never forgiven: "bred" can
+     never pass for "bled". Only the rest of the word gets slack. */
+  var LEVELS = ["Strict","Normal","Forgiving"];
+  var level = 1;                                   // Normal by default
+  try{
+    var saved = localStorage.getItem("blendLevel");
+    if(saved !== null) level = Math.min(2, Math.max(0, parseInt(saved,10) || 0));
+  }catch(e){}
+
+  // These words all start with a two-letter blend.
+  function blendOf(word){ return word.slice(0,2); }
+
+  function editDistance(a,b){
+    var m=a.length, n=b.length, prev=[], cur=[], i, j;
+    for(j=0;j<=n;j++) prev[j]=j;
+    for(i=1;i<=m;i++){
+      cur[0]=i;
+      for(j=1;j<=n;j++){
+        cur[j] = Math.min(prev[j]+1, cur[j-1]+1,
+                          prev[j-1] + (a.charAt(i-1)===b.charAt(j-1) ? 0 : 1));
+      }
+      for(j=0;j<=n;j++) prev[j]=cur[j];
+    }
+    return prev[n];
+  }
+
+  function wordMatches(heard, target){
+    if(heard === target) return true;
+    if(level === 0) return false;                          // Strict: exact only
+    if(blendOf(heard) !== blendOf(target)) return false;   // blend must be right
+    if(editDistance(heard, target) <= (level === 1 ? 1 : 2)) return true;
+    // Forgiving also takes the word with an ending stuck on it ("cropped").
+    if(level === 2 && heard.indexOf(target) === 0) return true;
     return false;
   }
-  // These words all start with a two-letter blend.
+
+  function isMatch(heard, target){
+    var parts = normalize(heard).split(" ");
+    for(var i=0;i<parts.length;i++){
+      if(parts[i] && wordMatches(parts[i], target)) return true;
+    }
+    return false;
+  }
+
   function markup(word){
     return '<span class="blend">' + word.slice(0,2) + '</span>' + word.slice(2);
   }
@@ -485,30 +653,27 @@
     catch(e){ micOn = false; $("uiMic").textContent = "Microphone not available."; updateMicUI(); return; }
 
     rec.lang = "en-US";
-    rec.interimResults = false;
-    rec.maxAlternatives = 5;
+    rec.interimResults = true;   // catch the guess early, don't wait for final
+    rec.maxAlternatives = 10;
     rec.continuous = true;
 
     listening = true;
     restartOnEnd = true;
 
     rec.onresult = function(ev){
+      if(busy) return;
+      var target = queue[idx], lastFinal = null;
       for(var r = ev.resultIndex; r < ev.results.length; r++){
         var res = ev.results[r];
-        if(!res.isFinal) continue;
-        var hit = false, first = "";
         for(var i=0;i<res.length;i++){
-          var t = res[i].transcript;
-          if(i === 0) first = t;
-          if(isMatch(t, queue[idx])){ hit = true; break; }
+          if(isMatch(res[i].transcript, target)){ handleCorrect(); return; }
         }
-        // Ignore stray noise that came back as nothing — with the mic always
-        // on, silence should never cost the student a try.
-        if(!hit && !normalize(first)) continue;
-        if(busy) return;
-        if(hit) handleCorrect(); else handleWrong(first);
-        return;
+        if(res.isFinal) lastFinal = res[0].transcript;
       }
+      // Only a *final* result we couldn't match counts as a miss — interim
+      // guesses are just the recogniser thinking out loud. Silence never
+      // costs a try, since the mic is always on.
+      if(lastFinal !== null && normalize(lastFinal)) handleWrong(lastFinal);
     };
 
     rec.onerror = function(ev){
@@ -575,11 +740,29 @@
   }
 
   /* ---------------- events ---------------- */
-  $("btnStart").addEventListener("click", function(){ beep([440],0.06); startGame(WORDS); });
+  $("btnStart").addEventListener("click", function(){ beep([440],0.06); startMicCheck(); });
+  $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(WORDS); });
+  $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
   $("btnShuffle").addEventListener("click", function(){
     shuffleOn = !shuffleOn;
     $("shufLbl").textContent = shuffleOn ? "On" : "Off";
   });
+
+  var LEVEL_NOTES = [
+    "Strict — the word has to come back exactly right. Fewest false credits, but the recogniser will sometimes mishear a correct answer.",
+    "Normal — the blend must be right, and the rest of the word can be off by one sound. Best for most students.",
+    "Forgiving — the blend must still be right, but the rest of the word can be off by two. Use when a student is getting marked wrong on words they said correctly."
+  ];
+  function renderLevel(){
+    $("lvlLbl").textContent = LEVELS[level];
+    $("lvlNote").textContent = LEVEL_NOTES[level];
+  }
+  $("btnLevel").addEventListener("click", function(){
+    level = (level + 1) % LEVELS.length;
+    try{ localStorage.setItem("blendLevel", String(level)); }catch(e){}
+    renderLevel();
+  });
+  renderLevel();
   // The mic button is now a mute switch, not push-to-talk.
   $("btnMic").addEventListener("click", function(){
     micOn = !micOn;
@@ -612,7 +795,9 @@
     }
   });
 
-  window.addEventListener("beforeunload", function(){ micOn = false; stopMicLoop(); stopListening(); });
+  window.addEventListener("beforeunload", function(){
+    micOn = false; stopMicLoop(); stopListening(); stopMicCheck();
+  });
 })();
 </script>
 </body>
