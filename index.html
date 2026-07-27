@@ -3,32 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Content-Security-Policy. Every page on the site carries this same policy;
+     the game pages point back here for the explanation.
+
+     default-src 'self'   nothing loads from anywhere but this origin unless a
+                          directive below widens it
+     base-uri 'self'      an injected <base> can't re-point every relative URL
+     object-src 'none'    no Flash/Java/embed plugins, ever
+     img-src / media-src  images may come from https or data: URIs; audio and
+                          video only from here or blob: (the mic stream)
+     font-src / style-src / script-src
+                          'unsafe-inline' is required because these pages carry
+                          their game config in an inline <script> and a few
+                          inline style attributes; the Google origins are here
+                          so a page can pull in a Google font or a Drive embed
+     connect-src          XHR/fetch/WebSocket targets, kept to this origin plus
+                          Google/Firebase in case a game ever saves progress
+     frame-src            what may be embedded in an iframe — currently used
+                          for YouTube and Drive/Docs viewers -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  base-uri 'self';
+  object-src 'none';
+  img-src 'self' data: https:;
+  media-src 'self' blob:;
+  worker-src 'self' blob:;
+  font-src 'self' data: https://fonts.gstatic.com https://www.gstatic.com;
+  style-src 'self' 'unsafe-inline' https://www.gstatic.com https://fonts.googleapis.com;
+  script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://apis.google.com;
+  connect-src 'self' https://*.googleapis.com https://*.google.com https://*.gstatic.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com;
+  frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://content.googleapis.com https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://docs.google.com https://drive.google.com https://www.google.com;
+">
 <title>English Intensive — Games</title>
+<link rel="stylesheet" href="site.css">
 <style>
-  :root{
-    --bg:#111827;
-    --panel:#1b2437;
-    --panel2:#232f46;
-    --ink:#f4f7fb;
-    --muted:#9fb0c9;
-    --accent:#ffc94d;
-    --good:#3ddc97;
-    --line:#31405c;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{
-    margin:0;
-    background:radial-gradient(1200px 700px at 50% -10%, #1e2a44 0%, var(--bg) 60%);
-    color:var(--ink);
-    font-family:"Verdana","Trebuchet MS","Segoe UI",system-ui,sans-serif;
-    padding:40px 20px 60px;
-    -webkit-font-smoothing:antialiased;
-  }
+  /* Home page only — tokens, the reset and the button system are in site.css. */
+  body{padding:40px 20px 60px}
   .wrap{width:100%;max-width:1000px;margin:0 auto}
   header{margin-bottom:32px}
   h1{font-size:clamp(30px,5vw,46px);margin:0 0 8px;letter-spacing:-.5px}
-  .sub{color:var(--muted);font-size:17px;line-height:1.6;margin:0}
 
   .grid{
     display:grid;

@@ -1,0 +1,63 @@
+/* Design tokens and base styles shared by every page on the site.
+   Page layout and page-specific components stay in the page's own
+   stylesheet — this file is only the things that must not drift. */
+
+:root{
+  --bg:#111827;
+  --panel:#1b2437;
+  --panel2:#232f46;
+  --ink:#f4f7fb;
+  --muted:#9fb0c9;
+  --accent:#ffc94d;
+  --good:#3ddc97;
+  --bad:#ff6b6b;
+  --line:#31405c;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:radial-gradient(1200px 700px at 50% -10%, #1e2a44 0%, var(--bg) 60%);
+  color:var(--ink);
+  font-family:"Verdana","Trebuchet MS","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+/* Each page sets its own body layout (display, padding) — the games centre
+   a single card, the home page scrolls a grid. */
+
+/* ---- buttons ---- */
+button{font-family:inherit;cursor:pointer;border:none}
+.btn{
+  background:var(--accent);color:#1a1206;font-weight:700;
+  font-size:20px;padding:16px 30px;border-radius:16px;
+  transition:transform .12s, filter .12s;
+}
+.btn:hover{filter:brightness(1.08)}
+.btn:active{transform:translateY(2px)}
+.btn.ghost{background:transparent;color:var(--ink);border:2px solid var(--line);font-size:17px;padding:12px 22px}
+.btn.ghost:hover{border-color:var(--accent);filter:none}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+
+/* ---- home button (every page except the home page itself) ---- */
+.home{
+  position:fixed;top:14px;left:14px;z-index:20;
+  display:inline-flex;align-items:center;gap:8px;
+  background:var(--panel);border:1px solid var(--line);
+  color:var(--ink);text-decoration:none;
+  font-size:15px;font-weight:700;padding:10px 16px;border-radius:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,.35);
+  transition:border-color .15s ease;
+}
+.home:hover{border-color:var(--accent)}
+
+/* ---- panels ---- */
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:24px;
+  padding:32px;
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+.sub{color:var(--muted);font-size:17px;line-height:1.6;margin:0}
