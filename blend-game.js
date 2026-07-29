@@ -125,14 +125,18 @@ window.BlendGame = (function(){
 
   // Phoneme-level edit distance. Recognisers mangle vowels far more than
   // consonants, so swapping one vowel sound for another costs half as much
-  // as any other kind of change.
+  // as any other kind of change. A plain consonant-for-consonant swap costs
+  // *more* than a full point (not exactly 1) so it never fits inside
+  // Normal's budget of 1 — a wrong consonant almost always means a
+  // different word entirely (e.g. "vest" heard as "nest"), not a mishearing,
+  // so Normal shouldn't forgive it the same way it forgives vowel drift.
   function phoneticDistance(a, b){
     var m=a.length, n=b.length, i, j, prev=[], cur=[];
     for(j=0;j<=n;j++) prev[j]=j;
     for(i=1;i<=m;i++){
       cur[0]=i;
       for(j=1;j<=n;j++){
-        var subCost = a[i-1]===b[j-1] ? 0 : (isVowelPhone(a[i-1]) && isVowelPhone(b[j-1]) ? 0.5 : 1);
+        var subCost = a[i-1]===b[j-1] ? 0 : (isVowelPhone(a[i-1]) && isVowelPhone(b[j-1]) ? 0.5 : 1.5);
         cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+subCost);
       }
       for(j=0;j<=n;j++) prev[j]=cur[j];

@@ -127,6 +127,16 @@
   eq("gasp <- gas, Normal (curated)", match("gas","gasp",1,END), true);
   eq("gasp <- gas, Strict, never", match("gas","gasp",0,END), false);
 
+  // ---- distinct real words in the same list must not be conflated at
+  // Normal — a wrong consonant means a different word, not a mishearing.
+  // These pairs were found by brute-forcing every word against every other
+  // word in the shipped lists and were previously scored as matches. ----
+  eq("vest != nest, Normal", match("nest","vest",1,END), false);
+  eq("tusk != dusk, Normal", match("dusk","tusk",1,END), false);
+  eq("wisp != lisp, Normal", match("lisp","wisp",1,END), false);
+  eq("mink != link, Normal", match("link","mink",1,END), false);
+  eq("silk != milk, Normal", match("milk","silk",1,END), false);
+
   // ---- render ----
   var rows = document.getElementById("rows");
   var pass = 0;
