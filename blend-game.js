@@ -57,7 +57,7 @@ window.BlendGame = (function(){
       <div id="checkWarn" class="warn" style="display:none"></div>
       <div class="meter"><i id="meterFill"></i><span class="mark"></span></div>
       <div class="marklbl"><span class="lo">Quiet</span><span class="at">↑ Loud enough</span><span class="hi">Too loud</span></div>
-      <p class="meterMsg" id="meterMsg">Waiting for the microphone…</p>
+      <p class="meterMsg" id="meterMsg" aria-live="polite">Waiting for the microphone…</p>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnPlay" disabled>Start Playing</button>
         <button class="btn ghost" id="btnBack">Back</button>
@@ -79,9 +79,9 @@ window.BlendGame = (function(){
       <div class="word" id="uiWord"></div>
       <div class="micwrap">
         <button class="mic" id="btnMic" aria-label="Mute or unmute the microphone">${MIC_SVG}</button>
-        <div class="keyhint" id="uiMicState">Mic is on — just say the word</div>
+        <div class="keyhint" id="uiMicState" role="status">Mic is on — just say the word</div>
       </div>
-      <div class="miclabel" id="uiMic">Say the word out loud</div>
+      <div class="miclabel" id="uiMic" aria-live="polite">Say the word out loud</div>
     </div>
 
     <div class="toolbar">
@@ -115,8 +115,12 @@ window.BlendGame = (function(){
 
   function start(cfg){
     var WORDS = cfg.words;
-    // Whether the two-letter blend sits at the front of the word or the back.
+    // Whether the blend sits at the front of the word or the back.
     var atStart = cfg.blend !== "end";
+    // Number of letters in the blend — 2 for today's games ("bl", "nk"), but
+    // kept configurable so a future str/spl/scr game can pass 3 without
+    // touching this file.
+    var blendLength = cfg.blendLength || 2;
 
     var mount = document.getElementById(cfg.mount || "app");
     mount.className = "wrap";
@@ -128,7 +132,13 @@ window.BlendGame = (function(){
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
-    var missed = [], tries = 0, shuffleOn = true, busy = false;
+    var missed = [], tries = 0, busy = false;
+
+    var shuffleOn = true;
+    try{
+      var savedShuffle = localStorage.getItem("blendShuffle");
+      if(savedShuffle !== null) shuffleOn = savedShuffle === "1";
+    }catch(e){}
 
     /* mic state: micOn is the session-wide switch (mic stays on once the game
        starts); listening is whether recognition is actually running now. */
@@ -206,12 +216,12 @@ window.BlendGame = (function(){
       if(saved !== null) level = Math.min(2, Math.max(0, parseInt(saved,10) || 0));
     }catch(e){}
 
-    function blendOf(word){ return atStart ? word.slice(0,2) : word.slice(-2); }
+    function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }
 
     function markup(word){
       return atStart
-        ? '<span class="blend">' + word.slice(0,2) + '</span>' + word.slice(2)
-        : word.slice(0, word.length-2) + '<span class="blend">' + word.slice(-2) + '</span>';
+        ? '<span class="blend">' + word.slice(0,blendLength) + '</span>' + word.slice(blendLength)
+        : word.slice(0, word.length-blendLength) + '<span class="blend">' + word.slice(-blendLength) + '</span>';
     }
 
     function editDistance(a,b){
@@ -465,13 +475,13 @@ window.BlendGame = (function(){
         s.textContent = "Mic is off — click it (or press Space) to turn it back on";
       } else if(listening){
         b.classList.add("listening");
-        s.textContent = "Listening — say the word";
+        s.textContent = "Listening — say the word (press H to hear it)";
       } else if(audioBusy()){
         b.classList.add("paused");
         s.textContent = "Mic paused while the computer talks…";
       } else {
         b.classList.add("paused");
-        s.textContent = "Mic is on — just say the word";
+        s.textContent = "Mic is on — just say the word (press H to hear it)";
       }
     }
 
@@ -581,10 +591,15 @@ window.BlendGame = (function(){
     $("btnStart").addEventListener("click", function(){ beep([440],0.06); startMicCheck(); });
     $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(WORDS); });
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
+    function renderShuffle(){
+      $("shufLbl").textContent = shuffleOn ? "On" : "Off";
+    }
     $("btnShuffle").addEventListener("click", function(){
       shuffleOn = !shuffleOn;
-      $("shufLbl").textContent = shuffleOn ? "On" : "Off";
+      try{ localStorage.setItem("blendShuffle", shuffleOn ? "1" : "0"); }catch(e){}
+      renderShuffle();
     });
+    renderShuffle();
 
     function renderLevel(){
       $("lvlLbl").textContent = LEVELS[level];
@@ -626,6 +641,9 @@ window.BlendGame = (function(){
         micOn = !micOn;
         if(!micOn) stopListening(); else armMic();
         updateMicUI();
+      } else if(e.code === "KeyH" && playing() && !busy){
+        e.preventDefault();
+        hearIt();
       }
     });
 
