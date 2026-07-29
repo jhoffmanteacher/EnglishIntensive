@@ -647,7 +647,7 @@ window.BlendGame = (function(){
       if(tries >= 2){
         if(missed.indexOf(target) === -1) missed.push(target);
         // Never on the first miss — that stays fast so the retry isn't slowed down.
-        if(voiceOn) say("The word was, " + target + ".", { rate: 0.85 });
+        if(voiceOn) say("The word was, " + target + ".", { rate: 0.9 });
         setTimeout(function(){ busy = false; next(); }, voiceOn ? 2600 : 1900);
       } else {
         setTimeout(function(){ busy = false; $("wordCard").className = "wordcard"; }, 900);
@@ -859,7 +859,10 @@ window.BlendGame = (function(){
     }
 
     function hearIt(){
-      say(queue[idx], { rate: 0.75 });
+      // 0.75 sounded noticeably more robotic/stretched than a lighter
+      // slowdown — 0.85 still gives a struggling reader a clear, unhurried
+      // word without pushing the synthesis into its worst-sounding range.
+      say(queue[idx], { rate: 0.85 });
     }
 
     /* ---------------- events ---------------- */
