@@ -173,7 +173,26 @@ window.BlendGame = (function(){
     tent: ["tenth"]    // recogniser adds a trailing "th" sound
   };
 
-  function wordMatchesCore(heard, target, level, atStart, blendLength){
+  // True if `heard` sounds more like some OTHER word in the same list than
+  // it sounds like `target` — i.e. the distance budget below only forgives
+  // an error when the target is still the best explanation for what was
+  // heard. Without this, "honk" (heard) passes for "hunk" (target) at
+  // Normal purely because the vowel swap fits the budget, even though
+  // "honk" is sitting right there in the list as its own word.
+  function closerToAnotherWord(hRest, hBlend, target, distToTarget, wordList, atStart, blendLength){
+    for(var i=0;i<wordList.length;i++){
+      var w = wordList[i];
+      if(w === target) continue;
+      var wBlend = phonemes(blendPart(w, atStart, blendLength));
+      if(wBlend.join(" ") !== hBlend.join(" ")) continue;
+      var wFull = phonemes(w);
+      var wRest = atStart ? wFull.slice(wBlend.length) : wFull.slice(0, wFull.length - wBlend.length);
+      if(phoneticDistance(hRest, wRest) < distToTarget) return true;
+    }
+    return false;
+  }
+
+  function wordMatchesCore(heard, target, level, atStart, blendLength, wordList){
     if(heard === target) return true;
     if(level === 0) return false;                              // Strict: exact only
 
@@ -194,7 +213,11 @@ window.BlendGame = (function(){
     var hRest = atStart ? hFull.slice(hBlend.length) : hFull.slice(0, hFull.length - hBlend.length);
     var tRest = atStart ? tFull.slice(tBlend.length) : tFull.slice(0, tFull.length - tBlend.length);
     var maxDist = level === 1 ? 1 : 2;
-    if(phoneticDistance(hRest, tRest) <= maxDist) return true;
+    var distToTarget = phoneticDistance(hRest, tRest);
+    if(distToTarget <= maxDist){
+      if(wordList && closerToAnotherWord(hRest, hBlend, target, distToTarget, wordList, atStart, blendLength)) return false;
+      return true;
+    }
 
     // Forgiving also takes the word with an ending stuck on it ("cropped"
     // for "crop") — but only for initial blends, since a suffix on a final
@@ -205,10 +228,10 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function isMatchCore(heardText, target, level, atStart, blendLength){
+  function isMatchCore(heardText, target, level, atStart, blendLength, wordList){
     var parts = normalize(heardText).split(" ");
     for(var i=0;i<parts.length;i++){
-      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength)) return true;
+      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList)) return true;
     }
     return false;
   }
@@ -421,11 +444,11 @@ window.BlendGame = (function(){
     }
 
     function wordMatches(heard, target){
-      return wordMatchesCore(heard, target, level, atStart, blendLength);
+      return wordMatchesCore(heard, target, level, atStart, blendLength, WORDS);
     }
 
     function isMatch(heardText, target){
-      return isMatchCore(heardText, target, level, atStart, blendLength);
+      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS);
     }
 
     /* ---------------- mic check + level meter ----------------

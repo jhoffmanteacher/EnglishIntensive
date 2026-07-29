@@ -66,6 +66,12 @@
   function match(heard, target, level, cfg){
     return I.wordMatches(heard, target, level, cfg.atStart, cfg.blendLength);
   }
+  // Same as match(), but also passes the word list so the list-aware
+  // disambiguation guard (closerToAnotherWord) can kick in — this is how
+  // the live game actually calls wordMatches.
+  function matchInList(heard, target, level, cfg, list){
+    return I.wordMatches(heard, target, level, cfg.atStart, cfg.blendLength, list);
+  }
   function ph(word){ return I.phonemes(word).join(" "); }
 
   var ENDWORDS = ["soft","golf","honk","cost","pond","vest","nest","tent","kelp","helm",
@@ -136,6 +142,41 @@
   eq("wisp != lisp, Normal", match("lisp","wisp",1,END), false);
   eq("mink != link, Normal", match("link","mink",1,END), false);
   eq("silk != milk, Normal", match("milk","silk",1,END), false);
+
+  // ---- list-aware guard: even a pure VOWEL confusion between two real
+  // words in the list (which the plain distance budget alone still
+  // allows, since vowel swaps are meant to be cheap) is rejected once the
+  // list itself is passed in, because the other word is a strictly better
+  // explanation for what was heard than the target is. ----
+  eq("soft != sift, Normal, list-aware", matchInList("sift","soft",1,END,ENDWORDS), false);
+  eq("honk != hunk, Normal, list-aware", matchInList("hunk","honk",1,END,ENDWORDS), false);
+  eq("honk != hunk, Forgiving, list-aware", matchInList("hunk","honk",2,END,ENDWORDS), false);
+
+  // ---- the list-aware guard must not break legitimate accommodations ----
+  eq("crab <- krab, Normal, still passes with list", matchInList("krab","crab",1,START,STARTWORDS), true);
+  eq("gasp <- gas, Normal curated, still passes with list", matchInList("gas","gasp",1,END,ENDWORDS), true);
+  eq("crop <- cropped, Forgiving, still passes with list", matchInList("cropped","crop",2,START,STARTWORDS), true);
+
+  // ---- exhaustive: with the list passed in, no word should ever be
+  // confusable with a different word from its own list, at any level.
+  // This is the property the guard exists to guarantee, checked directly
+  // against the shipped word lists so future word-list edits stay honest. ----
+  (function(){
+    var bad = [];
+    [0,1,2].forEach(function(level){
+      ENDWORDS.forEach(function(target){
+        ENDWORDS.forEach(function(heard){
+          if(heard !== target && matchInList(heard, target, level, END, ENDWORDS)) bad.push(target+"<-"+heard+" @"+level);
+        });
+      });
+      STARTWORDS.forEach(function(target){
+        STARTWORDS.forEach(function(heard){
+          if(heard !== target && matchInList(heard, target, level, START, STARTWORDS)) bad.push(target+"<-"+heard+" @"+level);
+        });
+      });
+    });
+    eq("no word is confusable with another word in its own list (list-aware)", bad.length, 0, bad.join(", "));
+  })();
 
   // ---- render ----
   var rows = document.getElementById("rows");
