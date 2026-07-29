@@ -690,7 +690,6 @@ window.BlendGame = (function(){
 
       rec.lang = "en-US";
       rec.interimResults = true;   // catch the guess early, don't wait for final
-      rec.maxAlternatives = 10;
       rec.continuous = true;
 
       listening = true;
@@ -701,14 +700,16 @@ window.BlendGame = (function(){
         var target = queue[idx], lastFinal = null;
         for(var r = ev.resultIndex; r < ev.results.length; r++){
           var res = ev.results[r];
-          for(var i=0;i<res.length;i++){
-            var alt = res[i];
-            if(!isMatch(alt.transcript, target)) continue;
-            // Confidence only ever vetoes a match, and only at Strict —
-            // Chrome frequently reports 0/undefined for interim results,
-            // which means "no signal", not "low confidence", so it never
-            // blocks a match on its own.
-            if(level === 0 && alt.confidence > 0 && alt.confidence < 0.35) continue;
+          // Only the recogniser's own top-ranked guess counts. Chrome's
+          // language model is biased toward common dictionary words, so a
+          // lower-ranked alternative frequently contains the target word
+          // even when it wasn't actually said (e.g. "mill" said, but
+          // "milk" shows up further down the list) — checking every
+          // alternative defeats the pronunciation check entirely. The
+          // phonetic engine already supplies the intended tolerance.
+          var alt = res[0];
+          if(isMatch(alt.transcript, target) &&
+             !(level === 0 && alt.confidence > 0 && alt.confidence < 0.35)){
             handleCorrect();
             return;
           }
