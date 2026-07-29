@@ -324,16 +324,18 @@ window.BlendGame = (function(){
       if(savedShuffle !== null) shuffleOn = savedShuffle === "1";
     }catch(e){}
 
-    var voiceOn = true;
+    // Off by default — correctness is shown visually (checkmark/cross + glow),
+    // voice is an opt-in extra for students who want spoken praise/coaching.
+    var voiceOn = false;
     try{
       var savedVoice = localStorage.getItem("blendVoice");
-      if(savedVoice !== null) voiceOn = savedVoice !== "0";
+      if(savedVoice !== null) voiceOn = savedVoice === "1";
     }catch(e){}
 
     /* mic state: micOn is the session-wide switch (mic stays on once the game
        starts); listening is whether recognition is actually running now. */
     var micOn = false, listening = false, restartOnEnd = false;
-    var rec = null, restartTimer = null, tickTimer = null;
+    var rec = null, restartTimer = null, tickTimer = null, rearmTimer = null;
 
     /* audio-output gate: the mic is held off while the computer makes sound so
        it never hears its own beeps or the "Hear it" voice. */
@@ -347,7 +349,11 @@ window.BlendGame = (function(){
     function beep(freqs, dur){
       // Hold the mic for however long this sound will actually play, plus a
       // little slack for the speakers/room, so we never transcribe ourselves.
-      holdMic(((freqs.length - 1) * dur * 0.7 + dur) * 1000 + 180);
+      // keepAlive=true: a beep is just a tone, never mistaken for a word, so
+      // there's no need to tear down an already-running recognizer for it —
+      // doing that anyway was the main cause of the "say it twice" lag, since
+      // every restart pays the recognition engine's connect delay again.
+      holdMic(((freqs.length - 1) * dur * 0.7 + dur) * 1000 + 180, true);
       try{
         if(!actx){ var C = window.AudioContext || window.webkitAudioContext; if(!C) return; actx = new C(); }
         if(actx.state === "suspended") actx.resume();
@@ -365,7 +371,6 @@ window.BlendGame = (function(){
     }
     var sndGood  = function(){ beep([660,880,1180],0.16); };
     var sndBad   = function(){ beep([300,200],0.20); };
-    var sndStart = function(){ beep([520],0.09); };
     var sndWin   = function(){ beep([660,880,1180,1560],0.18); };
 
     /* ---------------- screens ---------------- */
@@ -522,7 +527,6 @@ window.BlendGame = (function(){
       $("wordCard").className = "wordcard";
       $("uiMic").innerHTML = "Say the word out loud";
       $("btnSkip").textContent = "Skip ▸";
-      sndStart();
     }
     function popup(txt, color){
       var p = $("popup");
@@ -587,7 +591,7 @@ window.BlendGame = (function(){
       score += pts;
       $("wordCard").className = "wordcard correct";
       $("uiMic").innerHTML = "<b>Correct!</b> +" + pts + " points";
-      popup("+" + pts, "#3ddc97");
+      popup("✓ +" + pts, "#3ddc97");
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       sndGood();
@@ -605,6 +609,7 @@ window.BlendGame = (function(){
       $("uiStreak").textContent = 0;
       tries++;
       $("wordCard").className = "wordcard wrong";
+      popup("✗", "#ff6b6b");
       sndBad();
       var target = queue[idx];
       var heardTxt = normalize(heard);
@@ -629,11 +634,19 @@ window.BlendGame = (function(){
 
     function audioBusy(){ return speaking || now() < holdUntil; }
 
-    function holdMic(ms){
+    // keepAlive: leave an already-running recognizer alone (used for the
+    // short UI beeps) instead of aborting it — abort only for real speech
+    // (the TTS coach), which the mic must never be allowed to overhear.
+    // Either way, schedule a re-arm attempt right as the hold ends, instead
+    // of waiting on the polling loop, so listening resumes as fast as
+    // possible.
+    function holdMic(ms, keepAlive){
       var until = now() + ms;
       if(until > holdUntil) holdUntil = until;
-      stopListening();
+      if(!keepAlive) stopListening();
       updateMicUI();
+      if(rearmTimer) clearTimeout(rearmTimer);
+      rearmTimer = setTimeout(function(){ rearmTimer = null; armMic(); }, ms + 20);
     }
 
     function updateMicUI(){
@@ -658,6 +671,7 @@ window.BlendGame = (function(){
     function stopListening(){
       restartOnEnd = false;
       if(restartTimer){ clearTimeout(restartTimer); restartTimer = null; }
+      if(rearmTimer){ clearTimeout(rearmTimer); rearmTimer = null; }
       if(rec){ try{ rec.onresult = rec.onerror = rec.onend = null; rec.abort(); }catch(e){} rec = null; }
       listening = false;
     }
@@ -732,10 +746,13 @@ window.BlendGame = (function(){
 
     function startMicLoop(){
       if(tickTimer) return;
+      // Safety-net poll — the real re-arm trigger is the timer holdMic()
+      // schedules for the exact moment each hold ends. This just catches
+      // anything that falls through (e.g. an error path that didn't).
       tickTimer = setInterval(function(){
         if(micOn && !listening) armMic();
         updateMicUI();
-      }, 400);
+      }, 150);
       armMic();
       updateMicUI();
     }

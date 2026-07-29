@@ -49,6 +49,8 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
 
 .miclabel{font-size:19px;color:var(--muted);min-height:30px;margin-top:18px;line-height:1.5}
 .miclabel b{color:var(--ink)}
+.wordcard.correct .miclabel b{color:var(--good)}
+.wordcard.wrong .miclabel b{color:var(--bad)}
 .heard{
   display:inline-block;margin-top:6px;background:var(--panel2);
   border:1px solid var(--line);border-radius:99px;padding:6px 16px;
