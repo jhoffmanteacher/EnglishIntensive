@@ -52,7 +52,11 @@ computer itself is making sound (the feedback beeps, the "Hear it" voice).
 Silence never counts as a wrong answer.
 
 The Web Speech API has no gain or sensitivity setting, so the **Listening**
-button on the start screen controls how forgiving the *matching* is instead:
+button on the start screen controls how forgiving the *matching* is instead.
+Matching compares **sounds**, not letters — a small rule-based phonetic
+encoder in `blend-game.js` (`phonemes()`) — so "krab" now passes for "crab"
+even though the recogniser rarely spells it that way, while "bled" still
+never passes for "bred":
 
 | Level | Accepts |
 | --- | --- |
@@ -60,9 +64,18 @@ button on the start screen controls how forgiving the *matching* is instead:
 | Normal (default) | the rest of the word off by one sound |
 | Forgiving | the rest of the word off by two |
 
-At every level the two-letter blend must be exactly right — "bred" never
-passes for "bled" — since that is the skill being practised. The setting is
-remembered per device in `localStorage`.
+"Off by one/two sounds" is now literally true: it's phoneme-level edit
+distance, with a swapped vowel sound costing half as much as any other
+change (recognisers mangle vowels far more than consonants). At every level
+the blend must be exactly right in phoneme space — "bred" never passes for
+"bled" — since that is the skill being practised. A small curated table in
+`blend-game.js` (`ACCEPT`) also covers a couple of known recogniser
+mishearings (e.g. "gasp" heard as "gas"); add more there as you notice them
+in class. The Listening setting is remembered per device in `localStorage`,
+same as Shuffle.
+
+Run `tests.html` (served the same way as the games) to check the matcher
+itself — it renders a pass/fail table with a summary line.
 
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting

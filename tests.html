@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Content-Security-Policy — identical to index.html's policy; the
+     comment there explains what each directive is protecting. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  base-uri 'self';
+  object-src 'none';
+  img-src 'self' data: https:;
+  media-src 'self' blob:;
+  worker-src 'self' blob:;
+  font-src 'self' data: https://fonts.gstatic.com https://www.gstatic.com;
+  style-src 'self' 'unsafe-inline' https://www.gstatic.com https://fonts.googleapis.com;
+  script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com;
+  connect-src 'self' https://*.googleapis.com https://*.google.com https://*.gstatic.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com;
+  frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://content.googleapis.com https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://docs.google.com https://drive.google.com https://www.google.com;
+">
+<title>Blend Game — Matching Tests</title>
+<link rel="stylesheet" href="site.css">
+<style>
+  body{padding:32px 20px 60px}
+  .wrap{max-width:820px;margin:0 auto}
+  h1{font-size:28px;margin:0 0 4px}
+  #summary{font-size:19px;font-weight:700;margin:18px 0;padding:14px 18px;border-radius:14px}
+  #summary.pass{background:rgba(61,220,151,.15);color:var(--good)}
+  #summary.fail{background:rgba(255,107,107,.15);color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:700}
+  tr.ok td:first-child{color:var(--good)}
+  tr.bad td:first-child{color:var(--bad);font-weight:700}
+  td.desc{color:var(--ink)}
+  td.detail{color:var(--muted);font-family:monospace;font-size:13px}
+</style>
+</head>
+<body>
+<a class="home" href="index.html">🏠 Home</a>
+<div class="wrap">
+  <h1>Blend Game — matching tests</h1>
+  <p class="sub">Pure-function tests for the phonetic matcher in blend-game.js. No framework, no build step — just runs in the DOM.</p>
+  <div id="summary"></div>
+  <table>
+    <thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script src="blend-game.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var I = window.BlendGame._internals;
+  var results = [];
+
+  function eq(desc, actual, expected, detail){
+    results.push({ pass: actual === expected, desc: desc,
+      detail: detail || (JSON.stringify(actual) + (actual===expected ? "" : " (expected " + JSON.stringify(expected) + ")")) });
+  }
+
+  var END = { atStart:false, blendLength:2 };
+  var START = { atStart:true, blendLength:2 };
+  function match(heard, target, level, cfg){
+    return I.wordMatches(heard, target, level, cfg.atStart, cfg.blendLength);
+  }
+  function ph(word){ return I.phonemes(word).join(" "); }
+
+  var ENDWORDS = ["soft","golf","honk","cost","pond","vest","nest","tent","kelp","helm",
+    "elk","sect","tusk","dusk","lump","hunk","damp","sand","pant","sank",
+    "gasp","raft","wisp","lisp","risk","mink","link","kilt","silk","milk","sift"];
+  var STARTWORDS = ["blip","crop","clam","grab","flub","grin","glad","prop","plop","trip",
+    "plum","trot","sled","bled","slug","fled","scam","glen","skip","spin",
+    "snip","spot","stem","drum","bran","drag","crab","frog"];
+
+  // ---- every word matches itself, every level, both lists ----
+  [0,1,2].forEach(function(level){
+    ENDWORDS.forEach(function(w){
+      eq("self-match \"" + w + "\" (end blend, level " + level + ")", match(w,w,level,END), true);
+    });
+    STARTWORDS.forEach(function(w){
+      eq("self-match \"" + w + "\" (start blend, level " + level + ")", match(w,w,level,START), true);
+    });
+  });
+
+  // ---- phoneme encoder: known-equal pairs ----
+  eq("phonemes: crab == krab", ph("crab"), ph("krab"), ph("crab") + " / " + ph("krab"));
+  eq("phonemes: clam == klam", ph("clam"), ph("klam"), ph("clam") + " / " + ph("klam"));
+  eq("phonemes: plum == plumb", ph("plum"), ph("plumb"), ph("plum") + " / " + ph("plumb"));
+  eq("phonemes: wisp == whisp", ph("wisp"), ph("whisp"), ph("wisp") + " / " + ph("whisp"));
+  eq("phonemes: soft == sofft", ph("soft"), ph("sofft"), ph("soft") + " / " + ph("sofft"));
+  eq("phonemes: nest != nessed", ph("nest") === ph("nessed"), false, ph("nest") + " / " + ph("nessed"));
+  eq("phonemes: sled/slade differ only in the vowel",
+    ph("sled").split(" ")[2] !== ph("slade").split(" ")[2] &&
+    ph("sled").split(" ")[0] === ph("slade").split(" ")[0] &&
+    ph("sled").split(" ")[1] === ph("slade").split(" ")[1] &&
+    ph("sled").split(" ")[3] === ph("slade").split(" ")[3],
+    true, ph("sled") + " / " + ph("slade"));
+
+  // ---- Normal accepts sound-alikes, Strict does not ----
+  eq("crab <- krab, Normal", match("krab","crab",1,START), true);
+  eq("crab <- krab, Strict", match("krab","crab",0,START), false);
+  eq("plum <- plumb, Normal", match("plumb","plum",1,START), true);
+  eq("plum <- plumb, Strict", match("plumb","plum",0,START), false);
+  eq("wisp <- whisp, Normal", match("whisp","wisp",1,END), true);
+  eq("wisp <- whisp, Strict", match("whisp","wisp",0,END), false);
+
+  // ---- the blend guard: never forgiven, at any level ----
+  eq("bled <- bred, never (blend guard)", match("bred","bled",2,START), false);
+  eq("sled <- fled, never (blend guard)", match("fled","sled",2,START), false);
+  eq("grab <- crab, never (blend guard)", match("crab","grab",2,START), false);
+
+  // ---- digit normalization ----
+  eq('normalize("10") -> "ten"', I.normalize("10"), "ten");
+  eq('normalize("2") -> "two"', I.normalize("2"), "two");
+  eq('normalize("I heard 10.") -> "i heard ten"', I.normalize("I heard 10."), "i heard ten");
+  eq("tent <- tenth (curated mishearing)", match("tenth","tent",1,END), true);
+
+  // ---- Forgiving-only prefix rule, initial blends only ----
+  eq("crop <- cropped, Forgiving", match("cropped","crop",2,START), true);
+  eq("crop <- cropped, Normal (too far)", match("cropped","crop",1,START), false);
+  eq("lisp <- lisped, never (final blend + suffix)", match("lisped","lisp",2,END), false);
+
+  // ---- curated table only fires at Normal/Forgiving ----
+  eq("gasp <- gas, Normal (curated)", match("gas","gasp",1,END), true);
+  eq("gasp <- gas, Strict, never", match("gas","gasp",0,END), false);
+
+  // ---- render ----
+  var rows = document.getElementById("rows");
+  var pass = 0;
+  function td(text){ var d = document.createElement("td"); d.textContent = text; return d; }
+  results.forEach(function(r){
+    if(r.pass) pass++;
+    var tr = document.createElement("tr");
+    tr.className = r.pass ? "ok" : "bad";
+    tr.appendChild(td(r.pass ? "PASS" : "FAIL"));
+    tr.appendChild(td(r.desc));
+    tr.appendChild(td(r.detail || ""));
+    rows.appendChild(tr);
+  });
+  var summary = document.getElementById("summary");
+  summary.className = pass === results.length ? "pass" : "fail";
+  summary.textContent = pass + "/" + results.length + " passing";
+})();
+</script>
+</body>
+</html>

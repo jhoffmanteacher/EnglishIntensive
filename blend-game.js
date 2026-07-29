@@ -26,6 +26,189 @@ window.BlendGame = (function(){
       '<path d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 1 0 2 0v-3.08A7 7 0 0 0 19 11z"/>' +
     '</svg>';
 
+  /* ---------------- phonetic matching (pure, testable) ----------------
+     Everything below compares SOUNDS, not letters, so "krab" can match
+     "crab" (same sounds, different spelling) while "bled" still never
+     matches "bred" (different sounds, similar spelling). None of this is
+     full text-to-speech phoneme conversion (G2P) — it's a small rule-based
+     encoder good enough for the 1–2 syllable classroom words used here.
+
+     phonemes(word) walks the string left to right, matching the longest
+     applicable rule at each position first: digraphs/trigraphs (ch, th,
+     igh, dge…), then vowel teams (ai, ee, oo…) and r-controlled vowels
+     (ar, er…), then magic-e (silent final e that lengthens the vowel
+     before it), then plain letters. Examples:
+       phonemes("crab")  -> ["K","R","AE","B"]
+       phonemes("krab")  -> ["K","R","AE","B"]   (same — passes)
+       phonemes("plum")  -> ["P","L","UH","M"]
+       phonemes("plumb") -> ["P","L","UH","M"]   (silent b after m — same)
+       phonemes("sled")  -> ["S","L","EH","D"]
+       phonemes("slade") -> ["S","L","EY","D"]   (differ only in the vowel) */
+
+  var SHORT_VOWEL = { a:"AE", e:"EH", i:"IH", o:"AO", u:"UH" };
+  var LONG_VOWEL  = { a:"EY", e:"IY", i:"AY", o:"OW", u:"UW" };
+  var VOWEL_PHONES = { AE:1,EH:1,IH:1,AO:1,UH:1,EY:1,IY:1,AY:1,OW:1,UW:1,AW:1,OY:1,AR:1,OR:1,ER:1 };
+
+  function isVowelPhone(p){ return !!VOWEL_PHONES[p]; }
+  function isVowelLetter(ch){ return ch==="a"||ch==="e"||ch==="i"||ch==="o"||ch==="u"; }
+  function isConsonantLetter(ch){ return /[a-z]/.test(ch) && !isVowelLetter(ch); }
+
+  // c/g are "soft" before e, i or y (cent, gem); x and everything else is
+  // a fixed letter-to-sound mapping.
+  function consonantToken(ch, next){
+    if(ch === "c") return (next==="e"||next==="i"||next==="y") ? "S" : "K";
+    if(ch === "g") return (next==="e"||next==="i"||next==="y") ? "J" : "G";
+    if(ch === "x") return "KS";
+    return ch.toUpperCase();
+  }
+
+  function phonemes(word){
+    word = String(word||"").toLowerCase().replace(/[^a-z]/g,"");
+    var out = [], i = 0, n = word.length;
+    function at(s){ return word.substr(i, s.length) === s; }
+    while(i < n){
+      var c = word.charAt(i);
+
+      // Trigraphs/tetragraphs first, longest match wins.
+      if(at("eigh")){ out.push("EY"); i+=4; continue; }
+      if(at("igh")){ out.push("AY"); i+=3; continue; }
+      if(at("tch")){ out.push("C"); i+=3; continue; }
+      if(at("dge")){ out.push("J"); i+=3; continue; }
+      if(at("mb") && i+2===n){ out.push("M"); i+=2; continue; }   // silent b, end only
+
+      // Digraphs.
+      if(at("ch")){ out.push("C"); i+=2; continue; }
+      if(at("sh")){ out.push("S"); i+=2; continue; }
+      if(at("th")){ out.push("TH"); i+=2; continue; }
+      if(at("ph")){ out.push("F"); i+=2; continue; }
+      if(at("wh")){ out.push("W"); i+=2; continue; }
+      if(at("ck")){ out.push("K"); i+=2; continue; }
+      if(at("ng")){ out.push("NG"); i+=2; continue; }
+      if(at("qu")){ out.push("KW"); i+=2; continue; }
+      if(i===0 && at("wr")){ out.push("R"); i+=2; continue; }
+      if(i===0 && at("kn")){ out.push("N"); i+=2; continue; }
+      if(i===0 && at("gn")){ out.push("N"); i+=2; continue; }
+
+      // Vowel teams and r-controlled vowels.
+      if(at("ai")||at("ay")){ out.push("EY"); i+=2; continue; }
+      if(at("ee")||at("ea")){ out.push("IY"); i+=2; continue; }
+      if(at("oa")||at("ow")){ out.push("OW"); i+=2; continue; }
+      if(at("oo")){ out.push("UW"); i+=2; continue; }
+      if(at("ou")){ out.push("AW"); i+=2; continue; }
+      if(at("oi")||at("oy")){ out.push("OY"); i+=2; continue; }
+      if(at("ar")){ out.push("AR"); i+=2; continue; }
+      if(at("or")){ out.push("OR"); i+=2; continue; }
+      if(at("er")||at("ir")||at("ur")){ out.push("ER"); i+=2; continue; }
+
+      // Magic e: vowel + single consonant + silent final e lengthens the vowel.
+      if(isVowelLetter(c) && (i+2)===(n-1) && word.charAt(i+2)==="e" && isConsonantLetter(word.charAt(i+1))){
+        out.push(LONG_VOWEL[c]); i+=1; continue;
+      }
+      // A word-final e that wasn't just consumed above is silent.
+      if(c==="e" && i===n-1 && n>1){ i+=1; continue; }
+
+      // Doubled consonants collapse to one sound ("ll" -> L, "ss" -> S…).
+      if(isConsonantLetter(c) && word.charAt(i+1)===c){
+        out.push(consonantToken(c, word.charAt(i+2))); i+=2; continue;
+      }
+
+      if(c==="y"){
+        out.push(i===0 ? "Y" : (i===n-1 ? "IY" : "IH"));
+        i+=1; continue;
+      }
+      if(isVowelLetter(c)){ out.push(SHORT_VOWEL[c]); i+=1; continue; }
+      out.push(consonantToken(c, word.charAt(i+1)));
+      i+=1;
+    }
+    return out;
+  }
+
+  // Phoneme-level edit distance. Recognisers mangle vowels far more than
+  // consonants, so swapping one vowel sound for another costs half as much
+  // as any other kind of change.
+  function phoneticDistance(a, b){
+    var m=a.length, n=b.length, i, j, prev=[], cur=[];
+    for(j=0;j<=n;j++) prev[j]=j;
+    for(i=1;i<=m;i++){
+      cur[0]=i;
+      for(j=1;j<=n;j++){
+        var subCost = a[i-1]===b[j-1] ? 0 : (isVowelPhone(a[i-1]) && isVowelPhone(b[j-1]) ? 0.5 : 1);
+        cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+subCost);
+      }
+      for(j=0;j<=n;j++) prev[j]=cur[j];
+    }
+    return prev[n];
+  }
+
+  var NUM_WORDS = ["zero","one","two","three","four","five","six","seven","eight","nine","ten",
+                    "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
+                    "eighteen","nineteen","twenty"];
+
+  function normalize(s){
+    s = String(s||"");
+    // The recogniser sometimes returns a number instead of a short word
+    // ("tent" -> "10"); spell 0-20 back out before stripping non-letters,
+    // since that stripping would otherwise just delete the digits.
+    s = s.replace(/\b\d{1,2}\b/g, function(d){
+      var v = parseInt(d,10);
+      return NUM_WORDS[v] !== undefined ? NUM_WORDS[v] : d;
+    });
+    return s.toLowerCase().replace(/[^a-z' ]/g," ").replace(/\s+/g," ").trim();
+  }
+
+  function blendPart(word, atStart, blendLength){
+    return atStart ? word.slice(0, blendLength) : word.slice(-blendLength);
+  }
+
+  // Known-good transcripts the recogniser returns for specific target words,
+  // seeded from mishearings actually observed in class — not a guess at
+  // every possible mishearing. Accepted at Normal/Forgiving, never Strict.
+  // Add more here as they turn up; keep it short and commented.
+  var ACCEPT = {
+    gasp: ["gas"],     // final consonant dropped
+    tent: ["tenth"]    // recogniser adds a trailing "th" sound
+  };
+
+  function wordMatchesCore(heard, target, level, atStart, blendLength){
+    if(heard === target) return true;
+    if(level === 0) return false;                              // Strict: exact only
+
+    if(ACCEPT[target] && ACCEPT[target].indexOf(heard) !== -1) return true;
+
+    // The blend must match exactly in phoneme space — stricter and fairer
+    // than a letter check: "krab" now passes for "crab" (K-R = K-R), but
+    // "bled" still never passes for "bred" (B-L vs B-R).
+    var hBlend = phonemes(blendPart(heard, atStart, blendLength));
+    var tBlend = phonemes(blendPart(target, atStart, blendLength));
+    if(hBlend.join(" ") !== tBlend.join(" ")) return false;
+
+    // Slice the *whole word's* phonemes rather than re-encoding the
+    // leftover letters on their own — otherwise a remainder that happens to
+    // end in "e" (e.g. "vest" minus the "st" blend leaves "ve") gets misread
+    // as a silent word-final e that was never actually there.
+    var hFull = phonemes(heard), tFull = phonemes(target);
+    var hRest = atStart ? hFull.slice(hBlend.length) : hFull.slice(0, hFull.length - hBlend.length);
+    var tRest = atStart ? tFull.slice(tBlend.length) : tFull.slice(0, tFull.length - tBlend.length);
+    var maxDist = level === 1 ? 1 : 2;
+    if(phoneticDistance(hRest, tRest) <= maxDist) return true;
+
+    // Forgiving also takes the word with an ending stuck on it ("cropped"
+    // for "crop") — but only for initial blends, since a suffix on a final
+    // blend destroys the blend itself ("lisped" never passes for "lisp").
+    if(atStart && level === 2 && hFull.length >= tFull.length &&
+       hFull.slice(0, tFull.length).join(" ") === tFull.join(" ")) return true;
+
+    return false;
+  }
+
+  function isMatchCore(heardText, target, level, atStart, blendLength){
+    var parts = normalize(heardText).split(" ");
+    for(var i=0;i<parts.length;i++){
+      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength)) return true;
+    }
+    return false;
+  }
+
   // One template literal rather than a hundred lines of string concatenation —
   // this is markup, and it should still read like markup.
   function shell(cfg){
@@ -200,9 +383,6 @@ window.BlendGame = (function(){
       for(var i=b.length-1;i>0;i--){ var j = Math.floor(Math.random()*(i+1)); var t=b[i]; b[i]=b[j]; b[j]=t; }
       return b;
     }
-    function normalize(s){
-      return String(s||"").toLowerCase().replace(/[^a-z' ]/g," ").replace(/\s+/g," ").trim();
-    }
 
     /* ---------------- how forgiving the listening is ----------------
        There is no microphone-gain setting in the Web Speech API, so being
@@ -224,37 +404,12 @@ window.BlendGame = (function(){
         : word.slice(0, word.length-blendLength) + '<span class="blend">' + word.slice(-blendLength) + '</span>';
     }
 
-    function editDistance(a,b){
-      var m=a.length, n=b.length, prev=[], cur=[], i, j;
-      for(j=0;j<=n;j++) prev[j]=j;
-      for(i=1;i<=m;i++){
-        cur[0]=i;
-        for(j=1;j<=n;j++){
-          cur[j] = Math.min(prev[j]+1, cur[j-1]+1,
-                            prev[j-1] + (a.charAt(i-1)===b.charAt(j-1) ? 0 : 1));
-        }
-        for(j=0;j<=n;j++) prev[j]=cur[j];
-      }
-      return prev[n];
-    }
-
     function wordMatches(heard, target){
-      if(heard === target) return true;
-      if(level === 0) return false;                          // Strict: exact only
-      if(blendOf(heard) !== blendOf(target)) return false;   // blend must be right
-      if(editDistance(heard, target) <= (level === 1 ? 1 : 2)) return true;
-      // Forgiving also takes the word with an ending stuck on it ("cropped") —
-      // but only for initial blends, since a suffix destroys a final one.
-      if(atStart && level === 2 && heard.indexOf(target) === 0) return true;
-      return false;
+      return wordMatchesCore(heard, target, level, atStart, blendLength);
     }
 
-    function isMatch(heard, target){
-      var parts = normalize(heard).split(" ");
-      for(var i=0;i<parts.length;i++){
-        if(parts[i] && wordMatches(parts[i], target)) return true;
-      }
-      return false;
+    function isMatch(heardText, target){
+      return isMatchCore(heardText, target, level, atStart, blendLength);
     }
 
     /* ---------------- mic check + level meter ----------------
@@ -514,7 +669,15 @@ window.BlendGame = (function(){
         for(var r = ev.resultIndex; r < ev.results.length; r++){
           var res = ev.results[r];
           for(var i=0;i<res.length;i++){
-            if(isMatch(res[i].transcript, target)){ handleCorrect(); return; }
+            var alt = res[i];
+            if(!isMatch(alt.transcript, target)) continue;
+            // Confidence only ever vetoes a match, and only at Strict —
+            // Chrome frequently reports 0/undefined for interim results,
+            // which means "no signal", not "low confidence", so it never
+            // blocks a match on its own.
+            if(level === 0 && alt.confidence > 0 && alt.confidence < 0.35) continue;
+            handleCorrect();
+            return;
           }
           if(res.isFinal) lastFinal = res[0].transcript;
         }
@@ -652,5 +815,17 @@ window.BlendGame = (function(){
     });
   }
 
-  return { start: start };
+  // _internals exposes the pure, state-free matching helpers for tests.html.
+  // Not part of the public game API — don't build games against it.
+  return {
+    start: start,
+    _internals: {
+      normalize: normalize,
+      phonemes: phonemes,
+      isVowelPhone: isVowelPhone,
+      phoneticDistance: phoneticDistance,
+      wordMatches: wordMatchesCore,
+      isMatch: isMatchCore
+    }
+  };
 })();
