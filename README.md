@@ -80,3 +80,14 @@ itself — it renders a pass/fail table with a summary line.
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.
+
+### Voice feedback
+
+The **Voice** button (default On, remembered per device like the other
+settings) turns on a short spoken coach: quick praise on a correct answer
+("Nice!", "Got it!"…, with a bigger call-out every 5-streak), and the word
+spoken aloud after the second miss. Press **H** any time during play to hear
+the current word read at a slower pace — same as clicking "Hear it". All
+speech picks the best available `en-US` voice (`pickVoice()` in
+`blend-game.js`), preferring Chrome/ChromeOS's natural voice over the flat
+default, and re-picks once Chrome finishes loading its voice list.

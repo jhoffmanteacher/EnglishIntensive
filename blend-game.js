@@ -228,6 +228,7 @@ window.BlendGame = (function(){
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
         <button class="btn ghost" id="btnLevel">Listening: <span id="lvlLbl">Normal</span></button>
+        <button class="btn ghost" id="btnVoice">Voice: <span id="voiceLbl">On</span></button>
       </div>
       <p class="sub" id="lvlNote" style="margin:14px 0 0;font-size:15px"></p>
     </div>
@@ -321,6 +322,12 @@ window.BlendGame = (function(){
     try{
       var savedShuffle = localStorage.getItem("blendShuffle");
       if(savedShuffle !== null) shuffleOn = savedShuffle === "1";
+    }catch(e){}
+
+    var voiceOn = true;
+    try{
+      var savedVoice = localStorage.getItem("blendVoice");
+      if(savedVoice !== null) voiceOn = savedVoice !== "0";
     }catch(e){}
 
     /* mic state: micOn is the session-wide switch (mic stays on once the game
@@ -575,7 +582,8 @@ window.BlendGame = (function(){
       streak++;
       if(streak > best) best = streak;
       var pts = 10 + (streak >= 5 ? 10 : 0);
-      if(streak > 0 && streak % 5 === 0) pts += 25;
+      var milestone = streak > 0 && streak % 5 === 0;
+      if(milestone) pts += 25;
       score += pts;
       $("wordCard").className = "wordcard correct";
       $("uiMic").innerHTML = "<b>Correct!</b> +" + pts + " points";
@@ -583,7 +591,12 @@ window.BlendGame = (function(){
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       sndGood();
-      setTimeout(function(){ busy = false; next(); }, 1150);
+      if(voiceOn){
+        var phrase = milestone ? (numberWord(streak) + " in a row!") : praisePhrase(queue[idx]);
+        say(phrase, { rate: 1.0, pitch: 1.05 });
+      }
+      // Give the praise room to finish before the next word's beep cuts it off.
+      setTimeout(function(){ busy = false; next(); }, voiceOn ? 1600 : 1150);
     }
 
     function handleWrong(heard){
@@ -601,7 +614,9 @@ window.BlendGame = (function(){
       $("uiMic").innerHTML = msg + (heardTxt ? '<br><span class="heard">I heard: ' + heardTxt + "</span>" : '<br><span class="heard">I didn\'t catch that</span>');
       if(tries >= 2){
         if(missed.indexOf(target) === -1) missed.push(target);
-        setTimeout(function(){ busy = false; next(); }, 1900);
+        // Never on the first miss — that stays fast so the retry isn't slowed down.
+        if(voiceOn) say("The word was, " + target + ".", { rate: 0.85 });
+        setTimeout(function(){ busy = false; next(); }, voiceOn ? 2600 : 1900);
       } else {
         setTimeout(function(){ busy = false; $("wordCard").className = "wordcard"; }, 900);
       }
@@ -728,26 +743,78 @@ window.BlendGame = (function(){
       if(tickTimer){ clearInterval(tickTimer); tickTimer = null; }
     }
 
-    /* ---------------- speak the word ---------------- */
-    function hearIt(){
+    /* ---------------- speak: voice pick + the word + the coach ----------------
+       Chrome loads its voice list asynchronously, so the first pick often
+       runs before the good voices exist — pickVoice() re-runs on
+       voiceschanged to fix that. Ranked so a natural Chrome/ChromeOS voice
+       always wins over the flat default. */
+    var voice = null;
+
+    function pickVoice(){
       if(!window.speechSynthesis) return;
+      var all = window.speechSynthesis.getVoices() || [];
+      var en = all.filter(function(v){ return /^en/i.test(v.lang); });
+      if(!en.length) return;   // list not loaded yet; voiceschanged will retry
+      function find(test){
+        for(var i=0;i<en.length;i++){ if(test(en[i])) return en[i]; }
+        return null;
+      }
+      voice =
+        find(function(v){ return v.lang === "en-US" && /Google/.test(v.name); }) ||
+        find(function(v){ return /Natural|Online/.test(v.name); }) ||
+        find(function(v){ return v.lang === "en-US" && v.localService; }) ||
+        find(function(v){ return v.lang === "en-US"; }) ||
+        en[0];
+    }
+    pickVoice();
+    if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged = pickVoice;
+
+    // Rotate through short praise phrases; substitute the actual word into
+    // one of them so it doesn't always feel canned.
+    function praisePhrase(word){
+      var options = ["Nice!", "Got it!", "You said it!", "Great reading!", "Yes — " + word + "!", "Perfect!"];
+      return options[Math.floor(Math.random() * options.length)];
+    }
+    function numberWord(n){
+      var w = NUM_WORDS[n];
+      return w ? (w.charAt(0).toUpperCase() + w.slice(1)) : String(n);
+    }
+
+    // currentUtterance guards against a stale utterance's onend firing after
+    // a newer say() has already cancelled and replaced it — that would
+    // release the mic hold early while the new utterance is still talking.
+    var currentUtterance = null;
+
+    function say(text, opts){
+      if(!window.speechSynthesis) return;
+      opts = opts || {};
       try{
         window.speechSynthesis.cancel();
-        var u = new SpeechSynthesisUtterance(queue[idx]);
-        u.lang = "en-US"; u.rate = 0.75;
+        var u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-US";
+        u.rate = opts.rate || 1;
+        if(opts.pitch) u.pitch = opts.pitch;
+        if(voice) u.voice = voice;
+        currentUtterance = u;
         speaking = true;
         stopListening();
         updateMicUI();
         var release = function(){
+          if(currentUtterance !== u) return;   // superseded by a newer say()
+          currentUtterance = null;
           speaking = false;
           holdMic(350);   // let the speakers settle before listening again
         };
         u.onend = release;
         u.onerror = release;
         // Safety net in case onend never fires (Chrome does this sometimes).
-        setTimeout(function(){ if(speaking) release(); }, 4000);
+        setTimeout(function(){ if(currentUtterance === u) release(); }, 1200 + 90 * text.length);
         window.speechSynthesis.speak(u);
       }catch(e){ speaking = false; }
+    }
+
+    function hearIt(){
+      say(queue[idx], { rate: 0.75 });
     }
 
     /* ---------------- events ---------------- */
@@ -774,6 +841,16 @@ window.BlendGame = (function(){
       renderLevel();
     });
     renderLevel();
+
+    function renderVoice(){
+      $("voiceLbl").textContent = voiceOn ? "On" : "Off";
+    }
+    $("btnVoice").addEventListener("click", function(){
+      voiceOn = !voiceOn;
+      try{ localStorage.setItem("blendVoice", voiceOn ? "1" : "0"); }catch(e){}
+      renderVoice();
+    });
+    renderVoice();
 
     // The mic button is a mute switch, not push-to-talk.
     $("btnMic").addEventListener("click", function(){
