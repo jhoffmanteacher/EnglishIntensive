@@ -47,9 +47,10 @@ Current games:
 ### How the listening works
 
 The mic is not push-to-talk. Each game opens on a mic-check screen with a live
-level meter, then the mic stays on for the whole game, pausing only while the
-computer itself is making sound (the feedback beeps, the "Hear it" voice).
-Silence never counts as a wrong answer.
+level meter, then the mic stays on for the whole game, only pausing while the
+computer is actually speaking words out loud (the coach's praise, "The word
+was...", or "Hear it") — never for the short feedback beeps, so it doesn't
+have to reconnect between words. Silence never counts as a wrong answer.
 
 The Web Speech API has no gain or sensitivity setting, so the **Listening**
 button on the start screen controls how forgiving the *matching* is instead.
@@ -81,13 +82,18 @@ If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.
 
-### Voice feedback
+### Correct/wrong feedback
 
-The **Voice** button (default On, remembered per device like the other
-settings) turns on a short spoken coach: quick praise on a correct answer
-("Nice!", "Got it!"…, with a bigger call-out every 5-streak), and the word
-spoken aloud after the second miss. Press **H** any time during play to hear
-the current word read at a slower pace — same as clicking "Hear it". All
-speech picks the best available `en-US` voice (`pickVoice()` in
-`blend-game.js`), preferring Chrome/ChromeOS's natural voice over the flat
-default, and re-picks once Chrome finishes loading its voice list.
+Right and wrong answers are shown visually — a green "✓ +10" or red "✗"
+pop-up over the word, plus a matching glow on the card and colored status
+text — so nothing depends on the student hearing anything.
+
+The **Voice** button (default **Off**, remembered per device like the other
+settings) turns on a short spoken coach on top of that: quick praise on a
+correct answer ("Nice!", "Got it!"…, with a bigger call-out every 5-streak),
+and the word spoken aloud after the second miss. Press **H** any time during
+play to hear the current word read at a slower pace — same as clicking "Hear
+it" — regardless of the Voice setting. All speech picks the best available
+`en-US` voice (`pickVoice()` in `blend-game.js`), preferring Chrome/ChromeOS's
+natural voice over the flat default, and re-picks once Chrome finishes
+loading its voice list.

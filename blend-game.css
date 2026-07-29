@@ -97,8 +97,11 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:3p
 .meterMsg{font-size:19px;min-height:30px;margin:14px 0 0;line-height:1.5;color:var(--muted)}
 .meterMsg b{color:var(--ink)}
 
+/* Anchored just under the card's top padding/hint line — a fixed offset,
+   not a percentage, so it never drifts down into the word itself, which
+   is the one thing on this card that must stay unobscured. */
 .popup{
-  position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);
+  position:absolute;left:50%;top:80px;transform:translate(-50%,-50%);
   font-size:52px;font-weight:800;pointer-events:none;opacity:0;
 }
 .popup.go{animation:pop 1s ease forwards}
