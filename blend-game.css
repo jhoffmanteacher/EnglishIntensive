@@ -25,8 +25,37 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
 .stat .val{font-size:30px;font-weight:800;line-height:1.15}
 .val.flame{color:var(--accent)}
 
-.bar{height:10px;background:var(--panel);border:1px solid var(--line);border-radius:99px;overflow:hidden;margin-bottom:18px}
-.bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--good));transition:width .35s ease}
+/* ---- progress track (race / maze themes) ---- */
+.track{position:relative;height:54px;margin-bottom:18px}
+
+.track-race .track-road{
+  position:absolute;left:0;right:0;top:50%;height:8px;transform:translateY(-50%);
+  background:var(--panel);border:1px solid var(--line);border-radius:99px;overflow:hidden;
+}
+.track-race .track-road::after{
+  content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(90deg,var(--muted) 0 10px,transparent 10px 20px);
+  opacity:.45;
+}
+.track-race .track-goal{position:absolute;right:2px;top:50%;transform:translateY(-50%);font-size:26px}
+.track-race .track-runner{
+  position:absolute;left:0;top:50%;transform:translate(-50%,-50%);
+  font-size:30px;transition:left .4s ease;
+}
+.track-race .track-runner.boost{animation:carboost .55s ease}
+@keyframes carboost{
+  0%{transform:translate(-50%,-50%) scale(1)}
+  50%{transform:translate(-50%,-68%) scale(1.3) rotate(-8deg)}
+  100%{transform:translate(-50%,-50%) scale(1)}
+}
+
+.maze-svg{width:100%;height:70px;display:block}
+.maze-wall{fill:none;stroke:var(--panel2);stroke-width:24;stroke-linecap:round;stroke-linejoin:round}
+.maze-path{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:6 8;stroke-linecap:round;stroke-linejoin:round}
+.maze-goal{font-size:22px;text-anchor:middle;dominant-baseline:central}
+.maze-runner{font-size:22px;text-anchor:middle;dominant-baseline:central;transition:x .4s ease,y .4s ease}
+.maze-runner.boost{animation:mazeboost .55s ease}
+@keyframes mazeboost{0%{font-size:22px}50%{font-size:32px}100%{font-size:22px}}
 
 /* ---- word card ---- */
 .wordcard{

@@ -30,10 +30,18 @@ out loud" phonics games. A game page is just a word list:
 BlendGame.start({
   title: "Starting Blends 🎤",
   blend: "start",              // "start" or "end" — which end the blend is on
+  theme: "maze",                // "race" (default) or "maze" — the progress graphic
   words: ["blip","crop","clam"]
 });
 </script>
 ```
+
+The plain progress bar is themed per game instead: `theme: "race"` slides a car
+along a track toward a checkered flag, `theme: "maze"` walks an explorer along
+a winding path toward a trophy. Both use the same word-index percentage as the
+old bar, so they work for any word-list length. `blend-words-game.html` uses
+the race theme, `initial-blends-game.html` uses the maze theme — pick either
+for a new game.
 
 The engine renders every screen, so adding a game means copying one of the
 existing pages and swapping the word list. Chrome only — it uses the Web

@@ -228,6 +228,32 @@ window.BlendGame = (function(){
     return false;
   }
 
+  // The progress bar is themed per game (race track or maze) instead of a
+  // plain fill bar — same idx/queue.length percentage drives both, just
+  // rendered differently. Race is a straight left:pct% move; maze walks an
+  // SVG path with getPointAtLength so any word-list length still reaches
+  // the same start/end points.
+  function progressMarkup(theme){
+    if(theme === "maze"){
+      var d = "M20,85 L150,85 L150,15 L300,15 L300,85 L450,85 L450,15 L580,15";
+      return `
+    <div class="track track-maze">
+      <svg viewBox="0 0 600 100" preserveAspectRatio="xMidYMid meet" class="maze-svg" aria-hidden="true">
+        <path class="maze-wall" d="${d}"></path>
+        <path id="mazePath" class="maze-path" d="${d}"></path>
+        <text class="maze-goal" x="580" y="15">🏆</text>
+        <text id="mazeRunner" class="maze-runner" x="20" y="85">🧭</text>
+      </svg>
+    </div>`;
+    }
+    return `
+    <div class="track track-race">
+      <div class="track-road"></div>
+      <div class="track-goal">🏁</div>
+      <div class="track-runner" id="uiRunner">🚗</div>
+    </div>`;
+  }
+
   // One template literal rather than a hundred lines of string concatenation —
   // this is markup, and it should still read like markup.
   function shell(cfg){
@@ -274,7 +300,7 @@ window.BlendGame = (function(){
       <div class="stat"><div class="lbl">Streak</div><div class="val flame" id="uiStreak">0</div></div>
       <div class="stat"><div class="lbl">Word</div><div class="val" id="uiCount">1/${cfg.words.length}</div></div>
     </div>
-    <div class="bar"><i id="uiBar"></i></div>
+    ${progressMarkup(cfg.theme)}
 
     <div class="wordcard" id="wordCard">
       <div class="popup" id="popup"></div>
@@ -324,18 +350,21 @@ window.BlendGame = (function(){
     // kept configurable so a future str/spl/scr game can pass 3 without
     // touching this file.
     var blendLength = cfg.blendLength || 2;
+    var theme = cfg.theme === "maze" ? "maze" : "race";
 
     var mount = document.getElementById(cfg.mount || "app");
     mount.className = "wrap";
     mount.innerHTML = shell({
       title: cfg.title,
       intro: cfg.intro || "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!",
-      words: WORDS
+      words: WORDS,
+      theme: theme
     });
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], tries = 0, busy = false;
+    var mazeLen = null;   // cached path length for the maze theme's runner
 
     var shuffleOn = true;
     try{
@@ -536,13 +565,38 @@ window.BlendGame = (function(){
     }
 
     /* ---------------- render ---------------- */
+    // Same idx/queue.length percentage as the old plain bar — just handed to
+    // whichever theme is running instead of a fill width.
+    function updateProgress(pct){
+      if(theme === "maze"){
+        var path = $("mazePath"), runner = $("mazeRunner");
+        if(!path || !runner) return;
+        if(mazeLen === null) mazeLen = path.getTotalLength();
+        var pt = path.getPointAtLength(pct/100 * mazeLen);
+        runner.setAttribute("x", pt.x);
+        runner.setAttribute("y", pt.y);
+      } else {
+        var r = $("uiRunner");
+        if(r) r.style.left = Math.min(pct, 94) + "%";
+      }
+    }
+    // A little flourish on every 5-streak milestone — same "boost" class name
+    // works for both themes since each one's CSS defines its own keyframes.
+    function celebrateProgress(){
+      var el = theme === "maze" ? $("mazeRunner") : $("uiRunner");
+      if(!el) return;
+      el.classList.remove("boost");
+      void el.getBoundingClientRect();   // restart the animation
+      el.classList.add("boost");
+      setTimeout(function(){ el.classList.remove("boost"); }, 550);
+    }
     function render(){
       var w = queue[idx];
       $("uiWord").innerHTML = markup(w);
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
-      $("uiBar").style.width = ((idx)/queue.length*100) + "%";
+      updateProgress((idx)/queue.length*100);
       $("wordCard").className = "wordcard";
       $("uiMic").innerHTML = "Say the word out loud";
       $("btnSkip").textContent = "Skip ▸";
@@ -608,6 +662,7 @@ window.BlendGame = (function(){
       var milestone = streak > 0 && streak % 5 === 0;
       if(milestone) pts += 25;
       score += pts;
+      if(milestone) celebrateProgress();
       $("wordCard").className = "wordcard correct";
       $("uiMic").innerHTML = "<b>Correct!</b> +" + pts + " points";
       popup("✓ +" + pts, "#3ddc97");
