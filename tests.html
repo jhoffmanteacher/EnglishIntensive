@@ -175,6 +175,18 @@
     eq("no word is confusable with another word in its own list (list-aware)", bad.length, 0, bad.join(", "));
   })();
 
+  // ---- combo scoring: 10 × (×1/×2/×3 tier) + 25 on every 5th ----
+  eq("pointsFor(1) = 10 (base)", I.pointsFor(1), 10);
+  eq("pointsFor(4) = 10 (still ×1)", I.pointsFor(4), 10);
+  eq("pointsFor(5) = 45 (×2 kicks in + milestone)", I.pointsFor(5), 45);
+  eq("pointsFor(6) = 20 (×2, no milestone)", I.pointsFor(6), 20);
+  eq("pointsFor(9) = 20 (×2)", I.pointsFor(9), 20);
+  eq("pointsFor(10) = 55 (×3 + milestone)", I.pointsFor(10), 55);
+  eq("pointsFor(11) = 30 (×3)", I.pointsFor(11), 30);
+  eq("pointsFor(15) = 55 (×3 capped + milestone)", I.pointsFor(15), 55);
+  eq("pointsFor(20) = 55 (cap holds forever)", I.pointsFor(20), 55);
+  eq("comboMultiplier caps at 3", I.comboMultiplier(100), 3);
+
   // ---- render ----
   var rows = document.getElementById("rows");
   var pass = 0;

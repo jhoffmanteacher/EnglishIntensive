@@ -89,6 +89,18 @@ If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.
 
+### Scoring
+
+Each correct word is worth 10 points times a **combo multiplier** driven by
+the streak: ×1 to start, ×2 from a streak of 5, ×3 from 10 up (capped
+there). Every 5th in a row is a milestone — +25 bonus, a "🔥 N in a row!"
+banner, confetti over the word, a fanfare, and the runner's boost animation.
+A wrong answer or a Skip resets the streak and the multiplier; a "×2 combo!"
+badge under the Streak stat shows the current tier. The end screen adds a
+**0–3 star rating** (3 at 90 %+, 2 at 70 %+, 1 at 50 %+) and calls out a
+"Perfect round!" when every word was said right. The scoring math is a pure
+function (`pointsFor()` in `blend-game.js`) covered by `tests.html`.
+
 ### Correct/wrong feedback
 
 Right and wrong answers are shown visually — a green "✓ +10" or red "✗"

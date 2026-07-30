@@ -24,6 +24,10 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
 .stat .lbl{font-size:12px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase}
 .stat .val{font-size:30px;font-weight:800;line-height:1.15}
 .val.flame{color:var(--accent)}
+/* combo multiplier badge under the streak number — empty at ×1 but keeps
+   its height so the HUD row doesn't jump when the combo kicks in */
+.combo{font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
+  color:var(--good);min-height:15px;line-height:15px}
 
 /* ---- progress track (race / maze themes) ---- */
 .track{position:relative;height:54px;margin-bottom:18px}
@@ -190,7 +194,11 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:3p
   position:absolute;left:50%;top:80px;transform:translate(-50%,-50%);
   font-size:52px;font-weight:800;pointer-events:none;opacity:0;
 }
+/* Milestone banner variant — clamp keeps "🔥 10 in a row!" on one line on a
+   narrow Chromebook screen rather than growing past the card. */
+.popup.big{font-size:clamp(28px,7vw,44px);white-space:nowrap;text-shadow:0 4px 18px rgba(0,0,0,.5)}
 .popup.go{animation:pop 1s ease forwards}
+.popup.big.go{animation:pop 1.4s ease forwards}
 @keyframes pop{
   0%{opacity:0;transform:translate(-50%,-30%) scale(.6)}
   30%{opacity:1;transform:translate(-50%,-60%) scale(1.1)}
@@ -198,6 +206,18 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:3p
 }
 
 /* ---- end screen ---- */
+/* Star rating — earned stars pop in one after another (delays set from JS),
+   unearned ones stay as dim placeholders so the missing stars are visible. */
+.stars{font-size:44px;line-height:1;margin-bottom:6px;letter-spacing:6px}
+.star{display:inline-block;color:#3a4763;opacity:0;transform:scale(.3);
+  animation:starpop .45s ease forwards}
+.star.lit{color:var(--accent);text-shadow:0 0 18px rgba(255,201,77,.45)}
+@keyframes starpop{
+  0%{opacity:0;transform:scale(.3) rotate(-20deg)}
+  70%{opacity:1;transform:scale(1.25) rotate(6deg)}
+  100%{opacity:1;transform:scale(1) rotate(0)}
+}
+
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:16px 0 4px}
 .chip{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;font-size:22px;font-weight:700}
 .chip .b{color:var(--accent)}
@@ -219,4 +239,14 @@ h3{font-size:18px;color:var(--muted);margin:26px 0 2px;font-weight:600;letter-sp
 @keyframes confettifall{
   0%{opacity:1;transform:translateY(0) rotate(var(--r,0deg))}
   100%{opacity:0;transform:translateY(340px) rotate(calc(var(--r,0deg) + 220deg))}
+}
+
+/* Respect users with animation turned off — every animated effect here is
+   decorative; correctness is always also shown by color and text. */
+@media (prefers-reduced-motion: reduce){
+  .screen.on,.wordcard.wrong,.mic.listening,.runner-icon,.maze-runner,
+  .car-svg .wheel,.speedline,.popup.go,.star,.dust{animation:none}
+  .popup.go{opacity:1}
+  .star{opacity:1;transform:none}
+  .confetti-piece{display:none}
 }

@@ -228,6 +228,19 @@ window.BlendGame = (function(){
     return false;
   }
 
+  /* ---------------- combo scoring (pure, testable) ----------------
+     A streak drives a points multiplier instead of the old flat +10:
+     ×1 to start, ×2 from a streak of 5, ×3 from 10 up (capped there — a
+     runaway multiplier stops meaning anything). Every 5th in a row is
+     still a +25 milestone on top. `streak` is the streak INCLUDING the
+     answer being scored, so streak 5 pays 10×2+25 = 45. */
+  function comboMultiplier(streak){
+    return Math.min(3, 1 + Math.floor(streak/5));
+  }
+  function pointsFor(streak){
+    return 10 * comboMultiplier(streak) + (streak > 0 && streak % 5 === 0 ? 25 : 0);
+  }
+
   // The progress bar is themed per game (race track or maze) instead of a
   // plain fill bar — same idx/queue.length percentage drives both, just
   // rendered differently. Race is a straight left:pct% move; maze walks an
@@ -323,7 +336,7 @@ window.BlendGame = (function(){
   <section id="s-play" class="screen">
     <div class="hud">
       <div class="stat"><div class="lbl">Score</div><div class="val" id="uiScore">0</div></div>
-      <div class="stat"><div class="lbl">Streak</div><div class="val flame" id="uiStreak">0</div></div>
+      <div class="stat"><div class="lbl">Streak</div><div class="val flame" id="uiStreak">0</div><div class="combo" id="uiCombo"></div></div>
       <div class="stat"><div class="lbl">Word</div><div class="val" id="uiCount">1/${cfg.words.length}</div></div>
     </div>
     ${progressMarkup(cfg.theme)}
@@ -348,6 +361,7 @@ window.BlendGame = (function(){
 
   <section id="s-end" class="screen">
     <div class="card">
+      <div class="stars" id="uiStars" aria-hidden="true"></div>
       <h2 id="uiTitle">Nice work! 🎉</h2>
       <p class="sub" id="uiSummary"></p>
       <div class="hud" style="margin-bottom:0">
@@ -447,6 +461,7 @@ window.BlendGame = (function(){
     var sndGood  = function(){ beep([660,880,1180],0.16); };
     var sndBad   = function(){ beep([300,200],0.20); };
     var sndWin   = function(){ beep([660,880,1180,1560],0.18); };
+    var sndCombo = function(){ beep([660,990,1320,1760],0.14); };   // milestone fanfare
 
     /* ---------------- screens ---------------- */
     function show(id){
@@ -636,20 +651,28 @@ window.BlendGame = (function(){
       el.classList.add("boost");
       setTimeout(function(){ el.classList.remove("boost"); }, 550);
     }
+    // The badge under the streak number — only visible once the multiplier
+    // is actually doing something, so ×1 shows nothing.
+    function renderCombo(){
+      var m = comboMultiplier(streak);
+      $("uiCombo").textContent = m > 1 ? "×" + m + " combo!" : "";
+    }
     function render(){
       var w = queue[idx];
       $("uiWord").innerHTML = markup(w);
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
+      renderCombo();
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
       updateProgress((idx)/queue.length*100);
       $("wordCard").className = "wordcard";
       $("uiMic").innerHTML = "Say the word out loud";
       $("btnSkip").textContent = "Skip ▸";
     }
-    function popup(txt, color){
+    function popup(txt, color, big){
       var p = $("popup");
       p.textContent = txt; p.style.color = color;
+      p.classList.toggle("big", !!big);
       p.classList.remove("go"); void p.offsetWidth; p.classList.add("go");
     }
 
@@ -680,8 +703,26 @@ window.BlendGame = (function(){
       $("uiFRight").textContent = right + "/" + queue.length;
       $("uiFStreak").textContent = best;
       var pct = queue.length ? Math.round(right/queue.length*100) : 0;
-      $("uiTitle").textContent = pct >= 90 ? "Blend master! 🏆" : pct >= 70 ? "Nice work! 🎉" : "Good practice! 💪";
+      var perfect = queue.length > 0 && right === queue.length;
+      $("uiTitle").textContent = perfect ? "Perfect round! 🏆"
+                               : pct >= 90 ? "Blend master! 🏆"
+                               : pct >= 70 ? "Nice work! 🎉"
+                               : "Good practice! 💪";
       $("uiSummary").textContent = "You said " + right + " of " + queue.length + " words correctly (" + pct + "%).";
+
+      // 0–3 stars, popping in one after another. Same thresholds a game
+      // would use: 3 at 90%+, 2 at 70%+, 1 at 50%+ — unearned slots still
+      // render as dim outlines so a 2-star finish visibly has room to grow.
+      var starCount = pct >= 90 ? 3 : pct >= 70 ? 2 : pct >= 50 ? 1 : 0;
+      var stars = $("uiStars");
+      stars.innerHTML = "";
+      for(var si=0; si<3; si++){
+        var st = document.createElement("span");
+        st.className = "star" + (si < starCount ? " lit" : "");
+        st.style.animationDelay = (0.25 + si*0.3) + "s";
+        st.textContent = "★";
+        stars.appendChild(st);
+      }
       var block = $("missBlock"), grid = $("uiMissed");
       grid.innerHTML = "";
       if(missed.length){
@@ -723,17 +764,28 @@ window.BlendGame = (function(){
       right++;
       streak++;
       if(streak > best) best = streak;
-      var pts = 10 + (streak >= 5 ? 10 : 0);
+      var pts = pointsFor(streak);
+      var mult = comboMultiplier(streak);
       var milestone = streak > 0 && streak % 5 === 0;
-      if(milestone) pts += 25;
       score += pts;
-      if(milestone) celebrateProgress();
       $("wordCard").className = "wordcard correct";
-      $("uiMic").innerHTML = "<b>Correct!</b> +" + pts + " points";
-      popup("✓ +" + pts, "#3ddc97");
+      $("uiMic").innerHTML = "<b>Correct!</b> +" + pts + " points" +
+        (mult > 1 ? " <b>(×" + mult + " combo)</b>" : "");
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
-      sndGood();
+      renderCombo();
+      if(milestone){
+        // The full celebration: runner boost, big banner, confetti in the
+        // word card (it's already position:relative + overflow:hidden), and
+        // a fanfare instead of the ordinary correct-beep.
+        celebrateProgress();
+        popup("🔥 " + streak + " in a row!", "#ffc94d", true);
+        confettiBurst($("wordCard"), 18);
+        sndCombo();
+      } else {
+        popup("✓ +" + pts, "#3ddc97");
+        sndGood();
+      }
       if(voiceOn){
         var phrase = milestone ? (numberWord(streak) + " in a row!") : praisePhrase(queue[idx]);
         say(phrase, { rate: 1.0, pitch: 1.05 });
@@ -746,6 +798,7 @@ window.BlendGame = (function(){
       busy = true;
       streak = 0;
       $("uiStreak").textContent = 0;
+      renderCombo();
       tries++;
       $("wordCard").className = "wordcard wrong";
       popup("✗", "#ff6b6b");
@@ -927,10 +980,16 @@ window.BlendGame = (function(){
     if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged = pickVoice;
 
     // Rotate through short praise phrases; substitute the actual word into
-    // one of them so it doesn't always feel canned.
+    // one of them so it doesn't always feel canned. Never the same phrase
+    // twice in a row — with only six options, back-to-back repeats happen
+    // often enough by chance to sound broken.
+    var lastPraise = -1;
     function praisePhrase(word){
       var options = ["Nice!", "Got it!", "You said it!", "Great reading!", "Yes — " + word + "!", "Perfect!"];
-      return options[Math.floor(Math.random() * options.length)];
+      var i;
+      do { i = Math.floor(Math.random() * options.length); } while(i === lastPraise);
+      lastPraise = i;
+      return options[i];
     }
     function numberWord(n){
       var w = NUM_WORDS[n];
@@ -1049,6 +1108,9 @@ window.BlendGame = (function(){
 
     window.addEventListener("beforeunload", function(){
       micOn = false; stopMicLoop(); stopListening(); stopMicCheck();
+      // A coach utterance mid-sentence would otherwise keep talking over
+      // the next page for a beat — speechSynthesis is window-global.
+      if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
     });
   }
 
@@ -1062,7 +1124,9 @@ window.BlendGame = (function(){
       isVowelPhone: isVowelPhone,
       phoneticDistance: phoneticDistance,
       wordMatches: wordMatchesCore,
-      isMatch: isMatchCore
+      isMatch: isMatchCore,
+      comboMultiplier: comboMultiplier,
+      pointsFor: pointsFor
     }
   };
 })();
