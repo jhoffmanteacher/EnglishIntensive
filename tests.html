@@ -82,7 +82,7 @@
     "snip","spot","stem","drum","bran","drag","crab","frog"];
 
   // ---- every word matches itself, every level, both lists ----
-  [0,1,2].forEach(function(level){
+  [0,1].forEach(function(level){
     ENDWORDS.forEach(function(w){
       eq("self-match \"" + w + "\" (end blend, level " + level + ")", match(w,w,level,END), true);
     });
@@ -105,18 +105,18 @@
     ph("sled").split(" ")[3] === ph("slade").split(" ")[3],
     true, ph("sled") + " / " + ph("slade"));
 
-  // ---- Normal accepts sound-alikes, Strict does not ----
-  eq("crab <- krab, Normal", match("krab","crab",1,START), true);
-  eq("crab <- krab, Strict", match("krab","crab",0,START), false);
-  eq("plum <- plumb, Normal", match("plumb","plum",1,START), true);
-  eq("plum <- plumb, Strict", match("plumb","plum",0,START), false);
-  eq("wisp <- whisp, Normal", match("whisp","wisp",1,END), true);
-  eq("wisp <- whisp, Strict", match("whisp","wisp",0,END), false);
+  // ---- Regular accepts sound-alikes, Spicy does not ----
+  eq("crab <- krab, Regular", match("krab","crab",1,START), true);
+  eq("crab <- krab, Spicy", match("krab","crab",0,START), false);
+  eq("plum <- plumb, Regular", match("plumb","plum",1,START), true);
+  eq("plum <- plumb, Spicy", match("plumb","plum",0,START), false);
+  eq("wisp <- whisp, Regular", match("whisp","wisp",1,END), true);
+  eq("wisp <- whisp, Spicy", match("whisp","wisp",0,END), false);
 
   // ---- the blend guard: never forgiven, at any level ----
-  eq("bled <- bred, never (blend guard)", match("bred","bled",2,START), false);
-  eq("sled <- fled, never (blend guard)", match("fled","sled",2,START), false);
-  eq("grab <- crab, never (blend guard)", match("crab","grab",2,START), false);
+  eq("bled <- bred, never (blend guard)", match("bred","bled",1,START), false);
+  eq("sled <- fled, never (blend guard)", match("fled","sled",1,START), false);
+  eq("grab <- crab, never (blend guard)", match("crab","grab",1,START), false);
 
   // ---- digit normalization ----
   eq('normalize("10") -> "ten"', I.normalize("10"), "ten");
@@ -124,38 +124,35 @@
   eq('normalize("I heard 10.") -> "i heard ten"', I.normalize("I heard 10."), "i heard ten");
   eq("tent <- tenth (curated mishearing)", match("tenth","tent",1,END), true);
 
-  // ---- Forgiving-only prefix rule, initial blends only ----
-  eq("crop <- cropped, Forgiving", match("cropped","crop",2,START), true);
-  eq("crop <- cropped, Normal (too far)", match("cropped","crop",1,START), false);
-  eq("lisp <- lisped, never (final blend + suffix)", match("lisped","lisp",2,END), false);
+  // ---- "cropped" for "crop" is too far even at Regular (no prefix rule) ----
+  eq("crop <- cropped, Regular (too far)", match("cropped","crop",1,START), false);
+  eq("lisp <- lisped, never (final blend + suffix)", match("lisped","lisp",1,END), false);
 
-  // ---- curated table only fires at Normal/Forgiving ----
-  eq("gasp <- gas, Normal (curated)", match("gas","gasp",1,END), true);
-  eq("gasp <- gas, Strict, never", match("gas","gasp",0,END), false);
+  // ---- curated table only fires at Regular ----
+  eq("gasp <- gas, Regular (curated)", match("gas","gasp",1,END), true);
+  eq("gasp <- gas, Spicy, never", match("gas","gasp",0,END), false);
 
   // ---- distinct real words in the same list must not be conflated at
-  // Normal — a wrong consonant means a different word, not a mishearing.
+  // Regular — a wrong consonant means a different word, not a mishearing.
   // These pairs were found by brute-forcing every word against every other
   // word in the shipped lists and were previously scored as matches. ----
-  eq("vest != nest, Normal", match("nest","vest",1,END), false);
-  eq("tusk != dusk, Normal", match("dusk","tusk",1,END), false);
-  eq("wisp != lisp, Normal", match("lisp","wisp",1,END), false);
-  eq("mink != link, Normal", match("link","mink",1,END), false);
-  eq("silk != milk, Normal", match("milk","silk",1,END), false);
+  eq("vest != nest, Regular", match("nest","vest",1,END), false);
+  eq("tusk != dusk, Regular", match("dusk","tusk",1,END), false);
+  eq("wisp != lisp, Regular", match("lisp","wisp",1,END), false);
+  eq("mink != link, Regular", match("link","mink",1,END), false);
+  eq("silk != milk, Regular", match("milk","silk",1,END), false);
 
   // ---- list-aware guard: even a pure VOWEL confusion between two real
   // words in the list (which the plain distance budget alone still
   // allows, since vowel swaps are meant to be cheap) is rejected once the
   // list itself is passed in, because the other word is a strictly better
   // explanation for what was heard than the target is. ----
-  eq("soft != sift, Normal, list-aware", matchInList("sift","soft",1,END,ENDWORDS), false);
-  eq("honk != hunk, Normal, list-aware", matchInList("hunk","honk",1,END,ENDWORDS), false);
-  eq("honk != hunk, Forgiving, list-aware", matchInList("hunk","honk",2,END,ENDWORDS), false);
+  eq("soft != sift, Regular, list-aware", matchInList("sift","soft",1,END,ENDWORDS), false);
+  eq("honk != hunk, Regular, list-aware", matchInList("hunk","honk",1,END,ENDWORDS), false);
 
   // ---- the list-aware guard must not break legitimate accommodations ----
-  eq("crab <- krab, Normal, still passes with list", matchInList("krab","crab",1,START,STARTWORDS), true);
-  eq("gasp <- gas, Normal curated, still passes with list", matchInList("gas","gasp",1,END,ENDWORDS), true);
-  eq("crop <- cropped, Forgiving, still passes with list", matchInList("cropped","crop",2,START,STARTWORDS), true);
+  eq("crab <- krab, Regular, still passes with list", matchInList("krab","crab",1,START,STARTWORDS), true);
+  eq("gasp <- gas, Regular curated, still passes with list", matchInList("gas","gasp",1,END,ENDWORDS), true);
 
   // ---- exhaustive: with the list passed in, no word should ever be
   // confusable with a different word from its own list, at any level.
@@ -163,7 +160,7 @@
   // against the shipped word lists so future word-list edits stay honest. ----
   (function(){
     var bad = [];
-    [0,1,2].forEach(function(level){
+    [0,1].forEach(function(level){
       ENDWORDS.forEach(function(target){
         ENDWORDS.forEach(function(heard){
           if(heard !== target && matchInList(heard, target, level, END, ENDWORDS)) bad.push(target+"<-"+heard+" @"+level);

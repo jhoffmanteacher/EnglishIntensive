@@ -13,11 +13,10 @@
 window.BlendGame = (function(){
   "use strict";
 
-  var LEVELS = ["Strict","Normal","Forgiving"];
+  var LEVELS = ["Spicy","Regular"];
   var LEVEL_NOTES = [
-    "Strict — the word has to come back exactly right. Fewest false credits, but the recogniser will sometimes mishear a correct answer.",
-    "Normal — the blend must be right, and the rest of the word can be off by one sound. Best for most students.",
-    "Forgiving — the blend must still be right, but the rest of the word can be off by two. Use when a student is getting marked wrong on words they said correctly."
+    "Spicy — the word has to come back exactly right. Fewest false credits, but the recogniser will sometimes mishear a correct answer.",
+    "Regular — the blend must be right, and the rest of the word can be off by one sound. Best for most students."
   ];
 
   var MIC_SVG =
@@ -127,9 +126,9 @@ window.BlendGame = (function(){
   // consonants, so swapping one vowel sound for another costs half as much
   // as any other kind of change. A plain consonant-for-consonant swap costs
   // *more* than a full point (not exactly 1) so it never fits inside
-  // Normal's budget of 1 — a wrong consonant almost always means a
+  // Regular's budget of 1 — a wrong consonant almost always means a
   // different word entirely (e.g. "vest" heard as "nest"), not a mishearing,
-  // so Normal shouldn't forgive it the same way it forgives vowel drift.
+  // so Regular shouldn't forgive it the same way it forgives vowel drift.
   function phoneticDistance(a, b){
     var m=a.length, n=b.length, i, j, prev=[], cur=[];
     for(j=0;j<=n;j++) prev[j]=j;
@@ -166,7 +165,7 @@ window.BlendGame = (function(){
 
   // Known-good transcripts the recogniser returns for specific target words,
   // seeded from mishearings actually observed in class — not a guess at
-  // every possible mishearing. Accepted at Normal/Forgiving, never Strict.
+  // every possible mishearing. Accepted at Regular, never Spicy.
   // Add more here as they turn up; keep it short and commented.
   var ACCEPT = {
     gasp: ["gas"],     // final consonant dropped
@@ -177,7 +176,7 @@ window.BlendGame = (function(){
   // it sounds like `target` — i.e. the distance budget below only forgives
   // an error when the target is still the best explanation for what was
   // heard. Without this, "honk" (heard) passes for "hunk" (target) at
-  // Normal purely because the vowel swap fits the budget, even though
+  // Regular purely because the vowel swap fits the budget, even though
   // "honk" is sitting right there in the list as its own word.
   function closerToAnotherWord(hRest, hBlend, target, distToTarget, wordList, atStart, blendLength){
     for(var i=0;i<wordList.length;i++){
@@ -194,7 +193,7 @@ window.BlendGame = (function(){
 
   function wordMatchesCore(heard, target, level, atStart, blendLength, wordList){
     if(heard === target) return true;
-    if(level === 0) return false;                              // Strict: exact only
+    if(level === 0) return false;                              // Spicy: exact only
 
     if(ACCEPT[target] && ACCEPT[target].indexOf(heard) !== -1) return true;
 
@@ -212,18 +211,11 @@ window.BlendGame = (function(){
     var hFull = phonemes(heard), tFull = phonemes(target);
     var hRest = atStart ? hFull.slice(hBlend.length) : hFull.slice(0, hFull.length - hBlend.length);
     var tRest = atStart ? tFull.slice(tBlend.length) : tFull.slice(0, tFull.length - tBlend.length);
-    var maxDist = level === 1 ? 1 : 2;
     var distToTarget = phoneticDistance(hRest, tRest);
-    if(distToTarget <= maxDist){
+    if(distToTarget <= 1){
       if(wordList && closerToAnotherWord(hRest, hBlend, target, distToTarget, wordList, atStart, blendLength)) return false;
       return true;
     }
-
-    // Forgiving also takes the word with an ending stuck on it ("cropped"
-    // for "crop") — but only for initial blends, since a suffix on a final
-    // blend destroys the blend itself ("lisped" never passes for "lisp").
-    if(atStart && level === 2 && hFull.length >= tFull.length &&
-       hFull.slice(0, tFull.length).join(" ") === tFull.join(" ")) return true;
 
     return false;
   }
@@ -254,7 +246,7 @@ window.BlendGame = (function(){
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
-        <button class="btn ghost" id="btnLevel">Listening: <span id="lvlLbl">Normal</span></button>
+        <button class="btn ghost" id="btnLevel">Listening: <span id="lvlLbl">Regular</span></button>
         <button class="btn ghost" id="btnVoice">Voice: <span id="voiceLbl">On</span></button>
       </div>
       <p class="sub" id="lvlNote" style="margin:14px 0 0;font-size:15px"></p>
@@ -429,10 +421,10 @@ window.BlendGame = (function(){
        it mangles vowels constantly on short isolated words. But the blend
        is the thing being practised, so it is never forgiven: "bred" can
        never pass for "bled". Only the rest of the word gets slack. */
-    var level = 1;                                   // Normal by default
+    var level = 1;                                   // Regular by default
     try{
       var saved = localStorage.getItem("blendLevel");
-      if(saved !== null) level = Math.min(2, Math.max(0, parseInt(saved,10) || 0));
+      if(saved !== null) level = Math.min(1, Math.max(0, parseInt(saved,10) || 0));
     }catch(e){}
 
     function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }

@@ -61,9 +61,8 @@ never passes for "bred":
 
 | Level | Accepts |
 | --- | --- |
-| Strict | the exact word only |
-| Normal (default) | the rest of the word off by one sound |
-| Forgiving | the rest of the word off by two |
+| Spicy | the exact word only |
+| Regular (default) | the rest of the word off by one sound |
 
 "Off by one/two sounds" is now literally true: it's phoneme-level edit
 distance, with a swapped vowel sound costing half as much as any other
