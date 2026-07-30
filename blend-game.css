@@ -50,22 +50,35 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
   position:absolute;left:0;top:50%;transform:translate(-50%,-50%);
   transition:left .4s ease;
 }
-/* Mirrored — the 🚗 glyph faces left by default, and the car drives left
-   to right, so every keyframe below bakes in scaleX(-1) to point it the
-   right way while still bobbing/boosting normally in the flipped space. */
-.track-race .runner-icon{
-  display:inline-block;font-size:30px;transform:scaleX(-1);
-  animation:carbob .9s ease-in-out infinite;
-}
+.track-race .runner-icon{display:inline-block;animation:carbob .9s ease-in-out infinite}
 @keyframes carbob{
-  0%,100%{transform:scaleX(-1) translateY(0) rotate(0)}
-  50%{transform:scaleX(-1) translateY(-4px) rotate(-4deg)}
+  0%,100%{transform:translateY(0) rotate(0)}
+  50%{transform:translateY(-4px) rotate(-3deg)}
 }
 .track-race .runner-icon.boost{animation:carboost .55s ease}
 @keyframes carboost{
-  0%{transform:scaleX(-1) scale(1)}
-  50%{transform:scaleX(-1) scale(1.4) translateY(-12px) rotate(8deg)}
-  100%{transform:scaleX(-1) scale(1)}
+  0%{transform:scale(1) rotate(0)}
+  50%{transform:scale(1.4) translateY(-12px) rotate(6deg)}
+  100%{transform:scale(1) rotate(0)}
+}
+/* Hand-drawn car — built facing right so there's no emoji-mirroring to get
+   wrong. Wheels spin continuously; speed lines behind it pulse on a loop
+   so it reads as moving even between steps. */
+.car-svg{width:56px;height:30px;display:block;overflow:visible}
+.car-body{fill:var(--accent);stroke:#7a4b06;stroke-width:1.2;stroke-linejoin:round}
+.car-glass{fill:#bfe9ff;opacity:.9}
+.car-stripe{fill:#1a1206;opacity:.55}
+.car-spoiler{fill:#1a1206}
+.car-shadow{fill:rgba(0,0,0,.35)}
+.car-svg .wheel circle{fill:#1a1206}
+.car-svg .wheel rect{fill:#9fb0c9}
+.car-svg .wheel{transform-box:fill-box;transform-origin:center;animation:wheelspin .6s linear infinite}
+@keyframes wheelspin{to{transform:rotate(360deg)}}
+.speedline{fill:var(--muted);opacity:0;animation:speedline 1s ease-in-out infinite}
+@keyframes speedline{
+  0%{opacity:0;transform:translateX(6px)}
+  30%{opacity:.6}
+  100%{opacity:0;transform:translateX(-10px)}
 }
 /* Dust puffs the car drops behind it on every step forward. */
 .track-race .dust{

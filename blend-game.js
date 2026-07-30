@@ -247,11 +247,36 @@ window.BlendGame = (function(){
       </svg>
     </div>`;
     }
+    // A hand-drawn car instead of the 🚗 emoji — emoji "automobile" glyphs
+    // face left in every major vendor set, and mirroring one with CSS looks
+    // slightly off (reversed shading/details). Drawing it ourselves means
+    // it's simply built facing right, with spinning wheels for extra life.
     return `
     <div class="track track-race">
       <div class="track-road"><i class="track-fill" id="uiTrackFill"></i></div>
       <div class="track-goal">🏁</div>
-      <div class="track-runner" id="uiRunner"><span class="runner-icon">🚗</span></div>
+      <div class="track-runner" id="uiRunner">
+        <span class="runner-icon">
+          <svg viewBox="0 0 64 34" class="car-svg" aria-hidden="true">
+            <ellipse class="car-shadow" cx="34" cy="30" rx="26" ry="3"></ellipse>
+            <rect class="speedline" x="-4" y="10" width="9" height="2.5" rx="1.2"></rect>
+            <rect class="speedline" x="-8" y="17" width="11" height="2.5" rx="1.2" style="animation-delay:.2s"></rect>
+            <rect class="speedline" x="-4" y="24" width="7" height="2.5" rx="1.2" style="animation-delay:.4s"></rect>
+            <path class="car-body" d="M6,26 L6,18 Q6,14 10,14 L18,14 L24,5 L38,5 L46,13 L54,13 Q60,13 60,19 L60,26 Z"></path>
+            <rect class="car-spoiler" x="3" y="10" width="10" height="3" rx="1"></rect>
+            <polygon class="car-glass" points="23,13 27,7 37,7 42,13"></polygon>
+            <rect class="car-stripe" x="30" y="5" width="5" height="21"></rect>
+            <g class="wheel">
+              <circle cx="18" cy="27" r="6"></circle>
+              <rect x="17" y="21" width="2" height="4"></rect>
+            </g>
+            <g class="wheel">
+              <circle cx="48" cy="27" r="6"></circle>
+              <rect x="47" y="21" width="2" height="4"></rect>
+            </g>
+          </svg>
+        </span>
+      </div>
     </div>`;
   }
 
