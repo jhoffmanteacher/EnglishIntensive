@@ -240,17 +240,18 @@ window.BlendGame = (function(){
     <div class="track track-maze">
       <svg viewBox="0 0 600 100" preserveAspectRatio="xMidYMid meet" class="maze-svg" aria-hidden="true">
         <path class="maze-wall" d="${d}"></path>
-        <path id="mazePath" class="maze-path" d="${d}"></path>
-        <text class="maze-goal" x="580" y="15">🏆</text>
-        <text id="mazeRunner" class="maze-runner" x="20" y="85">🧭</text>
+        <path class="maze-path" d="${d}"></path>
+        <path id="mazeTrail" class="maze-trail" d="${d}"></path>
+        <text class="maze-goal" x="580" y="15">🧀</text>
+        <text id="mazeRunner" class="maze-runner" x="20" y="85">🐭</text>
       </svg>
     </div>`;
     }
     return `
     <div class="track track-race">
-      <div class="track-road"></div>
+      <div class="track-road"><i class="track-fill" id="uiTrackFill"></i></div>
       <div class="track-goal">🏁</div>
-      <div class="track-runner" id="uiRunner">🚗</div>
+      <div class="track-runner" id="uiRunner"><span class="runner-icon">🚗</span></div>
     </div>`;
   }
 
@@ -364,7 +365,8 @@ window.BlendGame = (function(){
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], tries = 0, busy = false;
-    var mazeLen = null;   // cached path length for the maze theme's runner
+    var mazeLen = null;    // cached path length for the maze theme's runner
+    var lastPct = null;    // last progress % drawn, so the race can drop a dust puff behind it
 
     var shuffleOn = true;
     try{
@@ -567,23 +569,42 @@ window.BlendGame = (function(){
     /* ---------------- render ---------------- */
     // Same idx/queue.length percentage as the old plain bar — just handed to
     // whichever theme is running instead of a fill width.
+    function spawnDust(leftPct){
+      var track = document.querySelector(".track-race");
+      if(!track) return;
+      var d = document.createElement("span");
+      d.className = "dust";
+      d.textContent = "💨";
+      d.style.left = leftPct + "%";
+      track.appendChild(d);
+      setTimeout(function(){ d.remove(); }, 550);
+    }
     function updateProgress(pct){
       if(theme === "maze"){
-        var path = $("mazePath"), runner = $("mazeRunner");
+        // mazeTrail shares the maze-path's "d", so its length doubles as the
+        // guide path's length — one <path> query covers both.
+        var path = $("mazeTrail"), runner = $("mazeRunner");
         if(!path || !runner) return;
-        if(mazeLen === null) mazeLen = path.getTotalLength();
-        var pt = path.getPointAtLength(pct/100 * mazeLen);
+        if(mazeLen === null){ mazeLen = path.getTotalLength(); path.style.strokeDasharray = mazeLen; }
+        var covered = pct/100 * mazeLen;
+        var pt = path.getPointAtLength(covered);
         runner.setAttribute("x", pt.x);
         runner.setAttribute("y", pt.y);
+        path.style.strokeDashoffset = mazeLen - covered;
       } else {
-        var r = $("uiRunner");
-        if(r) r.style.left = Math.min(pct, 94) + "%";
+        var r = $("uiRunner"), fill = $("uiTrackFill");
+        var shown = Math.min(pct, 94);
+        if(lastPct !== null && pct > lastPct) spawnDust(Math.min(lastPct, 94));
+        if(r) r.style.left = shown + "%";
+        if(fill) fill.style.width = Math.min(pct, 100) + "%";
       }
+      lastPct = pct;
     }
     // A little flourish on every 5-streak milestone — same "boost" class name
     // works for both themes since each one's CSS defines its own keyframes.
     function celebrateProgress(){
-      var el = theme === "maze" ? $("mazeRunner") : $("uiRunner");
+      var wrap = theme === "maze" ? null : $("uiRunner");
+      var el = theme === "maze" ? $("mazeRunner") : (wrap && wrap.querySelector(".runner-icon"));
       if(!el) return;
       el.classList.remove("boost");
       void el.getBoundingClientRect();   // restart the animation
@@ -611,6 +632,7 @@ window.BlendGame = (function(){
     function startGame(list){
       queue = shuffleOn ? shuffled(list) : list.slice();
       idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; tries = 0; busy = false;
+      lastPct = null;
       show("s-play");
       micOn = !!SR;           // mic is on for the whole game from here
       render();
@@ -650,7 +672,25 @@ window.BlendGame = (function(){
         block.style.display = "none";
         $("btnRetryMissed").style.display = "none";
       }
+      if(pct >= 70) confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
       sndWin();
+    }
+
+    // A one-shot burst of falling confetti pieces on a good finish — pure CSS
+    // animation, each piece removes itself once its fall finishes.
+    var CONFETTI_COLORS = ["#ffc94d","#3ddc97","#ff6b6b","#7dd3fc","#c084fc"];
+    function confettiBurst(container, count){
+      if(!container) return;
+      for(var i=0;i<count;i++){
+        var s = document.createElement("span");
+        s.className = "confetti-piece";
+        s.style.left = Math.random()*100 + "%";
+        s.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+        s.style.animationDelay = (Math.random()*0.3) + "s";
+        s.style.setProperty("--r", Math.floor(Math.random()*360) + "deg");
+        container.appendChild(s);
+        (function(el){ setTimeout(function(){ el.remove(); }, 1700); })(s);
+      }
     }
 
     function handleCorrect(){
