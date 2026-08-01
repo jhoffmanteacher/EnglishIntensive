@@ -95,24 +95,58 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
   100%{opacity:0;transform:translate(-170%,-55%) scale(1.5)}
 }
 
+/* "maze" theme = a vault run: a ninja threading a laser corridor toward a
+   vault of diamonds. Fiction and finish (glow, motion) live entirely here —
+   the markup (blend-game.js and spell-game.js's own copy of it) only ever
+   supplies the path + these class names, so both engines pick up any look
+   change made in this file for free. */
 .maze-svg{width:100%;height:70px;display:block;overflow:visible}
-.maze-wall{fill:none;stroke:var(--panel2);stroke-width:24;stroke-linecap:round;stroke-linejoin:round}
-.maze-path{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:6 8;stroke-linecap:round;stroke-linejoin:round}
-/* Lights up in the accent/good gradient colors as the trail is walked —
-   same idea as the race's fill bar, drawn along the winding path instead
-   of a straight line. stroke-dasharray/offset are set from JS once the
-   path's real length is known. */
-.maze-trail{fill:none;stroke:var(--good);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;transition:stroke-dashoffset .4s ease}
-.maze-goal{font-size:22px;text-anchor:middle;dominant-baseline:central}
+.track-maze{position:relative;border-radius:16px}
+/* A faint vault-light bloom behind the whole track sets the mood without
+   costing anything on the race side — .track-race never gets this rule. */
+.track-maze::before{
+  content:"";position:absolute;inset:-10px;border-radius:20px;pointer-events:none;
+  background:radial-gradient(ellipse at 60% 40%,rgba(255,201,77,.07),transparent 70%);
+}
+/* Corridor walls: dimmed on purpose (lower opacity, no glow of its own) so
+   the laser trail reads as the brightest thing on the track, same way the
+   race's road is a flat backdrop for its fill bar. */
+.maze-wall{fill:none;stroke:var(--panel2);stroke-width:20;stroke-linecap:round;stroke-linejoin:round;opacity:.7}
+/* Tight, even dashes read as a security-laser grid rather than a plain
+   dotted guideline. */
+.maze-path{fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:2 6;stroke-linecap:round;stroke-linejoin:round;opacity:.5}
+/* The laser trail the ninja leaves lit behind them — same idea as the
+   race's fill bar (distance covered, lit as it's walked), rendered as a
+   glowing line instead of a straight fill. stroke-dasharray/offset are set
+   from JS once the path's real length is known; the glow and pulse are
+   pure CSS on top of that. */
+.maze-trail{
+  fill:none;stroke:var(--accent);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;
+  transition:stroke-dashoffset .4s ease;
+  filter:drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 7px rgba(255,201,77,.55));
+  animation:laserpulse 1.8s ease-in-out infinite;
+}
+@keyframes laserpulse{
+  0%,100%{filter:drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 7px rgba(255,201,77,.55))}
+  50%{filter:drop-shadow(0 0 4px var(--accent)) drop-shadow(0 0 12px rgba(255,201,77,.8))}
+}
+.maze-goal{
+  font-size:26px;text-anchor:middle;dominant-baseline:central;
+  filter:drop-shadow(0 0 6px rgba(255,201,77,.65));
+  animation:vaultglint 1.6s ease-in-out infinite;
+}
+@keyframes vaultglint{0%,100%{filter:drop-shadow(0 0 4px rgba(255,201,77,.5))}50%{filter:drop-shadow(0 0 9px rgba(255,201,77,.85))}}
 .maze-runner{
-  font-size:22px;text-anchor:middle;dominant-baseline:central;
+  font-size:23px;text-anchor:middle;dominant-baseline:central;
   transition:x .4s ease,y .4s ease;
   transform-box:fill-box;transform-origin:center;
-  animation:mousewiggle .8s ease-in-out infinite;
+  animation:sneak .7s ease-in-out infinite;
 }
-@keyframes mousewiggle{0%,100%{transform:rotate(0)}50%{transform:rotate(10deg)}}
-.maze-runner.boost{animation:mazeboost .55s ease}
-@keyframes mazeboost{
+/* A quick lean-and-recover instead of a symmetric wiggle — reads as a
+   stealthy dash forward rather than a twitchy idle animation. */
+@keyframes sneak{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(7deg) translateY(-1px)}}
+.maze-runner.boost{animation:vaultdash .55s ease}
+@keyframes vaultdash{
   0%{transform:rotate(0) scale(1)}
   50%{transform:rotate(-14deg) scale(1.6)}
   100%{transform:rotate(0) scale(1)}
@@ -146,6 +180,17 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
   border:1px solid var(--line);border-radius:99px;padding:6px 16px;
   font-size:16px;color:var(--ink);
 }
+
+/* ---- syllable-chunk scaffold (second-miss reveal) ----
+   Shown instead of the plain "The word was X" once a word with chunk data
+   (a dotted entry, e.g. "fan·tas·tic") is missed twice — alternating colors
+   and a visible gap between syllables so the split itself is the takeaway,
+   not just the answer. */
+.chunkword{display:inline-flex;align-items:baseline;flex-wrap:wrap;justify-content:center;font-size:26px;font-weight:800;letter-spacing:.5px;vertical-align:middle}
+.chunkword .chunk{padding:0 2px}
+.chunkword .chunk-a{color:var(--accent)}
+.chunkword .chunk-b{color:var(--ink)}
+.chunkword .chunk-sep{color:var(--muted);margin:0 1px;font-weight:400}
 
 /* ---- mic button ---- */
 .micwrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:8px}
@@ -244,7 +289,7 @@ h3{font-size:18px;color:var(--muted);margin:26px 0 2px;font-weight:600;letter-sp
 /* Respect users with animation turned off — every animated effect here is
    decorative; correctness is always also shown by color and text. */
 @media (prefers-reduced-motion: reduce){
-  .screen.on,.wordcard.wrong,.mic.listening,.runner-icon,.maze-runner,
+  .screen.on,.wordcard.wrong,.mic.listening,.runner-icon,.maze-runner,.maze-trail,.maze-goal,
   .car-svg .wheel,.speedline,.popup.go,.star,.dust{animation:none}
   .popup.go{opacity:1}
   .star{opacity:1;transform:none}

@@ -1,7 +1,11 @@
 # English Intensive
 
 Plain static HTML/JS games and activities for English language practice.
-No build step and no dependencies.
+No build step and no dependencies. The audience is **9th–10th graders in
+reading intervention** — older students practising skills usually taught
+younger, so every visual and every line of copy stays age-respectful:
+arcade/neon fictions, no grade labels, no elementary-coded imagery or
+phrasing ("Multisyllable Words", not "Big Words").
 
 Serve it over HTTPS (GitHub Pages) or `http://localhost` — **not** by opening
 the files off disk. Chrome's speech recognition and microphone access both
@@ -29,19 +33,43 @@ out loud" phonics games. A game page is just a word list:
 <script>
 BlendGame.start({
   title: "Starting Blends 🎤",
-  blend: "start",              // "start" or "end" — which end the blend is on
+  blend: "start",              // "start", "end", or "sound" — see below
   theme: "maze",                // "race" (default) or "maze" — the progress graphic
   words: ["blip","crop","clam"]
 });
 </script>
 ```
 
+Three matching modes for `blend`, depending on what's being drilled:
+
+- `"start"` / `"end"` — a fixed-length blend at one end of the word
+  (`blendLength`, default 2). The blend must come back phonetically exact;
+  the rest of the word gets the usual tolerance.
+- `"sound"` — a target phoneme that can land anywhere in the word (e.g. the
+  oi/oy diphthong: "coin", "boyish", "annoy"). Pass `sound` (one phoneme
+  token from `phonemes()`, e.g. `"OY"`) and `highlight` (a regex matching the
+  letters to show highlighted, e.g. `/oi|oy/i`) instead of `blendLength`. The
+  sound is located by searching the word's phoneme sequence rather than
+  slicing fixed letter positions, since its spelling position varies.
+- No blend at all (plain word reading — nonsense words, multisyllable
+  words): pass `blend: "start"` with `blendLength: 0`. The "blend" is then
+  always empty, so nothing is force-matched and nothing is highlighted —
+  it's a plain whole-word fuzzy match.
+
 The plain progress bar is themed per game instead: `theme: "race"` slides a car
-along a track toward a checkered flag, `theme: "maze"` walks an explorer along
-a winding path toward a trophy. Both use the same word-index percentage as the
-old bar, so they work for any word-list length. `blend-words-game.html` uses
-the race theme, `initial-blends-game.html` uses the maze theme — pick either
-for a new game.
+along a track toward a checkered flag, `theme: "maze"` is a **vault run** — a
+ninja threading a neon laser corridor toward a diamond vault. Both use the same
+word-index percentage as the old bar, so they work for any word-list length.
+`blend-words-game.html` uses the race theme, `initial-blends-game.html` uses
+the maze theme — pick either for a new game.
+
+Word-list entries may carry **syllable marks** with a middle dot
+(`"fan·tas·tic"`). The engine strips the dots everywhere that matters
+(matching, speech, storage) and uses them only to scaffold: after a second
+miss the reveal shows the word broken into its chunks (and, with Voice on,
+pronounces it syllable by syllable, then whole), and the end screen's
+missed-word chips keep the chunked form. Undotted words behave exactly as
+before. `multisyllable-words-game.html` uses this throughout.
 
 The engine renders every screen, so adding a game means copying one of the
 existing pages and swapping the word list. Chrome only — it uses the Web
@@ -51,6 +79,39 @@ Current games:
 
 - `blend-words-game.html` — words **ending** in a consonant blend.
 - `initial-blends-game.html` — words **starting** with a consonant blend.
+- `nonsense-words-game.html` — made-up CVC words, pure decoding practice.
+- `oi-oy-words-game.html` — words with the oi/oy diphthong, anywhere in the word.
+- `multisyllable-words-game.html` — two- and three-syllable real words, with
+  syllable-chunk scaffolding.
+- `spelling-oi-oy-game.html` — the site's first **spelling** game (see below).
+
+### Comeback words (missed-word persistence)
+
+Each game page keeps its own deck of not-yet-mastered words in
+`localStorage` (`"blendComeback:" + pathname`): a word joins the deck when
+it's missed twice or skipped in a round, and **leaves the deck the moment
+it's read correctly on the first try** in any later round. When the deck has
+words, the start screen grows a "🔁 Comeback words (N)" button that runs just
+those words — most-missed first, capped at 15 so it stays a warm-up. The
+storage layer treats localStorage as untrusted (versioned, sanitized on
+read, silently absent if storage is unavailable), and the pure deck logic
+(`comebackMerge` / `comebackMastered` / `comebackDeck`) is covered by
+`tests.html`. The session-level "Practice missed words" button on the end
+screen is unchanged and separate.
+
+## Spelling game
+
+`spell-game.js` is a second engine for **encoding** practice — the computer
+says the word and the student types it. Deliberately mic-free, so it works
+in a noisy room. A page passes `SpellGame.start({title, intro, rule, words})`;
+`rule` is a short spelling rule shown on the start screen (the oi/oy page
+teaches: *oy* before nothing-or-a-vowel — enjoy, royal; *oi* before a
+consonant — coin, moist). The word is spoken (auto, plus "Say it again",
+slower after a miss) but never printed before it's answered; second miss
+reveals the correct spelling with the letters the student failed to produce
+highlighted in gold (a Levenshtein backtrace, `diffLetters()`), then moves
+on. Scoring, streaks, stars and the missed-words list match the blend games
+exactly, and the pure helpers are covered by `tests.html`.
 
 ### How the listening works
 

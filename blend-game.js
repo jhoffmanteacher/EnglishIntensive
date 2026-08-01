@@ -163,6 +163,19 @@ window.BlendGame = (function(){
     return atStart ? word.slice(0, blendLength) : word.slice(-blendLength);
   }
 
+  // Locate a phoneme subsequence (e.g. ["OY"]) anywhere in a phoneme array —
+  // used by "sound" mode, where the target sound isn't pinned to the start
+  // or end of the word (the oi/oy diphthong can land anywhere: "coin",
+  // "boyish", "annoy"). Returns the index it starts at, or -1.
+  function findPhonemeSeq(arr, seq){
+    for(var i=0;i+seq.length<=arr.length;i++){
+      var ok = true;
+      for(var j=0;j<seq.length;j++){ if(arr[i+j]!==seq[j]){ ok=false; break; } }
+      if(ok) return i;
+    }
+    return -1;
+  }
+
   // Known-good transcripts the recogniser returns for specific target words,
   // seeded from mishearings actually observed in class — not a guess at
   // every possible mishearing. Accepted at Regular, never Spicy.
@@ -191,41 +204,86 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function wordMatchesCore(heard, target, level, atStart, blendLength, wordList){
+  function wordMatchesCore(heard, target, level, atStart, blendLength, wordList, soundSeq){
     if(heard === target) return true;
     if(level === 0) return false;                              // Spicy: exact only
 
     if(ACCEPT[target] && ACCEPT[target].indexOf(heard) !== -1) return true;
 
-    // The blend must match exactly in phoneme space — stricter and fairer
-    // than a letter check: "krab" now passes for "crab" (K-R = K-R), but
-    // "bled" still never passes for "bred" (B-L vs B-R).
-    var hBlend = phonemes(blendPart(heard, atStart, blendLength));
-    var tBlend = phonemes(blendPart(target, atStart, blendLength));
-    if(hBlend.join(" ") !== tBlend.join(" ")) return false;
-
-    // Slice the *whole word's* phonemes rather than re-encoding the
-    // leftover letters on their own — otherwise a remainder that happens to
-    // end in "e" (e.g. "vest" minus the "st" blend leaves "ve") gets misread
-    // as a silent word-final e that was never actually there.
     var hFull = phonemes(heard), tFull = phonemes(target);
-    var hRest = atStart ? hFull.slice(hBlend.length) : hFull.slice(0, hFull.length - hBlend.length);
-    var tRest = atStart ? tFull.slice(tBlend.length) : tFull.slice(0, tFull.length - tBlend.length);
+    var hBlend, hRest, tRest;
+
+    if(soundSeq){
+      // "sound" mode: the target sound (e.g. the oi/oy diphthong) can land
+      // anywhere in the word, not just the start or end, so it's located by
+      // searching the phoneme array rather than slicing fixed letter
+      // positions. It still must be exactly right, same principle as a
+      // start/end blend — that's the skill being practiced.
+      var tIdx = findPhonemeSeq(tFull, soundSeq);
+      if(tIdx === -1) return false;
+      tRest = tFull.slice(0, tIdx).concat(tFull.slice(tIdx + soundSeq.length));
+      var hIdx = findPhonemeSeq(hFull, soundSeq);
+      if(hIdx === -1) return false;
+      hBlend = soundSeq;
+      hRest = hFull.slice(0, hIdx).concat(hFull.slice(hIdx + soundSeq.length));
+    } else {
+      // The blend must match exactly in phoneme space — stricter and fairer
+      // than a letter check: "krab" now passes for "crab" (K-R = K-R), but
+      // "bled" still never passes for "bred" (B-L vs B-R).
+      hBlend = phonemes(blendPart(heard, atStart, blendLength));
+      var tBlend = phonemes(blendPart(target, atStart, blendLength));
+      if(hBlend.join(" ") !== tBlend.join(" ")) return false;
+
+      // Slice the *whole word's* phonemes rather than re-encoding the
+      // leftover letters on their own — otherwise a remainder that happens to
+      // end in "e" (e.g. "vest" minus the "st" blend leaves "ve") gets misread
+      // as a silent word-final e that was never actually there.
+      hRest = atStart ? hFull.slice(hBlend.length) : hFull.slice(0, hFull.length - hBlend.length);
+      tRest = atStart ? tFull.slice(hBlend.length) : tFull.slice(0, tFull.length - hBlend.length);
+    }
+
     var distToTarget = phoneticDistance(hRest, tRest);
     if(distToTarget <= 1){
-      if(wordList && closerToAnotherWord(hRest, hBlend, target, distToTarget, wordList, atStart, blendLength)) return false;
+      if(!soundSeq && wordList && closerToAnotherWord(hRest, hBlend, target, distToTarget, wordList, atStart, blendLength)) return false;
       return true;
     }
 
     return false;
   }
 
-  function isMatchCore(heardText, target, level, atStart, blendLength, wordList){
+  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq){
     var parts = normalize(heardText).split(" ");
     for(var i=0;i<parts.length;i++){
-      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList)) return true;
+      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList, soundSeq)) return true;
     }
     return false;
+  }
+
+  /* ---------------- syllable chunk parsing (pure, testable) ----------------
+     Entries in cfg.words may mark syllable boundaries with a middle dot
+     ("fan·tas·tic") so the engine can scaffold the reveal on a second miss
+     into its syllables instead of just re-showing the whole word.
+     parseWordEntry splits an entry into the plain word — the only form
+     anything outside the chunk display ever sees: phoneme matching, TTS,
+     the recogniser comparison, the comeback deck, localStorage — and a
+     chunks array. Entries with no dot get chunks:null and behave exactly
+     as before; nothing downstream has to know the difference. */
+  var CHUNK_SEP = "·";   // middle dot (·)
+
+  function parseWordEntry(entry){
+    var s = String(entry || "");
+    if(s.indexOf(CHUNK_SEP) === -1) return { word: s, chunks: null };
+    return { word: s.split(CHUNK_SEP).join(""), chunks: s.split(CHUNK_SEP) };
+  }
+
+  // Markup for the scaffolded reveal — each syllable its own span, alternating
+  // accent/ink color so the eye tracks the split, with a small separator dot
+  // between (echoing the "·" the word list itself is written with).
+  function chunkMarkup(chunks){
+    return '<span class="chunkword">' + chunks.map(function(c, i){
+      return (i > 0 ? '<span class="chunk-sep">' + CHUNK_SEP + '</span>' : '') +
+             '<span class="chunk ' + (i % 2 === 0 ? "chunk-a" : "chunk-b") + '">' + c + '</span>';
+    }).join('') + '</span>';
   }
 
   /* ---------------- combo scoring (pure, testable) ----------------
@@ -241,6 +299,88 @@ window.BlendGame = (function(){
     return 10 * comboMultiplier(streak) + (streak > 0 && streak % 5 === 0 ? 25 : 0);
   }
 
+  /* ---------------- comeback deck (pure, testable) ----------------
+     Missed words don't vanish when the round ends — they're kept per game
+     page so the next session can start with the words that are actually
+     hard for this student. A word leaves the deck the moment it comes back
+     right on the FIRST try, which is the whole pedagogy: the deck holds
+     only what isn't mastered yet, so it shrinks as the student improves
+     instead of growing into a punishment list.
+
+     Store shape:  { v:1, words: { soft: {n:3, t:1717000000000}, … } }
+       n — how many rounds the word has been missed in (drives priority)
+       t — when it was last missed (breaks ties toward fresher trouble)
+
+     Everything here is pure — a store goes in, a new store comes out —
+     so localStorage only ever appears at the two functions in start()
+     that read and write it. */
+
+  var COMEBACK_VERSION = 1;
+  var COMEBACK_CAP = 15;    // a warm-up, not a second full round
+
+  function has(o, k){ return Object.prototype.hasOwnProperty.call(o, k); }
+
+  // localStorage is shared, hand-editable and outlives any change to this
+  // file, so whatever comes back out is treated as untrusted input: anything
+  // that isn't an entry with a real positive miss count is dropped. A
+  // corrupted deck should cost a student their review list, never the game.
+  function sanitizeComeback(raw){
+    var out = { v: COMEBACK_VERSION, words: {} };
+    if(!raw || typeof raw !== "object" || !raw.words || typeof raw.words !== "object") return out;
+    for(var w in raw.words){
+      if(!has(raw.words, w) || !w) continue;
+      var e = raw.words[w];
+      if(!e || typeof e !== "object") continue;
+      var n = Math.floor(Number(e.n)), t = Number(e.t);
+      if(!isFinite(n) || n < 1) continue;
+      out.words[w] = { n: n, t: (isFinite(t) && t > 0) ? t : 0 };
+    }
+    return out;
+  }
+
+  // Fold one round's missed words into the store. `at` is passed in rather
+  // than read from Date.now() in here so the tie-breaking is testable. A
+  // word repeated in one round's misses still only counts once — n counts
+  // rounds gone wrong, not individual wrong tries.
+  function comebackMerge(store, words, at){
+    var out = sanitizeComeback(store), seen = {};
+    if(!words) return out;
+    for(var i=0;i<words.length;i++){
+      var w = words[i];
+      if(typeof w !== "string" || !w || has(seen, w)) continue;
+      seen[w] = 1;
+      out.words[w] = { n: (has(out.words, w) ? out.words[w].n : 0) + 1, t: at };
+    }
+    return out;
+  }
+
+  // A word earns its way out by coming back right on the first try. Getting
+  // it on the second try doesn't count — that's still the stumble the deck
+  // exists to catch.
+  function comebackMastered(store, word){
+    var out = sanitizeComeback(store);
+    if(typeof word === "string" && has(out.words, word)) delete out.words[word];
+    return out;
+  }
+
+  // Most-missed first, so a capped deck keeps the words that keep going
+  // wrong rather than an arbitrary slice. Ties go to the most recently
+  // missed word, then alphabetically — the last step is arbitrary but makes
+  // the deck stable instead of following whatever order the object's keys
+  // happen to come back in. The sort decides *which* words make the cap;
+  // Shuffle may still reorder them within the round, which is fine.
+  function comebackDeck(store, cap){
+    var s = sanitizeComeback(store), list = [], w;
+    for(w in s.words){ if(has(s.words, w)) list.push(w); }
+    list.sort(function(a, b){
+      if(s.words[b].n !== s.words[a].n) return s.words[b].n - s.words[a].n;
+      if(s.words[b].t !== s.words[a].t) return s.words[b].t - s.words[a].t;
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+    if(typeof cap !== "number" || !isFinite(cap) || cap < 0) cap = COMEBACK_CAP;
+    return list.slice(0, cap);
+  }
+
   // The progress bar is themed per game (race track or maze) instead of a
   // plain fill bar — same idx/queue.length percentage drives both, just
   // rendered differently. Race is a straight left:pct% move; maze walks an
@@ -248,6 +388,11 @@ window.BlendGame = (function(){
   // the same start/end points.
   function progressMarkup(theme){
     if(theme === "maze"){
+      // "maze" is a vault run now, not a mouse-and-cheese maze — a ninja
+      // threading a laser corridor toward a vault of diamonds. Same path,
+      // same getPointAtLength walk, same class names (spell-game.js draws
+      // an identical SVG with its own icons and shares every rule below),
+      // just a fiction a 9th/10th grader won't feel talked down to by.
       var d = "M20,85 L150,85 L150,15 L300,15 L300,85 L450,85 L450,15 L580,15";
       return `
     <div class="track track-maze">
@@ -255,8 +400,8 @@ window.BlendGame = (function(){
         <path class="maze-wall" d="${d}"></path>
         <path class="maze-path" d="${d}"></path>
         <path id="mazeTrail" class="maze-trail" d="${d}"></path>
-        <text class="maze-goal" x="580" y="15">🧀</text>
-        <text id="mazeRunner" class="maze-runner" x="20" y="85">🐭</text>
+        <text class="maze-goal" x="580" y="15">💎</text>
+        <text id="mazeRunner" class="maze-runner" x="20" y="85">🥷</text>
       </svg>
     </div>`;
     }
@@ -310,6 +455,10 @@ window.BlendGame = (function(){
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
+        <!-- Only rendered once there's actually a deck to practise — see
+             renderComeback(). Sits next to Start Game because it's another
+             way to start a round, not a setting. -->
+        <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
         <button class="btn ghost" id="btnLevel">Listening: <span id="lvlLbl">Regular</span></button>
         <button class="btn ghost" id="btnVoice">Voice: <span id="voiceLbl">On</span></button>
@@ -383,14 +532,28 @@ window.BlendGame = (function(){
   }
 
   function start(cfg){
-    var WORDS = cfg.words;
+    // cfg.words entries may be dotted ("fan·tas·tic") to carry syllable-chunk
+    // data for the scaffolded reveal. Parse once here so every other line in
+    // this file — matching, TTS, the comeback deck, localStorage — only ever
+    // sees the plain word; no dot leaks past this point.
+    var parsedWords = (cfg.words || []).map(parseWordEntry);
+    var WORDS = parsedWords.map(function(p){ return p.word; });
+    var CHUNKS = {};
+    parsedWords.forEach(function(p){ if(p.chunks) CHUNKS[p.word] = p.chunks; });
+    function chunksFor(word){ return has(CHUNKS, word) ? CHUNKS[word] : null; }
     // Whether the blend sits at the front of the word or the back.
     var atStart = cfg.blend !== "end";
     // Number of letters in the blend — 2 for today's games ("bl", "nk"), but
     // kept configurable so a future str/spl/scr game can pass 3 without
     // touching this file.
-    var blendLength = cfg.blendLength || 2;
+    var blendLength = cfg.blendLength === undefined ? 2 : cfg.blendLength;
     var theme = cfg.theme === "maze" ? "maze" : "race";
+    // "sound" mode (cfg.blend === "sound"): the target phoneme (e.g. "OY"
+    // for oi/oy) can land anywhere in the word instead of a fixed start/end
+    // position — see findPhonemeSeq. cfg.highlight is the regex used to show
+    // the matching letters on the word card.
+    var soundSeq = cfg.sound ? [cfg.sound] : null;
+    var highlightRe = cfg.highlight || null;
 
     var mount = document.getElementById(cfg.mount || "app");
     mount.className = "wrap";
@@ -420,6 +583,39 @@ window.BlendGame = (function(){
       var savedVoice = localStorage.getItem("blendVoice");
       if(savedVoice !== null) voiceOn = savedVoice === "1";
     }catch(e){}
+
+    /* ---------------- the persistent comeback deck ----------------
+       Keyed by page path so every game keeps its own deck — trouble with
+       final blends has nothing to do with the oi/oy list, and a shared key
+       would mix them. Both accessors swallow their errors: with storage
+       unavailable (private mode, quota, a locked-down profile) the deck is
+       simply always empty and the button never appears. */
+    var comebackKey = "blendComeback:" + location.pathname;
+    var comebackList = [];    // the deck the button will play, built at render time
+    var mastered = [];        // this round's first-try-correct words, written at finish()
+    // Which list "Start Playing" on the mic-check screen will use — the full
+    // word list or the comeback deck, depending on which button got us here.
+    var pendingList = WORDS;
+
+    function readComeback(){
+      try{ return sanitizeComeback(JSON.parse(localStorage.getItem(comebackKey))); }
+      catch(e){ return sanitizeComeback(null); }
+    }
+    function writeComeback(store){
+      try{ localStorage.setItem(comebackKey, JSON.stringify(store)); }catch(e){}
+    }
+    // One read/write per round rather than one per word — a round is the
+    // natural unit here (n counts rounds missed), and it keeps the storage
+    // touch off the answer-handling path.
+    function persistComeback(){
+      if(!mastered.length && !missed.length) return;
+      var store = readComeback();
+      // Removals first, then misses. A word can't be both in one round today
+      // (a first-try correct answer never reaches `missed`), but if that ever
+      // changed the miss is the one that should stick.
+      mastered.forEach(function(w){ store = comebackMastered(store, w); });
+      writeComeback(comebackMerge(store, missed, Date.now()));
+    }
 
     /* mic state: micOn is the session-wide switch (mic stays on once the game
        starts); listening is whether recognition is actually running now. */
@@ -466,6 +662,10 @@ window.BlendGame = (function(){
     /* ---------------- screens ---------------- */
     function show(id){
       ["s-start","s-check","s-play","s-end"].forEach(function(s){ $(s).classList.toggle("on", s===id); });
+      // The deck changes every round, so the button and its count are rebuilt
+      // whenever the start screen comes back into view — hooking it here
+      // rather than on each caller means no path can leave a stale count.
+      if(id === "s-start") renderComeback();
     }
     function playing(){ return $("s-play").classList.contains("on"); }
 
@@ -501,17 +701,22 @@ window.BlendGame = (function(){
     function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }
 
     function markup(word){
+      if(highlightRe){
+        var m = highlightRe.exec(word);
+        if(!m) return word;
+        return word.slice(0, m.index) + '<span class="blend">' + m[0] + '</span>' + word.slice(m.index + m[0].length);
+      }
       return atStart
         ? '<span class="blend">' + word.slice(0,blendLength) + '</span>' + word.slice(blendLength)
         : word.slice(0, word.length-blendLength) + '<span class="blend">' + word.slice(-blendLength) + '</span>';
     }
 
     function wordMatches(heard, target){
-      return wordMatchesCore(heard, target, level, atStart, blendLength, WORDS);
+      return wordMatchesCore(heard, target, level, atStart, blendLength, WORDS, soundSeq);
     }
 
     function isMatch(heardText, target){
-      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS);
+      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq);
     }
 
     /* ---------------- mic check + level meter ----------------
@@ -679,7 +884,7 @@ window.BlendGame = (function(){
     /* ---------------- game flow ---------------- */
     function startGame(list){
       queue = shuffleOn ? shuffled(list) : list.slice();
-      idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; tries = 0; busy = false;
+      idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; mastered = []; tries = 0; busy = false;
       lastPct = null;
       show("s-play");
       micOn = !!SR;           // mic is on for the whole game from here
@@ -698,6 +903,7 @@ window.BlendGame = (function(){
       micOn = false;
       stopMicLoop();
       stopListening();
+      persistComeback();
       show("s-end");
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
@@ -730,7 +936,12 @@ window.BlendGame = (function(){
         missed.forEach(function(w){
           var d = document.createElement("div");
           d.className = "chip";
-          d.innerHTML = markup(w).replace(/class="blend"/g,'class="b"');
+          var wChunks = chunksFor(w);
+          // Chunked words show their dotted form (fan·tas·tic) on the
+          // takeaway list itself, so the practice list teaches the split —
+          // words without chunk data keep the plain highlighted markup.
+          if(wChunks) d.textContent = wChunks.join(CHUNK_SEP);
+          else d.innerHTML = markup(w).replace(/class="blend"/g,'class="b"');
           grid.appendChild(d);
         });
         $("btnRetryMissed").style.display = "";
@@ -763,6 +974,9 @@ window.BlendGame = (function(){
       busy = true;
       right++;
       streak++;
+      // First try, no stumble: the word has earned its way out of the
+      // comeback deck. Getting it on the retry (tries > 0) doesn't count.
+      if(tries === 0 && mastered.indexOf(queue[idx]) === -1) mastered.push(queue[idx]);
       if(streak > best) best = streak;
       var pts = pointsFor(streak);
       var mult = comboMultiplier(streak);
@@ -804,15 +1018,27 @@ window.BlendGame = (function(){
       popup("✗", "#ff6b6b");
       sndBad();
       var target = queue[idx];
+      var targetChunks = tries >= 2 ? chunksFor(target) : null;
       var heardTxt = normalize(heard);
-      var msg = tries < 2
-        ? "Not quite — try once more."
-        : "Let's move on. The word was <b>" + target + "</b>.";
+      var msg;
+      if(tries < 2){
+        msg = "Not quite — try once more.";
+      } else if(targetChunks){
+        // Scaffold the reveal into syllables instead of just re-showing the
+        // whole word — the whole point of the chunk data is to teach the
+        // split, not just hand back the answer.
+        msg = "Let's move on. The word was " + chunkMarkup(targetChunks) + ".";
+      } else {
+        msg = "Let's move on. The word was <b>" + target + "</b>.";
+      }
       $("uiMic").innerHTML = msg + (heardTxt ? '<br><span class="heard">I heard: ' + heardTxt + "</span>" : '<br><span class="heard">I didn\'t catch that</span>');
       if(tries >= 2){
         if(missed.indexOf(target) === -1) missed.push(target);
         // Never on the first miss — that stays fast so the retry isn't slowed down.
-        if(voiceOn) say("The word was, " + target + ".", { rate: 0.9 });
+        if(voiceOn){
+          if(targetChunks) sayChunked(targetChunks, target);
+          else say("The word was, " + target + ".", { rate: 0.9 });
+        }
         setTimeout(function(){ busy = false; next(); }, voiceOn ? 2600 : 1900);
       } else {
         setTimeout(function(){ busy = false; $("wordCard").className = "wordcard"; }, 900);
@@ -985,7 +1211,7 @@ window.BlendGame = (function(){
     // often enough by chance to sound broken.
     var lastPraise = -1;
     function praisePhrase(word){
-      var options = ["Nice!", "Got it!", "You said it!", "Great reading!", "Yes — " + word + "!", "Perfect!"];
+      var options = ["Nice!", "Got it!", "You said it!", "Nailed it!", "Yes — " + word + "!", "Perfect!"];
       var i;
       do { i = Math.floor(Math.random() * options.length); } while(i === lastPraise);
       lastPraise = i;
@@ -1036,10 +1262,63 @@ window.BlendGame = (function(){
       say(queue[idx], { rate: 0.85 });
     }
 
+    // Speaks a chunked word syllable-by-syllable ("fan, tas, tic" — the
+    // commas give the pauses), then the whole word. Two native utterances
+    // queued back-to-back rather than two say() calls, since say() cancels
+    // whatever's already talking — calling it twice in a row would just
+    // clip the first utterance instead of letting both play in sequence.
+    function sayChunked(chunks, word){
+      if(!window.speechSynthesis) return;
+      try{
+        window.speechSynthesis.cancel();
+        var u1 = new SpeechSynthesisUtterance(chunks.join(", "));
+        var u2 = new SpeechSynthesisUtterance(word);
+        [u1, u2].forEach(function(u){ u.lang = "en-US"; if(voice) u.voice = voice; });
+        u1.rate = 0.7;
+        u2.rate = 0.9;
+        currentUtterance = u2;
+        speaking = true;
+        stopListening();
+        updateMicUI();
+        var release = function(){
+          if(currentUtterance !== u2) return;   // superseded by a newer say()/sayChunked()
+          currentUtterance = null;
+          speaking = false;
+          holdMic(350);   // let the speakers settle before listening again
+        };
+        u2.onend = release;
+        u2.onerror = release;
+        // Safety net in case onend never fires (Chrome does this sometimes).
+        var totalChars = chunks.join(", ").length + word.length;
+        setTimeout(function(){ if(currentUtterance === u2) release(); }, 1200 + 90 * totalChars);
+        window.speechSynthesis.speak(u1);
+        window.speechSynthesis.speak(u2);
+      }catch(e){ speaking = false; }
+    }
+
     /* ---------------- events ---------------- */
-    $("btnStart").addEventListener("click", function(){ beep([440],0.06); startMicCheck(); });
-    $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(WORDS); });
+    $("btnStart").addEventListener("click", function(){
+      pendingList = WORDS;
+      beep([440],0.06); startMicCheck();
+    });
+    $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(pendingList); });
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
+
+    // The count has to be right at the moment the student looks at it, so
+    // the deck is rebuilt from storage here rather than cached at load —
+    // finish() has usually rewritten the store since the last render.
+    function renderComeback(){
+      comebackList = comebackDeck(readComeback(), COMEBACK_CAP);
+      $("btnComeback").style.display = comebackList.length ? "" : "none";
+      $("cbCount").textContent = comebackList.length;
+    }
+    $("btnComeback").addEventListener("click", function(){
+      if(!comebackList.length) return;
+      pendingList = comebackList.slice();
+      beep([440],0.06); startMicCheck();
+    });
+    renderComeback();
+
     function renderShuffle(){
       $("shufLbl").textContent = shuffleOn ? "On" : "Off";
     }
@@ -1114,7 +1393,8 @@ window.BlendGame = (function(){
     });
   }
 
-  // _internals exposes the pure, state-free matching helpers for tests.html.
+  // _internals exposes the pure, state-free matching, scoring,
+  // comeback-deck and word-list-parsing helpers for tests.html.
   // Not part of the public game API — don't build games against it.
   return {
     start: start,
@@ -1125,8 +1405,15 @@ window.BlendGame = (function(){
       phoneticDistance: phoneticDistance,
       wordMatches: wordMatchesCore,
       isMatch: isMatchCore,
+      findPhonemeSeq: findPhonemeSeq,
       comboMultiplier: comboMultiplier,
-      pointsFor: pointsFor
+      pointsFor: pointsFor,
+      sanitizeComeback: sanitizeComeback,
+      comebackMerge: comebackMerge,
+      comebackMastered: comebackMastered,
+      comebackDeck: comebackDeck,
+      comebackCap: COMEBACK_CAP,
+      parseWordEntry: parseWordEntry
     }
   };
 })();

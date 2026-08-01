@@ -18,7 +18,7 @@
   connect-src 'self' https://*.googleapis.com https://*.google.com https://*.gstatic.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com;
   frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://content.googleapis.com https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://docs.google.com https://drive.google.com https://www.google.com;
 ">
-<title>Blend Game — Matching Tests</title>
+<title>Game Engine Tests</title>
 <link rel="stylesheet" href="site.css">
 <style>
   body{padding:32px 20px 60px}
@@ -39,8 +39,8 @@
 <body>
 <a class="home" href="index.html">🏠 Home</a>
 <div class="wrap">
-  <h1>Blend Game — matching tests</h1>
-  <p class="sub">Pure-function tests for the phonetic matcher in blend-game.js. No framework, no build step — just runs in the DOM.</p>
+  <h1>Game engine tests</h1>
+  <p class="sub">Pure-function tests for the phonetic matcher, combo scoring, comeback deck and syllable parser in blend-game.js, plus the spelling checker in spell-game.js. No framework, no build step — just runs in the DOM.</p>
   <div id="summary"></div>
   <table>
     <thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead>
@@ -49,6 +49,7 @@
 </div>
 
 <script src="blend-game.js"></script>
+<script src="spell-game.js"></script>
 <script>
 (function(){
   "use strict";
@@ -80,6 +81,25 @@
   var STARTWORDS = ["blip","crop","clam","grab","flub","grin","glad","prop","plop","trip",
     "plum","trot","sled","bled","slug","fled","scam","glen","skip","spin",
     "snip","spot","stem","drum","bran","drag","crab","frog"];
+  var NONSENSEWORDS = ["jag","baz","wat","gan","vab","sab","raz","taf",
+    "sem","ted","ret","heg","peb","yed","leb","ren",
+    "lif","vip","pid","tix","rit","sig","lim","din",
+    "bop","pon","com","fod","hom","rof","jom","loz",
+    "fug","tup","sug","lun","sud","hux","gud","muv"];
+  var OIOYWORDS = ["annoy","appoint","avoid","boyish","broil","choice","cloying","coil","coin",
+    "convoy","coy","decoy","deploy","destroy","devoid","droid","employ","enjoy",
+    "foil","hoist","join","joint","loyal","moist","noise","poison","ploy","royal",
+    "soil","soy","spoil","toil","void"];
+  var BIGWORDS = ["soft","public","goblin","fabric","gossip","napkin","sunlit","submit","antic",
+    "onset","subset","hubcap","picnic","attic","until","cabin","index","mascot",
+    "unfit","habit","panic","exam","hectic","comic","victim","robin","muffin",
+    "bobbin","upset","fantastic","volcanic","inhibit","magnetic","inhabit",
+    "disgusted","maximum","minimum"];
+  var NOBLEND = { atStart:true, blendLength:0 };
+  var SOUND_OY = ["OY"];
+  function matchSound(heard, target, level, list){
+    return I.wordMatches(heard, target, level, true, 0, list, SOUND_OY);
+  }
 
   // ---- every word matches itself, every level, both lists ----
   [0,1].forEach(function(level){
@@ -89,7 +109,31 @@
     STARTWORDS.forEach(function(w){
       eq("self-match \"" + w + "\" (start blend, level " + level + ")", match(w,w,level,START), true);
     });
+    NONSENSEWORDS.forEach(function(w){
+      eq("self-match \"" + w + "\" (no blend, level " + level + ")", match(w,w,level,NOBLEND), true);
+    });
+    BIGWORDS.forEach(function(w){
+      eq("self-match \"" + w + "\" (no blend, level " + level + ")", match(w,w,level,NOBLEND), true);
+    });
+    OIOYWORDS.forEach(function(w){
+      eq("self-match \"" + w + "\" (sound OY, level " + level + ")", matchSound(w,w,level,OIOYWORDS), true);
+    });
   });
+
+  // ---- "sound" mode: OY can be found anywhere in the word, not just a
+  // fixed start/end slice ----
+  eq("findPhonemeSeq locates OY at the start (\"coin\")", I.findPhonemeSeq(I.phonemes("coin"), ["OY"]), 1);
+  eq("findPhonemeSeq locates OY in the middle (\"boyish\")", I.findPhonemeSeq(I.phonemes("boyish"), ["OY"]), 1);
+  eq("findPhonemeSeq locates OY at the end (\"annoy\")", I.findPhonemeSeq(I.phonemes("annoy"), ["OY"]), 2);
+  eq("findPhonemeSeq returns -1 when absent (\"cat\")", I.findPhonemeSeq(I.phonemes("cat"), ["OY"]), -1);
+
+  // ---- sound mode forgives the rest of the word, same as a blend, but
+  // never forgives the target sound itself ----
+  eq("coin <- koin, Regular (sound-alike consonant)", matchSound("koin","coin",1,OIOYWORDS), true);
+  eq("coin <- koin, Spicy", matchSound("koin","coin",0,OIOYWORDS), false);
+  eq("coin <- cone, never (no OY sound at all)", matchSound("cone","coin",1,OIOYWORDS), false);
+  eq("coin <- cane, never (no OY sound at all)", matchSound("cane","coin",1,OIOYWORDS), false);
+  eq("annoy <- anoy, Regular (doubled n forgiven)", matchSound("anoy","annoy",1,OIOYWORDS), true);
 
   // ---- phoneme encoder: known-equal pairs ----
   eq("phonemes: crab == krab", ph("crab"), ph("krab"), ph("crab") + " / " + ph("krab"));
@@ -175,6 +219,33 @@
     eq("no word is confusable with another word in its own list (list-aware)", bad.length, 0, bad.join(", "));
   })();
 
+  // ---- syllable-chunk parsing: dotted word-list entries ("fan·tas·tic")
+  // split into the plain word (used everywhere else — matching, TTS, the
+  // comeback deck, localStorage) and a chunks array for the second-miss
+  // scaffold. Undotted entries get chunks:null and are otherwise untouched. ----
+  eq('parseWordEntry("fan·tas·tic") plain word', I.parseWordEntry("fan·tas·tic").word, "fantastic");
+  eq('parseWordEntry("fan·tas·tic") chunks (three syllables)',
+    I.parseWordEntry("fan·tas·tic").chunks.join(" "), "fan tas tic");
+  eq('parseWordEntry("pub·lic") plain word', I.parseWordEntry("pub·lic").word, "public");
+  eq('parseWordEntry("pub·lic") chunks (two syllables)',
+    I.parseWordEntry("pub·lic").chunks.join(" "), "pub lic");
+  eq('parseWordEntry("soft") (undotted) plain word', I.parseWordEntry("soft").word, "soft");
+  eq('parseWordEntry("soft") (undotted) has no chunks', I.parseWordEntry("soft").chunks, null);
+  eq('parseWordEntry("") plain word', I.parseWordEntry("").word, "");
+  eq('parseWordEntry("") has no chunks', I.parseWordEntry("").chunks, null);
+
+  // ---- the dotted Big Words config must derive the exact same plain word
+  // list as before — proof the matching behavior hasn't changed by adding
+  // chunk data to the word list syntax. ----
+  var BIGWORDS_DOTTED = ["soft","pub·lic","gob·lin","fab·ric","gos·sip","nap·kin","sun·lit","sub·mit","an·tic",
+    "on·set","sub·set","hub·cap","pic·nic","at·tic","un·til","cab·in","in·dex","mas·cot",
+    "un·fit","hab·it","pan·ic","ex·am","hec·tic","com·ic","vic·tim","rob·in","muf·fin",
+    "bob·bin","up·set","fan·tas·tic","vol·can·ic","in·hib·it","mag·net·ic","in·hab·it",
+    "dis·gust·ed","max·i·mum","min·i·mum"];
+  eq("dotted Big Words config derives the same plain word list as before",
+    BIGWORDS_DOTTED.map(function(w){ return I.parseWordEntry(w).word; }).join(" "),
+    BIGWORDS.join(" "));
+
   // ---- combo scoring: 10 × (×1/×2/×3 tier) + 25 on every 5th ----
   eq("pointsFor(1) = 10 (base)", I.pointsFor(1), 10);
   eq("pointsFor(4) = 10 (still ×1)", I.pointsFor(4), 10);
@@ -186,6 +257,191 @@
   eq("pointsFor(15) = 55 (×3 capped + milestone)", I.pointsFor(15), 55);
   eq("pointsFor(20) = 55 (cap holds forever)", I.pointsFor(20), 55);
   eq("comboMultiplier caps at 3", I.comboMultiplier(100), 3);
+
+  // ---- the persistent comeback store: sanitizing whatever localStorage
+  // hands back. Anything that isn't a real entry is dropped rather than
+  // trusted, so a corrupt deck can't take the game down with it. ----
+  function deckOf(store){ return I.comebackDeck(store, 99).join(" "); }
+  function countOf(store){ return I.comebackDeck(store, 99).length; }
+
+  eq("sanitize(null) is an empty store", countOf(I.sanitizeComeback(null)), 0);
+  eq("sanitize(garbage string) is an empty store", countOf(I.sanitizeComeback("nope")), 0);
+  eq("sanitize({}) is an empty store", countOf(I.sanitizeComeback({})), 0);
+  eq("sanitize stamps the store version", I.sanitizeComeback(null).v, 1);
+  eq("sanitize keeps a well-formed entry",
+    I.sanitizeComeback({words:{soft:{n:2,t:50}}}).words.soft.n, 2);
+  eq("sanitize drops a zero miss count",
+    countOf(I.sanitizeComeback({words:{soft:{n:0,t:50}}})), 0);
+  eq("sanitize drops a negative miss count",
+    countOf(I.sanitizeComeback({words:{soft:{n:-3,t:50}}})), 0);
+  eq("sanitize drops a non-numeric miss count",
+    countOf(I.sanitizeComeback({words:{soft:{n:"lots"}}})), 0);
+  eq("sanitize drops a non-object entry",
+    countOf(I.sanitizeComeback({words:{soft:7}})), 0);
+  eq("sanitize keeps the good entries beside a bad one",
+    deckOf(I.sanitizeComeback({words:{soft:{n:1,t:9}, golf:null}})), "soft");
+  eq("sanitize defaults a missing timestamp to 0",
+    I.sanitizeComeback({words:{soft:{n:1}}}).words.soft.t, 0);
+  eq("sanitize floors a fractional miss count",
+    I.sanitizeComeback({words:{soft:{n:2.7,t:1}}}).words.soft.n, 2);
+  (function(){
+    var raw = {words:{soft:{n:1,t:5}}};
+    var clean = I.sanitizeComeback(raw);
+    clean.words.soft.n = 99;
+    eq("sanitize copies rather than aliasing the input", raw.words.soft.n, 1);
+  })();
+
+  // ---- merging a round's misses ----
+  eq("merge into an empty store records one miss",
+    I.comebackMerge(null, ["soft"], 100).words.soft.n, 1);
+  eq("merge records when the word was missed",
+    I.comebackMerge(null, ["soft"], 100).words.soft.t, 100);
+  eq("a second round's miss increments the count",
+    I.comebackMerge(I.comebackMerge(null, ["soft"], 100), ["soft"], 200).words.soft.n, 2);
+  eq("a later miss refreshes the timestamp",
+    I.comebackMerge(I.comebackMerge(null, ["soft"], 100), ["soft"], 200).words.soft.t, 200);
+  eq("the same word twice in one round still counts once",
+    I.comebackMerge(null, ["soft","soft"], 100).words.soft.n, 1);
+  eq("merging no misses leaves the deck alone",
+    deckOf(I.comebackMerge({words:{soft:{n:2,t:5}}}, [], 100)), "soft");
+  eq("merging an undefined miss list is safe",
+    countOf(I.comebackMerge(null, undefined, 100)), 0);
+  eq("merge skips non-string entries", countOf(I.comebackMerge(null, [null, 7, ""], 100)), 0);
+  eq("merge adds every distinct word", countOf(I.comebackMerge(null, ["soft","golf","vest"], 100)), 3);
+  (function(){
+    var before = I.comebackMerge(null, ["soft"], 100);
+    I.comebackMerge(before, ["golf"], 200);
+    eq("merge doesn't mutate the store it was given", countOf(before), 1);
+  })();
+  // Object keys and inherited properties: "constructor" is a real English
+  // word, and a store keyed by it must not pick up Object.prototype's.
+  eq("a word that collides with an Object property still merges cleanly",
+    I.comebackMerge(null, ["constructor"], 100).words.constructor.n, 1);
+
+  // ---- mastery: a first-try correct answer takes the word out ----
+  eq("a mastered word leaves the deck",
+    countOf(I.comebackMastered(I.comebackMerge(null, ["soft"], 100), "soft")), 0);
+  eq("mastering one word leaves the others",
+    deckOf(I.comebackMastered(I.comebackMerge(null, ["soft","golf"], 100), "soft")), "golf");
+  eq("mastering a word that was never missed is a no-op",
+    deckOf(I.comebackMastered(I.comebackMerge(null, ["soft"], 100), "vest")), "soft");
+  eq("mastering on an empty store is safe", countOf(I.comebackMastered(null, "soft")), 0);
+  eq("a word missed three times still leaves in one first-try read",
+    countOf(I.comebackMastered({words:{soft:{n:3,t:9}}}, "soft")), 0);
+  (function(){
+    var before = I.comebackMerge(null, ["soft"], 100);
+    I.comebackMastered(before, "soft");
+    eq("mastering doesn't mutate the store it was given", countOf(before), 1);
+  })();
+
+  // ---- building the deck: most-missed first, capped ----
+  eq("an empty store makes an empty deck", I.comebackDeck(null, 15).length, 0);
+  eq("the deck is most-missed first",
+    I.comebackDeck({words:{soft:{n:1,t:1}, golf:{n:5,t:1}, vest:{n:3,t:1}}}, 15).join(" "),
+    "golf vest soft");
+  (function(){
+    // Same miss count, different last-missed times — fresher trouble first.
+    var store = {words:{soft:{n:2,t:100}, golf:{n:2,t:300}, vest:{n:2,t:200}}};
+    eq("ties on miss count go to the most recently missed",
+      I.comebackDeck(store, 15).join(" "), "golf vest soft");
+  })();
+  eq("ties on both count and time fall back to alphabetical",
+    I.comebackDeck({words:{vest:{n:2,t:5}, golf:{n:2,t:5}, soft:{n:2,t:5}}}, 15).join(" "),
+    "golf soft vest");
+  (function(){
+    // 20 words, miss counts 20 down to 1: the cap must keep the worst 15.
+    var store = { words: {} };
+    for(var i=0;i<20;i++) store.words["w" + (i<10?"0":"") + i] = { n: 20-i, t: 1000-i };
+    var deck = I.comebackDeck(store, undefined);
+    eq("the deck is capped by default", deck.length, 15);
+    eq("the cap keeps the most-missed word", deck[0], "w00");
+    eq("the cap keeps the 15th-most-missed word", deck[14], "w14");
+    eq("the cap drops the least-missed word", deck.indexOf("w19"), -1);
+    eq("an explicit cap wins over the default", I.comebackDeck(store, 3).join(" "), "w00 w01 w02");
+    eq("a cap of 0 makes an empty deck", I.comebackDeck(store, 0).length, 0);
+    eq("a nonsense cap falls back to the default", I.comebackDeck(store, "lots").length, 15);
+    eq("a deck under the cap keeps everything", I.comebackDeck(store, 99).length, 20);
+  })();
+  eq("the default cap is 15 words", I.comebackCap, 15);
+
+  // ---- the whole lifecycle, as a round would drive it: missed twice, then
+  // read right on the first try, and the word is done. ----
+  (function(){
+    var store = null;
+    store = I.comebackMerge(store, ["soft","golf"], 100);      // round 1 misses
+    store = I.comebackMerge(store, ["soft"], 200);             // round 2: soft again
+    eq("lifecycle: the repeat offender leads the deck", I.comebackDeck(store, 15).join(" "), "soft golf");
+    store = I.comebackMastered(store, "soft");                 // round 3: first-try correct
+    eq("lifecycle: a first-try read clears the repeat offender",
+      I.comebackDeck(store, 15).join(" "), "golf");
+    store = I.comebackMastered(store, "golf");
+    eq("lifecycle: the deck empties and the button disappears",
+      I.comebackDeck(store, 15).length, 0);
+  })();
+
+  // ---- spelling game (SpellGame) ----
+  var S = window.SpellGame._internals;
+  // Renders a diff as text so it can be compared with eq(): correct letters
+  // plain, letters the student failed to produce in [brackets].
+  function diffStr(typed, target){
+    return S.diffLetters(typed, target).map(function(p){ return p.ok ? p.ch : "["+p.ch+"]"; }).join("");
+  }
+  var SPELLWORDS = ["annoy","appoint","avoid","boyish","broil","choice","cloying","coil","coin",
+    "convoy","coy","decoy","deploy","destroy","devoid","droid","employ","enjoy",
+    "foil","hoist","join","joint","loyal","moist","noise","poison","ploy","royal",
+    "soil","soy","spoil","toil","void"];
+
+  // every word is accepted when spelled right, and diffs clean against itself
+  SPELLWORDS.forEach(function(w){
+    eq("self-spell \"" + w + "\"", S.isCorrect(w, w), true);
+    eq("self-diff \"" + w + "\" is all correct", diffStr(w, w), w);
+  });
+
+  // ---- normalization: typing noise is forgiven, letters are not ----
+  eq('normalizeAnswer trims and lowercases', S.normalizeAnswer("  Coin "), "coin");
+  eq('normalizeAnswer drops a stray period', S.normalizeAnswer("coin."), "coin");
+  eq('normalizeAnswer drops inner spaces', S.normalizeAnswer("co in"), "coin");
+  eq('normalizeAnswer straightens a curly apostrophe', S.normalizeAnswer("boy’s"), "boy's");
+  eq('normalizeAnswer of null is empty', S.normalizeAnswer(null), "");
+  eq('normalizeAnswer of undefined is empty', S.normalizeAnswer(undefined), "");
+  eq("isCorrect ignores case and spacing", S.isCorrect("  COIN. ", "coin"), true);
+  eq("isCorrect rejects the other spelling (coyn)", S.isCorrect("coyn","coin"), false);
+  eq("isCorrect rejects the other spelling (enjoi)", S.isCorrect("enjoi","enjoy"), false);
+  eq("isCorrect rejects moyst for moist", S.isCorrect("moyst","moist"), false);
+  eq("isCorrect rejects an extra letter (coinn)", S.isCorrect("coinn","coin"), false);
+  eq("isCorrect rejects an empty answer", S.isCorrect("","coin"), false);
+  eq("isCorrect rejects a whitespace-only answer", S.isCorrect("   ","coin"), false);
+
+  // ---- letter diff: the reveal points at the letters that went wrong ----
+  eq("diff marks the swapped vowel team: coyn -> coin", diffStr("coyn","coin"), "co[i]n");
+  eq("diff marks the swapped vowel team: enjoi -> enjoy", diffStr("enjoi","enjoy"), "enjo[y]");
+  eq("diff marks a dropped letter: cin -> coin", diffStr("cin","coin"), "c[o]in");
+  eq("diff marks a dropped double: anoy -> annoy", diffStr("anoy","annoy"), "a[n]noy");
+  eq("diff marks the wrong vowel: royel -> royal", diffStr("royel","royal"), "roy[a]l");
+  eq("diff ignores extra letters they typed: coinn -> coin", diffStr("coinn","coin"), "coin");
+  eq("diff of an empty answer marks every letter", diffStr("","coy"), "[c][o][y]");
+  eq("diff always spans the whole target", S.diffLetters("xqz","destroy").length, 7);
+  eq("diff is case-insensitive", diffStr("COIN","coin"), "coin");
+
+  // ---- scoring is the same system as the blend games ----
+  eq("spell pointsFor(1) = 10 (base)", S.pointsFor(1), 10);
+  eq("spell pointsFor(4) = 10 (still x1)", S.pointsFor(4), 10);
+  eq("spell pointsFor(5) = 45 (x2 + milestone)", S.pointsFor(5), 45);
+  eq("spell pointsFor(6) = 20 (x2)", S.pointsFor(6), 20);
+  eq("spell pointsFor(10) = 55 (x3 + milestone)", S.pointsFor(10), 55);
+  eq("spell pointsFor(11) = 30 (x3)", S.pointsFor(11), 30);
+  eq("spell pointsFor(20) = 55 (cap holds)", S.pointsFor(20), 55);
+  eq("spell comboMultiplier caps at 3", S.comboMultiplier(100), 3);
+  eq("SpellGame scoring matches BlendGame", S.pointsFor(5), I.pointsFor(5));
+
+  // ---- no word in the list can be spelled as another word in the list ----
+  (function(){
+    var bad = [];
+    SPELLWORDS.forEach(function(t){
+      SPELLWORDS.forEach(function(h){ if(h !== t && S.isCorrect(h, t)) bad.push(t+"<-"+h); });
+    });
+    eq("no two words in the spelling list are interchangeable", bad.length, 0, bad.join(", "));
+  })();
 
   // ---- render ----
   var rows = document.getElementById("rows");
