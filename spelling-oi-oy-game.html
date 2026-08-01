@@ -49,7 +49,46 @@ SpellGame.start({
   words: ["annoy","appoint","avoid","boyish","broil","choice","cloying","coil","coin",
           "convoy","coy","decoy","deploy","destroy","devoid","droid","employ","enjoy",
           "foil","hoist","join","joint","loyal","moist","noise","poison","ploy","royal",
-          "soil","soy","spoil","toil","void"]
+          "soil","soy","spoil","toil","void"],
+  // Spoken between the two reads of the word, spelling-bee style. A lone
+  // synthesised word is easy to mishear; the sentence is what makes it
+  // unmistakable. Each sentence uses the word exactly once and never
+  // contains another word from the list.
+  sentences: {
+    annoy:   "Loud chewing can really annoy people.",
+    appoint: "The coach will appoint a new team captain.",
+    avoid:   "She left early to avoid the traffic.",
+    boyish:  "He flashed a boyish grin.",
+    broil:   "You can broil the fish for five minutes.",
+    choice:  "Pizza or tacos — it's your choice.",
+    cloying: "The candy was so sweet it was cloying.",
+    coil:    "The snake wound itself into a tight coil.",
+    coin:    "He flipped a coin to decide.",
+    convoy:  "A convoy of trucks rolled down the highway.",
+    coy:     "She gave a coy smile and said nothing.",
+    decoy:   "The hunters set out a wooden duck decoy.",
+    deploy:  "The army will deploy more troops overseas.",
+    destroy: "One bad storm can destroy the whole crop.",
+    devoid:  "The desert was devoid of water.",
+    droid:   "The droid beeped and rolled across the floor.",
+    employ:  "The new factory will employ two hundred workers.",
+    enjoy:   "I hope you enjoy the show.",
+    foil:    "Wrap the sandwich in foil.",
+    hoist:   "They worked together to hoist the flag.",
+    join:    "Come join us at our table.",
+    joint:   "Your elbow is a joint.",
+    loyal:   "A dog is a loyal friend.",
+    moist:   "The cake was rich and moist.",
+    noise:   "What was that noise upstairs?",
+    poison:  "The bottle was marked with a poison warning.",
+    ploy:    "The fake fight was just a ploy to distract the guard.",
+    royal:   "The royal family lives in a palace.",
+    soil:    "Plant the seeds in fresh soil.",
+    soy:     "This milk is made from soy.",
+    spoil:   "Milk will spoil if you leave it out.",
+    toil:    "The workers toil in the sun all day.",
+    void:    "The rocket drifted into the void of space."
+  }
 });
 </script>
 </body>

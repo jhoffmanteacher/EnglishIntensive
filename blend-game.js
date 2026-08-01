@@ -1186,10 +1186,18 @@ window.BlendGame = (function(){
        always wins over the flat default. */
     var voice = null;
 
+    // macOS/iOS ship joke voices (Albert croaks, Zarvox is a robot, Bahh is a
+    // sheep) in the same en-US list as the real ones, and alphabetical order
+    // puts Albert first — never pick these, even as a last resort.
+    // Duplicated in spell-game.js; keep the two rankings in sync.
+    var NOVELTY = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Eddy|Flo|Good News|Grandma|Grandpa|Hysterical|Jester|Junior|Kathy|Organ|Ralph|Reed|Rocko|Sandy|Shelley|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred/;
+
     function pickVoice(){
       if(!window.speechSynthesis) return;
       var all = window.speechSynthesis.getVoices() || [];
-      var en = all.filter(function(v){ return /^en/i.test(v.lang); });
+      var en = all.filter(function(v){
+        return /^en/i.test(v.lang) && !NOVELTY.test(v.name);
+      });
       if(!en.length) return;   // list not loaded yet; voiceschanged will retry
       function find(test){
         for(var i=0;i<en.length;i++){ if(test(en[i])) return en[i]; }
@@ -1198,6 +1206,7 @@ window.BlendGame = (function(){
       voice =
         find(function(v){ return v.lang === "en-US" && /Google/.test(v.name); }) ||
         find(function(v){ return /Natural|Online/.test(v.name); }) ||
+        find(function(v){ return /Samantha|Ava|Allison|Alex/.test(v.name); }) ||
         find(function(v){ return v.lang === "en-US" && v.localService; }) ||
         find(function(v){ return v.lang === "en-US"; }) ||
         en[0];

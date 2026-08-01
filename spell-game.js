@@ -183,7 +183,9 @@ window.SpellGame = (function(){
       </div>
       <ol class="steps">
         <li>Put your <b>headphones</b> on — this game listens to nothing, so a loud room is fine.</li>
-        <li>The computer says a word. <b>🔊 Say it again</b> repeats it; click it twice for a slower read.</li>
+        <li>${cfg.hasSentences
+          ? "The computer says a word, uses it in a sentence, then says it again. <b>🔊 Say it again</b> repeats just the word; click it twice for a slower read."
+          : "The computer says a word. <b>🔊 Say it again</b> repeats it; click it twice for a slower read."}</li>
         <li><b>Type</b> what you hear and press <kbd>Enter</kbd>.</li>
         <li>Two shots at each word. Every 5 right in a row is bonus points.</li>
       </ol>
@@ -249,6 +251,9 @@ window.SpellGame = (function(){
   function start(cfg){
     var WORDS = cfg.words;
     var highlightRe = cfg.highlight || null;
+    // Optional word -> context sentence map for the spelling-bee read.
+    // Words without an entry just get the plain word — no error, less help.
+    var SENTENCES = cfg.sentences || {};
 
     injectStyle();
     var mount = document.getElementById(cfg.mount || "app");
@@ -257,7 +262,8 @@ window.SpellGame = (function(){
       title: cfg.title,
       intro: cfg.intro || "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!",
       rule: cfg.rule || "",
-      count: WORDS.length
+      count: WORDS.length,
+      hasSentences: Object.keys(SENTENCES).length > 0
     });
 
     /* ---------------- state ---------------- */
@@ -307,10 +313,19 @@ window.SpellGame = (function(){
        Keep the voice ranking in sync if it ever changes there. */
     var voice = null;
 
+    // macOS/iOS ship joke voices (Albert croaks, Zarvox is a robot, Bahh is a
+    // sheep) in the same en-US list as the real ones. "First local en-US
+    // voice" used to be the fallback, and alphabetically that's Albert — so
+    // on Safari the game could sound like a frog. Never pick these, even as
+    // a last resort; word-only fallback beats an unintelligible voice.
+    var NOVELTY = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Eddy|Flo|Good News|Grandma|Grandpa|Hysterical|Jester|Junior|Kathy|Organ|Ralph|Reed|Rocko|Sandy|Shelley|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred/;
+
     function pickVoice(){
       if(!window.speechSynthesis) return;
       var all = window.speechSynthesis.getVoices() || [];
-      var en = all.filter(function(v){ return /^en/i.test(v.lang); });
+      var en = all.filter(function(v){
+        return /^en/i.test(v.lang) && !NOVELTY.test(v.name);
+      });
       if(!en.length) return;   // list not loaded yet; voiceschanged will retry
       function find(test){
         for(var i=0;i<en.length;i++){ if(test(en[i])) return en[i]; }
@@ -319,6 +334,7 @@ window.SpellGame = (function(){
       voice =
         find(function(v){ return v.lang === "en-US" && /Google/.test(v.name); }) ||
         find(function(v){ return /Natural|Online/.test(v.name); }) ||
+        find(function(v){ return /Samantha|Ava|Allison|Alex/.test(v.name); }) ||
         find(function(v){ return v.lang === "en-US" && v.localService; }) ||
         find(function(v){ return v.lang === "en-US"; }) ||
         en[0];
@@ -326,23 +342,40 @@ window.SpellGame = (function(){
     pickVoice();
     if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged = pickVoice;
 
-    function say(text, rate){
+    // Each part is [text, rate]. Separate utterances rather than one long
+    // string because the synthesiser's gap between utterances is the pause
+    // that makes a spelling-bee read parse as word / sentence / word.
+    function sayParts(parts){
       if(!window.speechSynthesis) return;
       try{
         // Cancel first: a student hammering "Say it again" should hear the
         // newest read immediately, not a queue of stacked-up ones.
         window.speechSynthesis.cancel();
-        var u = new SpeechSynthesisUtterance(text);
-        u.lang = "en-US";
-        u.rate = rate || NORMAL_RATE;
-        if(voice) u.voice = voice;
-        window.speechSynthesis.speak(u);
+        parts.forEach(function(p){
+          var u = new SpeechSynthesisUtterance(p[0]);
+          u.lang = "en-US";
+          u.rate = p[1] || NORMAL_RATE;
+          if(voice) u.voice = voice;
+          window.speechSynthesis.speak(u);
+        });
       }catch(e){}
     }
+    function say(text, rate){ sayParts([[text, rate]]); }
 
     // The whole game is this line: the word is only ever spoken, never shown.
-    function speakWord(slow){
-      say(queue[idx], slow ? SLOW_RATE : NORMAL_RATE);
+    // A lone synthesised word is the hardest possible listening task — no
+    // prosody, no context — so the first read runs spelling-bee style:
+    // word, the word in a sentence, word again. Replays (withSentence
+    // false) are just the word; by then the student has the context and
+    // wants the sounds.
+    function speakWord(slow, withSentence){
+      var w = queue[idx];
+      var rate = slow ? SLOW_RATE : NORMAL_RATE;
+      var s = withSentence && SENTENCES[w];
+      // The sentence always stays at natural rate — slowing a whole
+      // sentence drones, and the smearing note on SLOW_RATE applies double.
+      if(s) sayParts([[w, rate], [s, NORMAL_RATE], [w, rate]]);
+      else say(w, rate);
     }
 
     /* ---------------- screens ---------------- */
@@ -438,7 +471,7 @@ window.SpellGame = (function(){
       $("uiMsg").innerHTML = "Listen, then type it.";
       repeats = 0;
       focusInput();
-      speakWord(false);
+      speakWord(false, true);
     }
     function popup(txt, color, big){
       var p = $("popup");
@@ -587,7 +620,9 @@ window.SpellGame = (function(){
         repeats = 2;                // every replay from here on is the slow one
         // A beat of silence first, so the replay doesn't collide with the
         // wrong-answer beep the student is still hearing.
-        setTimeout(function(){ speakWord(true); }, 420);
+        // The sentence comes back too — a student who misheard the word
+        // needs the context again more than anyone.
+        setTimeout(function(){ speakWord(true, true); }, 420);
         var input = $("uiInput");
         input.focus();
         input.select();
