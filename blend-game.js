@@ -441,11 +441,12 @@ window.BlendGame = (function(){
       <h1>${cfg.title}</h1>
       <p class="sub">${cfg.intro}</p>
       <div id="compatWarn" class="warn" style="display:none"></div>
+      <button class="btn ghost" id="btnDirections" type="button" style="margin-bottom:16px">🔊 Read directions aloud</button>
       <ol class="steps">
-        <li>Put on your <b>headphones with a mic</b> (or use the built-in mic).</li>
-        <li>Click <b>Allow</b> when Chrome asks to use your microphone.</li>
-        <li>Check the <b>mic meter</b> on the next screen before you play.</li>
-        <li>The mic <b>stays on</b> the whole game — just say each word clearly.</li>
+        <li>Put on <b>headphones with a mic</b>, or use your built-in mic.</li>
+        <li>Click <b>Allow</b> so Chrome can use your microphone.</li>
+        <li>Check the <b>mic meter</b> on the next screen.</li>
+        <li>The mic <b>stays on</b> the whole game. Just say each word clearly.</li>
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
@@ -1291,7 +1292,23 @@ window.BlendGame = (function(){
       }catch(e){ speaking = false; }
     }
 
+    // Reads the intro line and every step on the start screen, in order —
+    // pulled live from the DOM (textContent strips the <b>/<kbd> markup for
+    // us) so this never drifts out of sync with the visible directions.
+    function readDirections(){
+      if(!window.speechSynthesis) return;
+      var start = $("s-start");
+      var parts = [];
+      var intro = start.querySelector(".sub");
+      if(intro) parts.push(intro.textContent.replace(/\s+/g, " ").trim());
+      start.querySelectorAll(".steps li").forEach(function(li){
+        parts.push(li.textContent.replace(/\s+/g, " ").trim());
+      });
+      say(parts.join(". "), { rate: 0.92 });
+    }
+
     /* ---------------- events ---------------- */
+    $("btnDirections").addEventListener("click", readDirections);
     $("btnStart").addEventListener("click", function(){
       pendingList = WORDS;
       beep([440],0.06); startMicCheck();

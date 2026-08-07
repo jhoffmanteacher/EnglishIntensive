@@ -181,13 +181,14 @@ window.SpellGame = (function(){
         <div class="tag">The rule</div>
         ${cfg.rule}
       </div>
+      <button class="btn ghost" id="btnDirections" type="button" style="margin-bottom:16px">🔊 Read directions aloud</button>
       <ol class="steps">
-        <li>Put your <b>headphones</b> on — this game listens to nothing, so a loud room is fine.</li>
+        <li>Put your <b>headphones</b> on. This game listens to nothing, so a loud room is fine.</li>
         <li>${cfg.hasSentences
-          ? "The computer says a word, uses it in a sentence, then says it again. <b>🔊 Say it again</b> repeats just the word; click it twice for a slower read."
-          : "The computer says a word. <b>🔊 Say it again</b> repeats it; click it twice for a slower read."}</li>
+          ? "The computer says a word, uses it in a sentence, then says the word again. <b>🔊 Say it again</b> repeats just the word. Click it twice for a slower read."
+          : "The computer says a word. <b>🔊 Say it again</b> repeats it. Click it twice for a slower read."}</li>
         <li><b>Type</b> what you hear and press <kbd>Enter</kbd>.</li>
-        <li>Two shots at each word. Every 5 right in a row is bonus points.</li>
+        <li>Two tries at each word. Every 5 right in a row is bonus points.</li>
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
@@ -671,7 +672,38 @@ window.SpellGame = (function(){
       else handleWrong(raw);
     }
 
+    // Reads the intro line, the rule box, and every step on the start
+    // screen, in order — pulled live from the DOM (textContent strips the
+    // <b>/<kbd> markup for us) so this never drifts out of sync with the
+    // visible directions.
+    function spokenText(el){
+      // Collapse the markup's indentation whitespace to single spaces, and
+      // spell out the rule box's "→" arrows — TTS engines either skip the
+      // glyph in silence or read it as "right arrow", neither of which
+      // parses as "leads to" for a listening student.
+      return el.textContent.replace(/\s+/g, " ").replace(/→/g, "leads to").trim();
+    }
+    function readDirections(){
+      if(!window.speechSynthesis) return;
+      var start = $("s-start");
+      var parts = [];
+      var intro = start.querySelector(".sub");
+      if(intro) parts.push(spokenText(intro));
+      var rule = start.querySelector(".rule");
+      if(rule){
+        parts.push("The rule.");
+        rule.querySelectorAll(":scope > *:not(.tag)").forEach(function(el){
+          parts.push(spokenText(el));
+        });
+      }
+      start.querySelectorAll(".steps li").forEach(function(li){
+        parts.push(spokenText(li));
+      });
+      say(parts.join(". "), NORMAL_RATE);
+    }
+
     /* ---------------- events ---------------- */
+    $("btnDirections").addEventListener("click", readDirections);
     function renderShuffle(){
       $("shufLbl").textContent = shuffleOn ? "On" : "Off";
     }
