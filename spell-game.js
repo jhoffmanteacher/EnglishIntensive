@@ -688,21 +688,40 @@ window.SpellGame = (function(){
 
     $("btnStart").addEventListener("click", function(){ beep([440],0.06); startGame(WORDS); });
 
+    // Turns a fragment of the intro's innerHTML (split on <br>) into plain
+    // spoken text — strips any remaining tags the same way .textContent
+    // would, without also losing the <br> line break itself.
+    function htmlFragmentToText(html){
+      var tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      return (tmp.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
     // Reads the start screen's intro, spelling rule, and numbered steps
     // aloud, in the same best-available voice as the words themselves
     // (pickVoice() already prefers a cloud/network voice like Chrome's
-    // "Google US English" over the flatter local ones). textContent on the
+    // "Google US English" over the flatter local ones). Pulled from the
     // live DOM nodes rather than a second copy of the strings, so the
-    // spoken version can never drift from what's on screen.
+    // spoken version can never drift from what's on screen. Each sentence /
+    // rule paragraph / step is its own entry rather than one joined string —
+    // sayParts() queues one utterance per entry, so each gets its own pause
+    // instead of running into the next (and no glue punctuation to double
+    // up against text that's already sentence-terminated).
     $("btnHearDirections").addEventListener("click", function(){
       var start = $("s-start");
-      var parts = [start.querySelector(".sub").textContent];
+      var introHtml = start.querySelector(".sub").innerHTML;
+      var parts = introHtml.split(/<br\s*\/?>/i).map(htmlFragmentToText).filter(Boolean);
       var rule = start.querySelector(".rule");
-      if(rule) parts.push(rule.textContent.replace(/^\s*The rule\s*/, ""));
+      if(rule){
+        rule.querySelectorAll("p, li").forEach(function(el){
+          var t = el.textContent.replace(/\s+/g, " ").trim();
+          if(t) parts.push(t);
+        });
+      }
       start.querySelectorAll(".steps li").forEach(function(li){
-        parts.push(li.textContent);
+        parts.push(li.textContent.replace(/\s+/g, " ").trim());
       });
-      say(parts.join(". "));
+      sayParts(parts.map(function(t){ return [t, NORMAL_RATE]; }));
     });
 
     $("spellForm").addEventListener("submit", function(e){

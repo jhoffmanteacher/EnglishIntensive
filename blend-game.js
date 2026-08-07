@@ -1308,6 +1308,53 @@ window.BlendGame = (function(){
       }catch(e){ speaking = false; }
     }
 
+    // Generalizes sayChunked() above to any number of fragments: one native
+    // utterance per fragment, queued back-to-back rather than joined into a
+    // single string with glue punctuation — each fragment already ends in
+    // its own sentence-final punctuation, so gluing would double it up, and
+    // separate utterances give a truer pause between fragments than any
+    // punctuation would anyway. Used for the "Hear directions" read-aloud.
+    function sayParts(parts){
+      if(!window.speechSynthesis) return;
+      parts = parts.filter(function(p){ return p; });
+      if(!parts.length) return;
+      try{
+        window.speechSynthesis.cancel();
+        var utterances = parts.map(function(text){
+          var u = new SpeechSynthesisUtterance(text);
+          u.lang = "en-US";
+          if(voice) u.voice = voice;
+          return u;
+        });
+        var last = utterances[utterances.length - 1];
+        currentUtterance = last;
+        speaking = true;
+        stopListening();
+        updateMicUI();
+        var release = function(){
+          if(currentUtterance !== last) return;   // superseded by a newer say()/sayChunked()/sayParts()
+          currentUtterance = null;
+          speaking = false;
+          holdMic(350);   // let the speakers settle before listening again
+        };
+        last.onend = release;
+        last.onerror = release;
+        // Safety net in case onend never fires (Chrome does this sometimes).
+        var totalChars = parts.join(" ").length;
+        setTimeout(function(){ if(currentUtterance === last) release(); }, 1200 + 90 * totalChars);
+        utterances.forEach(function(u){ window.speechSynthesis.speak(u); });
+      }catch(e){ speaking = false; }
+    }
+
+    // Turns a fragment of the intro's innerHTML (split on <br>) into plain
+    // spoken text — strips any remaining tags (e.g. <b>) the same way
+    // .textContent would, without also losing the <br> line break itself.
+    function htmlFragmentToText(html){
+      var tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      return (tmp.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
     /* ---------------- events ---------------- */
     $("btnStart").addEventListener("click", function(){
       pendingList = WORDS;
@@ -1317,18 +1364,21 @@ window.BlendGame = (function(){
     // Reads the start screen's intro + numbered steps aloud, in the same
     // best-available voice as everything else (pickVoice() already prefers
     // a cloud/network voice like Chrome's "Google US English" over the
-    // flatter local ones). textContent on the live DOM nodes rather than a
+    // flatter local ones). Pulled from the live DOM nodes rather than a
     // second copy of the strings, so the spoken version can never drift
-    // from what's on screen.
+    // from what's on screen. The intro's innerHTML is split on <br> (not
+    // .textContent, which would silently swallow it and run both sentences
+    // together) so each sentence gets its own utterance and pause.
     if(!window.speechSynthesis){
       $("btnHearDirections").disabled = true;
     } else {
       $("btnHearDirections").addEventListener("click", function(){
-        var parts = [$("s-start").querySelector(".sub").textContent];
+        var introHtml = $("s-start").querySelector(".sub").innerHTML;
+        var parts = introHtml.split(/<br\s*\/?>/i).map(htmlFragmentToText).filter(Boolean);
         $("s-start").querySelectorAll(".steps li").forEach(function(li){
-          parts.push(li.textContent);
+          parts.push(li.textContent.replace(/\s+/g, " ").trim());
         });
-        say(parts.join(". "));
+        sayParts(parts);
       });
     }
     $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(pendingList); });
