@@ -13,12 +13,6 @@
 window.BlendGame = (function(){
   "use strict";
 
-  var LEVELS = ["Spicy","Regular"];
-  var LEVEL_NOTES = [
-    "Spicy — the word has to come back exactly right. Fewest false credits, but the recogniser will sometimes mishear a correct answer.",
-    "Regular — the blend must be right, and the rest of the word can be off by one sound. Best for most students."
-  ];
-
   var MIC_SVG =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
       '<path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>' +
@@ -178,7 +172,7 @@ window.BlendGame = (function(){
 
   // Known-good transcripts the recogniser returns for specific target words,
   // seeded from mishearings actually observed in class — not a guess at
-  // every possible mishearing. Accepted at Regular, never Spicy.
+  // every possible mishearing. Accepted at Regular, never Challenge.
   // Add more here as they turn up; keep it short and commented.
   var ACCEPT = {
     gasp: ["gas"],     // final consonant dropped
@@ -206,7 +200,7 @@ window.BlendGame = (function(){
 
   function wordMatchesCore(heard, target, level, atStart, blendLength, wordList, soundSeq){
     if(heard === target) return true;
-    if(level === 0) return false;                              // Spicy: exact only
+    if(level === 0) return false;                              // Challenge: exact only
 
     if(ACCEPT[target] && ACCEPT[target].indexOf(heard) !== -1) return true;
 
@@ -460,10 +454,8 @@ window.BlendGame = (function(){
              way to start a round, not a setting. -->
         <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
-        <button class="btn ghost" id="btnLevel">Listening: <span id="lvlLbl">Regular</span></button>
         <button class="btn ghost" id="btnVoice">Voice: <span id="voiceLbl">On</span></button>
       </div>
-      <p class="sub" id="lvlNote" style="margin:14px 0 0;font-size:15px"></p>
     </div>
   </section>
 
@@ -686,17 +678,11 @@ window.BlendGame = (function(){
       return b;
     }
 
-    /* ---------------- how forgiving the listening is ----------------
-       There is no microphone-gain setting in the Web Speech API, so being
-       "more sensitive" means accepting near-misses from the recogniser —
-       it mangles vowels constantly on short isolated words. But the blend
-       is the thing being practised, so it is never forgiven: "bred" can
-       never pass for "bled". Only the rest of the word gets slack. */
-    var level = 1;                                   // Regular by default
-    try{
-      var saved = localStorage.getItem("blendLevel");
-      if(saved !== null) level = Math.min(1, Math.max(0, parseInt(saved,10) || 0));
-    }catch(e){}
+    // The word has to come back exactly right to be marked correct — no
+    // forgiving near-misses. (wordMatchesCore/isMatchCore still support a
+    // more forgiving level for the phonetic-matching internals exercised
+    // by tests.html; the game itself just never asks for it.)
+    var level = 0;
 
     function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }
 
@@ -1337,17 +1323,6 @@ window.BlendGame = (function(){
       renderShuffle();
     });
     renderShuffle();
-
-    function renderLevel(){
-      $("lvlLbl").textContent = LEVELS[level];
-      $("lvlNote").textContent = LEVEL_NOTES[level];
-    }
-    $("btnLevel").addEventListener("click", function(){
-      level = (level + 1) % LEVELS.length;
-      try{ localStorage.setItem("blendLevel", String(level)); }catch(e){}
-      renderLevel();
-    });
-    renderLevel();
 
     function renderVoice(){
       $("voiceLbl").textContent = voiceOn ? "On" : "Off";

@@ -121,27 +121,14 @@ computer is actually speaking words out loud (the coach's praise, "The word
 was...", or "Hear it") — never for the short feedback beeps, so it doesn't
 have to reconnect between words. Silence never counts as a wrong answer.
 
-The Web Speech API has no gain or sensitivity setting, so the **Listening**
-button on the start screen controls how forgiving the *matching* is instead.
-Matching compares **sounds**, not letters — a small rule-based phonetic
-encoder in `blend-game.js` (`phonemes()`) — so "krab" now passes for "crab"
-even though the recogniser rarely spells it that way, while "bled" still
-never passes for "bred":
-
-| Level | Accepts |
-| --- | --- |
-| Spicy | the exact word only |
-| Regular (default) | the rest of the word off by one sound |
-
-"Off by one/two sounds" is now literally true: it's phoneme-level edit
-distance, with a swapped vowel sound costing half as much as any other
-change (recognisers mangle vowels far more than consonants). At every level
-the blend must be exactly right in phoneme space — "bred" never passes for
-"bled" — since that is the skill being practised. A small curated table in
-`blend-game.js` (`ACCEPT`) also covers a couple of known recogniser
-mishearings (e.g. "gasp" heard as "gas"); add more there as you notice them
-in class. The Listening setting is remembered per device in `localStorage`,
-same as Shuffle.
+The word has to come back exactly right to be marked correct — there's no
+forgiving near-misses, since the student actually saying the word correctly
+is the whole point. `blend-game.js` also carries a more forgiving phonetic
+matcher (`phonemes()`, `phoneticDistance()`, the `ACCEPT` table of known
+recogniser mishearings) that compares **sounds** rather than letters — e.g.
+"krab" would pass for "crab" — but the games no longer expose it; it only
+runs today through the `_internals` seam that `tests.html` exercises
+directly, in case a more forgiving mode is wanted again later.
 
 Run `tests.html` (served the same way as the games) to check the matcher
 itself — it renders a pass/fail table with a summary line.

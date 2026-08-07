@@ -130,7 +130,7 @@
   // ---- sound mode forgives the rest of the word, same as a blend, but
   // never forgives the target sound itself ----
   eq("coin <- koin, Regular (sound-alike consonant)", matchSound("koin","coin",1,OIOYWORDS), true);
-  eq("coin <- koin, Spicy", matchSound("koin","coin",0,OIOYWORDS), false);
+  eq("coin <- koin, Challenge", matchSound("koin","coin",0,OIOYWORDS), false);
   eq("coin <- cone, never (no OY sound at all)", matchSound("cone","coin",1,OIOYWORDS), false);
   eq("coin <- cane, never (no OY sound at all)", matchSound("cane","coin",1,OIOYWORDS), false);
   eq("annoy <- anoy, Regular (doubled n forgiven)", matchSound("anoy","annoy",1,OIOYWORDS), true);
@@ -149,13 +149,13 @@
     ph("sled").split(" ")[3] === ph("slade").split(" ")[3],
     true, ph("sled") + " / " + ph("slade"));
 
-  // ---- Regular accepts sound-alikes, Spicy does not ----
+  // ---- Regular accepts sound-alikes, Challenge does not ----
   eq("crab <- krab, Regular", match("krab","crab",1,START), true);
-  eq("crab <- krab, Spicy", match("krab","crab",0,START), false);
+  eq("crab <- krab, Challenge", match("krab","crab",0,START), false);
   eq("plum <- plumb, Regular", match("plumb","plum",1,START), true);
-  eq("plum <- plumb, Spicy", match("plumb","plum",0,START), false);
+  eq("plum <- plumb, Challenge", match("plumb","plum",0,START), false);
   eq("wisp <- whisp, Regular", match("whisp","wisp",1,END), true);
-  eq("wisp <- whisp, Spicy", match("whisp","wisp",0,END), false);
+  eq("wisp <- whisp, Challenge", match("whisp","wisp",0,END), false);
 
   // ---- the blend guard: never forgiven, at any level ----
   eq("bled <- bred, never (blend guard)", match("bred","bled",1,START), false);
@@ -174,7 +174,7 @@
 
   // ---- curated table only fires at Regular ----
   eq("gasp <- gas, Regular (curated)", match("gas","gasp",1,END), true);
-  eq("gasp <- gas, Spicy, never", match("gas","gasp",0,END), false);
+  eq("gasp <- gas, Challenge, never", match("gas","gasp",0,END), false);
 
   // ---- distinct real words in the same list must not be conflated at
   // Regular — a wrong consonant means a different word, not a mishearing.
