@@ -75,6 +75,14 @@
     background:var(--panel);border:1px solid var(--line);border-radius:24px;
     padding:26px 24px;
   }
+
+  .section{margin-bottom:40px}
+  .section:last-child{margin-bottom:0}
+  /* Child combinator, not a descendant selector — a bare ".section h2" would
+     also match each tile's own <h2> title nested inside .grid and override
+     its font-size. */
+  .section > h2{font-size:20px;margin:0 0 4px;letter-spacing:-.2px}
+  .section > .sectionNote{color:var(--muted);font-size:15px;margin:0 0 18px}
 </style>
 </head>
 <body>
@@ -84,86 +92,128 @@
     <p class="sub">Pick a game to practice.</p>
   </header>
 
-  <div class="grid" id="gameGrid"></div>
+  <div id="sections"></div>
 </div>
 
 <script>
 (function(){
   "use strict";
 
-  var GAMES = [
+  // "speak" games use the mic (blend-game.js) — the student says the word
+  // out loud. "type" games are mic-free (spell-game.js) — the computer
+  // says the word and the student types it. Split into sections below so
+  // a student in a loud room, or without a working mic, can go straight to
+  // games that'll actually work for them.
+  var SECTIONS = [
     {
-      icon: "🎤",
-      title: "Blend Words",
-      description: "Read a word that ends with a consonant blend out loud. The computer listens and tells you if you said it right. Build a streak for bonus points!",
-      url: "blend-words-game.html"
+      key: "speak",
+      title: "🎤 Speaking Games",
+      note: "Put on a mic and say each word out loud.",
+      games: [
+        {
+          icon: "🎤",
+          title: "Blend Words",
+          description: "Read a word that ends with a consonant blend out loud. The computer listens and tells you if you said it right. Build a streak for bonus points!",
+          url: "blend-words-game.html"
+        },
+        {
+          icon: "🗣️",
+          title: "Starting Blends",
+          description: "Words that begin with a consonant blend — bl, cr, sl, tr. Say each one out loud and the computer checks you.",
+          url: "initial-blends-game.html"
+        },
+        {
+          icon: "🤖",
+          title: "Nonsense Words",
+          description: "Made-up CVC words with no meaning to lean on — pure sounding-out practice. Say each one out loud and the computer checks you.",
+          url: "nonsense-words-game.html"
+        },
+        {
+          icon: "🪙",
+          title: "oi/oy Words",
+          description: "Words with the oi/oy sound — coin, join, annoy, royal. Say each one out loud and the computer checks you.",
+          url: "oi-oy-words-game.html"
+        },
+        {
+          icon: "🏗️",
+          title: "Multisyllable Words",
+          description: "Two- and three-syllable words like napkin, picnic and fantastic. Say each one out loud and the computer checks you.",
+          url: "multisyllable-words-game.html"
+        }
+      ]
     },
     {
-      icon: "🗣️",
-      title: "Starting Blends",
-      description: "Words that begin with a consonant blend — bl, cr, sl, tr. Say each one out loud and the computer checks you.",
-      url: "initial-blends-game.html"
-    },
-    {
-      icon: "🤖",
-      title: "Nonsense Words",
-      description: "Made-up CVC words with no meaning to lean on — pure sounding-out practice. Say each one out loud and the computer checks you.",
-      url: "nonsense-words-game.html"
-    },
-    {
-      icon: "🪙",
-      title: "oi/oy Words",
-      description: "Words with the oi/oy sound — coin, join, annoy, royal. Say each one out loud and the computer checks you.",
-      url: "oi-oy-words-game.html"
-    },
-    {
-      icon: "⌨️",
-      title: "Spell It: oi/oy",
-      description: "No mic — headphones only. The computer says a word and you type it. Learn when the /oy/ sound is spelled oi and when it's oy.",
-      url: "spelling-oi-oy-game.html"
-    },
-    {
-      icon: "🏗️",
-      title: "Multisyllable Words",
-      description: "Two- and three-syllable words like napkin, picnic and fantastic. Say each one out loud and the computer checks you.",
-      url: "multisyllable-words-game.html"
+      key: "type",
+      title: "⌨️ Typing Games",
+      note: "No mic — just headphones. The computer says a word and you type it.",
+      games: [
+        {
+          icon: "⌨️",
+          title: "Spell It: oi/oy",
+          description: "No mic — headphones only. The computer says a word and you type it. Learn when the /oy/ sound is spelled oi and when it's oy.",
+          url: "spelling-oi-oy-game.html"
+        }
+      ]
     }
   ];
 
-  var grid = document.getElementById("gameGrid");
+  var sectionsEl = document.getElementById("sections");
 
-  if(!GAMES.length){
+  var totalGames = SECTIONS.reduce(function(n, s){ return n + s.games.length; }, 0);
+  if(!totalGames){
     var empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = "No games yet — check back soon!";
-    grid.appendChild(empty);
+    sectionsEl.appendChild(empty);
     return;
   }
 
-  GAMES.forEach(function(game){
-    var tile = document.createElement("a");
-    tile.className = "tile";
-    tile.href = game.url;
+  SECTIONS.forEach(function(section){
+    if(!section.games.length) return;
 
-    var icon = document.createElement("div");
-    icon.className = "icon";
-    icon.textContent = game.icon;
+    var wrap = document.createElement("div");
+    wrap.className = "section";
 
     var h2 = document.createElement("h2");
-    h2.textContent = game.title;
+    h2.textContent = section.title;
+    wrap.appendChild(h2);
 
-    var p = document.createElement("p");
-    p.textContent = game.description;
+    var note = document.createElement("p");
+    note.className = "sectionNote";
+    note.textContent = section.note;
+    wrap.appendChild(note);
 
-    var play = document.createElement("span");
-    play.className = "play";
-    play.textContent = "Play ▸";
+    var grid = document.createElement("div");
+    grid.className = "grid";
 
-    tile.appendChild(icon);
-    tile.appendChild(h2);
-    tile.appendChild(p);
-    tile.appendChild(play);
-    grid.appendChild(tile);
+    section.games.forEach(function(game){
+      var tile = document.createElement("a");
+      tile.className = "tile";
+      tile.href = game.url;
+
+      var icon = document.createElement("div");
+      icon.className = "icon";
+      icon.textContent = game.icon;
+
+      var title = document.createElement("h2");
+      title.textContent = game.title;
+
+      var p = document.createElement("p");
+      p.textContent = game.description;
+
+      var play = document.createElement("span");
+      play.className = "play";
+      play.textContent = "Play ▸";
+
+      tile.appendChild(icon);
+      tile.appendChild(title);
+      tile.appendChild(p);
+      tile.appendChild(play);
+      grid.appendChild(tile);
+    });
+
+    wrap.appendChild(grid);
+    sectionsEl.appendChild(wrap);
   });
 })();
 </script>
