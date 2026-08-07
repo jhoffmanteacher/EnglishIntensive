@@ -177,3 +177,14 @@ it" — regardless of the Voice setting. All speech picks the best available
 `en-US` voice (`pickVoice()` in `blend-game.js`), preferring Chrome/ChromeOS's
 natural voice over the flat default, and re-picks once Chrome finishes
 loading its voice list.
+
+### Directions
+
+The start screen's intro line and numbered steps are written short and plain
+— this is a phonics class, not a reading test, so the *how to play* copy
+shouldn't be a decoding challenge in itself. A **🔊 Hear directions** button
+next to them reads that same text aloud (`textContent` off the live DOM, so
+it can't drift from what's on screen) in the same best-available voice as
+the words themselves — `pickVoice()`'s top pick is Chrome's network-backed
+"Google US English" voice where it's available, well above the flat local
+default. The button is disabled if `speechSynthesis` isn't available at all.

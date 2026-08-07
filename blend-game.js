@@ -446,12 +446,15 @@ window.BlendGame = (function(){
     <div class="card">
       <h1>${cfg.title}</h1>
       <p class="sub">${cfg.intro}</p>
+      <div class="row" style="margin:4px 0 22px">
+        <button class="btn ghost" id="btnHearDirections" type="button">🔊 Hear directions</button>
+      </div>
       <div id="compatWarn" class="warn" style="display:none"></div>
       <ol class="steps">
-        <li>Put on your <b>headphones with a mic</b> (or use the built-in mic).</li>
-        <li>Click <b>Allow</b> when Chrome asks to use your microphone.</li>
-        <li>Check the <b>mic meter</b> on the next screen before you play.</li>
-        <li>The mic <b>stays on</b> the whole game — just say each word clearly.</li>
+        <li>Put on <b>headphones with a mic</b>.</li>
+        <li>Click <b>Allow</b> so Chrome can use your microphone.</li>
+        <li>Check the <b>mic meter</b>, then start.</li>
+        <li>Say each word clearly. The mic <b>stays on</b> the whole time.</li>
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
@@ -559,7 +562,7 @@ window.BlendGame = (function(){
     mount.className = "wrap";
     mount.innerHTML = shell({
       title: cfg.title,
-      intro: cfg.intro || "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!",
+      intro: cfg.intro || "Say each word out loud. The computer listens and tells you if you're right.<br>Every 5 in a row earns bonus points.",
       words: WORDS,
       theme: theme
     });
@@ -1310,6 +1313,24 @@ window.BlendGame = (function(){
       pendingList = WORDS;
       beep([440],0.06); startMicCheck();
     });
+
+    // Reads the start screen's intro + numbered steps aloud, in the same
+    // best-available voice as everything else (pickVoice() already prefers
+    // a cloud/network voice like Chrome's "Google US English" over the
+    // flatter local ones). textContent on the live DOM nodes rather than a
+    // second copy of the strings, so the spoken version can never drift
+    // from what's on screen.
+    if(!window.speechSynthesis){
+      $("btnHearDirections").disabled = true;
+    } else {
+      $("btnHearDirections").addEventListener("click", function(){
+        var parts = [$("s-start").querySelector(".sub").textContent];
+        $("s-start").querySelectorAll(".steps li").forEach(function(li){
+          parts.push(li.textContent);
+        });
+        say(parts.join(". "));
+      });
+    }
     $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(pendingList); });
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
 

@@ -176,18 +176,21 @@ window.SpellGame = (function(){
     <div class="card">
       <h1>${cfg.title}</h1>
       <p class="sub">${cfg.intro}</p>
+      <div class="row" style="margin:4px 0 22px">
+        <button class="btn ghost" id="btnHearDirections" type="button">🔊 Hear directions</button>
+      </div>
       <div id="compatWarn" class="warn" style="display:none"></div>
       <div class="rule">
         <div class="tag">The rule</div>
         ${cfg.rule}
       </div>
       <ol class="steps">
-        <li>Put your <b>headphones</b> on — this game listens to nothing, so a loud room is fine.</li>
+        <li>Put on your <b>headphones</b>.</li>
         <li>${cfg.hasSentences
-          ? "The computer says a word, uses it in a sentence, then says it again. <b>🔊 Say it again</b> repeats just the word; click it twice for a slower read."
-          : "The computer says a word. <b>🔊 Say it again</b> repeats it; click it twice for a slower read."}</li>
-        <li><b>Type</b> what you hear and press <kbd>Enter</kbd>.</li>
-        <li>Two shots at each word. Every 5 right in a row is bonus points.</li>
+          ? "Listen to the word and the sentence. Click <b>🔊 Say it again</b> to hear just the word — click it twice for a slower read."
+          : "Listen to the word. Click <b>🔊 Say it again</b> to hear it again — click it twice for a slower read."}</li>
+        <li><b>Type</b> the word, then press <kbd>Enter</kbd>.</li>
+        <li>You get two tries for each word.</li>
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
@@ -260,7 +263,7 @@ window.SpellGame = (function(){
     mount.className = "wrap";
     mount.innerHTML = shell({
       title: cfg.title,
-      intro: cfg.intro || "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!",
+      intro: cfg.intro || "Listen to the word, then type it.<br>You get two tries. Every 5 right in a row earns bonus points.",
       rule: cfg.rule || "",
       count: WORDS.length,
       hasSentences: Object.keys(SENTENCES).length > 0
@@ -394,6 +397,7 @@ window.SpellGame = (function(){
       w.innerHTML = "<b>This browser can't talk.</b> Open this page in <b>Google Chrome</b> on the Chromebook — " +
                     "this game works by reading words out loud.";
       $("btnStart").disabled = true;
+      $("btnHearDirections").disabled = true;
     }
 
     /* ---------------- helpers ---------------- */
@@ -683,6 +687,23 @@ window.SpellGame = (function(){
     renderShuffle();
 
     $("btnStart").addEventListener("click", function(){ beep([440],0.06); startGame(WORDS); });
+
+    // Reads the start screen's intro, spelling rule, and numbered steps
+    // aloud, in the same best-available voice as the words themselves
+    // (pickVoice() already prefers a cloud/network voice like Chrome's
+    // "Google US English" over the flatter local ones). textContent on the
+    // live DOM nodes rather than a second copy of the strings, so the
+    // spoken version can never drift from what's on screen.
+    $("btnHearDirections").addEventListener("click", function(){
+      var start = $("s-start");
+      var parts = [start.querySelector(".sub").textContent];
+      var rule = start.querySelector(".rule");
+      if(rule) parts.push(rule.textContent.replace(/^\s*The rule\s*/, ""));
+      start.querySelectorAll(".steps li").forEach(function(li){
+        parts.push(li.textContent);
+      });
+      say(parts.join(". "));
+    });
 
     $("spellForm").addEventListener("submit", function(e){
       e.preventDefault();
