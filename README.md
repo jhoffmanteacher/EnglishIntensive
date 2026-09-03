@@ -48,7 +48,32 @@ The home page and the dashboard pick it up with no further edits. A
 list's `id` is permanent — it is half of every stored stat key
 (`"<listId>|<word>"`) and it is what an assignment stores, so renaming
 one orphans a class's history. `title` is the display name and can change
-freely.
+freely. `engine` is one of `blend`, `spell`, `card` or `match`.
+
+### List families: the red words
+
+Most lists are one entry, one tile, one game. The **red words** aren't:
+the same "List 3" can be played as flash cards *or* as Match It, and those
+are different skills — a student can know *would* on sight and still pick
+*could* out of six look-alikes. So the ten screener lists (`RED_LISTS`,
+kept once; `data/red-words.md` is the source of record) generate **twenty
+entries**, `red-N-cards` and `red-N-match`, with separate stat keys — the
+same reasoning that already keeps `oi-oy-read` and `oi-oy-spell` apart.
+
+Twenty tiles and twenty checkboxes would be the wrong way to show that, so
+each entry carries `family: "red"`, `listNum` and `game`, and the UI folds
+them back into one grid (`LIST_FAMILIES` declares the family's games and
+their order). Helpers on `WordLists`: `families()`, `listNumsOf()`,
+`idFor(family, n, game)`, `standalone()` (the plain games), `hrefOf(id)`
+— a family entry links to its shared page with `?list=<id>` — and a pure
+`describeAssignment(ids)` that turns a set of ids into the one line the
+roster and the picker show: *"2 games · Red Words: lists 1–3 (cards) ·
+1 (match it)"*.
+
+A red list is 20 words and a round is 18, so one round is nearly the
+whole list, weighted — over two or three rounds every word comes up, the
+missed ones most. Adding an eleventh list is one array in `RED_LISTS`;
+no page, no dashboard change.
 
 ## Home page
 
@@ -56,6 +81,18 @@ freely.
 lists the signed-in student is assigned (`EIStore.myLists()`), so two
 students in different periods see different games. Each tile carries that
 student's progress through that list — words solid, words still shaky.
+
+Family entries fold into **one tile per list** — "Red Words · List 3" —
+with a Play row per assigned game and that game's own progress, so a
+student assigned both games for three lists sees three tiles, not six.
+Each row links to the family's shared page with `?list=<id>`:
+`red-words-game.html?list=red-3-cards`.
+
+Those two pages call `EIPractice.play()` with **no id** and take the list
+from the query string. No `?list=`, or a stale one, isn't an error: the
+page shows a chooser with the student's assigned lists first and the rest
+under "More", so a bookmarked or hand-typed address still lands somewhere
+useful. A list id that belongs to the other red-word page redirects there.
 
 ## Shared core
 
@@ -259,6 +296,13 @@ loading its voice list.
 
 ## Flash-card game
 
+> On this site the flash cards run through `practice.js` like every other
+> game — one list per round, drawn by the adaptive scheduler, results
+> reported to the student's record. The `decks` picker described below is
+> the engine's own start screen, used when a page calls `CardGame.start()`
+> directly; `red-words-game.html` doesn't, it plays whichever list
+> `?list=` names.
+
 `card-game.js` is the third engine, and the only one that doesn't judge the
 answer itself. It drills **sight recognition** of irregular ("red") words —
 words the decoding rules lie about, where there's no rule to apply, no blend
@@ -318,6 +362,11 @@ and the payoff is framed as the deck shrinking rather than the score going
 up.
 
 ## Matching game
+
+> Same arrangement as the flash cards: `red-words-match-game.html` plays
+> the one list `?list=` names, through `practice.js`, and reports first-try
+> picks to the student's record. Its comeback deck is separate from the
+> cards' on purpose — they're different skills.
 
 `match-game.js` is the checked counterpart to the flash cards: the computer
 says a word and the student picks the printed word that matches, out of six.
@@ -450,16 +499,50 @@ it is never merged back up.
 `teacher.html` — visible to `TEACHER_EMAILS` only, with a link on the home
 page for that account. Three tabs:
 
-- **Students** — roster with accuracy, words solid, words shaky and last
-  activity; click through for a student's hardest words (worst first, with
-  which list each came from), their per-list breakdown, and their
-  assignment.
-- **Periods & Lists** — assign lists to a whole period at once, set the
-  class default, and drop students into periods.
+- **Students** — roster with accuracy, words solid, words shaky, last
+  activity, and a **Lists** column that says in words what each student
+  currently gets and where it comes from — *"2 games · Red Words: lists
+  1–3 (cards) (period 3)"*. Click through for a student's hardest words
+  (worst first, with which list each came from), their per-list
+  breakdown, and their assignment picker.
+- **Periods & Lists** — the same picker for the class default and for
+  each period, plus the table that drops students into periods.
 - **Trouble spots** — the same words aggregated across the class, sorted
   by *how many students* are struggling with each rather than by raw
   accuracy, so one student's bad day doesn't top the list. Filterable by
   period. This is the "what do I reteach tomorrow" view.
+
+### Assigning games and lists
+
+Every place a set of lists is chosen — a student's own, a period's, the
+class default — uses one picker (`pickerHtml()` in `teacher.js`). It has
+two parts because the registry has two kinds of entry:
+
+- **Games** — the standalone lists, one checkbox each, with *all* / *none*.
+- **Red Words** — a grid: one row per list (with four of its words as a
+  reminder — *you, should, could, said…*), one column per game
+  (🃏 Cards, 🎯 Match It), a **both** toggle on each row and an **all**
+  toggle on each column. "Lists 1–4 as flash cards" is four clicks;
+  "everything as Match It" is one.
+
+A live line under the picker — *"This gives them: 2 games · Red Words:
+lists 1–3 (cards) · 1 (match it)"* — says in words what the ticks add up
+to, and it is the same line the roster shows, so what a student *has* and
+what you're *setting* read the same way.
+
+What gets saved is unchanged: a flat array of list ids in
+`assignments/{uid}` (a student's own set) or `config/class` (a period's
+or the default). The grid is presentation only — `store.js`, the
+precedence and `firestore.rules` never see it, so **adding red words
+needed no rules change**.
+
+Two things worth knowing: a student can still open a list they haven't
+been assigned (the chooser lists them under "More", and the game shows an
+"extra practice" note rather than a lock — a hard block would turn every
+mis-assignment into a support request mid-class). And the picker's
+pre-ticked state is the student's *effective* set, so opening a student
+who follows their period and pressing Save copies the period's set onto
+them as their own — use "Use my period's lists" to hand them back.
 
 Assignment precedence, resolved in `EIStore.effectiveLists` (and pinned by
 `tests.html`): **the student's own list → their period's list → the class

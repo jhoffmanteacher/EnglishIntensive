@@ -696,6 +696,63 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     word-lists.js — the red-word family and the assignment summary
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var W = WordLists;
+    var red = W.all.filter(function(l){ return l.family === "red"; });
+    eq("ten red lists × two games = twenty entries", red.length, 20);
+    eq("red list numbers run 1–10", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
+    eq("every red list has twenty words (the screener's page)",
+       red.filter(function(l){ return l.words.length !== 20; }).length, 0);
+    var mismatch = W.listNumsOf("red").filter(function(n){
+      return W.wordsOf("red-" + n + "-cards").join("|") !== W.wordsOf("red-" + n + "-match").join("|");
+    });
+    eq("cards and Match It play the same words for each list", mismatch.length, 0, mismatch.join(","));
+    eq("every red entry has the family metadata the grid needs",
+       red.filter(function(l){ return !(l.listNum >= 1 && (l.game === "cards" || l.game === "match") && l.short); }).length, 0);
+    eq("card entries use the card engine, match entries the match engine",
+       red.filter(function(l){ return (l.game === "cards") !== (l.engine === "card") || (l.game === "match") !== (l.engine === "match"); }).length, 0);
+    eq("idFor() finds a real entry", W.idFor("red", 3, "match"), "red-3-match");
+    eq("idFor() is null for a list that doesn't exist", W.idFor("red", 11, "cards"), null);
+    eq("a family entry links to its shared page with ?list=", W.hrefOf("red-3-match"), "red-words-match-game.html?list=red-3-match");
+    eq("a standalone entry links to its own page, no query", W.hrefOf("final-blends"), "blend-words-game.html");
+    eq("hrefOf() of an unknown id is a harmless '#'", W.hrefOf("nope"), "#");
+    eq("six standalone games", W.standalone().length, 6);
+    eq("the red family declares cards then match", W.familyOf("red").games.map(function(g){ return g.key; }).join(","), "cards,match");
+    eq("the home page has a section for the family", W.sectionsOf().map(function(s){ return s.key; }).join(","), "speak,type,cards");
+    eq("every red entry lands in that section", red.filter(function(l){ return l.section !== "cards"; }).length, 0);
+    eq("no red word contains the key separator",
+       red.filter(function(l){ return l.words.some(function(w){ return w.indexOf("|") !== -1; }); }).length, 0);
+
+    // rangeText — "1–3, 5, 8–10" so ten ticks don't read as ten numbers
+    eq("rangeText compresses runs", W.rangeText([1,2,3,5,8,9,10]), "1–3, 5, 8–10");
+    eq("rangeText: a single number stands alone", W.rangeText([4]), "4");
+    eq("rangeText: two in a row is still a range", W.rangeText([6,7]), "6–7");
+    eq("rangeText is order-insensitive and dedupes", W.rangeText([10,1,2,2,3]), "1–3, 10");
+    eq("rangeText of nothing is empty", W.rangeText([]), "");
+
+    // describeAssignment — the roster line and the picker's live summary
+    var D = W.describeAssignment;
+    eq("nothing assigned reads 'nothing'", D([]), "nothing");
+    eq("null reads 'nothing' too", D(null), "nothing");
+    eq("every id reads 'everything'", D(W.ids), "everything");
+    eq("unknown ids are ignored", D(["nope","also-nope"]), "nothing");
+    eq("one standalone game", D(["nonsense"]), "1 game");
+    eq("several standalone games count", D(["nonsense","final-blends","oi-oy-spell"]), "3 games");
+    eq("red only, one game", D(["red-10-match"]), "Red Words: lists 10 (match it)");
+    eq("red lists as ranges, per game",
+       D(["red-1-cards","red-2-cards","red-3-cards","red-5-cards","red-1-match","red-2-match","red-3-match"]),
+       "Red Words: lists 1–3, 5 (cards) · 1–3 (match it)");
+    eq("games and red together, games first",
+       D(["final-blends","nonsense","oi-oy-spell","red-1-cards","red-2-cards","red-3-cards","red-5-cards","red-1-match","red-2-match","red-3-match"]),
+       "3 games · Red Words: lists 1–3, 5 (cards) · 1–3 (match it)");
+    eq("all ten lists of one game reads as one range",
+       D(W.listNumsOf("red").map(function(n){ return "red-" + n + "-cards"; })), "Red Words: lists 1–10 (cards)");
+    eq("everything but one id is not 'everything'", D(W.ids.slice(1)).indexOf("everything"), -1);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js, card-game.js, match-game.js — the sight-word engines
      ══════════════════════════════════════════════════════════════════ */
   // ---- flash-card game (CardGame) ----
