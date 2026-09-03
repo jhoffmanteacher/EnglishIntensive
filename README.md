@@ -15,29 +15,67 @@ require a secure context, so the games will not listen from a `file://` URL.
 python3 -m http.server 8000
 ```
 
+## Accounts
+
+Every page is behind a Google sign-in wall (`auth.js`), restricted to
+**@seq.org** accounts. Sign-in is what makes per-student tracking and
+per-student list assignment possible, so there is no guest mode.
+
+Set the project up once with **`SETUP-FIREBASE.md`** — until
+`firebase-config.js` has real values in it, every page shows a
+"sign-in isn't set up yet" panel instead of the games.
+
+The @seq.org restriction, the teacher-account check and the wall itself
+are all client-side and all bypassable from DevTools. `firestore.rules`
+is the half that actually enforces any of it — see the header of that
+file, and re-publish it in the Firebase console whenever it changes.
+Nothing else deploys it.
+
+## Word lists
+
+`word-lists.js` is the single source of truth for what a practice list
+**is** — its id, title, engine, tile copy and words. Three things need to
+agree about a list (the game page that plays it, the home page that
+advertises it, the dashboard that assigns it), so it is defined once.
+
+Adding a game is two steps:
+
+1. Add an entry to `WORD_LISTS` in `word-lists.js`.
+2. Copy any existing game page and change the id in its one line of
+   script; point the entry's `page` at the new filename.
+
+The home page and the dashboard pick it up with no further edits. A
+list's `id` is permanent — it is half of every stored stat key
+(`"<listId>|<word>"`) and it is what an assignment stores, so renaming
+one orphans a class's history. `title` is the display name and can change
+freely.
+
 ## Home page
 
-`index.html` shows a grid of game tiles. Add a new game by dropping an entry
-in the `GAMES` array in its inline `<script>` — `icon`, `title`,
-`description`, `url`.
+`index.html` builds its tile grid from `word-lists.js`, filtered to the
+lists the signed-in student is assigned (`EIStore.myLists()`), so two
+students in different periods see different games. Each tile carries that
+student's progress through that list — words solid, words still shaky.
 
 ## Blend games
 
 `blend-game.js` + `blend-game.css` are a shared engine for the "say the word
-out loud" phonics games. A game page is just a word list:
+out loud" phonics games. A game page is now one line —
 
 ```html
-<link rel="stylesheet" href="blend-game.css">
-<div id="app"></div>
-<script src="blend-game.js"></script>
-<script>
-BlendGame.start({
+<script>EIPractice.play("initial-blends");</script>
+```
+
+— and the list it names lives in `word-lists.js`, whose `config` block is
+exactly what `BlendGame.start()` takes minus the words:
+
+```js
+config: {
   title: "Starting Blends 🎤",
-  blend: "start",              // "start", "end", or "sound" — see below
-  theme: "maze",                // "race" (default) or "maze" — the progress graphic
-  words: ["blip","crop","clam"]
-});
-</script>
+  blend: "start",   // "start", "end", or "sound" — see below
+  theme: "maze"     // "race" (default) or "maze" — the progress graphic
+},
+words: ["blip","crop","clam"]
 ```
 
 Three matching modes for `blend`, depending on what's being drilled:
@@ -86,6 +124,12 @@ Current games:
 - `spelling-oi-oy-game.html` — the site's first **spelling** game (see below).
 
 ### Comeback words (missed-word persistence)
+
+> Still here, still per-device, and now the *inner* of two loops: the
+> comeback deck is a within-page warm-up in `localStorage`, while the
+> adaptive scheduler below is the cross-session, cross-device one in
+> Firestore. They don't conflict — one picks a warm-up out of the last few
+> rounds on this machine, the other picks the round itself.
 
 Each game page keeps its own deck of not-yet-mastered words in
 `localStorage` (`"blendComeback:" + pathname`): a word joins the deck when
@@ -164,3 +208,86 @@ it" — regardless of the Voice setting. All speech picks the best available
 `en-US` voice (`pickVoice()` in `blend-game.js`), preferring Chrome/ChromeOS's
 natural voice over the flat default, and re-picks once Chrome finishes
 loading its voice list.
+
+## Adaptive practice
+
+A round is no longer the whole word list. `EIPractice.play()` draws
+**18 words** out of the list, weighted by how that student is actually
+doing — the scheduling rules are in `adaptive.js`, which is pure (no DOM,
+no storage, no clock or randomness of its own) and covered end to end by
+`tests.html`.
+
+Two independent pulls decide how often a word comes up:
+
+- **How badly it's going.** Accuracy 0 % → weight 6.0, 50 % → 3.5,
+  100 % → 1.0. A word missed most of the time is about six times as likely
+  to be drawn as one that's solid. Accuracy is Laplace-smoothed
+  (`(r+1)/(n+2)`) so a single lucky guess isn't mastery and a single slip
+  isn't a crisis.
+- **Whether it's had its rest.** Each word sits in a Leitner box 0–5,
+  earning breaks of 0/1/2/4/8/16 days. Inside its break a word is damped
+  rather than banned, so short sessions don't loop the same handful and a
+  long gap doesn't dump everything at once.
+
+Only **first-try** answers count as right. Getting a word after being told
+it isn't knowing it — the same rule the comeback deck already used. A miss
+drops a word one box rather than resetting it to zero: resetting is the
+textbook Leitner move and it turns one fumble into a week of seeing that
+word every session.
+
+Never-practiced words sit at a flat weight of 3.0, between "solid" and
+"shaky", so new material keeps flowing without crowding out what's
+failing. "Play again" redraws — the words missed a minute ago are now the
+likeliest picks.
+
+Stats are stored per **list and word** (`"<listId>|<word>"`), not per
+word: "coin" in the reading game and "coin" in the spelling game are
+different skills, and a student can be fluent at one while failing the
+other.
+
+## Per-student tracking
+
+`store.js` keeps one document per student at `students/{uid}` — the
+per-word stats, lifetime totals, and a short tail of finished rounds. Two
+rules in that file are worth knowing before touching it:
+
+- **A failed read is not an empty record.** If the load fails (blocked
+  network, offline Chromebook) every local map is empty, which is
+  indistinguishable from a brand-new student. Writing then would overwrite
+  a term of practice with nothing, so a failed load latches and holds back
+  every write until a reload succeeds.
+- **Writes are debounced and must be flushed before sign-out.** The round
+  that ends with a student clicking "Sign out" is exactly the round most
+  likely to be lost.
+
+There's also a per-device mirror in `localStorage`, scoped by uid so a
+shared Chromebook can't leak one student's deck into the next student's
+session. It keeps word selection sensible if the network drops mid-round;
+it is never merged back up.
+
+## Teacher dashboard
+
+`teacher.html` — visible to `TEACHER_EMAIL` only, with a link on the home
+page for that account. Three tabs:
+
+- **Students** — roster with accuracy, words solid, words shaky and last
+  activity; click through for a student's hardest words (worst first, with
+  which list each came from), their per-list breakdown, and their
+  assignment.
+- **Periods & Lists** — assign lists to a whole period at once, set the
+  class default, and drop students into periods.
+- **Trouble spots** — the same words aggregated across the class, sorted
+  by *how many students* are struggling with each rather than by raw
+  accuracy, so one student's bad day doesn't top the list. Filterable by
+  period. This is the "what do I reteach tomorrow" view.
+
+Assignment precedence, resolved in `EIStore.effectiveLists` (and pinned by
+`tests.html`): **the student's own list → their period's list → the class
+default → everything**. A student with nothing set anywhere sees the whole
+site, so day one isn't an empty page. Setting an explicit empty list at
+any level is a real answer and stops the walk — that's how you park a
+student.
+
+The teacher has **read** on `students/{uid}` and no write. Everything the
+teacher sets lives in `assignments/{uid}` instead, so a compromised
+teacher session can't erase anyone's work.

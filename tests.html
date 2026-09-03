@@ -40,7 +40,7 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div class="wrap">
   <h1>Game engine tests</h1>
-  <p class="sub">Pure-function tests for the phonetic matcher, combo scoring, comeback deck and syllable parser in blend-game.js, plus the spelling checker in spell-game.js. No framework, no build step — just runs in the DOM.</p>
+  <p class="sub">Pure-function tests for the phonetic matcher, combo scoring, comeback deck and syllable parser in blend-game.js, the spelling checker in spell-game.js, the adaptive scheduler in adaptive.js, and the assignment precedence in store.js. No framework, no build step — just runs in the DOM.</p>
   <div id="summary"></div>
   <table>
     <thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead>
@@ -50,6 +50,16 @@
 
 <script src="blend-game.js"></script>
 <script src="spell-game.js"></script>
+<!-- The scheduler and the assignment resolver are pure too, so they're
+     tested here alongside the engines. EI_REQUIRE_AUTH switches auth.js
+     into its no-wall mode: this page needs no account, and store.js's
+     boot then resolves to "no user" and stays idle, leaving its pure
+     helpers reachable. -->
+<script>window.EI_REQUIRE_AUTH = false;</script>
+<script src="adaptive.js"></script>
+<script src="word-lists.js"></script>
+<script src="auth.js"></script>
+<script src="store.js"></script>
 <script>
 (function(){
   "use strict";
@@ -441,6 +451,246 @@
       SPELLWORDS.forEach(function(h){ if(h !== t && S.isCorrect(h, t)) bad.push(t+"<-"+h); });
     });
     eq("no two words in the spelling list are interchangeable", bad.length, 0, bad.join(", "));
+  })();
+
+
+  /* ══════════════════════════════════════════════════════════════════
+     adaptive.js — the scheduler
+     ══════════════════════════════════════════════════════════════════ */
+  var A = window.Adaptive;
+  var DAY = A._constants.DAY;
+  var T0 = 1750000000000;   // a fixed "now", so nothing here depends on the clock
+
+  // A seeded generator, so a weighted draw is reproducible: the same seed
+  // gives the same session every time and a failure is debuggable rather
+  // than a coin flip that happened to land badly in CI.
+  function lcg(seed){
+    var s = seed >>> 0;
+    return function(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  }
+  function stat(o){ return A.sanitizeStat(o); }
+
+  // ---- updateStat: what one answer does ----
+  (function(){
+    var s = A.updateStat(A.emptyStat(), true, T0);
+    eq("updateStat(right): n=1", s.n, 1);
+    eq("updateStat(right): r=1", s.r, 1);
+    eq("updateStat(right): streak=1", s.s, 1);
+    eq("updateStat(right): box 0 -> 1", s.box, 1);
+    eq("updateStat(right): stamps last", s.last, T0);
+    var w = A.updateStat(s, false, T0 + 1000);
+    eq("updateStat(wrong): w=1", w.w, 1);
+    eq("updateStat(wrong): streak resets", w.s, 0);
+    eq("updateStat(wrong): box drops ONE, not to zero", w.box, 0);
+    eq("updateStat(wrong): r is untouched", w.r, 1);
+  })();
+
+  (function(){
+    var s = A.emptyStat();
+    for(var i=0;i<9;i++) s = A.updateStat(s, true, T0);
+    eq("box caps at 5 however long the run", s.box, A._constants.MAX_BOX);
+    var f = s;
+    for(var j=0;j<9;j++) f = A.updateStat(f, false, T0);
+    eq("box floors at 0 however long the slump", f.box, 0);
+  })();
+
+  // ---- accuracy: smoothed for the model, raw for the teacher ----
+  eq("accuracy of an unseen word is 0.5 (no evidence either way)", A.accuracy(A.emptyStat()), 0.5);
+  eq("accuracy after one right is 2/3, not 1 (one guess isn't mastery)", A.accuracy(stat({n:1,r:1})), 2/3);
+  eq("accuracy after one wrong is 1/3, not 0 (one slip isn't a crisis)", A.accuracy(stat({n:1,w:1})), 1/3);
+  eq("rawAccuracy of an unseen word is null, not 0", A.rawAccuracy(A.emptyStat()), null);
+  eq("rawAccuracy reports the plain fact: 8 of 10", A.rawAccuracy(stat({n:10,r:8,w:2})), 0.8);
+
+  // ---- sanitize: storage is hand-editable and outlives this file ----
+  eq("sanitizeStat rebuilds junk as a fresh stat", A.sanitizeStat("nonsense").n, 0);
+  eq("sanitizeStat clamps a box above the top", A.sanitizeStat({box:99}).box, A._constants.MAX_BOX);
+  eq("sanitizeStat clamps a negative box", A.sanitizeStat({box:-4}).box, 0);
+  eq("sanitizeStat can't report more rights than attempts", A.sanitizeStat({n:2,r:99}).r, 2);
+  eq("sanitizeStat rejects a NaN count", A.sanitizeStat({n:NaN}).n, 0);
+  eq("sanitizeStats drops a non-object map", Object.keys(A.sanitizeStats(null)).length, 0);
+
+  // ---- weight: the two pulls ----
+  eq("an unseen word sits at the flat NEW_WEIGHT", A.weight(undefined, T0), A._constants.NEW_WEIGHT);
+  eq("a never-attempted stat record is still NEW_WEIGHT", A.weight(A.emptyStat(), T0), A._constants.NEW_WEIGHT);
+  (function(){
+    var missed = stat({n:10,r:1,w:9,box:0,last:T0});
+    var solid  = stat({n:10,r:10,box:1,last:T0 - 3*DAY});
+    var wMissed = A.weight(missed, T0), wSolid = A.weight(solid, T0);
+    results.push({ pass: wMissed > wSolid * 3,
+      desc:"a badly-missed word outweighs a solid one at least 3:1",
+      detail: wMissed.toFixed(2) + " vs " + wSolid.toFixed(2) });
+    results.push({ pass: wMissed > A._constants.NEW_WEIGHT,
+      desc:"a badly-missed word outweighs an unseen one",
+      detail: wMissed.toFixed(2) + " vs " + A._constants.NEW_WEIGHT });
+  })();
+
+  // ---- dueFactor: rest, damped rather than banned ----
+  eq("box 0 is always due (no rest earned)", A.dueFactor(stat({n:1,box:0,last:T0}), T0), 1);
+  eq("a word never practiced is due", A.dueFactor(A.emptyStat(), T0), 1);
+  eq("just-practiced at box 3 sits at the rest floor", A.dueFactor(stat({n:5,box:3,last:T0}), T0), A._constants.REST_FLOOR);
+  eq("box 3 is due again after its 4 days", A.dueFactor(stat({n:5,box:3,last:T0 - 4*DAY}), T0), 1);
+  eq("box 3 long overdue doesn't overshoot 1", A.dueFactor(stat({n:5,box:3,last:T0 - 40*DAY}), T0), 1);
+  (function(){
+    var f = A.dueFactor(stat({n:5,box:3,last:T0 - 2*DAY}), T0);
+    results.push({ pass: f > A._constants.REST_FLOOR && f < 1,
+      desc:"mid-rest ramps between the floor and due", detail:f.toFixed(3) });
+    results.push({ pass: A.weight(stat({n:5,r:5,box:3,last:T0}), T0) > 0,
+      desc:"a resting word is damped, never unpickable", detail:String(A.weight(stat({n:5,r:5,box:3,last:T0}), T0)) });
+  })();
+
+  // ---- mastery ----
+  eq("top box + high accuracy is mastered", A.isMastered(stat({n:12,r:12,box:5,last:T0})), true);
+  eq("top box with poor accuracy is not mastered", A.isMastered(stat({n:12,r:6,w:6,box:5,last:T0})), false);
+  eq("high accuracy in a low box is not yet mastered", A.isMastered(stat({n:4,r:4,box:2,last:T0})), false);
+
+  // ---- pickSession: shape ----
+  (function(){
+    var pool = ["a","b","c","d","e","f","g","h"];
+    var got = A.pickSession(pool, {}, 4, T0, lcg(7));
+    eq("pickSession returns the size asked for", got.length, 4);
+    var uniq = {}; got.forEach(function(w){ uniq[w] = true; });
+    eq("pickSession never repeats a word in one round", Object.keys(uniq).length, got.length);
+    var all = A.pickSession(pool, {}, 99, T0, lcg(7));
+    eq("pickSession can't return more words than the list holds", all.length, pool.length);
+    eq("pickSession of size 0 is empty", A.pickSession(pool, {}, 0, T0, lcg(7)).length, 0);
+    eq("pickSession of an empty pool is empty", A.pickSession([], {}, 5, T0, lcg(7)).length, 0);
+    eq("pickSession is deterministic for a given seed",
+       A.pickSession(pool, {}, 4, T0, lcg(7)).join(","),
+       A.pickSession(pool, {}, 4, T0, lcg(7)).join(","));
+  })();
+
+  // ---- pickSession: the whole point — hard words come up more ----
+  (function(){
+    var pool = ["hard","easy","mid","new1","new2","new3"];
+    var stats = {
+      hard: stat({n:10,r:1,w:9,box:0,last:T0 - 2*DAY}),
+      easy: stat({n:10,r:10,box:5,last:T0 - 1*DAY}),
+      mid:  stat({n:10,r:6,w:4,box:2,last:T0 - 5*DAY})
+    };
+    var rnd = lcg(12345), count = {};
+    pool.forEach(function(w){ count[w] = 0; });
+    for(var i=0;i<600;i++){
+      A.pickSession(pool, stats, 2, T0, rnd).forEach(function(w){ count[w]++; });
+    }
+    results.push({ pass: count.hard > count.easy * 2,
+      desc:"over 600 rounds the missed word is drawn at least twice as often as the mastered one",
+      detail:"hard " + count.hard + " vs easy " + count.easy });
+    results.push({ pass: count.hard > count.mid && count.mid > count.easy,
+      desc:"draw frequency follows accuracy: hard > middling > solid",
+      detail:"hard " + count.hard + ", mid " + count.mid + ", easy " + count.easy });
+    results.push({ pass: count.easy > 0,
+      desc:"a mastered word still comes round occasionally",
+      detail:"easy drawn " + count.easy + " times" });
+    results.push({ pass: count.new1 > count.easy,
+      desc:"unseen words outrank a mastered one",
+      detail:"new1 " + count.new1 + " vs easy " + count.easy });
+    results.push({ pass: count.new1 < count.hard,
+      desc:"...but don't crowd out the word that's actually failing",
+      detail:"new1 " + count.new1 + " vs hard " + count.hard });
+  })();
+
+  // ---- stat keys ----
+  eq("keyFor joins list and word", A.keyFor("oi-oy-read","coin"), "oi-oy-read|coin");
+  eq("parseKey recovers the word", A.parseKey("oi-oy-read|coin").word, "coin");
+  eq("parseKey recovers the list", A.parseKey("oi-oy-read|coin").listId, "oi-oy-read");
+  eq("a key with no separator is treated as a bare word", A.parseKey("coin").word, "coin");
+  eq("the same word in two lists is two different keys",
+     A.keyFor("oi-oy-read","coin") === A.keyFor("oi-oy-spell","coin"), false);
+  (function(){
+    var stats = {};
+    stats[A.keyFor("l1","coin")] = stat({n:3,r:1,w:2});
+    stats[A.keyFor("l2","coin")] = stat({n:3,r:3});
+    var one = A.statsForList(stats, "l1");
+    eq("statsForList re-keys by bare word", Object.keys(one).join(","), "coin");
+    eq("statsForList keeps the right list's numbers", one.coin.r, 1);
+    eq("statsForList of an unknown list is empty", Object.keys(A.statsForList(stats,"nope")).length, 0);
+  })();
+
+  // ---- rank + summarize ----
+  (function(){
+    var stats = {
+      "l|good": stat({n:10,r:10,box:5,last:T0}),
+      "l|bad":  stat({n:10,r:2,w:8,box:0,last:T0}),
+      "l|mid":  stat({n:10,r:7,w:3,box:2,last:T0}),
+      "l|unseen": A.emptyStat()
+    };
+    var r = A.rank(stats);
+    eq("rank puts the worst word first", r[0].word, "l|bad");
+    eq("rank puts the best word last", r[r.length-1].word, "l|good");
+    eq("rank leaves out never-practiced words", r.length, 3);
+    var sum = A.summarize(stats);
+    eq("summarize counts only practiced words", sum.words, 3);
+    eq("summarize totals attempts", sum.attempts, 30);
+    eq("summarize totals first-try rights", sum.right, 19);
+    eq("summarize accuracy is right/attempts", sum.accuracy, 19/30);
+    eq("summarize counts mastered", sum.mastered, 1);
+    eq("summarize counts struggling (under 60%)", sum.struggling, 1);
+    eq("summarize of nothing has a null accuracy", A.summarize({}).accuracy, null);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     store.js — assignment precedence
+
+     Student's own list → their period's → the class default →
+     everything. This is the rule the dashboard's copy has to match, so
+     it's pinned here rather than left to a careful reading of two files.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var E = window.EIStore._internals.effectiveLists;
+    var ALL = ["a","b","c","d"];
+    eq("nothing set anywhere opens the whole site", E(null, null, ALL).join(","), "a,b,c,d");
+    eq("class default applies when nothing else is set",
+       E(null, {defaultLists:["a"]}, ALL).join(","), "a");
+    eq("a period's list beats the class default",
+       E({period:"3"}, {defaultLists:["a"], periodLists:{"3":["b","c"]}}, ALL).join(","), "b,c");
+    eq("a student's own list beats their period's",
+       E({period:"3", lists:["d"]}, {defaultLists:["a"], periodLists:{"3":["b","c"]}}, ALL).join(","), "d");
+    eq("a period with no list of its own falls through to the default",
+       E({period:"9"}, {defaultLists:["a"], periodLists:{"3":["b"]}}, ALL).join(","), "a");
+    eq("an explicit empty student list parks them (and stops the walk)",
+       E({period:"3", lists:[]}, {defaultLists:["a"], periodLists:{"3":["b"]}}, ALL).length, 0);
+    eq("an explicit empty period list parks the period",
+       E({period:"3"}, {defaultLists:["a"], periodLists:{"3":[]}}, ALL).length, 0);
+    eq("a student with no period ignores every period list",
+       E({}, {periodLists:{"3":["b"]}}, ALL).join(","), "a,b,c,d");
+    eq("the returned array is a copy, not the stored one",
+       (function(){ var cfg = {defaultLists:["a"]}; E(null,cfg,ALL).push("x"); return cfg.defaultLists.length; })(), 1);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     word-lists.js — the registry every other file trusts
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var seen = {}, dupes = [];
+    WordLists.all.forEach(function(l){
+      if(seen[l.id]) dupes.push(l.id);
+      seen[l.id] = true;
+    });
+    eq("every list id is unique (they key stored stats)", dupes.length, 0, dupes.join(","));
+    var missing = WordLists.all.filter(function(l){
+      return !l.title || !l.page || !l.words.length || (l.engine !== "blend" && l.engine !== "spell");
+    }).map(function(l){ return l.id; });
+    eq("every list has a title, a page, an engine and words", missing.length, 0, missing.join(","));
+    var badSection = WordLists.all.filter(function(l){ return l.section !== "speak" && l.section !== "type"; });
+    eq("every list belongs to a section the home page renders", badSection.length, 0);
+    var piped = WordLists.all.filter(function(l){
+      return l.words.some(function(w){ return String(w).indexOf("|") !== -1; });
+    });
+    eq("no word contains the key separator", piped.length, 0);
+    eq("wordsOf strips syllable dots", WordLists.wordsOf("multisyllable").indexOf("fantastic") !== -1, true);
+    eq("wordsOf leaves no dots behind",
+       WordLists.wordsOf("multisyllable").filter(function(w){ return w.indexOf("·") !== -1; }).length, 0);
+    eq("entryMap maps the plain word back to its dotted entry",
+       WordLists.entryMap("multisyllable")["fantastic"], "fan·tas·tic");
+    eq("byId finds a list", WordLists.byId("oi-oy-spell").engine, "spell");
+    eq("byId of an unknown id is null", WordLists.byId("nope"), null);
+    // A round is only adaptive if it's a SUBSET — a list at or under the
+    // session size always shows every word and the weighting can't bite.
+    var tooShort = WordLists.all.filter(function(l){
+      return WordLists.wordsOf(l.id).length <= 18;
+    }).map(function(l){ return l.id; });
+    eq("every list is longer than one round, or the weighting does nothing",
+       tooShort.length, 0, tooShort.join(","));
   })();
 
   // ---- render ----
