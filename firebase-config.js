@@ -14,12 +14,12 @@
    ════════════════════════════════════════════════════════════════════ */
 
 const firebaseConfig = {
-  apiKey:            "PASTE_API_KEY_HERE",
-  authDomain:        "PASTE_PROJECT_ID_HERE.firebaseapp.com",
-  projectId:         "PASTE_PROJECT_ID_HERE",
-  storageBucket:     "PASTE_PROJECT_ID_HERE.firebasestorage.app",
-  messagingSenderId: "PASTE_SENDER_ID_HERE",
-  appId:             "PASTE_APP_ID_HERE"
+  apiKey:            "AIzaSyA1QlmJI1M5d_XQEsslMm-4v8fzt18Sp0s",
+  authDomain:        "english-intensive-98d00.firebaseapp.com",
+  projectId:         "english-intensive-98d00",
+  storageBucket:     "english-intensive-98d00.firebasestorage.app",
+  messagingSenderId: "566881874310",
+  appId:             "1:566881874310:web:f1f083c916c6baf3413c07"
 };
 
 /* The one Google account that gets the teacher dashboard (teacher.html).
