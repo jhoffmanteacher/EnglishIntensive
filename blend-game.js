@@ -13,6 +13,17 @@
 window.BlendGame = (function(){
   "use strict";
 
+  // What this engine takes from game-core.js. Aliased once here rather than
+  // reached through GameCore at every call site, so the code below reads the
+  // same as it did when these lived in this file — and so the list of what's
+  // shared is in one visible place. What ISN'T shared is everything to do
+  // with the microphone: say() and the beeps have to coordinate with a live
+  // recognizer, so they stay here and hand the core a mic-hold callback.
+  var Core = window.GameCore;
+  var shuffled        = Core.shuffled,
+      comboMultiplier = Core.comboMultiplier,
+      pointsFor       = Core.pointsFor;
+
   var MIC_SVG =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
       '<path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>' +
@@ -280,158 +291,6 @@ window.BlendGame = (function(){
     }).join('') + '</span>';
   }
 
-  /* ---------------- combo scoring (pure, testable) ----------------
-     A streak drives a points multiplier instead of the old flat +10:
-     ×1 to start, ×2 from a streak of 5, ×3 from 10 up (capped there — a
-     runaway multiplier stops meaning anything). Every 5th in a row is
-     still a +25 milestone on top. `streak` is the streak INCLUDING the
-     answer being scored, so streak 5 pays 10×2+25 = 45. */
-  function comboMultiplier(streak){
-    return Math.min(3, 1 + Math.floor(streak/5));
-  }
-  function pointsFor(streak){
-    return 10 * comboMultiplier(streak) + (streak > 0 && streak % 5 === 0 ? 25 : 0);
-  }
-
-  /* ---------------- comeback deck (pure, testable) ----------------
-     Missed words don't vanish when the round ends — they're kept per game
-     page so the next session can start with the words that are actually
-     hard for this student. A word leaves the deck the moment it comes back
-     right on the FIRST try, which is the whole pedagogy: the deck holds
-     only what isn't mastered yet, so it shrinks as the student improves
-     instead of growing into a punishment list.
-
-     Store shape:  { v:1, words: { soft: {n:3, t:1717000000000}, … } }
-       n — how many rounds the word has been missed in (drives priority)
-       t — when it was last missed (breaks ties toward fresher trouble)
-
-     Everything here is pure — a store goes in, a new store comes out —
-     so localStorage only ever appears at the two functions in start()
-     that read and write it. */
-
-  var COMEBACK_VERSION = 1;
-  var COMEBACK_CAP = 15;    // a warm-up, not a second full round
-
-  function has(o, k){ return Object.prototype.hasOwnProperty.call(o, k); }
-
-  // localStorage is shared, hand-editable and outlives any change to this
-  // file, so whatever comes back out is treated as untrusted input: anything
-  // that isn't an entry with a real positive miss count is dropped. A
-  // corrupted deck should cost a student their review list, never the game.
-  function sanitizeComeback(raw){
-    var out = { v: COMEBACK_VERSION, words: {} };
-    if(!raw || typeof raw !== "object" || !raw.words || typeof raw.words !== "object") return out;
-    for(var w in raw.words){
-      if(!has(raw.words, w) || !w) continue;
-      var e = raw.words[w];
-      if(!e || typeof e !== "object") continue;
-      var n = Math.floor(Number(e.n)), t = Number(e.t);
-      if(!isFinite(n) || n < 1) continue;
-      out.words[w] = { n: n, t: (isFinite(t) && t > 0) ? t : 0 };
-    }
-    return out;
-  }
-
-  // Fold one round's missed words into the store. `at` is passed in rather
-  // than read from Date.now() in here so the tie-breaking is testable. A
-  // word repeated in one round's misses still only counts once — n counts
-  // rounds gone wrong, not individual wrong tries.
-  function comebackMerge(store, words, at){
-    var out = sanitizeComeback(store), seen = {};
-    if(!words) return out;
-    for(var i=0;i<words.length;i++){
-      var w = words[i];
-      if(typeof w !== "string" || !w || has(seen, w)) continue;
-      seen[w] = 1;
-      out.words[w] = { n: (has(out.words, w) ? out.words[w].n : 0) + 1, t: at };
-    }
-    return out;
-  }
-
-  // A word earns its way out by coming back right on the first try. Getting
-  // it on the second try doesn't count — that's still the stumble the deck
-  // exists to catch.
-  function comebackMastered(store, word){
-    var out = sanitizeComeback(store);
-    if(typeof word === "string" && has(out.words, word)) delete out.words[word];
-    return out;
-  }
-
-  // Most-missed first, so a capped deck keeps the words that keep going
-  // wrong rather than an arbitrary slice. Ties go to the most recently
-  // missed word, then alphabetically — the last step is arbitrary but makes
-  // the deck stable instead of following whatever order the object's keys
-  // happen to come back in. The sort decides *which* words make the cap;
-  // Shuffle may still reorder them within the round, which is fine.
-  function comebackDeck(store, cap){
-    var s = sanitizeComeback(store), list = [], w;
-    for(w in s.words){ if(has(s.words, w)) list.push(w); }
-    list.sort(function(a, b){
-      if(s.words[b].n !== s.words[a].n) return s.words[b].n - s.words[a].n;
-      if(s.words[b].t !== s.words[a].t) return s.words[b].t - s.words[a].t;
-      return a < b ? -1 : (a > b ? 1 : 0);
-    });
-    if(typeof cap !== "number" || !isFinite(cap) || cap < 0) cap = COMEBACK_CAP;
-    return list.slice(0, cap);
-  }
-
-  // The progress bar is themed per game (race track or maze) instead of a
-  // plain fill bar — same idx/queue.length percentage drives both, just
-  // rendered differently. Race is a straight left:pct% move; maze walks an
-  // SVG path with getPointAtLength so any word-list length still reaches
-  // the same start/end points.
-  function progressMarkup(theme){
-    if(theme === "maze"){
-      // "maze" is a vault run now, not a mouse-and-cheese maze — a ninja
-      // threading a laser corridor toward a vault of diamonds. Same path,
-      // same getPointAtLength walk, same class names (spell-game.js draws
-      // an identical SVG with its own icons and shares every rule below),
-      // just a fiction a 9th/10th grader won't feel talked down to by.
-      var d = "M20,85 L150,85 L150,15 L300,15 L300,85 L450,85 L450,15 L580,15";
-      return `
-    <div class="track track-maze">
-      <svg viewBox="0 0 600 100" preserveAspectRatio="xMidYMid meet" class="maze-svg" aria-hidden="true">
-        <path class="maze-wall" d="${d}"></path>
-        <path class="maze-path" d="${d}"></path>
-        <path id="mazeTrail" class="maze-trail" d="${d}"></path>
-        <text class="maze-goal" x="580" y="15">💎</text>
-        <text id="mazeRunner" class="maze-runner" x="20" y="85">🥷</text>
-      </svg>
-    </div>`;
-    }
-    // A hand-drawn car instead of the 🚗 emoji — emoji "automobile" glyphs
-    // face left in every major vendor set, and mirroring one with CSS looks
-    // slightly off (reversed shading/details). Drawing it ourselves means
-    // it's simply built facing right, with spinning wheels for extra life.
-    return `
-    <div class="track track-race">
-      <div class="track-road"><i class="track-fill" id="uiTrackFill"></i></div>
-      <div class="track-goal">🏁</div>
-      <div class="track-runner" id="uiRunner">
-        <span class="runner-icon">
-          <svg viewBox="0 0 64 34" class="car-svg" aria-hidden="true">
-            <ellipse class="car-shadow" cx="34" cy="30" rx="26" ry="3"></ellipse>
-            <rect class="speedline" x="-4" y="10" width="9" height="2.5" rx="1.2"></rect>
-            <rect class="speedline" x="-8" y="17" width="11" height="2.5" rx="1.2" style="animation-delay:.2s"></rect>
-            <rect class="speedline" x="-4" y="24" width="7" height="2.5" rx="1.2" style="animation-delay:.4s"></rect>
-            <path class="car-body" d="M6,26 L6,18 Q6,14 10,14 L18,14 L24,5 L38,5 L46,13 L54,13 Q60,13 60,19 L60,26 Z"></path>
-            <rect class="car-spoiler" x="3" y="10" width="10" height="3" rx="1"></rect>
-            <polygon class="car-glass" points="23,13 27,7 37,7 42,13"></polygon>
-            <rect class="car-stripe" x="30" y="5" width="5" height="21"></rect>
-            <g class="wheel">
-              <circle cx="18" cy="27" r="6"></circle>
-              <rect x="17" y="21" width="2" height="4"></rect>
-            </g>
-            <g class="wheel">
-              <circle cx="48" cy="27" r="6"></circle>
-              <rect x="47" y="21" width="2" height="4"></rect>
-            </g>
-          </svg>
-        </span>
-      </div>
-    </div>`;
-  }
-
   // One template literal rather than a hundred lines of string concatenation —
   // this is markup, and it should still read like markup.
   function shell(cfg){
@@ -481,7 +340,7 @@ window.BlendGame = (function(){
       <div class="stat"><div class="lbl">Streak</div><div class="val flame" id="uiStreak">0</div><div class="combo" id="uiCombo"></div></div>
       <div class="stat"><div class="lbl">Word</div><div class="val" id="uiCount">1/${cfg.words.length}</div></div>
     </div>
-    ${progressMarkup(cfg.theme)}
+    ${cfg.progress}
 
     <div class="wordcard" id="wordCard">
       <div class="popup" id="popup"></div>
@@ -533,7 +392,9 @@ window.BlendGame = (function(){
     var WORDS = parsedWords.map(function(p){ return p.word; });
     var CHUNKS = {};
     parsedWords.forEach(function(p){ if(p.chunks) CHUNKS[p.word] = p.chunks; });
-    function chunksFor(word){ return has(CHUNKS, word) ? CHUNKS[word] : null; }
+    function chunksFor(word){
+      return Object.prototype.hasOwnProperty.call(CHUNKS, word) ? CHUNKS[word] : null;
+    }
     // Whether the blend sits at the front of the word or the back.
     var atStart = cfg.blend !== "end";
     // Number of letters in the blend — 2 for today's games ("bl", "nk"), but
@@ -541,6 +402,9 @@ window.BlendGame = (function(){
     // touching this file.
     var blendLength = cfg.blendLength === undefined ? 2 : cfg.blendLength;
     var theme = cfg.theme === "maze" ? "maze" : "race";
+    // "race" is a car on a dashed track; "maze" is a vault run — a ninja
+    // threading a laser corridor toward a vault of diamonds.
+    var prog = Core.progress(theme);
     // "sound" mode (cfg.blend === "sound"): the target phoneme (e.g. "OY"
     // for oi/oy) can land anywhere in the word instead of a fixed start/end
     // position — see findPhonemeSeq. cfg.highlight is the regex used to show
@@ -554,14 +418,13 @@ window.BlendGame = (function(){
       title: cfg.title,
       intro: cfg.intro || "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!",
       words: WORDS,
-      theme: theme
+      theme: theme,
+      progress: prog.markup()
     });
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], tries = 0, busy = false;
-    var mazeLen = null;    // cached path length for the maze theme's runner
-    var lastPct = null;    // last progress % drawn, so the race can drop a dust puff behind it
 
     var shuffleOn = true;
     try{
@@ -590,24 +453,18 @@ window.BlendGame = (function(){
     // word list or the comeback deck, depending on which button got us here.
     var pendingList = WORDS;
 
-    function readComeback(){
-      try{ return sanitizeComeback(JSON.parse(localStorage.getItem(comebackKey))); }
-      catch(e){ return sanitizeComeback(null); }
-    }
-    function writeComeback(store){
-      try{ localStorage.setItem(comebackKey, JSON.stringify(store)); }catch(e){}
-    }
+    var comeback = Core.comebackStore(comebackKey);
     // One read/write per round rather than one per word — a round is the
     // natural unit here (n counts rounds missed), and it keeps the storage
     // touch off the answer-handling path.
     function persistComeback(){
       if(!mastered.length && !missed.length) return;
-      var store = readComeback();
+      var store = comeback.read();
       // Removals first, then misses. A word can't be both in one round today
       // (a first-try correct answer never reaches `missed`), but if that ever
       // changed the miss is the one that should stick.
-      mastered.forEach(function(w){ store = comebackMastered(store, w); });
-      writeComeback(comebackMerge(store, missed, Date.now()));
+      mastered.forEach(function(w){ store = Core.comebackMastered(store, w); });
+      comeback.write(Core.comebackMerge(store, missed, Date.now()));
     }
 
     /* mic state: micOn is the session-wide switch (mic stays on once the game
@@ -622,35 +479,15 @@ window.BlendGame = (function(){
     var $ = function(id){ return document.getElementById(id); };
     var now = function(){ return Date.now(); };
 
-    /* ---------------- audio blips ---------------- */
-    var actx = null;
-    function beep(freqs, dur){
-      // Hold the mic for however long this sound will actually play, plus a
-      // little slack for the speakers/room, so we never transcribe ourselves.
-      // keepAlive=true: a beep is just a tone, never mistaken for a word, so
-      // there's no need to tear down an already-running recognizer for it —
-      // doing that anyway was the main cause of the "say it twice" lag, since
-      // every restart pays the recognition engine's connect delay again.
-      holdMic(((freqs.length - 1) * dur * 0.7 + dur) * 1000 + 180, true);
-      try{
-        if(!actx){ var C = window.AudioContext || window.webkitAudioContext; if(!C) return; actx = new C(); }
-        if(actx.state === "suspended") actx.resume();
-        freqs.forEach(function(f,i){
-          var o = actx.createOscillator(), g = actx.createGain();
-          o.type = "triangle"; o.frequency.value = f;
-          var t = actx.currentTime + i * (dur*0.7);
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-          o.connect(g); g.connect(actx.destination);
-          o.start(t); o.stop(t + dur + 0.02);
-        });
-      }catch(e){}
-    }
-    var sndGood  = function(){ beep([660,880,1180],0.16); };
-    var sndBad   = function(){ beep([300,200],0.20); };
-    var sndWin   = function(){ beep([660,880,1180,1560],0.18); };
-    var sndCombo = function(){ beep([660,990,1320,1760],0.14); };   // milestone fanfare
+    /* ---------------- audio blips ----------------
+       Held off the mic for however long the sound will actually play, plus a
+       little slack for the speakers and the room, so the game never
+       transcribes itself. keepAlive=true: a beep is just a tone, never
+       mistaken for a word, so there's no need to tear down an already-running
+       recognizer for it — doing that anyway was the main cause of the "say it
+       twice" lag, since every restart pays the recognition engine's connect
+       delay again. */
+    var snd = Core.sounds({ onPlay: function(ms){ holdMic(ms + 180, true); } });
 
     /* ---------------- screens ---------------- */
     function show(id){
@@ -673,12 +510,6 @@ window.BlendGame = (function(){
     }
 
     /* ---------------- helpers ---------------- */
-    function shuffled(a){
-      var b = a.slice();
-      for(var i=b.length-1;i>0;i--){ var j = Math.floor(Math.random()*(i+1)); var t=b[i]; b[i]=b[j]; b[j]=t; }
-      return b;
-    }
-
     // The word has to come back exactly right to be marked correct — no
     // forgiving near-misses. (wordMatchesCore/isMatchCore still support a
     // more forgiving level for the phonetic-matching internals exercised
@@ -799,50 +630,6 @@ window.BlendGame = (function(){
     }
 
     /* ---------------- render ---------------- */
-    // Same idx/queue.length percentage as the old plain bar — just handed to
-    // whichever theme is running instead of a fill width.
-    function spawnDust(leftPct){
-      var track = document.querySelector(".track-race");
-      if(!track) return;
-      var d = document.createElement("span");
-      d.className = "dust";
-      d.textContent = "💨";
-      d.style.left = leftPct + "%";
-      track.appendChild(d);
-      setTimeout(function(){ d.remove(); }, 550);
-    }
-    function updateProgress(pct){
-      if(theme === "maze"){
-        // mazeTrail shares the maze-path's "d", so its length doubles as the
-        // guide path's length — one <path> query covers both.
-        var path = $("mazeTrail"), runner = $("mazeRunner");
-        if(!path || !runner) return;
-        if(mazeLen === null){ mazeLen = path.getTotalLength(); path.style.strokeDasharray = mazeLen; }
-        var covered = pct/100 * mazeLen;
-        var pt = path.getPointAtLength(covered);
-        runner.setAttribute("x", pt.x);
-        runner.setAttribute("y", pt.y);
-        path.style.strokeDashoffset = mazeLen - covered;
-      } else {
-        var r = $("uiRunner"), fill = $("uiTrackFill");
-        var shown = Math.min(pct, 94);
-        if(lastPct !== null && pct > lastPct) spawnDust(Math.min(lastPct, 94));
-        if(r) r.style.left = shown + "%";
-        if(fill) fill.style.width = Math.min(pct, 100) + "%";
-      }
-      lastPct = pct;
-    }
-    // A little flourish on every 5-streak milestone — same "boost" class name
-    // works for both themes since each one's CSS defines its own keyframes.
-    function celebrateProgress(){
-      var wrap = theme === "maze" ? null : $("uiRunner");
-      var el = theme === "maze" ? $("mazeRunner") : (wrap && wrap.querySelector(".runner-icon"));
-      if(!el) return;
-      el.classList.remove("boost");
-      void el.getBoundingClientRect();   // restart the animation
-      el.classList.add("boost");
-      setTimeout(function(){ el.classList.remove("boost"); }, 550);
-    }
     // The badge under the streak number — only visible once the multiplier
     // is actually doing something, so ×1 shows nothing.
     function renderCombo(){
@@ -856,23 +643,16 @@ window.BlendGame = (function(){
       $("uiStreak").textContent = streak;
       renderCombo();
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
-      updateProgress((idx)/queue.length*100);
+      prog.update((idx)/queue.length*100);
       $("wordCard").className = "wordcard";
       $("uiMic").innerHTML = "Say the word out loud";
       $("btnSkip").textContent = "Skip ▸";
     }
-    function popup(txt, color, big){
-      var p = $("popup");
-      p.textContent = txt; p.style.color = color;
-      p.classList.toggle("big", !!big);
-      p.classList.remove("go"); void p.offsetWidth; p.classList.add("go");
-    }
-
     /* ---------------- game flow ---------------- */
     function startGame(list){
       queue = shuffleOn ? shuffled(list) : list.slice();
       idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; mastered = []; tries = 0; busy = false;
-      lastPct = null;
+      prog.reset();
       show("s-play");
       micOn = !!SR;           // mic is on for the whole game from here
       render();
@@ -906,16 +686,7 @@ window.BlendGame = (function(){
       // 0–3 stars, popping in one after another. Same thresholds a game
       // would use: 3 at 90%+, 2 at 70%+, 1 at 50%+ — unearned slots still
       // render as dim outlines so a 2-star finish visibly has room to grow.
-      var starCount = pct >= 90 ? 3 : pct >= 70 ? 2 : pct >= 50 ? 1 : 0;
-      var stars = $("uiStars");
-      stars.innerHTML = "";
-      for(var si=0; si<3; si++){
-        var st = document.createElement("span");
-        st.className = "star" + (si < starCount ? " lit" : "");
-        st.style.animationDelay = (0.25 + si*0.3) + "s";
-        st.textContent = "★";
-        stars.appendChild(st);
-      }
+      Core.renderStars($("uiStars"), pct);
       var block = $("missBlock"), grid = $("uiMissed");
       grid.innerHTML = "";
       if(missed.length){
@@ -936,27 +707,12 @@ window.BlendGame = (function(){
         block.style.display = "none";
         $("btnRetryMissed").style.display = "none";
       }
-      if(pct >= 70) confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
-      sndWin();
+      if(pct >= 70) Core.confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
+      snd.win();
     }
 
     // A one-shot burst of falling confetti pieces on a good finish — pure CSS
     // animation, each piece removes itself once its fall finishes.
-    var CONFETTI_COLORS = ["#ffc94d","#3ddc97","#ff6b6b","#7dd3fc","#c084fc"];
-    function confettiBurst(container, count){
-      if(!container) return;
-      for(var i=0;i<count;i++){
-        var s = document.createElement("span");
-        s.className = "confetti-piece";
-        s.style.left = Math.random()*100 + "%";
-        s.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
-        s.style.animationDelay = (Math.random()*0.3) + "s";
-        s.style.setProperty("--r", Math.floor(Math.random()*360) + "deg");
-        container.appendChild(s);
-        (function(el){ setTimeout(function(){ el.remove(); }, 1700); })(s);
-      }
-    }
-
     function handleCorrect(){
       busy = true;
       right++;
@@ -979,13 +735,13 @@ window.BlendGame = (function(){
         // The full celebration: runner boost, big banner, confetti in the
         // word card (it's already position:relative + overflow:hidden), and
         // a fanfare instead of the ordinary correct-beep.
-        celebrateProgress();
-        popup("🔥 " + streak + " in a row!", "#ffc94d", true);
-        confettiBurst($("wordCard"), 18);
-        sndCombo();
+        prog.celebrate();
+        Core.popup($("popup"), "🔥 " + streak + " in a row!", "#ffc94d", true);
+        Core.confettiBurst($("wordCard"), 18);
+        snd.combo();
       } else {
-        popup("✓ +" + pts, "#3ddc97");
-        sndGood();
+        Core.popup($("popup"), "✓ +" + pts, "#3ddc97");
+        snd.good();
       }
       if(voiceOn){
         var phrase = milestone ? (numberWord(streak) + " in a row!") : praisePhrase(queue[idx]);
@@ -1002,8 +758,8 @@ window.BlendGame = (function(){
       renderCombo();
       tries++;
       $("wordCard").className = "wordcard wrong";
-      popup("✗", "#ff6b6b");
-      sndBad();
+      Core.popup($("popup"), "✗", "#ff6b6b");
+      snd.bad();
       var target = queue[idx];
       var targetChunks = tries >= 2 ? chunksFor(target) : null;
       var heardTxt = normalize(heard);
@@ -1166,41 +922,12 @@ window.BlendGame = (function(){
       if(tickTimer){ clearInterval(tickTimer); tickTimer = null; }
     }
 
-    /* ---------------- speak: voice pick + the word + the coach ----------------
-       Chrome loads its voice list asynchronously, so the first pick often
-       runs before the good voices exist — pickVoice() re-runs on
-       voiceschanged to fix that. Ranked so a natural Chrome/ChromeOS voice
-       always wins over the flat default. */
-    var voice = null;
-
-    // macOS/iOS ship joke voices (Albert croaks, Zarvox is a robot, Bahh is a
-    // sheep) in the same en-US list as the real ones, and alphabetical order
-    // puts Albert first — never pick these, even as a last resort.
-    // Duplicated in spell-game.js; keep the two rankings in sync.
-    var NOVELTY = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Eddy|Flo|Good News|Grandma|Grandpa|Hysterical|Jester|Junior|Kathy|Organ|Ralph|Reed|Rocko|Sandy|Shelley|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred/;
-
-    function pickVoice(){
-      if(!window.speechSynthesis) return;
-      var all = window.speechSynthesis.getVoices() || [];
-      var en = all.filter(function(v){
-        return /^en/i.test(v.lang) && !NOVELTY.test(v.name);
-      });
-      if(!en.length) return;   // list not loaded yet; voiceschanged will retry
-      function find(test){
-        for(var i=0;i<en.length;i++){ if(test(en[i])) return en[i]; }
-        return null;
-      }
-      voice =
-        find(function(v){ return v.lang === "en-US" && /Google/.test(v.name); }) ||
-        find(function(v){ return /Natural|Online/.test(v.name); }) ||
-        find(function(v){ return /Samantha|Ava|Allison|Alex/.test(v.name); }) ||
-        find(function(v){ return v.lang === "en-US" && v.localService; }) ||
-        find(function(v){ return v.lang === "en-US"; }) ||
-        en[0];
-    }
-    pickVoice();
-    if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged = pickVoice;
-
+    /* ---------------- speak: the word + the coach ----------------
+       The voice itself is picked once for the whole site in game-core.js.
+       say() stays here because of what has to happen around an utterance in
+       THIS game: the recognizer is stopped first so the computer is never
+       transcribed as the student, and the mic is held a beat afterwards to
+       let the speakers settle. */
     // Rotate through short praise phrases; substitute the actual word into
     // one of them so it doesn't always feel canned. Never the same phrase
     // twice in a row — with only six options, back-to-back repeats happen
@@ -1232,7 +959,8 @@ window.BlendGame = (function(){
         u.lang = "en-US";
         u.rate = opts.rate || 1;
         if(opts.pitch) u.pitch = opts.pitch;
-        if(voice) u.voice = voice;
+        var v = Core.voice();
+        if(v) u.voice = v;
         currentUtterance = u;
         speaking = true;
         stopListening();
@@ -1311,7 +1039,7 @@ window.BlendGame = (function(){
     $("btnDirections").addEventListener("click", readDirections);
     $("btnStart").addEventListener("click", function(){
       pendingList = WORDS;
-      beep([440],0.06); startMicCheck();
+      snd.click(); startMicCheck();
     });
     $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(pendingList); });
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
@@ -1320,14 +1048,14 @@ window.BlendGame = (function(){
     // the deck is rebuilt from storage here rather than cached at load —
     // finish() has usually rewritten the store since the last render.
     function renderComeback(){
-      comebackList = comebackDeck(readComeback(), COMEBACK_CAP);
+      comebackList = Core.comebackDeck(comeback.read(), Core.comebackCap);
       $("btnComeback").style.display = comebackList.length ? "" : "none";
       $("cbCount").textContent = comebackList.length;
     }
     $("btnComeback").addEventListener("click", function(){
       if(!comebackList.length) return;
       pendingList = comebackList.slice();
-      beep([440],0.06); startMicCheck();
+      snd.click(); startMicCheck();
     });
     renderComeback();
 
@@ -1407,13 +1135,13 @@ window.BlendGame = (function(){
       wordMatches: wordMatchesCore,
       isMatch: isMatchCore,
       findPhonemeSeq: findPhonemeSeq,
-      comboMultiplier: comboMultiplier,
-      pointsFor: pointsFor,
-      sanitizeComeback: sanitizeComeback,
-      comebackMerge: comebackMerge,
-      comebackMastered: comebackMastered,
-      comebackDeck: comebackDeck,
-      comebackCap: COMEBACK_CAP,
+      comboMultiplier: Core.comboMultiplier,
+      pointsFor: Core.pointsFor,
+      sanitizeComeback: Core.sanitizeComeback,
+      comebackMerge: Core.comebackMerge,
+      comebackMastered: Core.comebackMastered,
+      comebackDeck: Core.comebackDeck,
+      comebackCap: Core.comebackCap,
       parseWordEntry: parseWordEntry
     }
   };

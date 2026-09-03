@@ -40,7 +40,7 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div class="wrap">
   <h1>Game engine tests</h1>
-  <p class="sub">Pure-function tests for the phonetic matcher, combo scoring, comeback deck and syllable parser in blend-game.js, the spelling checker in spell-game.js, the deck builders in card-game.js, and the distractor picker in match-game.js. No framework, no build step — just runs in the DOM.</p>
+  <p class="sub">Pure-function tests for the shared scoring, comeback deck and word-list helpers in game-core.js, the phonetic matcher and syllable parser in blend-game.js, the spelling checker in spell-game.js, the deck builders in card-game.js, and the distractor picker in match-game.js. No framework, no build step — just runs in the DOM.</p>
   <div id="summary"></div>
   <table>
     <thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead>
@@ -48,6 +48,7 @@
   </table>
 </div>
 
+<script src="game-core.js"></script>
 <script src="blend-game.js"></script>
 <script src="spell-game.js"></script>
 <script src="card-game.js"></script>
@@ -434,7 +435,6 @@
   eq("spell pointsFor(11) = 30 (x3)", S.pointsFor(11), 30);
   eq("spell pointsFor(20) = 55 (cap holds)", S.pointsFor(20), 55);
   eq("spell comboMultiplier caps at 3", S.comboMultiplier(100), 3);
-  eq("SpellGame scoring matches BlendGame", S.pointsFor(5), I.pointsFor(5));
 
   // ---- no word in the list can be spelled as another word in the list ----
   (function(){
@@ -494,29 +494,21 @@
   eq("card pointsFor(5) = 45 (x2 + milestone)", C.pointsFor(5), 45);
   eq("card pointsFor(10) = 55 (x3 + milestone)", C.pointsFor(10), 55);
   eq("card comboMultiplier caps at 3", C.comboMultiplier(100), 3);
-  eq("CardGame scoring matches BlendGame", C.pointsFor(5), I.pointsFor(5));
   eq("CardGame scoring matches SpellGame", C.pointsFor(11), S.pointsFor(11));
 
-  // ---- comeback deck: card-game.js carries its own copy of blend-game.js's
-  //      deck, so every test here is run against BOTH and the two are also
-  //      checked against each other. A drift between the copies fails loudly.
+  // ---- comeback deck, reached through this engine ----
   (function(){
     var store = C.comebackMerge(null, ["said","would"], 1000);
     store = C.comebackMerge(store, ["said","people"], 2000);
     eq("card deck orders by miss count, then recency",
       C.comebackDeck(store, 15).join(" "), "said people would");
-    eq("card deck matches blend deck on the same store",
-      C.comebackDeck(store, 15).join(" "), I.comebackDeck(store, 15).join(" "));
-    eq("a store written by one engine reads back in the other",
+    eq("a store written through one engine reads back through another",
       I.comebackMerge(store, ["once"], 3000).words.once.n, 1);
     store = C.comebackMastered(store, "said");
     eq("a word read on sight leaves the card deck",
       C.comebackDeck(store, 15).join(" "), "people would");
-    eq("mastered matches blend's mastered",
-      C.comebackDeck(store, 15).join(" "), I.comebackDeck(store, 15).join(" "));
     eq("one round's repeat of a word still only counts once",
       C.comebackMerge(null, ["said","said"], 1000).words.said.n, 1);
-    eq("the card deck caps like the blend deck", C.comebackCap, I.comebackCap);
     eq("a capped deck keeps the most-missed word",
       C.comebackDeck(C.comebackMerge(store, ["would","would"], 4000), 1).join(" "), "would");
   })();
@@ -641,28 +633,139 @@
   eq("match pointsFor(5) = 45 (x2 + milestone)", G.pointsFor(5), 45);
   eq("match pointsFor(10) = 55 (x3 + milestone)", G.pointsFor(10), 55);
   eq("match comboMultiplier caps at 3", G.comboMultiplier(100), 3);
-  eq("MatchGame scoring matches BlendGame", G.pointsFor(5), I.pointsFor(5));
-  eq("MatchGame scoring matches SpellGame", G.pointsFor(11), S.pointsFor(11));
-  eq("MatchGame scoring matches CardGame", G.pointsFor(20), C.pointsFor(20));
 
-  // ---- comeback deck: third copy of blend-game.js's, checked against both ----
+  // ---- comeback deck, reached through this engine ----
   (function(){
     var store = G.comebackMerge(null, ["said","would"], 1000);
     store = G.comebackMerge(store, ["said","people"], 2000);
     eq("match deck orders by miss count, then recency",
       G.comebackDeck(store, 15).join(" "), "said people would");
-    eq("match deck matches blend deck on the same store",
-      G.comebackDeck(store, 15).join(" "), I.comebackDeck(store, 15).join(" "));
-    eq("match deck matches card deck on the same store",
-      G.comebackDeck(store, 15).join(" "), C.comebackDeck(store, 15).join(" "));
     store = G.comebackMastered(store, "said");
     eq("a word matched on the first try leaves the deck",
       G.comebackDeck(store, 15).join(" "), "people would");
-    eq("all three engines cap the deck the same", G.comebackCap + "/" + C.comebackCap + "/" + I.comebackCap,
-      I.comebackCap + "/" + I.comebackCap + "/" + I.comebackCap);
     eq("match sanitize survives junk", G.comebackDeck(G.sanitizeComeback("nope"), 15).length, 0);
     eq("match sanitize drops an entry with no miss count",
       G.comebackDeck(G.sanitizeComeback({v:1, words:{said:{t:1}}}), 15).length, 0);
+  })();
+
+  // ---- shared core (GameCore) ----
+  var Core = window.GameCore;
+
+  // The four engines used to carry their own copies of the scoring and the
+  // comeback deck, and these tests compared the copies' RESULTS to catch
+  // drift. Since game-core.js they aren't copies, so the check is stronger
+  // and exact: every engine must be pointing at the very same function.
+  // If someone reintroduces a local copy, this fails immediately.
+  (function(){
+    var shared = {
+      comboMultiplier: [["BlendGame",I],["SpellGame",S],["CardGame",C],["MatchGame",G]],
+      pointsFor:       [["BlendGame",I],["SpellGame",S],["CardGame",C],["MatchGame",G]],
+      sanitizeComeback:[["BlendGame",I],["CardGame",C],["MatchGame",G]],
+      comebackMerge:   [["BlendGame",I],["CardGame",C],["MatchGame",G]],
+      comebackMastered:[["BlendGame",I],["CardGame",C],["MatchGame",G]],
+      comebackDeck:    [["BlendGame",I],["CardGame",C],["MatchGame",G]],
+      dedupeWords:     [["CardGame",C],["MatchGame",G]],
+      sampleWords:     [["CardGame",C],["MatchGame",G]]
+    };
+    for(var fn in shared){
+      shared[fn].forEach(function(pair){
+        eq(pair[0] + " uses the core's " + fn, pair[1][fn] === Core[fn], true);
+      });
+    }
+    eq("every engine reports the core's deck cap",
+      [I.comebackCap, C.comebackCap, G.comebackCap].join("/"),
+      [Core.comebackCap, Core.comebackCap, Core.comebackCap].join("/"));
+  })();
+
+  // ---- scoring lives here now ----
+  eq("core pointsFor(1) = 10 (base)", Core.pointsFor(1), 10);
+  eq("core pointsFor(4) = 10 (still x1)", Core.pointsFor(4), 10);
+  eq("core pointsFor(5) = 45 (x2 + milestone)", Core.pointsFor(5), 45);
+  eq("core pointsFor(6) = 20 (x2)", Core.pointsFor(6), 20);
+  eq("core pointsFor(10) = 55 (x3 + milestone)", Core.pointsFor(10), 55);
+  eq("core pointsFor(11) = 30 (x3)", Core.pointsFor(11), 30);
+  eq("core pointsFor(20) = 55 (cap holds)", Core.pointsFor(20), 55);
+  eq("core pointsFor(0) = 10 (no milestone at zero)", Core.pointsFor(0), 10);
+  eq("core comboMultiplier caps at 3", Core.comboMultiplier(100), 3);
+
+  // ---- the star thresholds every end screen uses ----
+  eq("100% earns 3 stars", Core.starsFor(100), 3);
+  eq("90% earns 3 stars", Core.starsFor(90), 3);
+  eq("89% earns 2 stars", Core.starsFor(89), 2);
+  eq("70% earns 2 stars", Core.starsFor(70), 2);
+  eq("69% earns 1 star", Core.starsFor(69), 1);
+  eq("50% earns 1 star", Core.starsFor(50), 1);
+  eq("49% earns none", Core.starsFor(49), 0);
+  (function(){
+    var box = document.createElement("div");
+    Core.renderStars(box, 95);
+    eq("renderStars always draws three slots", box.querySelectorAll(".star").length, 3);
+    eq("renderStars lights three at 95%", box.querySelectorAll(".star.lit").length, 3);
+    Core.renderStars(box, 20);
+    eq("renderStars re-renders rather than appending", box.querySelectorAll(".star").length, 3);
+    eq("renderStars lights none at 20%", box.querySelectorAll(".star.lit").length, 0);
+  })();
+
+  // ---- the deck's one localStorage door ----
+  (function(){
+    var key = "testComeback:" + Math.random();
+    var store = Core.comebackStore(key);
+    eq("an unwritten deck reads back empty", Core.comebackDeck(store.read(), 15).length, 0);
+    store.write(Core.comebackMerge(null, ["said","would"], 1000));
+    eq("a written deck reads back", Core.comebackDeck(store.read(), 15).join(" "), "said would");
+    try{ localStorage.setItem(key, "{not json"); }catch(e){}
+    eq("a corrupted deck reads back empty rather than throwing",
+      Core.comebackDeck(store.read(), 15).length, 0);
+    try{ localStorage.removeItem(key); }catch(e){}
+  })();
+
+  // ---- the progress graphic both themes share ----
+  (function(){
+    var race = Core.progress("race"), maze = Core.progress("maze", {goal:"🏆", runner:"✏️"});
+    eq("race markup carries the track and the runner",
+      /track-race/.test(race.markup()) && /id="uiRunner"/.test(race.markup()), true);
+    eq("maze markup carries the path and the runner",
+      /track-maze/.test(maze.markup()) && /id="mazeRunner"/.test(maze.markup()), true);
+    eq("a game may set the maze's two icons", /🏆/.test(maze.markup()) && /✏️/.test(maze.markup()), true);
+    eq("the maze defaults to the vault icons", /💎/.test(Core.progress("maze").markup()), true);
+    eq("an unknown theme falls back to the race", /track-race/.test(Core.progress("nope").markup()), true);
+    // update/celebrate must be safe with none of it on the page
+    race.update(50); race.celebrate(); race.reset();
+    maze.update(50); maze.celebrate(); maze.reset();
+    eq("progress calls are harmless when the markup isn't mounted", true, true);
+  })();
+
+  // ---- shuffle keeps every word ----
+  (function(){
+    var list = ["a","b","c","d","e","f","g"];
+    var out = Core.shuffled(list);
+    eq("shuffled returns the same number of words", out.length, list.length);
+    eq("shuffled keeps every word", out.slice().sort().join(""), list.slice().sort().join(""));
+    eq("shuffled leaves the original alone", list.join(""), "abcdefg");
+  })();
+
+  eq("escapeHtml neutralizes markup", Core.escapeHtml("<b>&</b>"), "&lt;b&gt;&amp;&lt;/b&gt;");
+
+  // ---- the sound contract blend-game.js depends on ----
+  // It holds the microphone open for exactly as long as a beep will play, so
+  // the recognizer never transcribes the game's own feedback. If onPlay ever
+  // stopped firing, or reported the wrong length, the mic games would start
+  // hearing themselves — a bug that would be very hard to trace from the
+  // symptom. Three tones of 0.16s overlap at 0.7 spacing: 2*0.16*0.7+0.16.
+  (function(){
+    var heard = [];
+    var s = Core.sounds({ onPlay: function(ms){ heard.push(Math.round(ms)); } });
+    s.good();
+    eq("a sound reports how long it will play, before it plays", heard.length, 1);
+    eq("a three-tone sound reports its full length in ms", heard[0], 384);
+    s.bad(); s.win(); s.combo(); s.click();
+    eq("every named sound reports its length", heard.length, 5);
+    eq("a two-tone sound is shorter than a four-tone one", heard[1] < heard[2], true);
+    eq("a single-tone click is the shortest", heard[4], 60);
+    // A game that isn't listening passes no callback at all.
+    var quiet = Core.sounds();
+    quiet.good();
+    eq("a game with no mic needs no callback", true, true);
   })();
 
   // ---- render ----

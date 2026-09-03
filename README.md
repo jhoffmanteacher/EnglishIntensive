@@ -15,6 +15,49 @@ require a secure context, so the games will not listen from a `file://` URL.
 python3 -m http.server 8000
 ```
 
+## Shared core
+
+`game-core.js` holds the parts that **must** agree between games, and every
+page loads it before its engine:
+
+```html
+<script src="game-core.js"></script>
+<script src="blend-game.js"></script>
+```
+
+There are four engines — blend (say it), spell (type it), card (flip it),
+match (find it) — and they deliberately share a look, a scoring system and a
+set of habits, so a student moving between them sees one game asking
+different questions. That agreement used to be kept by copying code between
+engines with "keep this in step" written on top of each copy. At two copies
+that was the right trade against a no-build site; by four it wasn't. The
+scoring was in four places, the comeback deck in three, the vault-run SVG in
+three more, and each copy was a chance for two games to quietly start
+behaving differently.
+
+In the core: combo scoring and the star thresholds, the comeback deck (and
+the one function that touches `localStorage`), the race/vault progress
+graphics, the confetti, the score pop-up, the feedback blips, the voice
+ranking, and the word-list helpers (`shuffled`, `dedupeWords`,
+`sampleWords`, `escapeHtml`).
+
+Still in each engine: how it asks its question, how it judges the answer,
+its own screens and styles, and anything to do with the microphone.
+`blend-game.js` keeps its own `say()` because it has to stop a live
+recognizer first so the game never transcribes itself, and it passes its
+mic-hold in to the core's sounds as a callback rather than pushing
+microphone bookkeeping into shared code:
+
+```js
+var snd = Core.sounds({ onPlay: function(ms){ holdMic(ms + 180, true); } });
+```
+
+Each engine aliases what it takes at the top of its file, so the list of
+what's shared is visible in one place and the code below reads unchanged.
+`tests.html` asserts that every engine points at the *same function object*
+as the core — if a local copy is ever reintroduced, that check fails
+immediately.
+
 ## Home page
 
 `index.html` shows a grid of game tiles, split into sections by what the
@@ -90,18 +133,16 @@ Current games:
 ### Comeback words (missed-word persistence)
 
 Each game page keeps its own deck of not-yet-mastered words in
-`localStorage` (`"blendComeback:" + pathname`; `"cardComeback:"` and
-`"matchComeback:"` for the two card games, which carry their own copies of
-this logic): a word joins the
+`localStorage` (`"blendComeback:" + pathname`, and `"cardComeback:"` /
+`"matchComeback:"` for the two sight-word games): a word joins the
 deck when it's missed twice or skipped in a round, and **leaves the deck the
 moment it's read correctly on the first try** in any later round. When the deck has
 words, the start screen grows a "🔁 Comeback words (N)" button that runs just
 those words — most-missed first, capped at 15 so it stays a warm-up. The
 storage layer treats localStorage as untrusted (versioned, sanitized on
 read, silently absent if storage is unavailable), and the pure deck logic
-(`comebackMerge` / `comebackMastered` / `comebackDeck`) is covered by
-`tests.html`, which also checks the three engines' copies against each other
-so they can't drift apart. The session-level "Practice missed words" button on the end
+(`comebackMerge` / `comebackMastered` / `comebackDeck`) lives in
+`game-core.js` and is covered by `tests.html`. The session-level "Practice missed words" button on the end
 screen is unchanged and separate.
 
 ## Spelling game
@@ -136,9 +177,11 @@ runs today through the `_internals` seam that `tests.html` exercises
 directly, in case a more forgiving mode is wanted again later.
 
 Run `tests.html` (served the same way as the games) to check the matcher
-itself, along with the scoring, the comeback deck, the syllable parser, the
-spelling checker, the flash-card deck builders and the matching game's
-distractor picker — it renders a pass/fail table with a summary line.
+itself, along with everything shared in `game-core.js` (scoring, stars, the
+comeback deck, the progress graphics, the sound contract the mic games rely
+on), the syllable parser, the spelling checker, the flash-card deck builders
+and the matching game's distractor picker — it renders a pass/fail table
+with a summary line.
 
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
@@ -255,7 +298,8 @@ MatchGame.start({
 ```
 
 Decks, the picker, Mixed/All words, the comeback deck and the scoring all
-work exactly as they do in `card-game.js`. Two tries per word: a wrong tile
+work exactly as they do in `card-game.js` — both reach the same code in
+`game-core.js`. Two tries per word: a wrong tile
 greys out and stays on screen (so the retry narrows the field instead of
 being a coin flip), and a second miss gilds the right one and says it slowly.
 Only a first-try pick clears a word from the comeback deck.
