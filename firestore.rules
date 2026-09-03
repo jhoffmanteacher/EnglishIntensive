@@ -1,0 +1,109 @@
+rules_version = '2';
+
+/* ══════════════════════════════════════════════════════════════════════
+   English Intensive — Firestore security rules
+
+   THESE RULES ARE THE REAL SECURITY BOUNDARY. Everything in the site is
+   client-side and therefore bypassable from DevTools: the sign-in wall is
+   a div, teacher.html's account check is a div, and the @seq.org check in
+   auth.js is a convenience message. Only what is written here actually
+   stops anyone.
+
+   This file is the source of truth, but editing it changes NOTHING on its
+   own — GitHub Pages does not deploy Firestore rules. Paste the contents
+   into Firebase console → Firestore Database → Rules → Publish (or run
+   `firebase deploy --only firestore:rules` if the CLI is ever set up).
+   Keep this file and the console in sync; if they drift, the console wins
+   and this file becomes a lie.
+
+   The site only ever touches three paths (verified against store.js and
+   teacher.js):
+     students/{uid}      one doc per student: words (per-word stats),
+                         totals, recent rounds, name/email/photo
+     assignments/{uid}   teacher-written: period + assigned list ids
+                         (student reads their own)
+     config/class        one shared doc: periodLists, defaultLists,
+                         periods (teacher writes, everyone reads)
+
+   Anything not matched below is denied by default. Do not add a catch-all.
+   ══════════════════════════════════════════════════════════════════════ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* Sign-in is restricted to one school domain. Two conditions, both
+       load-bearing:
+
+       email_verified — without it, anyone who could register an @seq.org
+       address under a provider that doesn't verify (enabling
+       Email/Password is a single console toggle with no footprint in this
+       repo) would be inside the class. Google sign-in — the only provider
+       the site enables — always sets email_verified, so this locks nobody
+       real out.
+
+       The domain match is anchored at both ends on purpose:
+       "...@seq.org.attacker.com" contains "@seq.org" and an unanchored
+       match would wave it through. */
+    function isSchool() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email.matches('^[^@]+@seq[.]org$');
+    }
+
+    /* The one teacher account. Change this string and TEACHER_EMAIL in
+       firebase-config.js together — the dashboard reads one and the
+       database enforces the other, and a mismatch is a dashboard that
+       renders and then can't load anything. */
+    function isTeacher() {
+      return isSchool() && request.auth.token.email == 'jhoffman@seq.org';
+    }
+
+    /* One document per student, keyed by uid.
+
+       A student reads and writes ONLY their own. The teacher gets read —
+       deliberately NOT write. The dashboard never needs to modify student
+       work (assignments live in their own collection precisely so that it
+       doesn't), and withholding write means a compromised teacher session
+       cannot erase a term of practice. If a "reset this student" button is
+       ever added it needs `allow delete: if isTeacher()` here, and that
+       trade-off should be a deliberate decision rather than a default.
+
+       The email condition stops a student writing someone else's address
+       onto their own doc, which is the one field the dashboard uses to
+       decide who a row belongs to. It's written as "if the field is
+       present" because store.js sends merge-writes that often carry only
+       the changed words. */
+    match /students/{userId} {
+      allow read, write: if isSchool()
+                         && request.auth.uid == userId
+                         && (!('email' in request.resource.data)
+                             || request.resource.data.email == request.auth.token.email);
+      allow read: if isTeacher();
+    }
+
+    /* Which lists a student has been assigned, and which period they're
+       in. Teacher writes; the student reads their own row and nobody
+       else's — a student has no business knowing what another student has
+       been put on. */
+    match /assignments/{userId} {
+      allow read:  if isSchool() && request.auth.uid == userId;
+      allow read, write: if isTeacher();
+    }
+
+    /* Class-wide list assignment. Every signed-in student must read this
+       doc — store.js resolves their lists through periodLists and
+       defaultLists — so it cannot be teacher-only.
+
+       What that exposes: the period→list-ids map and the list of period
+       names. Neither is sensitive; list ids already ship to every client
+       in word-lists.js, and no student names appear here (they live in
+       assignments/{uid}, which is per-student and locked down above).
+
+       Scoped to the specific "class" doc — config/{doc} would let any
+       signed-in user read every future document under config/. */
+    match /config/class {
+      allow read:  if isSchool();
+      allow write: if isTeacher();
+    }
+  }
+}

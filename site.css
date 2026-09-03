@@ -61,3 +61,73 @@ button{font-family:inherit;cursor:pointer;border:none}
   box-shadow:0 24px 60px rgba(0,0,0,.45);
 }
 .sub{color:var(--muted);font-size:17px;line-height:1.6;margin:0}
+
+/* ---- sign-in wall + user chip (auth.js) ----
+   The wall's markup is built by auth.js rather than repeated in every
+   page's HTML, so these are the only styles it needs. `.ei-locked` on
+   <html> hides the page underneath: the wall is an overlay, and without
+   this the game card behind it is still reachable by keyboard. */
+html.ei-locked body > *:not(#ei-auth-wall){visibility:hidden}
+html.ei-locked{overflow:hidden}
+
+.ei-wall{
+  position:fixed;inset:0;z-index:1000;
+  display:flex;align-items:center;justify-content:center;
+  padding:24px;
+  background:radial-gradient(1200px 700px at 50% -10%, #1e2a44 0%, var(--bg) 60%);
+}
+.ei-wall[hidden]{display:none}
+.ei-wall-card{
+  background:var(--panel);border:1px solid var(--line);border-radius:24px;
+  padding:38px 34px;max-width:440px;width:100%;text-align:center;
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+.ei-wall-logo{font-size:46px;line-height:1;margin-bottom:10px}
+.ei-wall-card h1{font-size:26px;margin:0 0 14px;letter-spacing:-.3px}
+.ei-wall-note{color:var(--muted);font-size:16px;line-height:1.6;margin:0 0 20px}
+.ei-wall-fine{color:var(--muted);font-size:13px;margin:16px 0 0}
+.ei-wall-fine b{color:var(--ink)}
+.ei-wall-error{
+  color:var(--bad);font-size:14px;line-height:1.5;margin:16px 0 0;
+  background:rgba(255,107,107,.09);border:1px solid rgba(255,107,107,.35);
+  border-radius:12px;padding:10px 14px;
+}
+.ei-wall-error[hidden]{display:none}
+.ei-btn-google{
+  display:inline-flex;align-items:center;gap:10px;
+  background:#fff;color:#1f2937;font-size:17px;padding:13px 24px;
+}
+.ei-btn-google:hover{filter:brightness(.96)}
+.ei-dev-bypass{
+  display:block;margin:14px auto 0;padding:6px 16px;font-size:13px;
+  border:1px dashed var(--line);border-radius:20px;
+  background:transparent;color:var(--muted);
+}
+.ei-dev-bypass[hidden]{display:none}
+
+.ei-chip{
+  position:fixed;top:14px;right:14px;z-index:30;
+  display:inline-flex;align-items:center;gap:10px;
+  background:var(--panel);border:1px solid var(--line);border-radius:999px;
+  padding:6px 8px 6px 6px;
+  box-shadow:0 8px 24px rgba(0,0,0,.35);
+  font-size:14px;
+}
+.ei-chip[hidden]{display:none}
+.ei-chip img,.ei-chip .ei-chip-init{
+  width:28px;height:28px;border-radius:50%;display:block;object-fit:cover;
+}
+.ei-chip .ei-chip-init{
+  background:var(--accent);color:#1a1206;font-weight:800;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+}
+.ei-chip-name{font-weight:700;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ei-chip-out{
+  background:transparent;color:var(--muted);font-size:13px;font-weight:700;
+  border:1px solid var(--line);border-radius:999px;padding:5px 11px;
+}
+.ei-chip-out:hover{border-color:var(--accent);color:var(--ink)}
+@media(max-width:560px){
+  .ei-chip-name{display:none}
+  .ei-chip-out{font-size:12px;padding:4px 9px}
+}
