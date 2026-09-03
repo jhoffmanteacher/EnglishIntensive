@@ -414,6 +414,18 @@ window.MatchGame = (function(){
 
     var $ = function(id){ return document.getElementById(id); };
 
+    /* Outcome reporting — the same optional contract as the other three
+       engines, so one scheduler (practice.js) can drive all four. Reported
+       once per word, when it's finished with: found first try, found on
+       the retry, missed twice, or skipped. */
+    var onResult  = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onFinish  = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
+    var nextRound = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
+    function report(word, correct, tryCount){
+      if(!onResult) return;
+      try{ onResult(word, !!correct, tryCount|0); }catch(e){}
+    }
+
     var shuffleOn = true;
     try{
       var savedShuffle = localStorage.getItem("matchShuffle");
@@ -598,6 +610,7 @@ window.MatchGame = (function(){
       busy = true;
       right++;
       streak++;
+      report(queue[idx], tries === 0, tries);
       if(streak > best) best = streak;
       var pts = pointsFor(streak);
       var mult = comboMultiplier(streak);
@@ -656,6 +669,7 @@ window.MatchGame = (function(){
       // Second miss: show which one it was and say it, slowly.
       busy = true;
       if(missed.indexOf(target) === -1) missed.push(target);
+      report(target, false, tries);
       lockTiles();
       setTimeout(function(){ tile.classList.remove("wrong"); tile.classList.add("gone"); }, 420);
       var t = tileFor(target);
@@ -670,6 +684,7 @@ window.MatchGame = (function(){
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();
+      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
       show("s-end");
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
@@ -807,6 +822,7 @@ window.MatchGame = (function(){
       if(busy) return;
       var t = queue[idx];
       if(missed.indexOf(t) === -1) missed.push(t);
+      report(t, false, tries);
       streak = 0;
       next();
     });
@@ -816,7 +832,13 @@ window.MatchGame = (function(){
       queue = queue.slice(0, idx);
       finish();
     });
-    $("btnAgain").addEventListener("click", function(){ playPending(); });
+    // With a scheduler attached, "Play again" asks it for a fresh set;
+    // a queued comeback/missed list still takes precedence via playPending.
+    $("btnAgain").addEventListener("click", function(){
+      var list = null;
+      if(nextRound && !pendingList){ try{ list = nextRound(); }catch(e){ list = null; } }
+      if(list && list.length) startGame(list); else playPending();
+    });
     $("btnRetryMissed").addEventListener("click", function(){
       var list = missed.slice();
       if(list.length) startGame(list);

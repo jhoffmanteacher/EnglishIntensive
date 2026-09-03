@@ -288,6 +288,18 @@ window.CardGame = (function(){
 
     var $ = function(id){ return document.getElementById(id); };
 
+    /* Outcome reporting — the same optional contract as the other three
+       engines, so one scheduler (practice.js) can drive all four. Here
+       "correct" is the student's own rating: Got it on the flip. Reported
+       once per card, when it's rated or skipped. */
+    var onResult  = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onFinish  = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
+    var nextRound = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
+    function report(word, correct){
+      if(!onResult) return;
+      try{ onResult(word, !!correct, 0); }catch(e){}
+    }
+
     var shuffleOn = true;
     try{
       var savedShuffle = localStorage.getItem("cardShuffle");
@@ -431,6 +443,7 @@ window.CardGame = (function(){
       if(busy || !flipped) return;
       busy = true;
       var word = queue[idx];
+      report(word, gotIt);
       if(gotIt){
         right++;
         streak++;
@@ -477,6 +490,7 @@ window.CardGame = (function(){
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();
+      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
       show("s-end");
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
@@ -621,6 +635,7 @@ window.CardGame = (function(){
       if(busy) return;
       var t = queue[idx];
       if(missed.indexOf(t) === -1) missed.push(t);
+      report(t, false);
       streak = 0;
       next();
     });
@@ -630,7 +645,13 @@ window.CardGame = (function(){
       queue = queue.slice(0, idx);
       finish();
     });
-    $("btnAgain").addEventListener("click", function(){ playPending(); });
+    // With a scheduler attached, "Play again" asks it for a fresh set;
+    // a queued comeback/missed list still takes precedence via playPending.
+    $("btnAgain").addEventListener("click", function(){
+      var list = null;
+      if(nextRound && !pendingList){ try{ list = nextRound(); }catch(e){ list = null; } }
+      if(list && list.length) startGame(list); else playPending();
+    });
     $("btnRetryMissed").addEventListener("click", function(){
       var list = missed.slice();
       if(list.length) startGame(list);
