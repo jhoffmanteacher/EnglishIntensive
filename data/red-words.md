@@ -5,9 +5,11 @@ Source: SUHSD High-Frequency "Irregular/Red Word" Screener — Teacher Form
 
 Ten lists of 20 words each, 200 words total, ordered roughly by difficulty
 (Lists 1–4 are common sight words; Lists 9–10 lean into multisyllabic and
-Tier 2/3 vocabulary). `red-words-game.html` plays these as flash cards, one
-list per round — this file stays the source of record, so a correction here
-belongs in that page's word arrays too.
+Tier 2/3 vocabulary). The site plays them from `RED_LISTS` in
+`word-lists.js`, which registers each list twice — as flash cards
+(`red-N-cards`) and as Match It (`red-N-match`) — so the teacher can assign
+either game per list. This file stays the source of record, so a
+correction here belongs in that array too.
 
 Each word below is stored exactly as printed on the screener, including
 apostrophes and capitalization (e.g. `Mrs.`, `Mr.`, `they'd`, `you're`).

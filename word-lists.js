@@ -22,11 +22,108 @@
       script, and point `page` at the new filename.
    The home page and the dashboard pick it up with no further edits.
 
-   `engine` picks which of the two engines plays it — "blend" is the
-   say-it-out-loud engine (blend-game.js), "spell" is the type-what-you-
-   hear one (spell-game.js). `config` is everything that engine's start()
-   takes except `words`, which lives alongside it so the two can't drift.
+   `engine` picks which of the four engines plays it — "blend" is the
+   say-it-out-loud engine (blend-game.js), "spell" the type-what-you-hear
+   one (spell-game.js), "card" the flash cards (card-game.js) and "match"
+   the hear-it-find-it game (match-game.js). `config` is everything that
+   engine's start() takes except `words`, which lives alongside it so the
+   two can't drift.
+
+   Entries that share a page (the red-word lists) carry `family`,
+   `listNum` and `game`; the page then reads WHICH list to play from its
+   query string — `EIPractice.play()` with no id — and the home page and
+   dashboard show the family as a lists × games grid. See the red-word
+   block below.
    ════════════════════════════════════════════════════════════════════ */
+
+/* ── Red words ─────────────────────────────────────────────────────────
+   The ten high-frequency irregular-word lists from the SUHSD "red word"
+   screener, twenty words each, in printed order. data/red-words.md is
+   the source of record (where they came from, how the paper screener
+   scores them, why four words repeat across lists); these arrays are
+   that file transcribed, so a correction belongs in both places.
+
+   Unlike every other list here, a red-word list is playable by TWO
+   engines — flash cards (card-game.js) and Match It (match-game.js) —
+   and those are different skills: a student can know "would" on sight
+   and still pick "could" out of six look-alikes. So each list becomes
+   two registry entries below, "red-N-cards" and "red-N-match", with
+   separate stat keys, exactly as oi-oy-read / oi-oy-spell already are.
+   The `family` / `listNum` / `game` fields are what let the home page
+   and the dashboard fold those twenty entries back into one grid. */
+var RED_LISTS = [
+  ["you","should","could","said","they","have","of","are","what","put",
+   "would","to","your","was","the","once","do","from","into","two"],
+  ["give","were","many","whose","any","here","live","some","Mrs.","Mr.",
+   "where","other","one","whom","right","there","done","great","does","their"],
+  ["thought","who","come","very","again","aren't","weren't","mother","father","brother",
+   "watch","haven't","they'd","you'd","against","friend","they'll","we're","they're","you're"],
+  ["beautiful","been","blood","none","only","says","sure","both","bought","buy",
+   "prove","straight","worn","push","today","pull","most","change","child","clothes"],
+  ["flood","floor","often","door","gone","laugh","break","steak","above","they've",
+   "you","lose","tough","view","rough","front","love","among","anyone","answer"],
+  ["nothing","cousins","cover","courage","toward","enough","through","sugar","busy","almost",
+   "ninth","although","always","another","onion","though","people","build","piano","pint"],
+  ["shoved","butcher","post","pretty","canoe","promise","carrot","cough","roll","danger",
+   "debt","sew","shoe","heart","forward","son","four","spirit","swan","bouquet"],
+  ["honest","toll","honor","touch","hour","Tuesday","Wednesday","imagine","iron","wind",
+   "wolf","won","wore","move","minute","mirror","young","success","already","idea"],
+  ["music","sure","garage","system","figure","friend","national","ready","island","unique",
+   "ocean","radio","feature","continue","condition","caution","enough","guarantee","technique","anxious"],
+  ["cologne","resumé","resume","boutique","fair","pair","fought","eye","show","small",
+   "about","call","fall","mall","air","know","large","barge","house","mouse"]
+];
+
+// Words that sound alike are never put on screen together in Match It —
+// no amount of listening separates "to" from "two". Every pair is one
+// both of whose members are somewhere in the ten lists.
+var RED_HOMOPHONES = [
+  ["to", "two"],
+  ["there", "their", "they're"],
+  ["your", "you're"],
+  ["we're", "were"],
+  ["one", "won"],
+  ["resumé", "resume"]
+];
+
+// Spoken between two reads of the word in Match It, spelling-bee style,
+// only for the words that genuinely need it: every member of a homophone
+// group, and heteronyms the synthesiser could read the wrong way cold.
+var RED_SENTENCES = {
+  "to":      "I need to finish my homework.",
+  "two":     "She has two brothers.",
+  "there":   "Put the box over there by the wall.",
+  "their":   "The team missed their bus.",
+  "they're": "Call the twins — they're late again.",
+  "your":    "Is this your jacket?",
+  "you're":  "I think you're right about that.",
+  "we're":   "Hurry up, we're late.",
+  "were":    "The cookies were still warm.",
+  "one":     "I only need one more.",
+  "won":     "Our team won the game.",
+  "resumé":  "She emailed her resumé for the job.",
+  "resume":  "We will resume the game after lunch.",
+  "does":    "How much does it cost?",
+  "live":    "Fish live in water.",
+  "minute":  "The bus leaves in a minute.",
+  "wind":    "The wind blew my hat off."
+};
+
+var RED_NOTE_CARDS = `
+    <p><b>Red words</b> are the words that break the rules. Sounding out
+    <b>said</b> gives you "sayed". Sounding out <b>would</b> gives you
+    "wold". They don't play fair — so you learn them <b>by sight</b>,
+    the way you know a friend's face.</p>
+    <p>Be honest when you rate yourself. A word you mark <b>Not yet</b> comes
+    back next time; a word you mark <b>Got it</b> leaves the list for good.</p>`;
+
+var RED_NOTE_MATCH = `
+    <p><b>Red words</b> break the rules, so you can't sound them out — you
+    have to know them by sight. This game checks that: the words on screen
+    are picked to look like each other, so <b>would</b>, <b>could</b> and
+    <b>should</b> turn up together.</p>
+    <p>Read all the way to the <b>end</b> of each word. The first letter
+    won't be enough.</p>`;
 
 window.WORD_LISTS = [
 
@@ -192,6 +289,66 @@ window.WORD_LISTS = [
 
 ];
 
+/* The twenty red-word entries, generated so the ten arrays above stay the
+   only copy of the words. One entry per (list, game). */
+RED_LISTS.forEach(function(words, i){
+  var n = i + 1;
+  window.WORD_LISTS.push({
+    id: "red-" + n + "-cards",
+    title: "Red Words · List " + n,
+    short: "List " + n,
+    icon: "🃏",
+    engine: "card",
+    section: "cards",
+    page: "red-words-game.html",
+    family: "red", listNum: n, game: "cards",
+    description: "Read the card out loud, flip it to hear the word, and tell the game if you got it. Words that break the rules — said, would, Wednesday.",
+    config: {
+      title: "Red Words · List " + n + " 🃏",
+      intro: "No mic, no typing. A word shows — read it out loud, flip the card, and see if you were right.<br>Build a streak: every 5 in a row is bonus points!",
+      note: RED_NOTE_CARDS
+    },
+    words: words
+  });
+  window.WORD_LISTS.push({
+    id: "red-" + n + "-match",
+    title: "Red Words · List " + n + ": Match It",
+    short: "List " + n,
+    icon: "🎯",
+    engine: "match",
+    section: "cards",
+    page: "red-words-match-game.html",
+    family: "red", listNum: n, game: "match",
+    description: "Headphones only. The computer says a red word and you find it — next to would, could and should. The wrong answers look close on purpose, so read to the end.",
+    config: {
+      title: "Red Words · List " + n + ": Match It 🎯",
+      intro: "No mic — headphones only. The computer says a word and you find it.<br>The wrong answers look close on purpose. Every 5 right in a row is bonus points!",
+      note: RED_NOTE_MATCH,
+      choices: 6,
+      homophones: RED_HOMOPHONES,
+      sentences: RED_SENTENCES
+    },
+    words: words
+  });
+});
+
+/* The families the dashboard and home page show as a grid rather than a
+   flat list of entries: one row per list number, one column per game. A
+   registry entry belongs to a family when it carries `family`; entries
+   without one are standalone games and show as plain tiles/checkboxes. */
+window.LIST_FAMILIES = [
+  {
+    key: "red",
+    title: "Red Words",
+    icon: "🃏",
+    note: "Ten screener lists of twenty sight words. Each list can be assigned as flash cards, Match It, or both.",
+    games: [
+      { key: "cards", title: "Cards",    icon: "🃏", blurb: "read it, flip it, rate yourself" },
+      { key: "match", title: "Match It", icon: "🎯", blurb: "hear it, find it — checked by the computer" }
+    ]
+  }
+];
+
 window.WordLists = (function(){
   "use strict";
   var all = window.WORD_LISTS;
@@ -225,8 +382,76 @@ window.WordLists = (function(){
     sectionsOf: function(){
       return [
         { key:"speak", title:"🎤 Speaking Games", note:"Put on a mic and say each word out loud." },
-        { key:"type",  title:"⌨️ Typing Games",   note:"No mic — just headphones. The computer says a word and you type it." }
+        { key:"type",  title:"⌨️ Typing Games",   note:"No mic — just headphones. The computer says a word and you type it." },
+        { key:"cards", title:"🃏 Red Words",      note:"No mic and no typing — read a word on sight, or find the one you hear." }
       ];
+    },
+
+    /* Where a tile should link. A family entry shares one page with its
+       siblings and tells the page which list to play through the query
+       string; a standalone game has its own page and needs nothing. */
+    hrefOf: function(id){
+      var l = index[id];
+      if(!l) return "#";
+      return l.family ? l.page + "?list=" + encodeURIComponent(l.id) : l.page;
+    },
+
+    /* ── families ───────────────────────────────────────────────────── */
+    families: function(){ return window.LIST_FAMILIES.slice(); },
+    familyOf: function(key){
+      for(var i=0;i<window.LIST_FAMILIES.length;i++) if(window.LIST_FAMILIES[i].key === key) return window.LIST_FAMILIES[i];
+      return null;
+    },
+    // The entries that aren't in any family — the plain, one-tile games.
+    standalone: function(){ return all.filter(function(l){ return !l.family; }); },
+    // Every list number a family has, ascending.
+    listNumsOf: function(familyKey){
+      var seen = {};
+      all.forEach(function(l){ if(l.family === familyKey) seen[l.listNum] = true; });
+      return Object.keys(seen).map(Number).sort(function(a,b){ return a-b; });
+    },
+    idFor: function(familyKey, listNum, gameKey){
+      var id = familyKey + "-" + listNum + "-" + gameKey;
+      return index[id] ? id : null;
+    },
+
+    /* ── describing an assignment ─────────────────────────────────────
+       Pure. Turns a list of ids into the one line the roster shows:
+         "everything" / "nothing" /
+         "3 games · Red Words: lists 1–3, 5 (cards) · 1–3 (match)"
+       Ranges so ten ticked boxes read as "1–10", not ten numbers. */
+    rangeText: rangeText,
+    describeAssignment: function(ids){
+      ids = Array.isArray(ids) ? ids.filter(function(id){ return !!index[id]; }) : [];
+      if(!ids.length) return "nothing";
+      if(ids.length === all.length) return "everything";
+      var have = {}; ids.forEach(function(id){ have[id] = true; });
+      var parts = [];
+      var games = all.filter(function(l){ return !l.family && have[l.id]; }).length;
+      if(games) parts.push(games + (games === 1 ? " game" : " games"));
+      window.LIST_FAMILIES.forEach(function(fam){
+        var bits = fam.games.map(function(g){
+          var nums = all.filter(function(l){ return l.family === fam.key && l.game === g.key && have[l.id]; })
+                        .map(function(l){ return l.listNum; });
+          return nums.length ? rangeText(nums) + " (" + g.title.toLowerCase() + ")" : "";
+        }).filter(Boolean);
+        if(bits.length) parts.push(fam.title + ": lists " + bits.join(" · "));
+      });
+      return parts.join(" · ");
     }
   };
+
+  // "1–3, 5, 8–10" from [1,2,3,5,8,9,10]; order-insensitive, dedupes.
+  function rangeText(nums){
+    var u = {}; (nums || []).forEach(function(n){ u[n] = true; });
+    var a = Object.keys(u).map(Number).sort(function(x,y){ return x-y; });
+    var out = [], i = 0;
+    while(i < a.length){
+      var j = i;
+      while(j + 1 < a.length && a[j+1] === a[j] + 1) j++;
+      out.push(j - i >= 1 ? a[i] + "–" + a[j] : String(a[i]));
+      i = j + 1;
+    }
+    return out.join(", ");
+  }
 })();

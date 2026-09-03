@@ -670,10 +670,10 @@
     });
     eq("every list id is unique (they key stored stats)", dupes.length, 0, dupes.join(","));
     var missing = WordLists.all.filter(function(l){
-      return !l.title || !l.page || !l.words.length || (l.engine !== "blend" && l.engine !== "spell");
+      return !l.title || !l.page || !l.words.length || ["blend","spell","card","match"].indexOf(l.engine) === -1;
     }).map(function(l){ return l.id; });
     eq("every list has a title, a page, an engine and words", missing.length, 0, missing.join(","));
-    var badSection = WordLists.all.filter(function(l){ return l.section !== "speak" && l.section !== "type"; });
+    var badSection = WordLists.all.filter(function(l){ return ["speak","type","cards"].indexOf(l.section) === -1; });
     eq("every list belongs to a section the home page renders", badSection.length, 0);
     var piped = WordLists.all.filter(function(l){
       return l.words.some(function(w){ return String(w).indexOf("|") !== -1; });
