@@ -26,58 +26,25 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div id="app"></div>
 
+<!-- Red words as flash cards: read it, flip it, rate yourself. The ten lists live in word-lists.js (RED_LISTS); this page plays whichever one the address names.
+     Same load order as every other game page: sign-in, the list library,
+     the student's record, the shared core, this page's engine, and then
+     practice.js, which ties them together. -->
+<script src="firebase-config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="auth.js"></script>
+<script src="adaptive.js"></script>
+<script src="word-lists.js"></script>
+<script src="store.js"></script>
 <script src="game-core.js"></script>
 <script src="card-game.js"></script>
+<script src="practice.js"></script>
 <script>
-// The ten high-frequency irregular-word lists from the SUHSD "red word"
-// screener, twenty words each, in the order they're printed. The source of
-// record — where the lists came from, how the paper screener scores them and
-// why a few words repeat — is data/red-words.md; the arrays below are that
-// file transcribed, so any correction belongs in both places.
-//
-// These are the words English lies to you about: sounding out "said",
-// "would" or "Wednesday" gets you the wrong word every time, so they have to
-// be known on sight. That's why the flash-card format fits them and the
-// site's other two engines don't — there's no rule to apply, no blend to
-// isolate, nothing to sound out. Read it or you don't.
-//
-// Words are kept exactly as printed, punctuation and all (Mrs., Mr.,
-// they'd, you're). Nothing here is ever matched against typing or speech, so
-// the apostrophes and periods cost nothing — and the computer says "Mrs."
-// correctly when the card is flipped.
-CardGame.start({
-  title: "Red Words 🃏",
-  intro: "No mic, no typing. A word shows — read it out loud, flip the card, and see if you were right.<br>Build a streak: every 5 in a row is bonus points!",
-  note: `
-    <p><b>Red words</b> are the words that break the rules. Sounding out
-    <b>said</b> gives you "sayed". Sounding out <b>would</b> gives you
-    "wold". They don't play fair — so you learn them <b>by sight</b>,
-    the way you know a friend's face.</p>
-    <p>Be honest when you rate yourself. A word you mark <b>Not yet</b> comes
-    back next time; a word you mark <b>Got it</b> leaves the list for good.</p>`,
-  decks: [
-    { name: "List 1", words: ["you","should","could","said","they","have","of","are","what","put",
-                              "would","to","your","was","the","once","do","from","into","two"] },
-    { name: "List 2", words: ["give","were","many","whose","any","here","live","some","Mrs.","Mr.",
-                              "where","other","one","whom","right","there","done","great","does","their"] },
-    { name: "List 3", words: ["thought","who","come","very","again","aren't","weren't","mother","father","brother",
-                              "watch","haven't","they'd","you'd","against","friend","they'll","we're","they're","you're"] },
-    { name: "List 4", words: ["beautiful","been","blood","none","only","says","sure","both","bought","buy",
-                              "prove","straight","worn","push","today","pull","most","change","child","clothes"] },
-    { name: "List 5", words: ["flood","floor","often","door","gone","laugh","break","steak","above","they've",
-                              "you","lose","tough","view","rough","front","love","among","anyone","answer"] },
-    { name: "List 6", words: ["nothing","cousins","cover","courage","toward","enough","through","sugar","busy","almost",
-                              "ninth","although","always","another","onion","though","people","build","piano","pint"] },
-    { name: "List 7", words: ["shoved","butcher","post","pretty","canoe","promise","carrot","cough","roll","danger",
-                              "debt","sew","shoe","heart","forward","son","four","spirit","swan","bouquet"] },
-    { name: "List 8", words: ["honest","toll","honor","touch","hour","Tuesday","Wednesday","imagine","iron","wind",
-                              "wolf","won","wore","move","minute","mirror","young","success","already","idea"] },
-    { name: "List 9", words: ["music","sure","garage","system","figure","friend","national","ready","island","unique",
-                              "ocean","radio","feature","continue","condition","caution","enough","guarantee","technique","anxious"] },
-    { name: "List 10", words: ["cologne","resumé","resume","boutique","fair","pair","fought","eye","show","small",
-                               "about","call","fall","mall","air","know","large","barge","house","mouse"] }
-  ]
-});
+// No id: this page serves every red-word list, and which one to play
+// comes from the address — index.html links here with ?list=red-3-cards.
+// With no ?list= (or a stale one) practice.js shows a chooser instead.
+EIPractice.play();
 </script>
 </body>
 </html>

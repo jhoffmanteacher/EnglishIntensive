@@ -82,6 +82,27 @@
   .tileProg .progNote{color:var(--muted);font-size:13px}
   .tileProg .progNote b{color:var(--accent)}
 
+  /* A family tile ("Red Words · List 3"): a <div>, not a link, holding one
+     row per game the student has for that list. Each row is its own link. */
+  .tileFamily{cursor:default}
+  .tileFamily:hover{transform:none;border-color:var(--line)}
+  .tileFamily p{margin-bottom:14px;font-style:italic}
+  .tileFamily .gameRow{
+    display:flex;align-items:center;gap:12px;
+    padding:12px 12px;margin:0 -6px 8px;
+    border:1px solid var(--line);border-radius:14px;
+    color:inherit;text-decoration:none;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .tileFamily .gameRow:hover{border-color:var(--accent);background:var(--panel2)}
+  .tileFamily .gameRow:last-child{margin-bottom:0}
+  .tileFamily .gIcon{font-size:26px;line-height:1;flex:none}
+  .tileFamily .gMeta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .tileFamily .gTitle{font-weight:700;font-size:15px}
+  .tileFamily .gProg{color:var(--muted);font-size:12.5px}
+  .tileFamily .gProg b{color:var(--accent)}
+  .tileFamily .gameRow .play{padding:8px 14px;font-size:14px;flex:none}
+
   .teacherLink{
     display:none;margin-top:26px;
     color:var(--muted);font-size:14px;text-decoration:none;
@@ -117,8 +138,10 @@
 
 <!-- The tile grid is built from word-lists.js, filtered to the lists
      this student is assigned (EIStore.myLists), so two students in
-     different groups see different games on this page. Adding a game
-     means adding an entry to word-lists.js — not editing this file. -->
+     different groups see different games on this page. Entries that
+     belong to a family (the red-word lists) fold into one tile per list
+     with a Play button per assigned game. Adding a game means adding an
+     entry to word-lists.js — not editing this file. -->
 <script src="firebase-config.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>

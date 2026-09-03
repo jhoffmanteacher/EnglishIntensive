@@ -26,103 +26,25 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div id="app"></div>
 
+<!-- Red words, checked: the computer says one and the student finds it among look-alikes. Same ten lists as the flash cards, separate stats — knowing a word on sight and picking it out of six are different skills.
+     Same load order as every other game page: sign-in, the list library,
+     the student's record, the shared core, this page's engine, and then
+     practice.js, which ties them together. -->
+<script src="firebase-config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="auth.js"></script>
+<script src="adaptive.js"></script>
+<script src="word-lists.js"></script>
+<script src="store.js"></script>
 <script src="game-core.js"></script>
 <script src="match-game.js"></script>
+<script src="practice.js"></script>
 <script>
-// The checked half of the red-word pair. red-words-game.html shows the word
-// and asks the student to rate themselves; this one says the word and makes
-// them find it, so the computer knows whether they were right. Same ten
-// screener lists, same source of record (data/red-words.md) — a correction
-// there belongs in both pages.
-//
-// The two games keep separate comeback decks (they're keyed by page), which
-// is on purpose: knowing a word on sight and picking it out of five
-// look-alikes are different days' work, and a word can be solid in one and
-// shaky in the other.
-MatchGame.start({
-  title: "Red Words: Match It 🎯",
-  intro: "No mic — headphones only. The computer says a word and you find it.<br>The wrong answers look close on purpose. Every 5 right in a row is bonus points!",
-  note: `
-    <p><b>Red words</b> break the rules, so you can't sound them out — you
-    have to know them by sight. This game checks that: the words on screen
-    are picked to look like each other, so <b>would</b>, <b>could</b> and
-    <b>should</b> turn up together.</p>
-    <p>Read all the way to the <b>end</b> of each word. The first letter
-    won't be enough.</p>`,
-  choices: 6,
-
-  // Words that sound alike are never put on screen together — no amount of
-  // listening separates "to" from "two", so an item holding both would be a
-  // coin flip, not a reading task. Every pair below is one both of whose
-  // members are somewhere in these ten lists (to/two share List 1;
-  // there/their share List 2), so this isn't hypothetical.
-  //
-  // "resumé"/"resume" is here for completeness; the engine already treats
-  // them as the same letters once the accent is stripped.
-  homophones: [
-    ["to", "two"],
-    ["there", "their", "they're"],
-    ["your", "you're"],
-    ["we're", "were"],
-    ["one", "won"],
-    ["resumé", "resume"]
-  ],
-
-  // Spoken between two reads of the word, spelling-bee style. Only the words
-  // that genuinely need it have one, in two groups:
-  //
-  //   * every member of a homophone pair above, so the student hears WHICH
-  //     word it is rather than inferring it from what isn't on screen;
-  //   * heteronyms, where the synthesiser has to choose a pronunciation and
-  //     could pick the wrong one for a word read cold — "does" as in the
-  //     female deer, "live" as in live television, "minute" as in tiny,
-  //     "wind" as in winding a clock.
-  //
-  // Each sentence uses its word once and avoids the rest of that word's
-  // homophone group.
-  sentences: {
-    "to":      "I need to finish my homework.",
-    "two":     "She has two brothers.",
-    "there":   "Put the box over there by the wall.",
-    "their":   "The team missed their bus.",
-    "they're": "Call the twins — they're late again.",
-    "your":    "Is this your jacket?",
-    "you're":  "I think you're right about that.",
-    "we're":   "Hurry up, we're late.",
-    "were":    "The cookies were still warm.",
-    "one":     "I only need one more.",
-    "won":     "Our team won the game.",
-    "resumé":  "She emailed her resumé for the job.",
-    "resume":  "We will resume the game after lunch.",
-    "does":    "How much does it cost?",
-    "live":    "Fish live in water.",
-    "minute":  "The bus leaves in a minute.",
-    "wind":    "The wind blew my hat off."
-  },
-
-  decks: [
-    { name: "List 1", words: ["you","should","could","said","they","have","of","are","what","put",
-                              "would","to","your","was","the","once","do","from","into","two"] },
-    { name: "List 2", words: ["give","were","many","whose","any","here","live","some","Mrs.","Mr.",
-                              "where","other","one","whom","right","there","done","great","does","their"] },
-    { name: "List 3", words: ["thought","who","come","very","again","aren't","weren't","mother","father","brother",
-                              "watch","haven't","they'd","you'd","against","friend","they'll","we're","they're","you're"] },
-    { name: "List 4", words: ["beautiful","been","blood","none","only","says","sure","both","bought","buy",
-                              "prove","straight","worn","push","today","pull","most","change","child","clothes"] },
-    { name: "List 5", words: ["flood","floor","often","door","gone","laugh","break","steak","above","they've",
-                              "you","lose","tough","view","rough","front","love","among","anyone","answer"] },
-    { name: "List 6", words: ["nothing","cousins","cover","courage","toward","enough","through","sugar","busy","almost",
-                              "ninth","although","always","another","onion","though","people","build","piano","pint"] },
-    { name: "List 7", words: ["shoved","butcher","post","pretty","canoe","promise","carrot","cough","roll","danger",
-                              "debt","sew","shoe","heart","forward","son","four","spirit","swan","bouquet"] },
-    { name: "List 8", words: ["honest","toll","honor","touch","hour","Tuesday","Wednesday","imagine","iron","wind",
-                              "wolf","won","wore","move","minute","mirror","young","success","already","idea"] },
-    { name: "List 9", words: ["music","sure","garage","system","figure","friend","national","ready","island","unique",
-                              "ocean","radio","feature","continue","condition","caution","enough","guarantee","technique","anxious"] },
-    { name: "List 10", words: ["cologne","resumé","resume","boutique","fair","pair","fought","eye","show","small",
-                               "about","call","fall","mall","air","know","large","barge","house","mouse"] }
-  ]
-});
+// No id: this page serves every red-word list, and which one to play
+// comes from the address — index.html links here with ?list=red-3-cards.
+// With no ?list= (or a stale one) practice.js shows a chooser instead.
+EIPractice.play();
 </script>
 </body>
 </html>

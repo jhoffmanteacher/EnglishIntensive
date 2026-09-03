@@ -28,9 +28,9 @@ window.EIPractice = (function(){
   // enough, relative to a 30-40 word list, for the weighting to bite.
   var SESSION_SIZE = 18;
 
-  function engineFor(list){
-    return list.engine === "spell" ? window.SpellGame : window.BlendGame;
-  }
+  var ENGINES = { blend: "BlendGame", spell: "SpellGame", card: "CardGame", match: "MatchGame" };
+  var ENGINE_FILES = { blend: "blend-game.js", spell: "spell-game.js", card: "card-game.js", match: "match-game.js" };
+  function engineFor(list){ return window[ENGINES[list.engine]] || null; }
 
   /* Pick this round's words, then map them back to the list's original
      entries — the multisyllable list writes its words dotted
@@ -56,10 +56,46 @@ window.EIPractice = (function(){
     return '<span class="ei-extra">Extra practice — this one isn\'t on your list right now.</span>';
   }
 
+  /* ── which list does this page play? ──────────────────────────────
+     A standalone game page names its list outright: play("final-blends").
+     A page shared by a family (red-words-game.html serves all ten red
+     lists) calls play() with no id and the list comes from the query
+     string — the home page links to "red-words-game.html?list=red-3-cards".
+     Landing on a family page with no (or a stale) ?list= is not an error:
+     the page shows a chooser of the lists this student has for this game,
+     so a bookmarked or hand-typed URL still lands somewhere useful. */
+  function queryList(){
+    var m = /[?&]list=([^&#]+)/.exec(location.search || "");
+    try{ return m ? decodeURIComponent(m[1]) : null; }catch(e){ return null; }
+  }
+  function pageName(){
+    var p = location.pathname || "";
+    return p.slice(p.lastIndexOf("/") + 1) || "index.html";
+  }
+  // Every registry entry served by the page we're on.
+  function listsForThisPage(){
+    var here = pageName();
+    return WordLists.all.filter(function(l){ return l.page === here; });
+  }
+
   function play(listId){
-    var list = WordLists.byId(listId);
+    if(!listId) listId = queryList();
+    var list = listId ? WordLists.byId(listId) : null;
+    var here = listsForThisPage();
+
     if(!list){
-      EIAuth.fail("Unknown game", "No word list called “" + listId + "”. Check the id in this page's script tag.");
+      // A family page with nothing (valid) in the query string: choose.
+      if(here.length > 1){ return chooser(here); }
+      if(here.length === 1){ list = here[0]; }
+    }
+    if(!list){
+      EIAuth.fail("Unknown game", "No word list called “" + (listId || "") + "”. Check the id in this page's script tag, or the ?list= in the address.");
+      return;
+    }
+    if(list.page !== pageName() && here.length){
+      // The query string names a list that belongs to a different page —
+      // most likely a copy-paste. Send them to the right one.
+      location.replace(WordLists.hrefOf(list.id));
       return;
     }
     EIAuth.ready().then(function(){
@@ -67,7 +103,7 @@ window.EIPractice = (function(){
     }).then(function(){
       var engine = engineFor(list);
       if(!engine){
-        EIAuth.fail("Game engine missing", "This page didn't load " + (list.engine === "spell" ? "spell-game.js" : "blend-game.js") + ".");
+        EIAuth.fail("Game engine missing", "This page didn't load " + (ENGINE_FILES[list.engine] || "its engine") + ".");
         return;
       }
       var cfg = {};
@@ -94,9 +130,76 @@ window.EIPractice = (function(){
   // The engines' own default intros, repeated here only so the
   // not-assigned note can be appended to one without blanking it.
   function engineIntro(list){
-    return list.engine === "spell"
-      ? "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!"
-      : "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!";
+    if(list.engine === "spell") return "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!";
+    if(list.engine === "card")  return "Read the word out loud, then flip the card to check yourself.<br>Build a streak: every 5 in a row is bonus points!";
+    if(list.engine === "match") return "The computer says a word — click the one that matches.<br>Every 5 right in a row is bonus points!";
+    return "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!";
+  }
+
+  /* ── the list chooser ─────────────────────────────────────────────
+     Shown on a family page that wasn't told which list to play. Lists
+     this student is assigned come first; the rest are still reachable
+     under "More" — the same no-lock rule as the extra-practice note
+     above, so a wrong URL never dead-ends a student mid-class. */
+  var CHOOSER_STYLE = "ei-chooser-style";
+  var CHOOSER_CSS = [
+    ".eiChooser{max-width:720px;margin:40px auto;padding:0 20px}",
+    ".eiChooser h1{font-size:clamp(26px,4vw,38px);margin:0 0 6px}",
+    ".eiChooser .sub{color:var(--muted);margin:0 0 22px;font-size:16px}",
+    ".eiChooser h2{font-size:16px;color:var(--muted);margin:26px 0 10px;text-transform:uppercase;letter-spacing:.06em}",
+    ".eiChooser .pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}",
+    ".eiChooser a.opt{display:block;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 18px;color:inherit;text-decoration:none;transition:border-color .15s,transform .15s}",
+    ".eiChooser a.opt:hover{border-color:var(--accent);transform:translateY(-2px)}",
+    ".eiChooser a.opt b{display:block;font-size:19px;margin-bottom:6px}",
+    ".eiChooser a.opt small{color:var(--muted);font-size:13px}",
+    ".eiChooser a.opt small em{color:var(--accent);font-style:normal;font-weight:700}",
+    ".eiChooser .home{display:inline-block;margin-top:26px;color:var(--muted)}"
+  ].join("\n");
+
+  function chooser(lists){
+    EIAuth.ready().then(function(){ return EIStore.ready(); }).then(function(){
+      if(!document.getElementById(CHOOSER_STYLE)){
+        var st = document.createElement("style"); st.id = CHOOSER_STYLE; st.textContent = CHOOSER_CSS;
+        document.head.appendChild(st);
+      }
+      var mine = EIStore.myLists();
+      var sample = lists[0];
+      var fam = WordLists.familyOf(sample.family);
+      var game = fam && fam.games.filter(function(g){ return g.key === sample.game; })[0];
+      var sorted = lists.slice().sort(function(a,b){ return (a.listNum||0) - (b.listNum||0); });
+      var assigned = sorted.filter(function(l){ return mine.indexOf(l.id) !== -1; });
+      var others   = sorted.filter(function(l){ return mine.indexOf(l.id) === -1; });
+
+      function opt(l){
+        var sum = Adaptive.summarize(EIStore.statsFor(l.id));
+        var total = WordLists.wordsOf(l.id).length;
+        var note = sum.attempts
+          ? "<em>" + sum.mastered + "</em> of " + total + " solid" + (sum.struggling ? " · " + sum.struggling + " shaky" : "")
+          : "Not started yet";
+        return '<a class="opt" href="' + WordLists.hrefOf(l.id) + '"><b>' + esc(l.short || l.title) + "</b><small>" + note + "</small></a>";
+      }
+      var mount = document.getElementById("app") || document.body;
+      mount.className = "";
+      mount.innerHTML =
+        '<div class="eiChooser">' +
+          "<h1>" + esc((fam ? fam.title : "") + (game ? " · " + game.icon + " " + game.title : "")) + "</h1>" +
+          '<p class="sub">Which list do you want to practice?</p>' +
+          (assigned.length
+            ? "<h2>Your lists</h2>" + '<div class="pick">' + assigned.map(opt).join("") + "</div>"
+            : '<p class="sub">Nothing on your list for this game yet — pick any to practice.</p>') +
+          (others.length
+            ? "<h2>" + (assigned.length ? "More" : "All lists") + "</h2>" + '<div class="pick">' + others.map(opt).join("") + "</div>"
+            : "") +
+        "</div>";
+      EIAuth.unlock();
+    }).catch(function(){
+      EIAuth.fail("Something went wrong", "The page couldn't start. Reload and try again.");
+    });
+  }
+
+  function esc(s){
+    return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
 
   /* ── the home page ────────────────────────────────────────────────
@@ -126,7 +229,17 @@ window.EIPractice = (function(){
         var note = document.createElement("p"); note.className = "sectionNote"; note.textContent = sec.note; wrap.appendChild(note);
         var grid = document.createElement("div"); grid.className = "grid";
 
-        lists.forEach(function(l){ grid.appendChild(tile(l)); });
+        // Family entries fold into one tile per list number ("List 3")
+        // with a Play button per assigned game, so a student assigned
+        // both games for three lists sees three tiles, not six.
+        var byList = {}, order = [];
+        lists.forEach(function(l){
+          if(!l.family){ grid.appendChild(tile(l)); return; }
+          var k = l.family + ":" + l.listNum;
+          if(!byList[k]){ byList[k] = []; order.push(k); }
+          byList[k].push(l);
+        });
+        order.forEach(function(k){ grid.appendChild(familyTile(byList[k])); });
         wrap.appendChild(grid);
         mount.appendChild(wrap);
       });
@@ -144,7 +257,7 @@ window.EIPractice = (function(){
   function tile(list){
     var a = document.createElement("a");
     a.className = "tile";
-    a.href = list.page;
+    a.href = WordLists.hrefOf(list.id);
 
     var icon = document.createElement("div");
     icon.className = "icon"; icon.textContent = list.icon;
@@ -181,5 +294,44 @@ window.EIPractice = (function(){
     return a;
   }
 
-  return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE };
+  // One list of a family — "Red Words · List 3" — with a row per game the
+  // student has for it. Each row is its own link, so the tile is a <div>.
+  function familyTile(entries){
+    var first = entries[0];
+    var fam = WordLists.familyOf(first.family) || { icon:"", title:"", games:[] };
+    var d = document.createElement("div");
+    d.className = "tile tileFamily";
+
+    var icon = document.createElement("div");
+    icon.className = "icon"; icon.textContent = fam.icon || first.icon;
+    var title = document.createElement("h2");
+    title.textContent = fam.title + " · " + (first.short || "List " + first.listNum);
+    var p = document.createElement("p");
+    p.textContent = WordLists.wordsOf(first.id).slice(0, 6).join(", ") + "…";
+    d.appendChild(icon); d.appendChild(title); d.appendChild(p);
+
+    // Rows in the family's declared game order, not assignment order.
+    fam.games.forEach(function(g){
+      var l = entries.filter(function(e){ return e.game === g.key; })[0];
+      if(!l) return;
+      var row = document.createElement("a");
+      row.className = "gameRow";
+      row.href = WordLists.hrefOf(l.id);
+      var sum = Adaptive.summarize(EIStore.statsFor(l.id));
+      var total = WordLists.wordsOf(l.id).length;
+      var prog = sum.attempts
+        ? "<b>" + sum.mastered + "</b> of " + total + " solid" + (sum.struggling ? " · " + sum.struggling + " shaky" : "")
+        : "Not started yet";
+      row.innerHTML =
+        '<span class="gIcon">' + esc(g.icon) + "</span>" +
+        '<span class="gMeta"><span class="gTitle">' + esc(g.title) + "</span>" +
+        '<span class="gProg">' + prog + "</span></span>" +
+        '<span class="play">Play ▸</span>';
+      d.appendChild(row);
+    });
+    return d;
+  }
+
+  return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
+           _internals: { queryList: queryList, pageName: pageName } };
 })();
