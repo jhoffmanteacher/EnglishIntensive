@@ -93,22 +93,26 @@ account, you're signed in to Chrome as a personal Google account: pick the
 
 ---
 
-## Later: adding a second teacher
+## Later: adding or removing a teacher
 
-The teacher account is hard-coded in two places that must agree:
-`TEACHER_EMAIL` in `firebase-config.js`, and the address inside
-`isTeacher()` in `firestore.rules`. For a second teacher, change
-`isTeacher()` to a membership test:
+Teacher accounts are listed in two places that must agree:
+`TEACHER_EMAILS` in `firebase-config.js`, and the list inside
+`isTeacher()` in `firestore.rules`. Both currently hold
+`jhoffman@seq.org` and `atalesnick@seq.org`.
 
-```
-return isSchool() && request.auth.token.email in [
-  'jhoffman@seq.org',
-  'someone.else@seq.org'
-];
-```
+To change who has access, edit both lists to match, then **re-paste
+`firestore.rules` into the console and Publish**. The repo edit alone does
+nothing — the console is the only thing that deploys rules.
 
-…and republish the rules. The dashboard's own check would need widening
-too, but remember which of the two is real: the rules.
+Remember which of the two is real. `firebase-config.js` decides whether
+the dashboard renders; the rules decide whether the database answers it.
+Adding an address to the config alone gives someone a dashboard that
+loads nothing. Adding it to the rules alone is the one that actually
+grants access — a rules list that is wider than the config is a silent
+grant with no UI to show for it.
+
+Every address on the list can read every student's practice record. It is
+a real grant, not a display setting.
 
 ## Later: a different school domain
 

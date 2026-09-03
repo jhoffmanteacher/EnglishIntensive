@@ -27,7 +27,7 @@
    Public API:
      EIAuth.ready()      → Promise resolving to the signed-in user
      EIAuth.user         → the user, or null before sign-in
-     EIAuth.isTeacher()  → true if signed in as TEACHER_EMAIL
+     EIAuth.isTeacher()  → true if signed in as one of TEACHER_EMAILS
      EIAuth.db()         → Promise resolving to Firestore (SDK loaded on
                            demand — see ensureDb)
      EIAuth.signOut()
@@ -57,7 +57,17 @@ window.EIAuth = (function(){
     }catch(e){ auth = null; }
   }
 
-  var TEACHER = (typeof TEACHER_EMAIL !== "undefined") ? TEACHER_EMAIL : null;
+  /* Accepts a list (TEACHER_EMAILS) or, from an older config, a single
+     string (TEACHER_EMAIL). Normalising both to an array here means a
+     stale firebase-config.js degrades to one teacher rather than locking
+     the dashboard for everyone. */
+  var TEACHERS = (function(){
+    var v = (typeof TEACHER_EMAILS !== "undefined") ? TEACHER_EMAILS
+          : (typeof TEACHER_EMAIL  !== "undefined") ? TEACHER_EMAIL
+          : null;
+    if(v == null) return [];
+    return (typeof v === "string") ? [v] : v.slice();
+  })();
   var DOMAIN  = (typeof ALLOWED_DOMAIN !== "undefined") ? ALLOWED_DOMAIN : null;
 
   var user = null;
@@ -373,7 +383,7 @@ window.EIAuth = (function(){
     ready: function(){ return readyPromise; },
     get user(){ return user; },
     uid: function(){ return user ? user.uid : null; },
-    isTeacher: function(){ return !!(user && TEACHER && user.email === TEACHER); },
+    isTeacher: function(){ return !!(user && TEACHERS.indexOf(user.email) !== -1); },
     isDev: isDev,
     db: ensureDb,
     signIn: signIn,

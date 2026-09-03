@@ -267,7 +267,7 @@ it is never merged back up.
 
 ## Teacher dashboard
 
-`teacher.html` — visible to `TEACHER_EMAIL` only, with a link on the home
+`teacher.html` — visible to `TEACHER_EMAILS` only, with a link on the home
 page for that account. Three tabs:
 
 - **Students** — roster with accuracy, words solid, words shaky and last

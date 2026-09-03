@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════
-   teacher.js — the dashboard. One account only (TEACHER_EMAIL).
+   teacher.js — the dashboard. Teacher accounts only (TEACHER_EMAILS).
 
    Adapted from the guitar-class site's teacher.js, and it inherits that
    file's central caveat, worth repeating because it is the thing people
@@ -48,6 +48,17 @@
       .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
 
+  /* The teacher addresses, for the "not this account" message only. Reads
+     the same config auth.js does, and tolerates either shape. */
+  function teacherList(){
+    var v = (typeof TEACHER_EMAILS !== "undefined") ? TEACHER_EMAILS
+          : (typeof TEACHER_EMAIL  !== "undefined") ? TEACHER_EMAIL
+          : null;
+    if(v == null) return "the teacher account";
+    if(typeof v === "string") return v;
+    return v.join(" or ");
+  }
+
   /* ---------------- boot ---------------- */
   EIAuth.ready().then(function(user){
     if(!user) return;
@@ -58,7 +69,7 @@
         '<div class="panel denied">' +
           "<h2>Not this account</h2>" +
           '<p class="note">You\'re signed in as <b>' + esc(user.email) + "</b>. " +
-          "The dashboard belongs to <b>" + esc(typeof TEACHER_EMAIL !== "undefined" ? TEACHER_EMAIL : "the teacher account") + "</b>.</p>" +
+          "The dashboard belongs to <b>" + esc(teacherList()) + "</b>.</p>" +
           '<button class="btn ghost" id="tSwitch">Sign out and switch account</button>' +
         "</div>";
       $("tSwitch").addEventListener("click", EIAuth.signOut);

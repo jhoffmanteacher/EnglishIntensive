@@ -50,12 +50,19 @@ service cloud.firestore {
           && request.auth.token.email.matches('^[^@]+@seq[.]org$');
     }
 
-    /* The one teacher account. Change this string and TEACHER_EMAIL in
+    /* The teacher accounts. Keep this list and TEACHER_EMAILS in
        firebase-config.js together — the dashboard reads one and the
        database enforces the other, and a mismatch is a dashboard that
-       renders and then can't load anything. */
+       renders and then can't load anything.
+
+       Each address here can read every student's record, so this list is
+       the grant itself. Editing it changes nothing until it is re-pasted
+       into the Firebase console and published. */
     function isTeacher() {
-      return isSchool() && request.auth.token.email == 'jhoffman@seq.org';
+      return isSchool() && request.auth.token.email in [
+        'jhoffman@seq.org',
+        'atalesnick@seq.org'
+      ];
     }
 
     /* One document per student, keyed by uid.
