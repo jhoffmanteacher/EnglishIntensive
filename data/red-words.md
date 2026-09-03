@@ -5,9 +5,9 @@ Source: SUHSD High-Frequency "Irregular/Red Word" Screener — Teacher Form
 
 Ten lists of 20 words each, 200 words total, ordered roughly by difficulty
 (Lists 1–4 are common sight words; Lists 9–10 lean into multisyllabic and
-Tier 2/3 vocabulary). These are earmarked for a future flash-card / matching
-style game on the site — for now just captured here as data so nothing gets
-retyped later.
+Tier 2/3 vocabulary). `red-words-game.html` plays these as flash cards, one
+list per round — this file stays the source of record, so a correction here
+belongs in that page's word arrays too.
 
 Each word below is stored exactly as printed on the screener, including
 apostrophes and capitalization (e.g. `Mrs.`, `Mr.`, `they'd`, `you're`).
@@ -54,7 +54,7 @@ cologne, resumé, resume, boutique, fair, pair, fought, eye, show, small, about,
 
 ---
 
-## Notes for later game/flash-card build
+## Notes on the lists
 
 - 10 lists × 20 words = 200 words total.
 - Original screener scores students out of 20 per list, out of 80 for lists
@@ -62,10 +62,15 @@ cologne, resumé, resume, boutique, fair, pair, fought, eye, show, small, about,
   (page 3), and out of 200 overall — that scoring rubric maps to approximate
   grade-level benchmarks (K–5) and could inform difficulty tiers if the game
   wants to group words by list number.
-- A few words repeat across lists as printed on the original screener
-  (`you` appears in Lists 1 and 5; `sure` appears in Lists 4 and 9;
-  `enough` appears in Lists 6 and 9) — kept as-is rather than de-duplicated,
-  in case list identity matters for how the activity is structured.
+- Four words repeat across lists as printed on the original screener:
+  `you` (Lists 1 and 5), `friend` (3 and 9), `sure` (4 and 9) and `enough`
+  (6 and 9) — so the 200 entries are 196 distinct words. They're kept as-is
+  rather than de-duplicated here, since list identity matters: a word can be
+  worth re-testing at a harder point in the screener. The game deduplicates
+  only within a single round, which is what its "All words" deck (196) and
+  its random "Mixed" deck use.
 - Words carrying punctuation (`Mrs.`, `Mr.`, contractions like `aren't`,
-  `they'd`, `you're`) may need special handling in a typing-based game
-  (e.g. accepting the answer with or without the apostrophe/period).
+  `they'd`, `you're`) would need special handling in a typing-based game
+  (e.g. accepting the answer with or without the apostrophe/period). The
+  flash-card game never compares them against anything a student typed or
+  said, so they cost it nothing — it just prints and speaks them as written.

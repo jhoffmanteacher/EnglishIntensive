@@ -40,7 +40,7 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div class="wrap">
   <h1>Game engine tests</h1>
-  <p class="sub">Pure-function tests for the phonetic matcher, combo scoring, comeback deck and syllable parser in blend-game.js, plus the spelling checker in spell-game.js. No framework, no build step — just runs in the DOM.</p>
+  <p class="sub">Pure-function tests for the phonetic matcher, combo scoring, comeback deck and syllable parser in blend-game.js, the spelling checker in spell-game.js, and the deck builders in card-game.js. No framework, no build step — just runs in the DOM.</p>
   <div id="summary"></div>
   <table>
     <thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead>
@@ -50,6 +50,7 @@
 
 <script src="blend-game.js"></script>
 <script src="spell-game.js"></script>
+<script src="card-game.js"></script>
 <script>
 (function(){
   "use strict";
@@ -442,6 +443,92 @@
     });
     eq("no two words in the spelling list are interchangeable", bad.length, 0, bad.join(", "));
   })();
+
+  // ---- flash-card game (CardGame) ----
+  var C = window.CardGame._internals;
+
+  // ---- decks: a word can be on two printed lists, but never twice in one round ----
+  eq("dedupe keeps a clean list unchanged",
+    C.dedupeWords(["you","should","said"]).join(" "), "you should said");
+  eq("dedupe drops the repeat and keeps printed order",
+    C.dedupeWords(["you","sure","you","enough"]).join(" "), "you sure enough");
+  eq("dedupe keeps the FIRST occurrence's position",
+    C.dedupeWords(["a","b","a","c"]).join(" "), "a b c");
+  eq("dedupe drops empties and non-strings",
+    C.dedupeWords(["you","",null,undefined,7,"said"]).join(" "), "you said");
+  eq("dedupe of nothing is an empty list", C.dedupeWords(null).length, 0);
+  eq("dedupe is case-sensitive (Mr. and mr. are different cards)",
+    C.dedupeWords(["Mrs.","mrs."]).length, 2);
+
+  // ---- the Mixed deck: a real sample, never a repeat, never longer than the pool ----
+  (function(){
+    var pool = ["a","b","c","d","e","f","g","h"];
+    // rnd always 0 picks slot i each time, so the sample is the head of the list
+    eq("sample with rnd()=0 takes the head of the pool",
+      C.sampleWords(pool, 3, function(){ return 0; }).join(""), "abc");
+    // rnd just under 1 always picks the last remaining slot, which walks the
+    // tail of the pool forward into the sample one swap at a time
+    eq("sample with rnd()->1 takes from the tail",
+      C.sampleWords(pool, 3, function(){ return 0.999999; }).join(""), "hab");
+    // a broken rnd returning exactly 1 must not index off the end
+    eq("sample survives an rnd() of exactly 1",
+      C.sampleWords(pool, 3, function(){ return 1; }).length, 3);
+    eq("sample asks for more than the pool holds and gets the pool",
+      C.sampleWords(pool, 99, Math.random).length, pool.length);
+    eq("sample of 0 is empty", C.sampleWords(pool, 0, Math.random).length, 0);
+    eq("sample of a bad size is empty", C.sampleWords(pool, "20", Math.random).length, 0);
+    eq("sample dedupes the pool first",
+      C.sampleWords(["a","a","a"], 3, Math.random).length, 1);
+    // 200 draws, checked for a repeated card in any of them
+    var dupes = 0;
+    for(var t=0; t<200; t++){
+      var got = C.sampleWords(pool, 5, Math.random), seen = {};
+      got.forEach(function(w){ if(seen[w]) dupes++; seen[w] = 1; });
+    }
+    eq("no Mixed deck in 200 draws deals the same card twice", dupes, 0);
+  })();
+
+  // ---- scoring is the same system as the other two games ----
+  eq("card pointsFor(1) = 10 (base)", C.pointsFor(1), 10);
+  eq("card pointsFor(5) = 45 (x2 + milestone)", C.pointsFor(5), 45);
+  eq("card pointsFor(10) = 55 (x3 + milestone)", C.pointsFor(10), 55);
+  eq("card comboMultiplier caps at 3", C.comboMultiplier(100), 3);
+  eq("CardGame scoring matches BlendGame", C.pointsFor(5), I.pointsFor(5));
+  eq("CardGame scoring matches SpellGame", C.pointsFor(11), S.pointsFor(11));
+
+  // ---- comeback deck: card-game.js carries its own copy of blend-game.js's
+  //      deck, so every test here is run against BOTH and the two are also
+  //      checked against each other. A drift between the copies fails loudly.
+  (function(){
+    var store = C.comebackMerge(null, ["said","would"], 1000);
+    store = C.comebackMerge(store, ["said","people"], 2000);
+    eq("card deck orders by miss count, then recency",
+      C.comebackDeck(store, 15).join(" "), "said people would");
+    eq("card deck matches blend deck on the same store",
+      C.comebackDeck(store, 15).join(" "), I.comebackDeck(store, 15).join(" "));
+    eq("a store written by one engine reads back in the other",
+      I.comebackMerge(store, ["once"], 3000).words.once.n, 1);
+    store = C.comebackMastered(store, "said");
+    eq("a word read on sight leaves the card deck",
+      C.comebackDeck(store, 15).join(" "), "people would");
+    eq("mastered matches blend's mastered",
+      C.comebackDeck(store, 15).join(" "), I.comebackDeck(store, 15).join(" "));
+    eq("one round's repeat of a word still only counts once",
+      C.comebackMerge(null, ["said","said"], 1000).words.said.n, 1);
+    eq("the card deck caps like the blend deck", C.comebackCap, I.comebackCap);
+    eq("a capped deck keeps the most-missed word",
+      C.comebackDeck(C.comebackMerge(store, ["would","would"], 4000), 1).join(" "), "would");
+  })();
+
+  // ---- a corrupted deck costs the review list, never the game ----
+  eq("card sanitize survives null", C.comebackDeck(C.sanitizeComeback(null), 15).length, 0);
+  eq("card sanitize survives a string", C.comebackDeck(C.sanitizeComeback("nope"), 15).length, 0);
+  eq("card sanitize drops an entry with no miss count",
+    C.comebackDeck(C.sanitizeComeback({v:1, words:{said:{t:1}}}), 15).length, 0);
+  eq("card sanitize keeps a good entry beside a bad one",
+    C.comebackDeck(C.sanitizeComeback({v:1, words:{said:{n:2,t:1}, bad:{n:0,t:1}}}), 15).join(" "), "said");
+  eq("card sanitize repairs a missing timestamp",
+    C.sanitizeComeback({v:1, words:{said:{n:2}}}).words.said.t, 0);
 
   // ---- render ----
   var rows = document.getElementById("rows");

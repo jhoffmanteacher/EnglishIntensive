@@ -101,9 +101,11 @@
 
   // "speak" games use the mic (blend-game.js) — the student says the word
   // out loud. "type" games are mic-free (spell-game.js) — the computer
-  // says the word and the student types it. Split into sections below so
-  // a student in a loud room, or without a working mic, can go straight to
-  // games that'll actually work for them.
+  // says the word and the student types it. "cards" games are mic-free and
+  // typing-free (card-game.js) — the student reads a card, flips it and
+  // rates themselves. Split into sections below so a student in a loud
+  // room, or without a working mic, can go straight to games that'll
+  // actually work for them.
   var SECTIONS = [
     {
       key: "speak",
@@ -152,6 +154,19 @@
           title: "Spell It: oi/oy",
           description: "No mic — headphones only. The computer says a word and you type it. Learn when the /oy/ sound is spelled oi and when it's oy.",
           url: "spelling-oi-oy-game.html"
+        }
+      ]
+    },
+    {
+      key: "cards",
+      title: "🃏 Flash Cards",
+      note: "No mic and no typing — read the card, flip it, and check yourself.",
+      games: [
+        {
+          icon: "🃏",
+          title: "Red Words",
+          description: "The words that break the rules — said, would, Wednesday. Read the card out loud, flip it to hear the word, and tell the game if you got it. Ten lists to work through.",
+          url: "red-words-game.html"
         }
       ]
     }

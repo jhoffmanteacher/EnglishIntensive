@@ -17,9 +17,11 @@ python3 -m http.server 8000
 
 ## Home page
 
-`index.html` shows a grid of game tiles. Add a new game by dropping an entry
-in the `GAMES` array in its inline `<script>` — `icon`, `title`,
-`description`, `url`.
+`index.html` shows a grid of game tiles, split into sections by what the
+game asks of the student — speaking, typing or flash cards — so someone in a
+loud room or without a working mic can go straight to what'll work for them.
+Add a new game by dropping an entry in the right section's `games` array in
+its inline `<script>` — `icon`, `title`, `description`, `url`.
 
 ## Blend games
 
@@ -88,15 +90,17 @@ Current games:
 ### Comeback words (missed-word persistence)
 
 Each game page keeps its own deck of not-yet-mastered words in
-`localStorage` (`"blendComeback:" + pathname`): a word joins the deck when
-it's missed twice or skipped in a round, and **leaves the deck the moment
-it's read correctly on the first try** in any later round. When the deck has
+`localStorage` (`"blendComeback:" + pathname`, and `"cardComeback:"` for the
+flash-card game, which carries its own copy of this logic): a word joins the
+deck when it's missed twice or skipped in a round, and **leaves the deck the
+moment it's read correctly on the first try** in any later round. When the deck has
 words, the start screen grows a "🔁 Comeback words (N)" button that runs just
 those words — most-missed first, capped at 15 so it stays a warm-up. The
 storage layer treats localStorage as untrusted (versioned, sanitized on
 read, silently absent if storage is unavailable), and the pure deck logic
 (`comebackMerge` / `comebackMastered` / `comebackDeck`) is covered by
-`tests.html`. The session-level "Practice missed words" button on the end
+`tests.html`, which also checks the two engines' copies against each other
+so they can't drift apart. The session-level "Practice missed words" button on the end
 screen is unchanged and separate.
 
 ## Spelling game
@@ -131,7 +135,9 @@ runs today through the `_internals` seam that `tests.html` exercises
 directly, in case a more forgiving mode is wanted again later.
 
 Run `tests.html` (served the same way as the games) to check the matcher
-itself — it renders a pass/fail table with a summary line.
+itself, along with the scoring, the comeback deck, the syllable parser, the
+spelling checker and the flash-card deck builders — it renders a pass/fail
+table with a summary line.
 
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
@@ -164,3 +170,63 @@ it" — regardless of the Voice setting. All speech picks the best available
 `en-US` voice (`pickVoice()` in `blend-game.js`), preferring Chrome/ChromeOS's
 natural voice over the flat default, and re-picks once Chrome finishes
 loading its voice list.
+
+## Flash-card game
+
+`card-game.js` is the third engine, and the only one that doesn't judge the
+answer itself. It drills **sight recognition** of irregular ("red") words —
+words the decoding rules lie about, where there's no rule to apply, no blend
+to isolate and nothing to sound out. Whether the student knew the word on
+sight is a question only the student can answer, so the game asks them:
+
+1. The word shows on a card. The student reads it out loud.
+2. They flip it (Space, or click the card). **Only now** is the word spoken —
+   hearing it first would hand over the answer and turn the drill into
+   repeat-after-me.
+3. They rate themselves: **Got it** (`1`) or **Not yet** (`2`).
+
+No mic and no typing, so it works in a loud room and on a Chromebook with a
+dead microphone. It's also the only engine that doesn't need
+`speechSynthesis` to function — without it the cards still work, minus the
+read-aloud check, so the start screen warns instead of disabling Start.
+
+A page passes decks rather than one word list:
+
+```html
+<script src="card-game.js"></script>
+<script>
+CardGame.start({
+  title: "Red Words 🃏",
+  intro: "…",
+  note: "<p>What a red word is…</p>",      // optional micro-lesson, HTML ok
+  decks: [{ name: "List 1", words: ["you","should", …] }, …]
+});
+</script>
+```
+
+With more than one deck the start screen grows a picker and the engine adds
+two decks of its own: a random **Mixed** 20 drawn from everything (re-drawn
+every round, so it's never the same 20 twice) and one **All words** deck.
+The last-picked list is remembered per device. A single `words:` array works
+too — the picker then never appears. Deck word lists are deduplicated per
+round, which matters because printed word lists repeat words across lists on
+purpose.
+
+Current games:
+
+- `red-words-game.html` — the ten SUHSD red-word screener lists, 20 words
+  each. The lists live in `data/red-words.md` as the source of record; the
+  page's word arrays are that file transcribed, so corrections belong in
+  both.
+
+Scoring, streaks, stars, the missed-word list and the comeback deck all match
+the other two engines exactly, so a student moving between games sees one
+scoring system. A skipped card counts as missed, and ending a round early
+scores only the cards actually seen.
+
+One thing to know as a teacher: the score is a **self-rating**, so it
+measures honesty as much as reading. That's the trade the format makes —
+nothing can listen to a student read "Wednesday" and tell you they knew it on
+sight rather than worked it out. The start screen asks for honesty directly,
+and the payoff is framed as the deck shrinking rather than the score going
+up.
