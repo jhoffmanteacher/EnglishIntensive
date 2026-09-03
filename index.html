@@ -101,11 +101,11 @@
 
   // "speak" games use the mic (blend-game.js) — the student says the word
   // out loud. "type" games are mic-free (spell-game.js) — the computer
-  // says the word and the student types it. "cards" games are mic-free and
-  // typing-free (card-game.js) — the student reads a card, flips it and
-  // rates themselves. Split into sections below so a student in a loud
-  // room, or without a working mic, can go straight to games that'll
-  // actually work for them.
+  // says the word and the student types it. "cards" games need neither
+  // (card-game.js and match-game.js) — the student reads a card and rates
+  // themselves, or hears a word and picks it out of a set. Split into
+  // sections below so a student in a loud room, or without a working mic,
+  // can go straight to games that'll actually work for them.
   var SECTIONS = [
     {
       key: "speak",
@@ -159,14 +159,20 @@
     },
     {
       key: "cards",
-      title: "🃏 Flash Cards",
-      note: "No mic and no typing — read the card, flip it, and check yourself.",
+      title: "🃏 Sight Word Games",
+      note: "No mic and no typing — read a word, or find the one you hear.",
       games: [
         {
           icon: "🃏",
           title: "Red Words",
           description: "The words that break the rules — said, would, Wednesday. Read the card out loud, flip it to hear the word, and tell the game if you got it. Ten lists to work through.",
           url: "red-words-game.html"
+        },
+        {
+          icon: "🎯",
+          title: "Red Words: Match It",
+          description: "Headphones only. The computer says a red word and you find it — next to would, could and should. The wrong answers look close on purpose, so read to the end.",
+          url: "red-words-match-game.html"
         }
       ]
     }

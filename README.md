@@ -18,7 +18,7 @@ python3 -m http.server 8000
 ## Home page
 
 `index.html` shows a grid of game tiles, split into sections by what the
-game asks of the student — speaking, typing or flash cards — so someone in a
+game asks of the student — speaking, typing, or neither — so someone in a
 loud room or without a working mic can go straight to what'll work for them.
 Add a new game by dropping an entry in the right section's `games` array in
 its inline `<script>` — `icon`, `title`, `description`, `url`.
@@ -90,8 +90,9 @@ Current games:
 ### Comeback words (missed-word persistence)
 
 Each game page keeps its own deck of not-yet-mastered words in
-`localStorage` (`"blendComeback:" + pathname`, and `"cardComeback:"` for the
-flash-card game, which carries its own copy of this logic): a word joins the
+`localStorage` (`"blendComeback:" + pathname`; `"cardComeback:"` and
+`"matchComeback:"` for the two card games, which carry their own copies of
+this logic): a word joins the
 deck when it's missed twice or skipped in a round, and **leaves the deck the
 moment it's read correctly on the first try** in any later round. When the deck has
 words, the start screen grows a "🔁 Comeback words (N)" button that runs just
@@ -99,7 +100,7 @@ those words — most-missed first, capped at 15 so it stays a warm-up. The
 storage layer treats localStorage as untrusted (versioned, sanitized on
 read, silently absent if storage is unavailable), and the pure deck logic
 (`comebackMerge` / `comebackMastered` / `comebackDeck`) is covered by
-`tests.html`, which also checks the two engines' copies against each other
+`tests.html`, which also checks the three engines' copies against each other
 so they can't drift apart. The session-level "Practice missed words" button on the end
 screen is unchanged and separate.
 
@@ -136,8 +137,8 @@ directly, in case a more forgiving mode is wanted again later.
 
 Run `tests.html` (served the same way as the games) to check the matcher
 itself, along with the scoring, the comeback deck, the syllable parser, the
-spelling checker and the flash-card deck builders — it renders a pass/fail
-table with a summary line.
+spelling checker, the flash-card deck builders and the matching game's
+distractor picker — it renders a pass/fail table with a summary line.
 
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
@@ -230,3 +231,74 @@ nothing can listen to a student read "Wednesday" and tell you they knew it on
 sight rather than worked it out. The start screen asks for honesty directly,
 and the payoff is framed as the deck shrinking rather than the score going
 up.
+
+## Matching game
+
+`match-game.js` is the checked counterpart to the flash cards: the computer
+says a word and the student picks the printed word that matches, out of six.
+Same skill, but the game knows whether they were right instead of taking
+their word for it. Mic-free, so it still works in a loud room.
+
+```html
+<script src="match-game.js"></script>
+<script>
+MatchGame.start({
+  title: "Red Words: Match It 🎯",
+  intro: "…",
+  note: "<p>…</p>",                      // optional micro-lesson, HTML ok
+  choices: 6,                            // tiles per word (default 6)
+  decks: [{ name: "List 1", words: [ … ] }, …],
+  homophones: [["to","two"], …],         // never shown together
+  sentences: { to: "I need to finish my homework." }
+});
+</script>
+```
+
+Decks, the picker, Mixed/All words, the comeback deck and the scoring all
+work exactly as they do in `card-game.js`. Two tries per word: a wrong tile
+greys out and stays on screen (so the retry narrows the field instead of
+being a coin flip), and a second miss gilds the right one and says it slowly.
+Only a first-try pick clears a word from the comeback deck.
+
+### Picking the wrong answers
+
+The whole difficulty of the game is in **which wrong words it shows**. Six
+random words off the list is a game you can win without reading — the first
+letter is enough. So `nearestWords()` ranks the list by how confusable each
+word is with the target (edit distance, then shared opening letters, then
+length), and the tiles are drawn from the top of that ranking. For red words
+that produces exactly the sets students really mix up: `should` comes with
+could/would/said, `through` with though/although/enough, `there` with
+where/here/were. Getting it right means reading to the end of the word.
+
+Pushed all the way, though, the same idea breaks the game: the most
+confusable word of all is a **homophone**, and no amount of listening
+separates "to" from "two". Both guards below matter, and any word list with a
+homophone pair in it needs both:
+
+- `homophones` groups words that sound alike. No two members of a group ever
+  appear on screen together — enforced as the set is built, so it also stops
+  two *distractors* pairing up (`to` and `two` as wrong answers under some
+  third word), and it catches "resumé"/"resume", which are the same letters
+  once the accent is stripped.
+- `sentences` gives a word a spelling-bee read — word, sentence, word — so
+  the student hears *which* word it is rather than inferring it from what
+  isn't on screen. Every homophone-group member needs one. They also fix
+  heteronyms, where the synthesiser has to guess a pronunciation: "does" as
+  the female deer, "live" as in live television, "minute" as in tiny.
+
+This is not hypothetical for the red-word lists: `to`/`two` are both on List 1
+and `there`/`their` both on List 2, so without the guards the very first list
+deals unanswerable items. `tests.html` draws every word of those two lists 40
+times over and fails if any tile set holds two words that sound alike.
+
+Distractors normally come from the round's own list, so the wrong answers are
+words the student is working on. A round too short to fill its own tiles (a
+three-word comeback deck) widens to the whole word list instead.
+
+Current games:
+
+- `red-words-match-game.html` — the same ten screener lists as the flash-card
+  game, same source of record in `data/red-words.md`. The two games keep
+  **separate** comeback decks, on purpose: knowing a word on sight and
+  picking it out of five look-alikes are different days' work.
