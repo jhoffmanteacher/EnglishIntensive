@@ -24,6 +24,16 @@
 window.SpellGame = (function(){
   "use strict";
 
+  // What this engine takes from game-core.js. Aliased once here rather than
+  // reached through GameCore at every call site, so the code below reads the
+  // same as it did when these lived in this file — and so the list of what's
+  // shared is in one visible place.
+  var Core = window.GameCore;
+  var shuffled        = Core.shuffled,
+      escapeHtml      = Core.escapeHtml,
+      comboMultiplier = Core.comboMultiplier,
+      pointsFor       = Core.pointsFor;
+
   // Speaking rates. The first read is close to natural — a distorted word is
   // harder to spell, not easier. The slow read is only for repeats and
   // misses, and stops short of the range where the synthesiser starts
@@ -86,20 +96,6 @@ window.SpellGame = (function(){
     return out;
   }
 
-  /* ---------------- combo scoring (pure, testable) ----------------
-     Copied verbatim from blend-game.js rather than shared, so the two
-     engines stay single-file: 10 points × a streak-driven multiplier (×1,
-     ×2 from a streak of 5, ×3 from 10 up, capped there), plus a +25
-     milestone on every 5th in a row. `streak` INCLUDES the answer being
-     scored, so streak 5 pays 10×2+25 = 45. If this ever changes, change it
-     in both files — tests.html checks them against the same numbers. */
-  function comboMultiplier(streak){
-    return Math.min(3, 1 + Math.floor(streak/5));
-  }
-  function pointsFor(streak){
-    return 10 * comboMultiplier(streak) + (streak > 0 && streak % 5 === 0 ? 25 : 0);
-  }
-
   /* ---------------- styles ----------------
      Everything this game needs beyond blend-game.css is the answer box, the
      big typed echo and the rule panel — a handful of rules. They ship inside
@@ -142,32 +138,6 @@ window.SpellGame = (function(){
   .wordcard.wrong .spellinput{border-color:var(--bad)}
   .wordcard.correct .spellinput{border-color:var(--good)}
   `;
-  function injectStyle(){
-    if(document.getElementById(STYLE_ID)) return;
-    var el = document.createElement("style");
-    el.id = STYLE_ID;
-    el.textContent = STYLE;
-    document.head.appendChild(el);
-  }
-
-  /* The maze progress graphic, lifted from blend-game.js's "maze" theme —
-     same markup, same CSS in blend-game.css, same idx/queue.length
-     percentage driving it. Duplicated for the same no-build reason as the
-     scoring functions. */
-  var MAZE_PATH = "M20,85 L150,85 L150,15 L300,15 L300,85 L450,85 L450,15 L580,15";
-  function progressMarkup(){
-    return `
-    <div class="track track-maze">
-      <svg viewBox="0 0 600 100" preserveAspectRatio="xMidYMid meet" class="maze-svg" aria-hidden="true">
-        <path class="maze-wall" d="${MAZE_PATH}"></path>
-        <path class="maze-path" d="${MAZE_PATH}"></path>
-        <path id="mazeTrail" class="maze-trail" d="${MAZE_PATH}"></path>
-        <text class="maze-goal" x="580" y="15">🏆</text>
-        <text id="mazeRunner" class="maze-runner" x="20" y="85">✏️</text>
-      </svg>
-    </div>`;
-  }
-
   // One template literal rather than a hundred lines of string concatenation —
   // this is markup, and it should still read like markup.
   function shell(cfg){
@@ -203,7 +173,7 @@ window.SpellGame = (function(){
       <div class="stat"><div class="lbl">Streak</div><div class="val flame" id="uiStreak">0</div><div class="combo" id="uiCombo"></div></div>
       <div class="stat"><div class="lbl">Word</div><div class="val" id="uiCount">1/${cfg.count}</div></div>
     </div>
-    ${progressMarkup()}
+    ${cfg.progress}
 
     <div class="wordcard" id="wordCard">
       <div class="popup" id="popup"></div>
@@ -267,7 +237,11 @@ window.SpellGame = (function(){
       try{ onResult(word, !!correct, tryCount|0); }catch(e){}
     }
 
-    injectStyle();
+    // A vault run with the spelling game's own icons: a pencil heading for
+    // the trophy.
+    var prog = Core.progress("maze", { goal: "🏆", runner: "✏️" });
+
+    Core.injectStyle(STYLE_ID, STYLE);
     var mount = document.getElementById(cfg.mount || "app");
     mount.className = "wrap";
     mount.innerHTML = shell({
@@ -275,14 +249,14 @@ window.SpellGame = (function(){
       intro: cfg.intro || "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!",
       rule: cfg.rule || "",
       count: WORDS.length,
-      hasSentences: Object.keys(SENTENCES).length > 0
+      hasSentences: Object.keys(SENTENCES).length > 0,
+      progress: prog.markup()
     });
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], tries = 0, busy = false;
     var repeats = 0;       // how many times this word has been replayed
-    var mazeLen = null;    // cached path length for the progress runner
     var pending = null;    // the timer that moves on to the next word
 
     var shuffleOn = true;
@@ -294,66 +268,13 @@ window.SpellGame = (function(){
     var $ = function(id){ return document.getElementById(id); };
 
     /* ---------------- audio blips ---------------- */
-    var actx = null;
-    function beep(freqs, dur){
-      try{
-        if(!actx){ var C = window.AudioContext || window.webkitAudioContext; if(!C) return; actx = new C(); }
-        if(actx.state === "suspended") actx.resume();
-        freqs.forEach(function(f,i){
-          var o = actx.createOscillator(), g = actx.createGain();
-          o.type = "triangle"; o.frequency.value = f;
-          var t = actx.currentTime + i * (dur*0.7);
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-          o.connect(g); g.connect(actx.destination);
-          o.start(t); o.stop(t + dur + 0.02);
-        });
-      }catch(e){}
-    }
-    var sndGood  = function(){ beep([660,880,1180],0.16); };
-    var sndBad   = function(){ beep([300,200],0.20); };
-    var sndWin   = function(){ beep([660,880,1180,1560],0.18); };
-    var sndCombo = function(){ beep([660,990,1320,1760],0.14); };
+    var snd = Core.sounds();
 
     /* ---------------- speech ----------------
-       pickVoice() and say() are lifted from blend-game.js almost verbatim.
-       There is no build step and no module loader here, so sharing them
-       would mean a third <script> tag on every page for ~40 lines; each
-       engine staying self-contained is the better trade. The mic-hold
-       bookkeeping from the blend version is gone — nothing is listening.
-       Keep the voice ranking in sync if it ever changes there. */
-    var voice = null;
-
-    // macOS/iOS ship joke voices (Albert croaks, Zarvox is a robot, Bahh is a
-    // sheep) in the same en-US list as the real ones. "First local en-US
-    // voice" used to be the fallback, and alphabetically that's Albert — so
-    // on Safari the game could sound like a frog. Never pick these, even as
-    // a last resort; word-only fallback beats an unintelligible voice.
-    var NOVELTY = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Eddy|Flo|Good News|Grandma|Grandpa|Hysterical|Jester|Junior|Kathy|Organ|Ralph|Reed|Rocko|Sandy|Shelley|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred/;
-
-    function pickVoice(){
-      if(!window.speechSynthesis) return;
-      var all = window.speechSynthesis.getVoices() || [];
-      var en = all.filter(function(v){
-        return /^en/i.test(v.lang) && !NOVELTY.test(v.name);
-      });
-      if(!en.length) return;   // list not loaded yet; voiceschanged will retry
-      function find(test){
-        for(var i=0;i<en.length;i++){ if(test(en[i])) return en[i]; }
-        return null;
-      }
-      voice =
-        find(function(v){ return v.lang === "en-US" && /Google/.test(v.name); }) ||
-        find(function(v){ return /Natural|Online/.test(v.name); }) ||
-        find(function(v){ return /Samantha|Ava|Allison|Alex/.test(v.name); }) ||
-        find(function(v){ return v.lang === "en-US" && v.localService; }) ||
-        find(function(v){ return v.lang === "en-US"; }) ||
-        en[0];
-    }
-    pickVoice();
-    if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged = pickVoice;
-
+       The voice itself is picked once for the whole site in game-core.js;
+       what happens around an utterance is the engine's own business, which
+       is why sayParts() lives here. There's no mic-hold bookkeeping in this
+       one — nothing is listening. */
     // Each part is [text, rate]. Separate utterances rather than one long
     // string because the synthesiser's gap between utterances is the pause
     // that makes a spelling-bee read parse as word / sentence / word.
@@ -367,7 +288,8 @@ window.SpellGame = (function(){
           var u = new SpeechSynthesisUtterance(p[0]);
           u.lang = "en-US";
           u.rate = p[1] || NORMAL_RATE;
-          if(voice) u.voice = voice;
+          var v = Core.voice();
+          if(v) u.voice = v;
           window.speechSynthesis.speak(u);
         });
       }catch(e){}
@@ -409,16 +331,6 @@ window.SpellGame = (function(){
     }
 
     /* ---------------- helpers ---------------- */
-    function shuffled(a){
-      var b = a.slice();
-      for(var i=b.length-1;i>0;i--){ var j = Math.floor(Math.random()*(i+1)); var t=b[i]; b[i]=b[j]; b[j]=t; }
-      return b;
-    }
-
-    function escapeHtml(s){
-      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    }
-
     // The end screen's chips can gild the pattern being practised (oi/oy)
     // once the round is over — the same trick the blend games use on the
     // word card, but only ever AFTER the words have been answered.
@@ -437,26 +349,6 @@ window.SpellGame = (function(){
     }
 
     /* ---------------- render ---------------- */
-    function updateProgress(pct){
-      // mazeTrail shares the maze-path's "d", so its length doubles as the
-      // guide path's length — one <path> query covers both.
-      var path = $("mazeTrail"), runner = $("mazeRunner");
-      if(!path || !runner) return;
-      if(mazeLen === null){ mazeLen = path.getTotalLength(); path.style.strokeDasharray = mazeLen; }
-      var covered = pct/100 * mazeLen;
-      var pt = path.getPointAtLength(covered);
-      runner.setAttribute("x", pt.x);
-      runner.setAttribute("y", pt.y);
-      path.style.strokeDashoffset = mazeLen - covered;
-    }
-    function celebrateProgress(){
-      var el = $("mazeRunner");
-      if(!el) return;
-      el.classList.remove("boost");
-      void el.getBoundingClientRect();   // restart the animation
-      el.classList.add("boost");
-      setTimeout(function(){ el.classList.remove("boost"); }, 550);
-    }
     function renderCombo(){
       var m = comboMultiplier(streak);
       $("uiCombo").textContent = m > 1 ? "×" + m + " combo!" : "";
@@ -478,24 +370,18 @@ window.SpellGame = (function(){
       $("uiStreak").textContent = streak;
       renderCombo();
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
-      updateProgress(idx/queue.length*100);
+      prog.update(idx/queue.length*100);
       $("wordCard").className = "wordcard";
       $("uiMsg").innerHTML = "Listen, then type it.";
       repeats = 0;
       focusInput();
       speakWord(false, true);
     }
-    function popup(txt, color, big){
-      var p = $("popup");
-      p.textContent = txt; p.style.color = color;
-      p.classList.toggle("big", !!big);
-      p.classList.remove("go"); void p.offsetWidth; p.classList.add("go");
-    }
-
     /* ---------------- game flow ---------------- */
     function startGame(list){
       queue = shuffleOn ? shuffled(list) : list.slice();
       idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; tries = 0; busy = false;
+      prog.reset();
       show("s-play");
       render();
     }
@@ -535,19 +421,7 @@ window.SpellGame = (function(){
                                : "Good practice! 💪";
       $("uiSummary").textContent = "You spelled " + right + " of " + queue.length + " words correctly (" + pct + "%).";
 
-      // 0–3 stars: 3 at 90%+, 2 at 70%+, 1 at 50%+ — same thresholds as the
-      // blend games. Unearned slots still render as dim outlines so a
-      // 2-star finish visibly has room to grow.
-      var starCount = pct >= 90 ? 3 : pct >= 70 ? 2 : pct >= 50 ? 1 : 0;
-      var stars = $("uiStars");
-      stars.innerHTML = "";
-      for(var si=0; si<3; si++){
-        var st = document.createElement("span");
-        st.className = "star" + (si < starCount ? " lit" : "");
-        st.style.animationDelay = (0.25 + si*0.3) + "s";
-        st.textContent = "★";
-        stars.appendChild(st);
-      }
+      Core.renderStars($("uiStars"), pct);
       var block = $("missBlock"), grid = $("uiMissed");
       grid.innerHTML = "";
       if(missed.length){
@@ -563,27 +437,12 @@ window.SpellGame = (function(){
         block.style.display = "none";
         $("btnRetryMissed").style.display = "none";
       }
-      if(pct >= 70) confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
-      sndWin();
+      if(pct >= 70) Core.confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
+      snd.win();
       if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
       // Enter should keep working without touching the mouse — the round is
       // over, so the obvious next action takes the focus.
       $("btnAgain").focus();
-    }
-
-    var CONFETTI_COLORS = ["#ffc94d","#3ddc97","#ff6b6b","#7dd3fc","#c084fc"];
-    function confettiBurst(container, count){
-      if(!container) return;
-      for(var i=0;i<count;i++){
-        var s = document.createElement("span");
-        s.className = "confetti-piece";
-        s.style.left = Math.random()*100 + "%";
-        s.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
-        s.style.animationDelay = (Math.random()*0.3) + "s";
-        s.style.setProperty("--r", Math.floor(Math.random()*360) + "deg");
-        container.appendChild(s);
-        (function(el){ setTimeout(function(){ el.remove(); }, 1700); })(s);
-      }
     }
 
     function handleCorrect(){
@@ -605,13 +464,13 @@ window.SpellGame = (function(){
       $("uiStreak").textContent = streak;
       renderCombo();
       if(milestone){
-        celebrateProgress();
-        popup("🔥 " + streak + " in a row!", "#ffc94d", true);
-        confettiBurst($("wordCard"), 18);
-        sndCombo();
+        prog.celebrate();
+        Core.popup($("popup"), "🔥 " + streak + " in a row!", "#ffc94d", true);
+        Core.confettiBurst($("wordCard"), 18);
+        snd.combo();
       } else {
-        popup("✓ +" + pts, "#3ddc97");
-        sndGood();
+        Core.popup($("popup"), "✓ +" + pts, "#3ddc97");
+        snd.good();
       }
       scheduleNext(1100);
     }
@@ -623,8 +482,8 @@ window.SpellGame = (function(){
       renderCombo();
       tries++;
       $("wordCard").className = "wordcard wrong";
-      popup("✗", "#ff6b6b");
-      sndBad();
+      Core.popup($("popup"), "✗", "#ff6b6b");
+      snd.bad();
 
       if(tries < 2){
         // Nothing is revealed yet — the point of the retry is to listen
@@ -728,7 +587,7 @@ window.SpellGame = (function(){
     });
     renderShuffle();
 
-    $("btnStart").addEventListener("click", function(){ beep([440],0.06); startGame(WORDS); });
+    $("btnStart").addEventListener("click", function(){ snd.click(); startGame(WORDS); });
 
     $("spellForm").addEventListener("submit", function(e){
       e.preventDefault();
@@ -798,8 +657,8 @@ window.SpellGame = (function(){
       normalizeAnswer: normalizeAnswer,
       isCorrect: isCorrect,
       diffLetters: diffLetters,
-      comboMultiplier: comboMultiplier,
-      pointsFor: pointsFor
+      comboMultiplier: Core.comboMultiplier,
+      pointsFor: Core.pointsFor
     }
   };
 })();
