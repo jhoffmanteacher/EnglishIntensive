@@ -23,6 +23,23 @@
    Trouble    the same words, aggregated across the class: what to teach
               tomorrow, rather than who to talk to.
 
+   ── The picker ────────────────────────────────────────────────────────
+   Every place a set of lists is chosen — a student's own, a period's,
+   the class default — uses one component, pickerHtml(). It has two
+   parts because the registry has two kinds of entry:
+     Games       the standalone lists, one checkbox each.
+     Red Words   a family: ten lists × two games. Shown as a grid — one
+                 row per list with a few of its words as a reminder, one
+                 column per game — with row ("both") and column ("all")
+                 toggles, because "lists 1–4 as flash cards" should be
+                 four clicks, not eight.
+   A live summary under the picker (WordLists.describeAssignment) says
+   in words what the ticks add up to, and the roster shows that same
+   line, so what a student HAS and what you're SETTING read the same way.
+   What gets saved is still a flat array of list ids — the picker is
+   presentation only; store.js, the rules and the precedence never see
+   the grid.
+
    ── Why assignments live in their own collection ──────────────────────
    The teacher has READ on students/{uid} and no write, deliberately: the
    dashboard never needs to modify a student's work, and withholding write
@@ -160,6 +177,106 @@
     return { ids: WordLists.ids, from: "everything (nothing set)" };
   }
 
+  /* ---------------- the picker ----------------
+     scopeId  "student" | "default" | "p:<period>" — stamped on every input
+              so scopeSelection() can read one picker on a page with several
+     selected the ids currently on (array), or null with allOn deciding
+     allOn    what "nothing set" means here: true for the class default
+              (open site), false for a period following a default */
+  function pickerHtml(scopeId, selected, allOn){
+    var on = function(id){ return selected ? selected.indexOf(id) !== -1 : !!allOn; };
+    var sc = esc(scopeId);
+
+    var games = WordLists.standalone().map(function(l){
+      return '<label class="check"><input type="checkbox" data-scope="' + sc + '" data-list="' + esc(l.id) + '"' +
+        (on(l.id) ? " checked" : "") + "><span>" + esc(l.icon + " " + l.title) +
+        '<span class="sub2">' + WordLists.wordsOf(l.id).length + " words</span></span></label>";
+    }).join("");
+
+    var fams = WordLists.families().map(function(fam){
+      var nums = WordLists.listNumsOf(fam.key);
+      var head = fam.games.map(function(g){
+        return "<th>" + esc(g.icon + " " + g.title) +
+          '<button type="button" class="pkMini" data-pk-col="' + sc + "|" + esc(fam.key) + "|" + esc(g.key) + '" title="Tick or untick every list for ' + esc(g.title) + '">all</button></th>';
+      }).join("");
+      var rows = nums.map(function(n){
+        var cells = fam.games.map(function(g){
+          var id = WordLists.idFor(fam.key, n, g.key);
+          return "<td>" + (id ? '<input type="checkbox" data-scope="' + sc + '" data-list="' + esc(id) + '"' + (on(id) ? " checked" : "") + ">" : "") + "</td>";
+        }).join("");
+        var anyId = WordLists.idFor(fam.key, n, fam.games[0].key);
+        var preview = anyId ? WordLists.wordsOf(anyId).slice(0, 4).join(", ") + "…" : "";
+        return '<tr><td class="pkList"><b>List ' + n + '</b><span class="preview">' + esc(preview) + "</span></td>" + cells +
+          '<td><button type="button" class="pkMini" data-pk-row="' + sc + "|" + esc(fam.key) + "|" + n + '" title="Tick or untick both games for this list">both</button></td></tr>';
+      }).join("");
+      return '<div class="pkSection"><div class="pkHead"><h3>' + esc(fam.icon + " " + fam.title) + "</h3>" +
+        '<span class="muted tiny">' + esc(fam.note) + "</span></div>" +
+        '<div class="tableScroll"><table class="redGrid"><thead><tr><th>List</th>' + head + "<th></th></tr></thead>" +
+        "<tbody>" + rows + "</tbody></table></div></div>";
+    }).join("");
+
+    return '<div class="picker" data-picker="' + sc + '">' +
+      '<div class="pkSection"><div class="pkHead"><h3>Games</h3>' +
+        '<span class="pkTools"><button type="button" class="pkMini" data-pk-games="' + sc + '|all">all</button>' +
+        '<button type="button" class="pkMini" data-pk-games="' + sc + '|none">none</button></span></div>' +
+        '<div class="listGrid">' + games + "</div></div>" +
+      fams +
+      '<div class="pkSummary">This gives them: <b data-pk-summary="' + sc + '"></b></div>' +
+    "</div>";
+  }
+
+  // The ids ticked in one picker. Works for every scope on the page.
+  function scopeSelection(scopeId){
+    var ids = [];
+    Array.prototype.forEach.call(document.querySelectorAll('#tBody input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
+      if(cb.checked) ids.push(cb.dataset.list);
+    });
+    return ids;
+  }
+  function pickerInputs(scopeId, filter){
+    return Array.prototype.filter.call(document.querySelectorAll('#tBody input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
+      var l = WordLists.byId(cb.dataset.list);
+      return l && (!filter || filter(l));
+    });
+  }
+  function refreshSummary(scopeId){
+    var el = document.querySelector('#tBody [data-pk-summary="' + scopeId.replace(/"/g,'') + '"]');
+    if(el) el.textContent = WordLists.describeAssignment(scopeSelection(scopeId));
+  }
+  // Tick every input in a group, or untick them all if they're already all on.
+  function toggleGroup(inputs){
+    var allOn = inputs.length && inputs.every(function(cb){ return cb.checked; });
+    inputs.forEach(function(cb){ cb.checked = !allOn; });
+  }
+  /* One delegated handler for every picker on the page: the mini toggles,
+     and a live summary on any change. Bound once per render. */
+  function bindPickers(){
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-picker]"), function(pk){
+      refreshSummary(pk.dataset.picker);
+    });
+    var body = $("tBody");
+    body.addEventListener("click", function(e){
+      var b = e.target.closest ? e.target.closest("[data-pk-games],[data-pk-col],[data-pk-row]") : null;
+      if(!b) return;
+      var parts, scope;
+      if(b.dataset.pkGames){
+        parts = b.dataset.pkGames.split("|"); scope = parts[0];
+        pickerInputs(scope, function(l){ return !l.family; }).forEach(function(cb){ cb.checked = parts[1] === "all"; });
+      } else if(b.dataset.pkCol){
+        parts = b.dataset.pkCol.split("|"); scope = parts[0];
+        toggleGroup(pickerInputs(scope, function(l){ return l.family === parts[1] && l.game === parts[2]; }));
+      } else {
+        parts = b.dataset.pkRow.split("|"); scope = parts[0];
+        toggleGroup(pickerInputs(scope, function(l){ return l.family === parts[1] && String(l.listNum) === parts[2]; }));
+      }
+      refreshSummary(scope);
+    });
+    body.addEventListener("change", function(e){
+      var cb = e.target;
+      if(cb && cb.matches && cb.matches("input[data-scope]")) refreshSummary(cb.dataset.scope);
+    });
+  }
+
   function whoHtml(s){
     var av = s.photo
       ? '<img src="' + esc(s.photo) + '" alt="" referrerpolicy="no-referrer">'
@@ -227,7 +344,7 @@
       return "<tr class=\"clickable\" data-uid=\"" + esc(s.uid) + "\">" +
         "<td>" + whoHtml(s) + "</td>" +
         '<td>' + (a.period ? '<span class="pill">Period ' + esc(a.period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
-        "<td>" + eff.ids.length + ' <span class="muted tiny">(' + esc(eff.from) + ")</span></td>" +
+        '<td class="listsCell">' + esc(WordLists.describeAssignment(eff.ids)) + ' <span class="muted tiny">(' + esc(eff.from) + ")</span></td>" +
         '<td class="num">' + sum.attempts + "</td>" +
         '<td class="num">' + accCell(sum.accuracy) + "</td>" +
         '<td class="num"><span class="pill good">' + sum.mastered + "</span></td>" +
@@ -288,12 +405,7 @@
         "<small>" + r.stat.r + "/" + r.stat.n + " · " + esc(l ? l.title : parsed.listId) + "</small></div>";
     }).join("");
 
-    var listChecks = WordLists.all.map(function(l){
-      var on = eff.ids.indexOf(l.id) !== -1;
-      return '<label class="check"><input type="checkbox" data-list="' + esc(l.id) + '"' + (on ? " checked" : "") + ">" +
-        "<span>" + esc(l.icon + " " + l.title) +
-        '<span class="sub2">' + WordLists.wordsOf(l.id).length + " words</span></span></label>";
-    }).join("");
+    var picker = pickerHtml("student", eff.ids, true);
 
     var periodOpts = ['<option value="">— not set —</option>'].concat(allPeriods().map(function(p){
       return '<option value="' + esc(p) + '"' + (a.period === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
@@ -312,7 +424,8 @@
       "</div>" +
 
       '<div class="panel"><h2>Assignment</h2>' +
-        '<p class="note">Ticking boxes here sets this student\'s OWN list, which overrides their period. ' +
+        '<p class="note">What this student sees on their home page. Tick the games they should have, and for Red Words tick each list under the game(s) they should play it as. ' +
+        'Saving here sets this student\'s OWN set, which overrides their period. ' +
         'Currently coming from: <b>' + esc(eff.from) + "</b>. " +
         '“Use my period’s lists” hands them back to the group.</p>' +
         '<div class="rowActions" style="margin-bottom:16px">' +
@@ -320,7 +433,7 @@
           '<select class="sel" id="tPeriod">' + periodOpts + "</select>" +
           '<input class="txt" id="tNewPeriod" placeholder="or type a new one" style="width:170px">' +
         "</div>" +
-        '<div class="listGrid" id="tLists">' + listChecks + "</div>" +
+        picker +
         '<div class="rowActions">' +
           '<button class="btn sm" id="tSaveA">Save assignment</button>' +
           '<button class="btn ghost sm" id="tClearA">Use my period’s lists</button>' +
@@ -341,15 +454,10 @@
     $("tBack").addEventListener("click", function(){ detailUid = null; render(); });
     $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
     $("tClearA").addEventListener("click", function(){ saveStudentAssignment(s.uid, true); });
+    bindPickers();
   }
 
-  function checkedLists(){
-    var ids = [];
-    Array.prototype.forEach.call(document.querySelectorAll("#tLists input[type=checkbox]"), function(cb){
-      if(cb.checked) ids.push(cb.dataset.list);
-    });
-    return ids;
-  }
+  function checkedLists(){ return scopeSelection("student"); }
 
   /* Writes are optimistic — the local copy updates first so the UI never
      stalls on school Wi-Fi — and roll back on failure, because a silent
@@ -384,22 +492,13 @@
   function renderGroups(){
     var periods = allPeriods();
 
-    function listBoxes(scopeId, selected, allOn){
-      return WordLists.all.map(function(l){
-        var on = selected ? selected.indexOf(l.id) !== -1 : allOn;
-        return '<label class="check"><input type="checkbox" data-scope="' + esc(scopeId) + '" data-list="' + esc(l.id) + '"' +
-          (on ? " checked" : "") + "><span>" + esc(l.icon + " " + l.title) +
-          '<span class="sub2">' + WordLists.wordsOf(l.id).length + " words</span></span></label>";
-      }).join("");
-    }
-
     var periodPanels = periods.map(function(p){
       var sel = Array.isArray(classCfg.periodLists[p]) ? classCfg.periodLists[p] : null;
       var count = students.filter(function(s){ return (assignments[s.uid] || {}).period === p; }).length;
       return '<div class="panel"><h2>Period ' + esc(p) + "</h2>" +
         '<p class="note">' + count + " student" + (count === 1 ? "" : "s") + " · " +
         (sel ? "its own list set" : "following the class default") + "</p>" +
-        '<div class="listGrid">' + listBoxes("p:" + p, sel, Array.isArray(classCfg.defaultLists) ? false : true) + "</div>" +
+        pickerHtml("p:" + p, sel, Array.isArray(classCfg.defaultLists) ? false : true) +
         '<div class="rowActions">' +
           '<button class="btn sm" data-save="p:' + esc(p) + '">Save period ' + esc(p) + "</button>" +
           '<button class="btn ghost sm" data-clear="p:' + esc(p) + '">Use class default</button>' +
@@ -414,14 +513,14 @@
       })).join("");
       return "<tr><td>" + whoHtml(s) + "</td>" +
         '<td><select class="sel" data-period-for="' + esc(s.uid) + '">' + opts + "</select></td>" +
-        '<td class="muted tiny">' + (Array.isArray(a.lists) ? "own list set (" + a.lists.length + ")" : "follows period") + "</td></tr>";
+        '<td class="muted tiny">' + (Array.isArray(a.lists) ? "own set: " + esc(WordLists.describeAssignment(a.lists)) : "follows period") + "</td></tr>";
     }).join("");
 
     $("tBody").innerHTML =
       '<div class="panel"><h2>Class default</h2>' +
         '<p class="note">What a student gets when neither they nor their period has a list set. ' +
         "Leave everything ticked and the whole site is open to everyone.</p>" +
-        '<div class="listGrid">' + listBoxes("default", classCfg.defaultLists, true) + "</div>" +
+        pickerHtml("default", classCfg.defaultLists, true) +
         '<div class="rowActions"><button class="btn sm" data-save="default">Save default</button>' +
         '<span class="saveNote" data-note="default"></span></div>' +
       "</div>" +
@@ -451,14 +550,7 @@
     });
     var addBtn = $("tAddPeriodBtn");
     if(addBtn) addBtn.addEventListener("click", addPeriod);
-  }
-
-  function scopeSelection(scopeId){
-    var ids = [];
-    Array.prototype.forEach.call(document.querySelectorAll('#tBody input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
-      if(cb.checked) ids.push(cb.dataset.list);
-    });
-    return ids;
+    bindPickers();
   }
 
   /* `null` rather than a deleted field is how "inherit" is stored — see
