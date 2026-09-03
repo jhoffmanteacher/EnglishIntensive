@@ -548,6 +548,31 @@ window.BlendGame = (function(){
     var soundSeq = cfg.sound ? [cfg.sound] : null;
     var highlightRe = cfg.highlight || null;
 
+    /* ---------------- outcome reporting (optional) ----------------
+       The engine stays storage-agnostic: it announces what happened and
+       has no idea whether anyone is listening. EIPractice passes these in
+       to feed the adaptive scheduler; a page that calls start() directly
+       passes nothing and behaves exactly as it always did.
+
+         onResult(word, firstTryCorrect, tries)  once per word, per visit
+         onFinish({right, total})                once per round
+         nextRound()                             a fresh word list for
+                                                 "Play again", so the
+                                                 second round re-weights
+                                                 instead of replaying the
+                                                 first one's picks
+
+       Reported at the three points a word is actually FINISHED with —
+       right, missed twice, or skipped — never on the first miss, so the
+       retry doesn't get counted as its own answer. */
+    var onResult   = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onFinish   = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
+    var nextRound  = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
+    function report(word, correct, tryCount){
+      if(!onResult) return;
+      try{ onResult(word, !!correct, tryCount|0); }catch(e){}
+    }
+
     var mount = document.getElementById(cfg.mount || "app");
     mount.className = "wrap";
     mount.innerHTML = shell({
@@ -938,6 +963,7 @@ window.BlendGame = (function(){
       }
       if(pct >= 70) confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
       sndWin();
+      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
     }
 
     // A one-shot burst of falling confetti pieces on a good finish — pure CSS
@@ -964,6 +990,7 @@ window.BlendGame = (function(){
       // First try, no stumble: the word has earned its way out of the
       // comeback deck. Getting it on the retry (tries > 0) doesn't count.
       if(tries === 0 && mastered.indexOf(queue[idx]) === -1) mastered.push(queue[idx]);
+      report(queue[idx], tries === 0, tries);
       if(streak > best) best = streak;
       var pts = pointsFor(streak);
       var mult = comboMultiplier(streak);
@@ -1021,6 +1048,7 @@ window.BlendGame = (function(){
       $("uiMic").innerHTML = msg + (heardTxt ? '<br><span class="heard">I heard: ' + heardTxt + "</span>" : '<br><span class="heard">I didn\'t catch that</span>');
       if(tries >= 2){
         if(missed.indexOf(target) === -1) missed.push(target);
+        report(target, false, tries);
         // Never on the first miss — that stays fast so the retry isn't slowed down.
         if(voiceOn){
           if(targetChunks) sayChunked(targetChunks, target);
@@ -1362,13 +1390,20 @@ window.BlendGame = (function(){
       if(busy) return;
       var t = queue[idx];
       if(missed.indexOf(t) === -1) missed.push(t);
+      report(t, false, tries);
       streak = 0; next();
     });
     $("btnQuit").addEventListener("click", function(){
       queue = queue.slice(0, idx);
       finish();
     });
-    $("btnAgain").addEventListener("click", function(){ startGame(WORDS); });
+    // With a scheduler attached, "Play again" asks it for a fresh set —
+    // the words that were missed a moment ago are now the likeliest picks.
+    $("btnAgain").addEventListener("click", function(){
+      var list = null;
+      if(nextRound){ try{ list = nextRound(); }catch(e){ list = null; } }
+      startGame(list && list.length ? list.map(function(e){ return parseWordEntry(e).word; }) : WORDS);
+    });
     $("btnRetryMissed").addEventListener("click", function(){
       var list = missed.slice();
       if(list.length) startGame(list);

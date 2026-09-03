@@ -26,17 +26,22 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div id="app"></div>
 
+<!-- Sign-in first, then the word list, then the engine, then the one
+     line that ties them together. Order matters: auth.js needs the two
+     Firebase SDK files above it, and practice.js needs everything else.
+     The word list itself lives in word-lists.js under the id below — see
+     the header of that file for how to add another game. -->
+<script src="firebase-config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="auth.js"></script>
+<script src="adaptive.js"></script>
+<script src="word-lists.js"></script>
+<script src="store.js"></script>
 <script src="blend-game.js"></script>
+<script src="practice.js"></script>
 <script>
-// Initial consonant blends — from the classroom flashcard set.
-BlendGame.start({
-  title: "Starting Blends 🎤",
-  blend: "start",
-  theme: "maze",
-  words: ["blip","crop","clam","grab","flub","grin","glad","prop","plop","trip",
-          "plum","trot","sled","bled","slug","fled","scam","glen","skip","spin",
-          "snip","spot","stem","drum","bran","drag","crab","frog"]
-});
+EIPractice.play("initial-blends");
 </script>
 </body>
 </html>

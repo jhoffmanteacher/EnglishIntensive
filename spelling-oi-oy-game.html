@@ -26,70 +26,22 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div id="app"></div>
 
+<!-- Sign-in first, then the word list, then the engine, then the one
+     line that ties them together. Order matters: auth.js needs the two
+     Firebase SDK files above it, and practice.js needs everything else.
+     The word list itself lives in word-lists.js under the id below — see
+     the header of that file for how to add another game. -->
+<script src="firebase-config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="auth.js"></script>
+<script src="adaptive.js"></script>
+<script src="word-lists.js"></script>
+<script src="store.js"></script>
 <script src="spell-game.js"></script>
+<script src="practice.js"></script>
 <script>
-// The encoding half of the oi/oy pattern — the same word list as
-// oi-oy-words-game.html, run the other direction: there the student reads
-// the word, here the computer says it and the student spells it. Both
-// spellings say the same sound, so the only thing that decides between them
-// is position — which is exactly what `rule` teaches and what the word list
-// samples on both sides (oy-final: annoy, decoy, soy; oy before a vowel:
-// royal, boyish, cloying; oi before a consonant: coin, moist, avoid).
-SpellGame.start({
-  title: "Spell It: oi / oy ⌨️",
-  intro: "No microphone — headphones only. The computer says a word, you type it.<br>Two tries each. Every 5 right in a row is bonus points!",
-  rule: `
-    <p style="margin:0">Both spellings say <b>/oy/</b>. What decides between them is <b>where the sound sits</b>.</p>
-    <ul>
-      <li><b>oy</b> ends the word — enj<b>oy</b>, dec<b>oy</b>, s<b>oy</b> — or comes right before a vowel: r<b>oy</b>al, b<b>oy</b>ish.</li>
-      <li><b>oi</b> sits inside the word, before a consonant — c<b>oi</b>n, m<b>oi</b>st, av<b>oi</b>d.</li>
-    </ul>
-    <p class="tip">Stuck? Ask what comes after the sound. Nothing or a vowel → <b>oy</b>. A consonant → <b>oi</b>.</p>`,
-  highlight: /oi|oy/i,
-  words: ["annoy","appoint","avoid","boyish","broil","choice","cloying","coil","coin",
-          "convoy","coy","decoy","deploy","destroy","devoid","droid","employ","enjoy",
-          "foil","hoist","join","joint","loyal","moist","noise","poison","ploy","royal",
-          "soil","soy","spoil","toil","void"],
-  // Spoken between the two reads of the word, spelling-bee style. A lone
-  // synthesised word is easy to mishear; the sentence is what makes it
-  // unmistakable. Each sentence uses the word exactly once and never
-  // contains another word from the list.
-  sentences: {
-    annoy:   "Loud chewing can really annoy people.",
-    appoint: "The coach will appoint a new team captain.",
-    avoid:   "She left early to avoid the traffic.",
-    boyish:  "He flashed a boyish grin.",
-    broil:   "You can broil the fish for five minutes.",
-    choice:  "Pizza or tacos — it's your choice.",
-    cloying: "The candy was so sweet it was cloying.",
-    coil:    "The snake wound itself into a tight coil.",
-    coin:    "He flipped a coin to decide.",
-    convoy:  "A convoy of trucks rolled down the highway.",
-    coy:     "She gave a coy smile and said nothing.",
-    decoy:   "The hunters set out a wooden duck decoy.",
-    deploy:  "The army will deploy more troops overseas.",
-    destroy: "One bad storm can destroy the whole crop.",
-    devoid:  "The desert was devoid of water.",
-    droid:   "The droid beeped and rolled across the floor.",
-    employ:  "The new factory will employ two hundred workers.",
-    enjoy:   "I hope you enjoy the show.",
-    foil:    "Wrap the sandwich in foil.",
-    hoist:   "They worked together to hoist the flag.",
-    join:    "Come join us at our table.",
-    joint:   "Your elbow is a joint.",
-    loyal:   "A dog is a loyal friend.",
-    moist:   "The cake was rich and moist.",
-    noise:   "What was that noise upstairs?",
-    poison:  "The bottle was marked with a poison warning.",
-    ploy:    "The fake fight was just a ploy to distract the guard.",
-    royal:   "The royal family lives in a palace.",
-    soil:    "Plant the seeds in fresh soil.",
-    soy:     "This milk is made from soy.",
-    spoil:   "Milk will spoil if you leave it out.",
-    toil:    "The workers toil in the sun all day.",
-    void:    "The rocket drifted into the void of space."
-  }
-});
+EIPractice.play("oi-oy-spell");
 </script>
 </body>
 </html>

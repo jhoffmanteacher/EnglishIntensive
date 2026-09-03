@@ -26,23 +26,22 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div id="app"></div>
 
+<!-- Sign-in first, then the word list, then the engine, then the one
+     line that ties them together. Order matters: auth.js needs the two
+     Firebase SDK files above it, and practice.js needs everything else.
+     The word list itself lives in word-lists.js under the id below — see
+     the header of that file for how to add another game. -->
+<script src="firebase-config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="auth.js"></script>
+<script src="adaptive.js"></script>
+<script src="word-lists.js"></script>
+<script src="store.js"></script>
 <script src="blend-game.js"></script>
+<script src="practice.js"></script>
 <script>
-// Made-up CVC words, from the classroom nonsense-word flashcard set — pure
-// decoding practice, no meaning to lean on. No blend to highlight, so this
-// uses blendLength:0 (an always-empty blend) for plain whole-word matching.
-BlendGame.start({
-  title: "Nonsense Words 🤖",
-  intro: "These aren't real words — sound out the letters and say it out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!",
-  blend: "start",
-  blendLength: 0,
-  theme: "race",
-  words: ["jag","baz","wat","gan","vab","sab","raz","taf",
-          "sem","ted","ret","heg","peb","yed","leb","ren",
-          "lif","vip","pid","tix","rit","sig","lim","din",
-          "bop","pon","com","fod","hom","rof","jom","loz",
-          "fug","tup","sug","lun","sud","hux","gud","muv"]
-});
+EIPractice.play("nonsense");
 </script>
 </body>
 </html>

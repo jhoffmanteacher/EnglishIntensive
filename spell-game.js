@@ -256,6 +256,17 @@ window.SpellGame = (function(){
     // Words without an entry just get the plain word — no error, less help.
     var SENTENCES = cfg.sentences || {};
 
+    /* Outcome reporting — identical contract to blend-game.js, so one
+       scheduler can drive both engines. Reported once per word, at the
+       point it's finished with: right, missed twice, or skipped. */
+    var onResult  = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onFinish  = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
+    var nextRound = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
+    function report(word, correct, tryCount){
+      if(!onResult) return;
+      try{ onResult(word, !!correct, tryCount|0); }catch(e){}
+    }
+
     injectStyle();
     var mount = document.getElementById(cfg.mount || "app");
     mount.className = "wrap";
@@ -554,6 +565,7 @@ window.SpellGame = (function(){
       }
       if(pct >= 70) confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
       sndWin();
+      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
       // Enter should keep working without touching the mouse — the round is
       // over, so the obvious next action takes the focus.
       $("btnAgain").focus();
@@ -578,6 +590,7 @@ window.SpellGame = (function(){
       busy = true;
       right++;
       streak++;
+      report(queue[idx], tries === 0, tries);
       if(streak > best) best = streak;
       var pts = pointsFor(streak);
       var mult = comboMultiplier(streak);
@@ -639,6 +652,7 @@ window.SpellGame = (function(){
       busy = true;
       $("uiInput").disabled = true;
       if(missed.indexOf(target) === -1) missed.push(target);
+      report(target, false, tries);
       var diff = diffLetters(typedRaw, target), gilded = false;
       var parts = diff.map(function(p){
         if(p.ok) return escapeHtml(p.ch);
@@ -735,6 +749,7 @@ window.SpellGame = (function(){
       if(busy) return;
       var t = queue[idx];
       if(missed.indexOf(t) === -1) missed.push(t);
+      report(t, false, tries);
       streak = 0;
       next();
     });
@@ -742,7 +757,12 @@ window.SpellGame = (function(){
       queue = queue.slice(0, idx);
       finish();
     });
-    $("btnAgain").addEventListener("click", function(){ startGame(WORDS); });
+    // With a scheduler attached, "Play again" asks it for a fresh set.
+    $("btnAgain").addEventListener("click", function(){
+      var list = null;
+      if(nextRound){ try{ list = nextRound(); }catch(e){ list = null; } }
+      startGame(list && list.length ? list : WORDS);
+    });
     $("btnRetryMissed").addEventListener("click", function(){
       var list = missed.slice();
       if(list.length) startGame(list);
