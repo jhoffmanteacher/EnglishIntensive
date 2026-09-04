@@ -906,7 +906,7 @@
        T.effectiveLists("u4").ids.join(","), "nonsense");
 
     // ---- what the board draws before anything is touched ----
-    eq("the class default row is always its own", T.scopeIsOwn("default"), true);
+    eq("a class default that has been set reads as its own", T.scopeIsOwn("default"), true);
     eq("a period with a list of its own says so", T.scopeIsOwn("p:3"), true);
     eq("a period without one is inheriting", T.scopeIsOwn("p:5"), false);
     eq("a student with their own set says so", T.scopeIsOwn("s:u2"), true);
@@ -1022,6 +1022,41 @@
     T.releaseScope("s:u2");
     eq("own ↺ writes null, which is what 'inherit' means on the wire",
        T.saveBody(T.dirtyScopes(), 1).students.u2.lists, null);
+
+    /* ---- the class default has two states, and "nothing" is not empty ----
+       On a fresh install nothing is set and every student gets every
+       list. That is the bottom of the precedence chain, and the row has
+       to say which of the two it is: a board that drew an unset default
+       as though it had been configured would be lying about the one
+       setting everything else falls back to. */
+    var fresh = aClass();
+    fresh.classCfg.defaultLists = null;
+    T.feed(fresh);
+    eq("an unset class default is not 'its own'", T.scopeIsOwn("default"), false);
+    eq("…and says so under its name", T.fromLabel("default"), "nothing set — everyone gets every list");
+    eq("…while still handing every list down", T.liveDefault().length, WordLists.ids.length);
+    eq("…so a student under it gets everything too", T.liveStudent("u3").length, WordLists.ids.length);
+
+    // Editing an unset default pins what it was handing down. That is the
+    // right answer — an edit has to stick — but it IS a state change, and
+    // the row flips to gold to show it happened.
+    T.setScope("default", T.liveDefault().slice(0, 3));
+    eq("editing an unset default makes it a real set", T.scopeIsOwn("default"), true);
+    eq("…and counts as a change", T.dirtyScopes().join(","), "default");
+
+    // Releasing it reopens the site. The bug this pins: a null draft read
+    // as an empty array would have parked every student in the school.
+    T.feed(aClass());
+    T.releaseScope("default");
+    eq("clearing the class default reopens every list", T.liveDefault().length, WordLists.ids.length);
+    eq("…and does not park the class", T.liveDefault().length > 0, true);
+    eq("…and writes null, not []", T.saveBody(T.dirtyScopes(), 1).config.defaultLists, null);
+    // Which is a different thing from deliberately parking everyone.
+    T.feed(aClass());
+    T.setScope("default", []);
+    eq("an empty default is still a real answer, and stays empty", T.liveDefault().length, 0);
+    eq("…and is stored as an empty list, not null",
+       T.saveBody(T.dirtyScopes(), 1).config.defaultLists.length, 0);
 
     /* ---- the board actually draws ----
        Everything above tests the rules with no DOM in sight. This is the

@@ -667,10 +667,11 @@ name and a list stay on screen however far you scroll.
 Three things make it work rather than just look busy:
 
 - **Inheritance is visible.** A dashed grey cell is inherited — the
-  student is following their period, or the period is following the class
-  default. A gold cell is a set of that scope's own. Who has been pulled
-  out of their group is the question a differentiated roster actually
-  raises, and it is now answerable at a glance.
+  student is following their period, the period is following the class
+  default, or the class default itself has never been set and everyone is
+  getting every list. A gold cell is a set of that scope's own. Who has
+  been pulled out of their group is the question a differentiated roster
+  actually raises, and it is now answerable at a glance.
 - **Editing is copy-on-write, and says so.** Change any cell on someone
   who is inheriting and they get their own copy of what they already
   had — exactly what saving the picker on their page has always done —
@@ -721,6 +722,13 @@ default → everything**. A student with nothing set anywhere sees the whole
 site, so day one isn't an empty page. Setting an explicit empty list at
 any level is a real answer and stops the walk — that's how you park a
 student.
+
+Every level therefore has two distinct "off" states, and the board draws
+the difference: **nothing set** (dashed, falls through to the level below)
+and **set to nothing** (gold, empty, stops the walk). The class default is
+included in that — an unset default reads *"nothing set — everyone gets
+every list"* rather than pretending to be a configured one, and its
+**own ↺** clears it back to that rather than parking the school.
 
 The teacher has **read** on `students/{uid}` and no write. Everything the
 teacher sets lives in `assignments/{uid}` instead, so a compromised

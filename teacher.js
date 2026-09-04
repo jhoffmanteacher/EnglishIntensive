@@ -722,9 +722,21 @@
      redraw immediately, or the board would be lying about what Save is
      going to do. "own" is the distinction the colours draw — an array
      of its own, versus null and inheriting. */
+  /* The class default has the same two states every other scope has: a
+     set of its own, or nothing — and "nothing" is not an empty list, it
+     is the open site. Keeping those apart matters twice over. On a fresh
+     install nothing is set, and a row drawn as though it had been
+     configured would be a lie about the one setting the whole precedence
+     chain rests on. And releasing it has to mean "open the site again",
+     not "park everybody": an empty array is a real answer here, and a
+     very different one. */
+  function liveOwnDefault(){
+    if(hasDraft("default")) return board.draft["default"];
+    return Array.isArray(classCfg.defaultLists) ? classCfg.defaultLists : null;
+  }
   function liveDefault(){
-    if(hasDraft("default")) return board.draft["default"] || [];
-    return Array.isArray(classCfg.defaultLists) ? classCfg.defaultLists : WordLists.ids;
+    var own = liveOwnDefault();
+    return own === null ? WordLists.ids : own;
   }
   function liveOwnPeriod(p){
     var k = "p:" + p;
@@ -753,10 +765,8 @@
     if(scope.slice(0,2) === "p:") return livePeriod(scope.slice(2));
     return liveStudent(scope.slice(2));
   }
-  // The class default is the bottom of the chain: it has nothing to
-  // inherit from, so it always counts as its own.
   function scopeIsOwn(scope){
-    if(scope === "default") return true;
+    if(scope === "default") return liveOwnDefault() !== null;
     if(scope.slice(0,2) === "p:") return liveOwnPeriod(scope.slice(2)) !== null;
     return liveOwnStudent(scope.slice(2)) !== null;
   }
@@ -861,14 +871,31 @@
       el.hidden = !scopeIsOwn(el.dataset.ownpill);
     });
     Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-from]"), function(el){
-      el.textContent = scopeIsOwn(el.dataset.from) ? "own set" : "follows " + inheritLabel(el.dataset.from);
+      el.textContent = fromLabel(el.dataset.from);
     });
     paintSaveBar();
   }
+  // Where a scope's lists come from when it has none of its own.
   function inheritLabel(scope){
-    if(scope.slice(0,2) === "p:") return "class default";
+    if(scope === "default") return "every list, open to everyone";
+    if(scope.slice(0,2) === "p:") return "the class default";
     var p = studentPeriod(scope.slice(2));
-    return p ? "period " + p : "class default";
+    return p ? "period " + p : "the class default";
+  }
+  function releaseTitle(scope){
+    return scope === "default"
+      ? "Clear the class default — back to every list, open to everyone"
+      : "Hand this back to " + inheritLabel(scope);
+  }
+  // The line under a row's name, which has to say something different for
+  // the one scope that has nothing above it to fall back to.
+  function fromLabel(scope){
+    if(scope === "default"){
+      return scopeIsOwn(scope)
+        ? "what everyone gets unless something below overrides it"
+        : "nothing set — everyone gets every list";
+    }
+    return scopeIsOwn(scope) ? "own set" : "follows " + inheritLabel(scope);
   }
   function paintSaveBar(){
     var n = dirtyScopes().length;
@@ -1055,7 +1082,7 @@
           (meta ? '<div class="abMeta">' + meta + "</div>" : "") +
           (canRelease
             ? '<button type="button" class="abPill" data-release="' + esc(scope) + '" data-ownpill="' + esc(scope) +
-              '" title="Hand this back to ' + esc(inheritLabel(scope)) + '" hidden>own ↺</button>'
+              '" title="' + esc(releaseTitle(scope)) + '" hidden>own ↺</button>'
             : "") +
         "</div></th>" + cellsFor(scope) + "</tr>";
     }
@@ -1068,7 +1095,7 @@
     }
 
     var rows = scopeRow("default", "abDefault", "Class default",
-      '<span class="abFrom">what everyone gets unless something below overrides it</span>', false);
+      '<span class="abFrom" data-from="default"></span>', true);
 
     periods.filter(function(p){
       return boardPeriod() === "" || boardPeriod() === p;
@@ -1200,6 +1227,10 @@
       visibleStudents().forEach(function(s){ board.sel[s.uid] = on; });
       renderAssign();
     });
+    // The popover is position:fixed against the cell it was opened on, so
+    // scrolling the grid out from under it would leave it floating over
+    // somebody else's row.
+    document.querySelector(".abScroll").addEventListener("scroll", closePop, { passive:true });
     $("abBulk").addEventListener("click", openBulk);
     $("abDiscard").addEventListener("click", function(){
       board.draft = {};
@@ -1454,6 +1485,8 @@
       board: board,
       effectiveLists: effectiveLists,
       liveDefault: liveDefault,
+      liveOwnDefault: liveOwnDefault,
+      fromLabel: fromLabel,
       livePeriod: livePeriod,
       liveStudent: liveStudent,
       scopeView: scopeView,
