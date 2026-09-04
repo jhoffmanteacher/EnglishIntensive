@@ -64,6 +64,7 @@
   var rosterReadable = false; // false until the roster rules are published
   var classCfg = { periodLists:{}, defaultLists:null, periods:[], sequences:{}, sequenceOn:{} };
   var view = "roster";
+  var stepsPeriod = "";       // the Students tab's own period filter
   var detailUid = null;
 
   var $ = function(id){ return document.getElementById(id); };
@@ -879,7 +880,29 @@
         "</tr>";
     }).join("");
 
+    var steps = nextStepRows();
+    var stepOpts = ['<option value="">All periods</option>'].concat(allPeriods().map(function(p){
+      return '<option value="' + esc(p) + '"' + (stepsPeriod === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
+    })).join("");
+    var stepsHtml = steps.map(function(r){
+      return '<li class="nsRow"><span class="nsWho">' + esc(r.name) +
+        (r.period ? ' <span class="muted tiny">P' + esc(r.period) + "</span>" : "") + "</span>" +
+        '<span class="nsText">' + esc(r.step.text) + "</span>" +
+        (r.step.addId ? '<button class="pkMini" data-nsadd="' + esc(r.uid) + '|' + esc(r.step.addId) +
+          '">Add ' + esc((WordLists.modeOf((WordLists.byId(r.step.addId) || {}).mode) || {}).title || "it") + "</button>" : "") +
+        "</li>";
+    }).join("");
+
     $("tBody").innerHTML =
+      '<div class="panel"><h2>What should change</h2>' +
+        '<p class="note">One line per student, at most — the first thing worth doing about them, and nothing ' +
+        "if there isn't one. Everything here is worked out from practice this dashboard has already loaded; " +
+        "no student is listed twice and most days most of the class isn't listed at all.</p>" +
+        '<div class="rowActions" style="margin-bottom:14px"><select class="sel" id="tStepsPeriod">' + stepOpts + "</select></div>" +
+        (stepsHtml ? '<ul class="nsList">' + stepsHtml + "</ul>"
+                   : '<div class="empty">Nothing to change right now.</div>') +
+      "</div>" +
+
       '<div class="panel"><h2>Students</h2>' +
       (waiting ? '<p class="note"><b>' + waiting + (waiting === 1 ? " student on the roster hasn\u2019t" : " students on the roster haven\u2019t") +
         ' signed in yet</b> — greyed out below. They already have their period and their lists; ' +
@@ -901,8 +924,82 @@
     Array.prototype.forEach.call(document.querySelectorAll("#tBody tr.clickable"), function(tr){
       tr.addEventListener("click", function(){ detailUid = tr.dataset.uid; render(); });
     });
+    $("tStepsPeriod").addEventListener("change", function(){ stepsPeriod = this.value; render(); });
+    /* The same one-click apply the Ready to move up strip uses: it feeds
+       the board's draft rather than writing, so a teacher can look at
+       what it did before committing to it. */
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-nsadd]"), function(b){
+      b.addEventListener("click", function(){
+        var parts = b.getAttribute("data-nsadd").split("|");
+        var set = liveStudent(parts[0]).slice();
+        if(set.indexOf(parts[1]) === -1) set.push(parts[1]);
+        setScope("s:" + parts[0], set);
+        view = "assign";
+        Array.prototype.forEach.call(document.querySelectorAll("#tTabs .tab"), function(x){
+          x.classList.toggle("on", x.dataset.view === "assign");
+        });
+        render();
+      });
+    });
     $("tExportRoster").addEventListener("click", function(){ download(exportName("roster"), rosterCsv()); });
     $("tExportWords").addEventListener("click", function(){ download(exportName("words"), wordsCsv()); });
+  }
+
+  /* ---------------- what should change ----------------
+     The panel at the top of the Students tab. Adaptive.nextSteps decides
+     WHAT to say for one student; everything here is about assembling the
+     summary it reads and keeping the panel short enough to be read.
+
+     One line per student and never two, and only for students who have
+     one — a panel that lists the whole class is the roster table again
+     with worse formatting. */
+  function nextStepInfo(s){
+    var eff = effectiveLists(s.uid);
+    var seq = sequenceStateFor(s);
+    var lists = eff.ids.map(function(id){
+      var l = WordLists.byId(id);
+      if(!l) return null;
+      var st = Adaptive.statsForList(s.stats, id);
+      var sum = Adaptive.summarize(st);
+      var cardsId = WordLists.idFor(l.family, l.listNum, "cards");
+      return {
+        id: id,
+        title: l.listTitle,
+        mode: l.mode,
+        family: l.family,
+        attempts: sum.attempts,
+        share: listProgress(s.stats, id).share,
+        accuracy: sum.accuracy,
+        hasSay: !!WordLists.idFor(l.family, l.listNum, "say"),
+        hasMatch: !!WordLists.idFor(l.family, l.listNum, "match"),
+        sayId: WordLists.idFor(l.family, l.listNum, "say"),
+        matchId: WordLists.idFor(l.family, l.listNum, "match"),
+        cardsId: cardsId,
+        cardsShare: cardsId ? listProgress(s.stats, cardsId).share : null
+      };
+    }).filter(Boolean);
+    return {
+      lists: lists,
+      lastRound: Adaptive.summarize(s.stats).lastSeen || s.lastSeen || 0,
+      sequenceOn: !!seq,
+      now: Date.now()
+    };
+  }
+
+  function nextStepRows(){
+    var out = [];
+    students.forEach(function(s){
+      // A student who hasn't signed in has no practice to reason about,
+      // and "hasn't practised" about somebody who has never been here is
+      // not a next step, it is the roster table saying the same thing.
+      if(s.pending) return;
+      var r = rosterFor(s);
+      var period = (assignments[s.uid] || {}).period || (r && r.period) || "";
+      if(stepsPeriod && period !== stepsPeriod) return;
+      var step = Adaptive.nextSteps(nextStepInfo(s));
+      if(step) out.push({ uid: s.uid, name: s.name || s.email || s.uid, period: period, step: step });
+    });
+    return out;
   }
 
   /* ---------------- fluency sparkline ----------------
@@ -2810,6 +2907,8 @@
     _internals: {
       modeHeard: modeHeard,
       importBody: importBody,
+      nextStepInfo: nextStepInfo,
+      nextStepRows: nextStepRows,
       sequenceOf: sequenceOf,
       sequenceIsOn: sequenceIsOn,
       sequenceStateFor: sequenceStateFor,

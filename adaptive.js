@@ -530,6 +530,116 @@ window.Adaptive = (function(){
     return { ids: ids, stepIndex: index, stepIds: (steps[index] || []).slice(), done: steps.length > 0 };
   }
 
+  /* ── what should change ────────────────────────────────────────────
+     One line per student, or none. A dashboard that shows everything
+     shows nothing: a teacher with thirty students and four numbers each
+     has a hundred and twenty numbers and no next action, which is the
+     state this site was in. So: at most one sentence per student, the
+     first rule that fires wins, and the rules are ordered by how much
+     the answer costs to get wrong.
+
+     Pure, and takes a summary rather than reaching for anything —
+     teacher.js assembles it out of what it has already loaded.
+
+       nextSteps({
+         lists: [{ id, title, mode, family, attempts, share, accuracy,
+                   hasSay, hasMatch, sayId, cardsId, cardsShare }],
+         lastRound,        // epoch ms of their last finished round
+         sequenceOn,       // is their period running a course
+         now
+       })
+       -> { rule, text, listId, addId } | null
+
+     `addId` is the list the one-click apply would add, where there is
+     one; a line about turning a sequence on or about a student who has
+     stopped practising has nothing to add and says so by leaving it out. */
+  var STUCK_ATTEMPTS = 30;
+  var STUCK_SHARE    = 0.4;
+  var MATCH_ACC      = 0.5;
+  var CARDS_READY    = 0.6;
+  var COASTING       = 0.9;
+  var QUIET_DAYS     = 7;      // school days, not calendar days
+
+  // Monday to Friday between two moments. A student who last practised
+  // on a Friday has not "gone quiet" by Monday, and a rule that counted
+  // calendar days would say they had every single weekend.
+  function schoolDaysBetween(from, to){
+    var a = Math.floor(num(from, 0)), b = Math.floor(num(to, 0));
+    if(!a || b <= a) return 0;
+    var days = Math.floor((b - a) / DAY);
+    if(days <= 0) return 0;
+    var count = 0, d = new Date(a), i;
+    for(i=0;i<days && i<400;i++){
+      d = new Date(d.getTime() + DAY);
+      var wd = d.getDay();
+      if(wd !== 0 && wd !== 6) count++;
+    }
+    return count;
+  }
+
+  function nextSteps(info){
+    info = info || {};
+    var lists = info.lists || [];
+    var now = num(info.now, 0);
+
+    /* 1. Stuck on cards. Thirty attempts and under 40 % solid is a
+          student who is being shown a word, saying "not yet", and being
+          shown it again — for as long as anyone leaves them there. The
+          answer is almost never more cards. */
+    for(var i=0;i<lists.length;i++){
+      var l = lists[i];
+      if(l.mode !== "cards") continue;
+      if(l.attempts < STUCK_ATTEMPTS || l.share >= STUCK_SHARE) continue;
+      if(l.hasSay && l.sayId){
+        return { rule: "stuck", listId: l.id, addId: l.sayId,
+          text: "Stuck on " + l.title + " — " + Math.round(l.share * 100) +
+                "% solid after " + l.attempts + " answers. Try Say It on the same words." };
+      }
+      if(l.hasMatch && l.matchId){
+        return { rule: "stuck", listId: l.id, addId: l.matchId,
+          text: "Stuck on " + l.title + " — " + Math.round(l.share * 100) +
+                "% solid after " + l.attempts + " answers. Match It first might be kinder." };
+      }
+      return { rule: "stuck", listId: l.id,
+        text: "Stuck on " + l.title + " — " + Math.round(l.share * 100) +
+              "% solid after " + l.attempts + " answers." };
+    }
+
+    /* 2. Match It before the cards are solid. Picking a word out of six
+          look-alikes is harder than reading it, not easier, so a student
+          failing at it on words they can't yet read has been given the
+          two in the wrong order. */
+    for(i=0;i<lists.length;i++){
+      var m = lists[i];
+      if(m.mode !== "match" || m.accuracy == null) continue;
+      if(m.accuracy >= MATCH_ACC) continue;
+      if(m.cardsShare == null || m.cardsShare >= CARDS_READY) continue;
+      return { rule: "order", listId: m.id, addId: m.cardsId || null,
+        text: m.title + ": " + Math.round(m.accuracy * 100) + "% on Match It, but the cards are only " +
+              Math.round(m.cardsShare * 100) + "% solid. Cards first." };
+    }
+
+    /* 3. Coasting. Everything they have is finished, and nothing is
+          arriving, because nobody has turned the course on. */
+    if(lists.length && !info.sequenceOn){
+      var allSolid = lists.every(function(x){ return x.share >= COASTING; });
+      if(allSolid){
+        return { rule: "coasting",
+          text: "Everything on their list is " + Math.round(COASTING * 100) +
+                "%+ solid. Turn their period's sequence on, or add the next list." };
+      }
+    }
+
+    /* 4. Quiet. Last, because it is the one a teacher can already see —
+          but it outranks nothing and gets said when there is nothing
+          better to say. */
+    if(info.lastRound && schoolDaysBetween(info.lastRound, now) > QUIET_DAYS){
+      return { rule: "quiet",
+        text: "Hasn't practised in " + schoolDaysBetween(info.lastRound, now) + " school days." };
+    }
+    return null;
+  }
+
   /* The commonest kind of error in a tally, or null. Ties break by the
      order in ERROR_KINDS — which is diagnose()'s own order of
      specificity, so a tie goes to the more specific diagnosis. */
@@ -576,6 +686,8 @@ window.Adaptive = (function(){
     solidEnough: SOLID_ENOUGH,
     listShare: listShare,
     unlocked: unlocked,
+    nextSteps: nextSteps,
+    schoolDaysBetween: schoolDaysBetween,
     errorKinds: ERROR_KINDS.slice(),
     sanitizeKinds: sanitizeKinds,
     topKind: topKind,
@@ -589,7 +701,10 @@ window.Adaptive = (function(){
       REST_FLOOR: REST_FLOOR, MASTERED_DAMP: MASTERED_DAMP,
       MASTERED_ACC: MASTERED_ACC, DAY: DAY,
       SLOW_MS: SLOW_MS, SLOW_BOOST: SLOW_BOOST, LAT_ALPHA: LAT_ALPHA, MAX_LAT_MS: MAX_LAT_MS,
-      SOLID_ENOUGH: SOLID_ENOUGH
+      SOLID_ENOUGH: SOLID_ENOUGH,
+      STUCK_ATTEMPTS: STUCK_ATTEMPTS, STUCK_SHARE: STUCK_SHARE,
+      MATCH_ACC: MATCH_ACC, CARDS_READY: CARDS_READY,
+      COASTING: COASTING, QUIET_DAYS: QUIET_DAYS
     }
   };
 })();

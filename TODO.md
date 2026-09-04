@@ -60,6 +60,26 @@ Two things worth watching once it has had one:
   `GameCore.normalize` folds a contraction and its expansion to the same
   string. Ten new ids (`red-N-say`) on the generic `say-game.html`.
 
+## Decided during the roster build
+
+Choices the roster plan left open, recorded so the reasoning survives.
+
+- **"Stuck on cards for two weeks" is measured in attempts, not days.**
+  A stat carries the time a word was LAST practised and nothing about
+  when it was first seen, so "for two weeks" has nothing to compute
+  against. Thirty answers on one list at under 40 % solid is the same
+  student by any other route — at eighteen words a round that is a
+  fortnight of it — and it is a number the data actually has.
+- **A period with no stored sequence has no sequence.** The plan says a
+  default one is "generated on first use"; generating it silently for
+  every period would switch auto-advance on across a school without
+  anybody asking for it. **Reset to default** in the sequence editor is
+  the first use, and it is a button somebody presses.
+- **"Red 3" in a roster's start column resolves to the family's FIRST
+  mode**, which for the red words is now Say It. Whatever a teacher
+  meant, the first mode is where a student starts, and every later mode
+  of that list unlocks a step or two behind it.
+
 ## Decided during the reading-feedback build
 
 Choices the plan left to whoever built it, recorded here so the reasoning

@@ -2072,6 +2072,113 @@
     })();
   })();
 
+  /* ══════════════════════════════════════════════════════════════════
+     Adaptive.nextSteps — one line per student, or none
+
+     The rule that matters most is the LAST one: no student gets two
+     lines, and most students get none. A panel that lists the whole
+     class is the roster table again with worse formatting.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A2 = window.Adaptive;
+    var NOW = 1750000000000;   // a fixed "now"; T0 above is the same idea
+    function info(lists, extra){
+      var o = { lists: lists || [], now: NOW, lastRound: NOW, sequenceOn: false };
+      for(var k in (extra || {})) o[k] = extra[k];
+      return o;
+    }
+    function card(over){
+      var l = { id:"red-1-cards", title:"Red Words · List 1", mode:"cards", family:"red",
+                attempts:40, share:0.2, accuracy:0.4,
+                hasSay:true, hasMatch:true, sayId:"red-1-say", matchId:"red-1-match",
+                cardsId:"red-1-cards", cardsShare:0.2 };
+      for(var k in (over || {})) l[k] = over[k];
+      return l;
+    }
+    function match(over){
+      var l = { id:"red-1-match", title:"Red Words · List 1", mode:"match", family:"red",
+                attempts:20, share:0.2, accuracy:0.3,
+                hasSay:true, hasMatch:true, sayId:"red-1-say", matchId:"red-1-match",
+                cardsId:"red-1-cards", cardsShare:0.2 };
+      for(var k in (over || {})) l[k] = over[k];
+      return l;
+    }
+
+    eq("nothing to say about nobody", A2.nextSteps(info([])), null);
+    eq("nothing to say about a healthy student",
+       A2.nextSteps(info([card({ attempts:20, share:0.7 })])), null);
+
+    // 1. stuck
+    (function(){
+      var r = A2.nextSteps(info([card()]));
+      eq("thirty answers at 20% solid is stuck", r.rule, "stuck");
+      eq("…and the answer is not more cards", r.addId, "red-1-say");
+      eq("…named in the line", r.text.indexOf("Say It") !== -1, true);
+      eq("under the attempt bar it isn't stuck yet",
+         A2.nextSteps(info([card({ attempts:12 })])), null);
+      eq("over the solid bar it isn't stuck either",
+         A2.nextSteps(info([card({ share:0.8 })])), null);
+      eq("a family with no Say It gets Match It instead",
+         A2.nextSteps(info([card({ hasSay:false, sayId:null })])).addId, "red-1-match");
+      eq("a family with neither still says something",
+         A2.nextSteps(info([card({ hasSay:false, sayId:null, hasMatch:false, matchId:null })])).rule, "stuck");
+    })();
+
+    // 2. the two in the wrong order
+    (function(){
+      var r = A2.nextSteps(info([match()]));
+      eq("failing Match It on words they can't read is an ordering problem", r.rule, "order");
+      eq("…and the fix is the cards", r.addId, "red-1-cards");
+      eq("solid cards make it a different problem, not this one",
+         A2.nextSteps(info([match({ cardsShare:0.9 })])), null);
+      eq("passing Match It is not a problem at all",
+         A2.nextSteps(info([match({ accuracy:0.8 })])), null);
+      eq("a list with no accuracy yet says nothing",
+         A2.nextSteps(info([match({ accuracy:null })])), null);
+    })();
+
+    // 3. coasting
+    (function(){
+      var done = card({ attempts:60, share:0.95, accuracy:0.95 });
+      eq("everything solid with no course is coasting", A2.nextSteps(info([done])).rule, "coasting");
+      eq("…and there is nothing to one-click",
+         A2.nextSteps(info([done])).addId, undefined);
+      eq("a course already running is not coasting",
+         A2.nextSteps(info([done], { sequenceOn:true })), null);
+      eq("one unfinished list is not coasting",
+         A2.nextSteps(info([done, card({ id:"x", share:0.3, attempts:5 })])), null);
+    })();
+
+    // 4. quiet
+    (function(){
+      var quiet = info([card({ attempts:20, share:0.7 })], { lastRound: NOW - 20 * 86400000 });
+      eq("three weeks away is quiet", A2.nextSteps(quiet).rule, "quiet");
+      eq("…counted in school days", A2.nextSteps(quiet).text.indexOf("school days") !== -1, true);
+      eq("a long weekend is not quiet",
+         A2.nextSteps(info([card({ attempts:20, share:0.7 })], { lastRound: NOW - 3 * 86400000 })), null);
+      eq("a student who has never practised isn't 'quiet'",
+         A2.nextSteps(info([card({ attempts:20, share:0.7 })], { lastRound: 0 })), null);
+    })();
+
+    // precedence — the point of "first rule wins"
+    (function(){
+      var both = info([card(), match()], { lastRound: NOW - 30 * 86400000 });
+      eq("stuck outranks everything", A2.nextSteps(both).rule, "stuck");
+      var later = info([match()], { lastRound: NOW - 30 * 86400000 });
+      eq("ordering outranks quiet", A2.nextSteps(later).rule, "order");
+      eq("one line, never two", typeof A2.nextSteps(both).text, "string");
+    })();
+
+    // school days
+    eq("a weekend is no school days", A2.schoolDaysBetween(NOW, NOW), 0);
+    eq("time going backwards is no school days", A2.schoolDaysBetween(NOW, NOW - 86400000), 0);
+    (function(){
+      var week = A2.schoolDaysBetween(NOW, NOW + 7 * 86400000);
+      eq("seven calendar days are five school days", week, 5);
+      eq("fourteen calendar days are ten", A2.schoolDaysBetween(NOW, NOW + 14 * 86400000), 10);
+    })();
+  })();
+
   /* ---- the dashboard's mode across students ---- */
   (function(){
     var M = window.EITeacher._internals.modeHeard;
