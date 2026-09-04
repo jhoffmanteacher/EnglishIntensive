@@ -182,11 +182,13 @@ window.EIStore = (function(){
   /* ── the two things a game calls ──────────────────────────────────── */
 
   /* One answer. `correct` means right on the FIRST try — the engines pass
-     tries===0, and adaptive.js explains why nothing else counts. */
-  function record(listId, word, correct){
+     tries===0, and adaptive.js explains why nothing else counts. `ms` is
+     how long it took, where the mode can tell (the flash cards time the
+     flip); everything else omits it and the timing stays 0. */
+  function record(listId, word, correct, ms){
     if(!uid) return;
     var key = Adaptive.keyFor(listId, WordLists.plain(word));
-    stats[key] = Adaptive.updateStat(stats[key], !!correct, Date.now());
+    stats[key] = Adaptive.updateStat(stats[key], !!correct, Date.now(), ms);
     totals.n += 1; if(correct) totals.r += 1;
     dirty[key] = true;
     writeLocal();

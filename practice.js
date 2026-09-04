@@ -45,6 +45,17 @@ window.EIPractice = (function(){
     return picked.map(function(w){ return entries[w] || w; });
   }
 
+  /* Every word on the list the scheduler counts as solid. The flash cards
+     use it for the speed round — a deck of words the student already owns,
+     which is useless as practice and exactly right as a fluency drill. An
+     engine that doesn't care simply ignores it. */
+  function masteredOf(list){
+    var stats = EIStore.statsFor(list.id);
+    return WordLists.wordsOf(list.id).filter(function(w){
+      return Adaptive.isMastered(stats[w]);
+    });
+  }
+
   /* A one-line note under the game title when a student opens a list that
      isn't currently assigned to them. Deliberately not a lock: a student
      who found their way to extra practice should not be stopped, and a
@@ -110,11 +121,14 @@ window.EIPractice = (function(){
       var cfg = {};
       for(var k in list.config){ if(Object.prototype.hasOwnProperty.call(list.config, k)) cfg[k] = list.config[k]; }
       cfg.words = drawRound(list);
+      cfg.mastered = masteredOf(list);
       var note = assignmentNote(list);
       if(note) cfg.intro = (cfg.intro || engineIntro(list)) + "<br>" + note;
 
-      cfg.onResult = function(word, firstTryCorrect){
-        EIStore.record(list.id, word, firstTryCorrect);
+      // The 4th argument is an options bag only the flash cards pass —
+      // the other engines call onResult with three and never know.
+      cfg.onResult = function(word, firstTryCorrect, tries, opts){
+        EIStore.record(list.id, word, firstTryCorrect, opts && opts.ms);
       };
       cfg.onHeard = function(word, text){
         EIStore.recordHeard(list.id, word, text);

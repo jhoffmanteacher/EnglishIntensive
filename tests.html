@@ -700,6 +700,58 @@
   eq("top box with poor accuracy is not mastered", A.isMastered(stat({n:12,r:6,w:6,box:5,last:T0})), false);
   eq("high accuracy in a low box is not yet mastered", A.isMastered(stat({n:4,r:4,box:2,last:T0})), false);
 
+  /* ---- speed: right, but not yet a sight word ----
+     A word decoded in three seconds is not a sight word. The flash cards
+     time the flip; nothing else can. The rule that matters most here is
+     the one about what must NOT change: a student's "12 of 20 solid" is
+     not allowed to drop the day a stopwatch appears. */
+  eq("updateStat records a time on a correct answer", A.updateStat(A.emptyStat(), true, T0, 1200).lat, 1200);
+  eq("updateStat ignores the clock on a wrong answer", A.updateStat(A.emptyStat(), false, T0, 1200).lat, 0);
+  eq("updateStat with no time leaves lat alone", A.updateStat(stat({lat:900}), true, T0).lat, 900);
+  eq("the first timing is taken whole", A.updateStat(stat({lat:0}), true, T0, 2000).lat, 2000);
+  eq("later timings are a running average, not a replacement",
+     A.updateStat(stat({lat:1000}), true, T0, 2000).lat, 1400);
+  eq("one slow reading doesn't reclassify a fast word",
+     A.isSlow(A.updateStat(stat({lat:800}), true, T0, 4000)), false);
+  eq("...but a run of them does", (function(){
+     var st = stat({lat:800}), i;
+     for(i=0;i<5;i++) st = A.updateStat(st, true, T0, 4000);
+     return A.isSlow(st);
+  })(), true);
+  eq("updateStat clamps a runaway timing", A.updateStat(A.emptyStat(), true, T0, 999999).lat, A._constants.MAX_LAT_MS);
+
+  eq("isSlow is false with nothing timed", A.isSlow(A.emptyStat()), false);
+  eq("isSlow is false just under the threshold", A.isSlow(stat({lat:A._constants.SLOW_MS})), false);
+  eq("isSlow is true just over it", A.isSlow(stat({lat:A._constants.SLOW_MS + 1})), true);
+
+  eq("sanitizeStat rejects a NaN lat", A.sanitizeStat({lat:NaN}).lat, 0);
+  eq("sanitizeStat rejects a negative lat", A.sanitizeStat({lat:-5}).lat, 0);
+  eq("sanitizeStat clamps an absurd lat", A.sanitizeStat({lat:1e9}).lat, A._constants.MAX_LAT_MS);
+  eq("sanitizeStat keeps an ordinary lat", A.sanitizeStat({lat:1234}).lat, 1234);
+  eq("a stat written before timing existed still loads", A.sanitizeStat({n:3,r:3,box:5}).lat, 0);
+
+  // The rule that protects the student's own number.
+  eq("a slow word is still mastered", A.isMastered(stat({n:12,r:12,box:5,last:T0,lat:9000})), true);
+  eq("...and the count they see does not move",
+     A.summarize({ w: stat({n:12,r:12,box:5,last:T0}) }).mastered,
+     A.summarize({ w: stat({n:12,r:12,box:5,last:T0,lat:9000}) }).mastered);
+  eq("summarize counts the slow ones inside the solid ones",
+     A.summarize({ w: stat({n:12,r:12,box:5,last:T0,lat:9000}) }).slow, 1);
+  eq("a slow word that isn't solid is shaky, not slow",
+     A.summarize({ w: stat({n:10,r:3,w:7,box:0,last:T0,lat:9000}) }).slow, 0);
+
+  // The scheduler is where speed actually acts.
+  (function(){
+    var fast = stat({n:12,r:12,box:5,last:T0 - 40*DAY, lat:900});
+    var slow = stat({n:12,r:12,box:5,last:T0 - 40*DAY, lat:9000});
+    var wf = A.weight(fast, T0), ws = A.weight(slow, T0);
+    results.push({ pass: Math.abs(ws - wf * A._constants.SLOW_BOOST) < 1e-9,
+      desc:"a slow word is boosted back into rotation",
+      detail: ws.toFixed(3) + " vs " + wf.toFixed(3) + " x " + A._constants.SLOW_BOOST });
+    results.push({ pass: ws > wf,
+      desc:"…so it outweighs the same word read at pace", detail: ws.toFixed(3) + " > " + wf.toFixed(3) });
+  })();
+
   // ---- pickSession: shape ----
   (function(){
     var pool = ["a","b","c","d","e","f","g","h"];

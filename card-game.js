@@ -25,7 +25,8 @@
  *     title: "Red Words 🃏",
  *     intro: "…",                       // HTML ok
  *     note:  "<p>What a red word is…</p>",       // optional micro-lesson
- *     decks: [{ name:"List 1", words:["you","should", …] }, …]
+ *     decks: [{ name:"List 1", words:["you","should", …] }, …],
+ *     mastered: ["you","said"]           // optional; unlocks the speed round
  *   });
  *
  * With more than one deck the start screen grows a picker, and the engine
@@ -50,6 +51,24 @@ window.CardGame = (function(){
 
   var NORMAL_RATE = 0.95, SLOW_RATE = 0.75;
   var MIX_SIZE = 20;        // cards in the engine's "Mixed" deck
+
+  /* ---- speed ----
+     FAST_MS is the "⚡ fast" pill: read without hesitation. It is a lower
+     bar than adaptive.js's SLOW_MS threshold on purpose — there is a wide
+     middle where a student is neither quick nor working it out, and
+     saying nothing is the right thing to say about it.
+     SPEED_MIN is how many mastered words a list needs before the speed
+     round is worth offering; below that it is a four-card round.
+     SPEED_FLIP_MS is how long a card waits before flipping itself. */
+  var FAST_MS = 1500;
+  var SPEED_MIN = 8;
+  var SPEED_FLIP_MS = 2000;
+
+  // performance.now() where it exists; it is monotonic, so a card doesn't
+  // read as instant because the clock moved under it.
+  var now = (window.performance && window.performance.now)
+    ? function(){ return window.performance.now(); }
+    : function(){ return Date.now(); };
 
   /* ---------------- styles ----------------
      Everything beyond blend-game.css: the card itself, the deck picker and
@@ -142,6 +161,18 @@ window.CardGame = (function(){
   .btn.no{background:var(--bad);color:#2a0a0a}
   .rate .key{opacity:.7;font-weight:700;font-size:14px;margin-left:8px}
 
+  /* ---- the fast pill ----
+     Only ever shown for a fast answer, never for a slow one. "You were
+     quick" is worth saying out loud; "you were slow" is a thing the
+     scheduler acts on quietly and the student never gets told, because
+     being told would make the next card slower, not faster. */
+  .fastpill{
+    display:inline-block;margin-top:10px;padding:4px 12px;border-radius:99px;
+    background:rgba(255,201,77,.16);border:1px solid rgba(255,201,77,.42);
+    color:var(--accent);font-size:14px;font-weight:800;letter-spacing:.4px;
+  }
+  .fastpill[hidden]{display:none}
+
   @media (prefers-reduced-motion: reduce){
     .flipinner{transition:none}
   }
@@ -170,6 +201,7 @@ window.CardGame = (function(){
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
         <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
+        <button class="btn ghost" id="btnSpeed" style="display:none">⚡ Speed round (<span id="spCount">0</span>)</button>
       </div>
     </div>
   </section>
@@ -195,6 +227,7 @@ window.CardGame = (function(){
             <div class="hint">The word is</div>
             <div class="word" id="uiWordBack"></div>
             <div class="facehint" id="uiBackHint">Did you read it right?</div>
+            <div class="fastpill" id="uiFast" hidden>⚡ fast</div>
           </div>
         </div>
       </div>
@@ -223,6 +256,7 @@ window.CardGame = (function(){
         <div class="stat"><div class="lbl">Score</div><div class="val" id="uiFScore">0</div></div>
         <div class="stat"><div class="lbl">Got it</div><div class="val" id="uiFRight">0</div></div>
         <div class="stat"><div class="lbl">Best streak</div><div class="val flame" id="uiFStreak">0</div></div>
+        <div class="stat"><div class="lbl">Fast</div><div class="val" id="uiFFast">0</div></div>
       </div>
       <div id="missBlock" style="display:none">
         <h3>Words to practice again</h3>
@@ -289,6 +323,19 @@ window.CardGame = (function(){
                      build: function(){ return ALL.slice(); } });
     }
 
+    /* Which of these words the student already owns, from the scheduler.
+       Only the speed round reads it: a round of words you can already
+       read is pointless as practice and exactly right as a fluency drill,
+       so it is offered separately rather than mixed in. */
+    var MASTERED = {};
+    (cfg.mastered || []).forEach(function(w){ MASTERED[Core.parseEntry(w).word] = true; });
+    // ALL holds the list's ENTRIES, which may carry syllable dots; the
+    // scheduler speaks in plain words. parseEntry is the bridge, same as
+    // everywhere else in this engine.
+    function masteredDeck(){
+      return ALL.filter(function(e){ return MASTERED[Core.parseEntry(e).word]; });
+    }
+
     // A car running a dashed track toward the checkered flag.
     var prog = Core.progress("race");
 
@@ -307,6 +354,11 @@ window.CardGame = (function(){
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], mastered = [], flipped = false, busy = false;
+    /* Time to flip. shownAt is set when a card lands on screen; flipMs is
+       what that came to, and it rides along with the rating rather than
+       being reported on its own — one answer, one report. */
+    var shownAt = 0, flipMs = 0, fastCount = 0;
+    var speedRound = false, speedTimer = null;
     var pending = null;    // the timer that moves on to the next card
     var pendingList = null;   // a one-off list (comeback / missed words) to run instead of the deck
     var deckIdx = 0;
@@ -320,9 +372,12 @@ window.CardGame = (function(){
     var onResult  = typeof cfg.onResult === "function" ? cfg.onResult : null;
     var onFinish  = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
     var nextRound = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
-    function report(word, correct){
+    /* The 4th argument is this engine's alone: the other three can't time
+       an answer (a mic answer's clock includes the recogniser, a typed
+       one includes the typing) and simply don't pass it. */
+    function report(word, correct, ms){
       if(!onResult) return;
-      try{ onResult(word, !!correct, 0); }catch(e){}
+      try{ onResult(word, !!correct, 0, { ms: ms || 0 }); }catch(e){}
     }
 
     var shuffleOn = true;
@@ -369,7 +424,7 @@ window.CardGame = (function(){
     /* ---------------- screens ---------------- */
     function show(id){
       ["s-start","s-play","s-end"].forEach(function(s){ $(s).classList.toggle("on", s===id); });
-      if(id === "s-start") renderComeback();
+      if(id === "s-start"){ renderComeback(); renderSpeed(); }
     }
     function playing(){ return $("s-play").classList.contains("on"); }
 
@@ -438,16 +493,33 @@ window.CardGame = (function(){
       renderCombo();
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
       prog.update(idx/queue.length*100);
+      $("uiFast").hidden = true;
       renderFace();
       $("btnFlip").focus();
+      // Last, so the clock starts when the card is actually on screen and
+      // not while the rest of the HUD is still being written.
+      shownAt = now();
+      flipMs = 0;
+      armSpeedFlip();
+    }
+
+    /* In a speed round the card flips itself. The point of that round is
+       recognition at pace, and a card that waits forever lets a student
+       work the word out — which is the thing being timed. */
+    function armSpeedFlip(){
+      if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
+      if(!speedRound) return;
+      speedTimer = setTimeout(function(){ speedTimer = null; flip(); }, SPEED_FLIP_MS);
     }
 
     /* ---------------- game flow ---------------- */
-    function startGame(list){
+    function startGame(list, isSpeed){
+      speedRound = !!isSpeed;
       list = plainList(list);
       queue = shuffleOn ? shuffled(list) : list.slice();
       idx = 0; score = 0; streak = 0; best = 0; right = 0;
       missed = []; mastered = []; busy = false;
+      fastCount = 0;
       prog.reset();
       show("s-play");
       render();
@@ -466,8 +538,11 @@ window.CardGame = (function(){
 
     function flip(){
       if(busy || flipped) return;
+      if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
+      flipMs = shownAt ? Math.max(0, Math.round(now() - shownAt)) : 0;
       flipped = true;
       renderFace();
+      if(flipMs && flipMs < FAST_MS){ fastCount++; $("uiFast").hidden = false; }
       sndFlip();
       // The word is spoken only now, on the way over — before the flip it
       // would be the answer, after it it's the check.
@@ -479,7 +554,9 @@ window.CardGame = (function(){
       if(busy || !flipped) return;
       busy = true;
       var word = queue[idx];
-      report(word, gotIt);
+      // Only a "Got it" carries a time. adaptive.js ignores the clock on a
+      // wrong answer anyway; not sending it keeps that decision in one place.
+      report(word, gotIt, gotIt ? flipMs : 0);
       if(gotIt){
         right++;
         streak++;
@@ -523,6 +600,7 @@ window.CardGame = (function(){
 
     function finish(){
       if(pending){ clearTimeout(pending); pending = null; }
+      if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();
@@ -531,6 +609,7 @@ window.CardGame = (function(){
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
       $("uiFStreak").textContent = best;
+      $("uiFFast").textContent = fastCount + " of " + queue.length;
       var pct = queue.length ? Math.round(right/queue.length*100) : 0;
       var perfect = queue.length > 0 && right === queue.length;
       $("uiTitle").textContent = perfect ? "Perfect round! 🏆"
@@ -658,6 +737,25 @@ window.CardGame = (function(){
       playPending();
     });
     renderComeback();
+
+    /* ---- speed round ----
+       A deck of nothing but words this student already owns. As practice
+       it would be pointless; as a fluency drill it is the only thing on
+       the site that asks "can you read this without thinking about it",
+       and the answer changes long after accuracy has stopped moving. The
+       cards flip themselves, so there is no waiting the clock out. */
+    function renderSpeed(){
+      var deck = masteredDeck();
+      $("btnSpeed").style.display = deck.length >= SPEED_MIN ? "" : "none";
+      $("spCount").textContent = deck.length;
+    }
+    $("btnSpeed").addEventListener("click", function(){
+      var deck = masteredDeck();
+      if(deck.length < SPEED_MIN) return;
+      snd.click();
+      startGame(shuffleOn ? shuffled(deck) : deck, true);
+    });
+    renderSpeed();
 
     $("btnFlip").addEventListener("click", flip);
     // The card itself is the biggest target on the screen, so it flips too —

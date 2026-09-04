@@ -656,6 +656,40 @@ drops a word one box rather than resetting it to zero: resetting is the
 textbook Leitner move and it turns one fumble into a week of seeing that
 word every session.
 
+### Speed
+
+A word decoded in three seconds is not a sight word, however reliably it
+comes back right. The flash cards time the flip (`performance.now()` when
+the card lands, again when it turns) and pass the milliseconds along with
+the rating; the other three engines can't measure anything meaningful — a
+mic answer's clock includes the recogniser and a typed one includes the
+typing — and simply don't pass it.
+
+The stat gains `lat`, a running average of how long a **correct** answer
+took. Wrong answers aren't timed: that clock is measuring how long a
+student stared at a word they didn't know. Over `SLOW_MS` (2.5 s) a word
+counts as slow and the scheduler weights it up by ×1.5, so it keeps coming
+round after its accuracy has stopped moving.
+
+What slow does **not** do is change `isMastered`. The student's own tile
+says "12 of 20 solid", and that number must not drop the day the cards
+learn to use a stopwatch — nothing about their reading changed. Speed is
+the scheduler's business and the teacher's: the dashboard's per-list
+breakdown reads "12 / 20 (4 slow)", and **Ready to move up** counts a word
+only when it is solid *and* at pace, so nobody gets advanced on the
+strength of thirty words they can decode but not read.
+
+On the card itself, a flip under 1.5 s earns a "⚡ fast" pill and the end
+screen counts them. There is deliberately no slow pill: "you were quick" is
+worth saying out loud, and "you were slow" is a thing the scheduler acts on
+quietly, because being told would make the next card slower, not faster.
+
+A list with at least eight solid words also offers a **⚡ Speed round** on
+the start screen — a deck of nothing but words the student already owns,
+with the cards flipping themselves after two seconds so there is no waiting
+the clock out. Useless as practice; the only thing on the site that asks
+whether a word can be read without thinking about it.
+
 Never-practiced words sit at a flat weight of 3.0, between "solid" and
 "shaky", so new material keeps flowing without crowding out what's
 failing. "Play again" redraws — the words missed a minute ago are now the

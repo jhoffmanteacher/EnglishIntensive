@@ -10,13 +10,15 @@
    ── The model ─────────────────────────────────────────────────────────
    One stat record per word, per list:
 
-     { n, r, w, s, box, last }
+     { n, r, w, s, box, last, lat }
        n     times the word has come up
        r     times it came back RIGHT ON THE FIRST TRY
        w     times it didn't
        s     current run of first-try-correct answers
        box   Leitner box, 0–5 — how long the word has earned off
        last  epoch ms of the last time it came up
+       lat   running average of how long a CORRECT answer took, in ms;
+             0 where nothing has timed it (most modes can't)
 
    Only first-try answers count as right. Getting a word after being told
    it isn't knowing it, and the whole point of the deck is to be honest
@@ -40,6 +42,15 @@
    A word the student has never seen sits at a flat NEW_WEIGHT, between
    "solid" and "shaky" — new material keeps flowing without crowding out
    the words that are actually failing.
+
+   ── Speed ─────────────────────────────────────────────────────────────
+   A word decoded in three seconds is not a sight word. Where a mode can
+   time an answer (the flash cards can; the mic and typing modes can't),
+   a word averaging over SLOW_MS is pulled back into rotation harder than
+   its accuracy alone would ask for. It does NOT stop counting as
+   mastered: the student's own "12 of 20 solid" must not drop the day a
+   stopwatch appears. Slow-but-right is the teacher's report, not the
+   student's score.
    ════════════════════════════════════════════════════════════════════ */
 
 window.Adaptive = (function(){
@@ -58,12 +69,22 @@ window.Adaptive = (function(){
   // on top of that — it has earned the right to stop taking up slots.
   var MASTERED_DAMP = 0.35;
   var MASTERED_ACC  = 0.9;
+  /* How long a word may take before it stops counting as read and starts
+     counting as worked out. 2.5 s is generous for a one-syllable word on a
+     flash card and still well short of what sounding out takes. A slow
+     word is pulled back into rotation harder than its accuracy alone
+     would ask for — being right about a word you had to decode is not the
+     same as knowing it. */
+  var SLOW_MS     = 2500;
+  var SLOW_BOOST  = 1.5;
+  var LAT_ALPHA   = 0.4;    // weight of the newest time in the running average
+  var MAX_LAT_MS  = 60000;  // anything longer is a student who walked away
 
   function has(o, k){ return !!o && Object.prototype.hasOwnProperty.call(o, k); }
   function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
   function num(v, dflt){ return (typeof v === "number" && isFinite(v)) ? v : dflt; }
 
-  function emptyStat(){ return { n:0, r:0, w:0, s:0, box:0, last:0 }; }
+  function emptyStat(){ return { n:0, r:0, w:0, s:0, box:0, last:0, lat:0 }; }
 
   /* localStorage and Firestore are both hand-editable and outlive any
      change to this file, so nothing read back is trusted: a record is
@@ -78,7 +99,11 @@ window.Adaptive = (function(){
       n: n, r: r, w: w,
       s: Math.max(0, Math.floor(num(raw.s, 0))),
       box: clamp(Math.floor(num(raw.box, 0)), 0, MAX_BOX),
-      last: Math.max(0, Math.floor(num(raw.last, 0)))
+      last: Math.max(0, Math.floor(num(raw.last, 0))),
+      // Time to answer, in ms — 0 means "never timed", which is every
+      // stat written before the flash cards started measuring and every
+      // stat from a mode that can't measure.
+      lat: clamp(Math.floor(num(raw.lat, 0)), 0, MAX_LAT_MS)
     };
   }
 
@@ -100,7 +125,7 @@ window.Adaptive = (function(){
      fumbles one word in the middle of a good run then sees it every single
      session for a week, which is how a practice deck turns into a
      punishment. One box back means it comes around soon, not constantly. */
-  function updateStat(stat, correct, now){
+  function updateStat(stat, correct, now, ms){
     var s = sanitizeStat(stat);
     s.n += 1;
     s.last = Math.max(0, Math.floor(num(now, 0)));
@@ -108,6 +133,17 @@ window.Adaptive = (function(){
       s.r += 1;
       s.s += 1;
       s.box = Math.min(MAX_BOX, s.box + 1);
+      /* Only correct answers are timed. A wrong answer's clock is
+         measuring how long the student stared at a word they didn't
+         know, which is a different thing and would drag the average
+         toward "slow" for words they simply haven't learned yet.
+         A running average, not the last reading: one interruption
+         shouldn't reclassify a word. */
+      var t = num(ms, 0);
+      if(t > 0){
+        t = clamp(Math.round(t), 0, MAX_LAT_MS);
+        s.lat = s.lat ? Math.round((1 - LAT_ALPHA) * s.lat + LAT_ALPHA * t) : t;
+      }
     } else {
       s.w += 1;
       s.s = 0;
@@ -138,6 +174,16 @@ window.Adaptive = (function(){
     return s.box >= MAX_BOX && rawAccuracy(s) !== null && rawAccuracy(s) >= MASTERED_ACC;
   }
 
+  /* Right, but not yet a sight word. Deliberately NOT part of
+     isMastered(): the student's own tile says "12 of 20 solid", and a
+     speed measurement arriving should never make that number go down —
+     nothing about their reading changed the day the cards learned to use
+     a stopwatch. Speed is the scheduler's business and the teacher's. */
+  function isSlow(stat){
+    var s = sanitizeStat(stat);
+    return s.lat > SLOW_MS;
+  }
+
   function dueFactor(stat, now){
     var s = sanitizeStat(stat);
     if(!s.last) return 1;
@@ -155,6 +201,9 @@ window.Adaptive = (function(){
     var missWeight = 1 + 5 * (1 - accuracy(s));
     var wgt = missWeight * dueFactor(s, now);
     if(isMastered(s)) wgt *= MASTERED_DAMP;
+    // A word decoded in three seconds is not a sight word, however
+    // reliably it comes back right. It keeps coming round.
+    if(isSlow(s)) wgt *= SLOW_BOOST;
     return Math.max(MIN_WEIGHT, wgt);
   }
 
@@ -214,14 +263,22 @@ window.Adaptive = (function(){
   /* One student's headline numbers, for the roster row and the end-screen
      summary. `attempts`/`right` are lifetime totals across every word. */
   function summarize(stats){
-    var attempts = 0, right = 0, words = 0, mastered = 0, struggling = 0, last = 0;
+    var attempts = 0, right = 0, words = 0, mastered = 0, struggling = 0, slow = 0, last = 0;
     for(var word in stats){
       if(!has(stats, word)) continue;
       var s = sanitizeStat(stats[word]);
       if(!s.n) continue;
       words++; attempts += s.n; right += s.r;
       if(s.last > last) last = s.last;
-      if(isMastered(s)) mastered++;
+      if(isMastered(s)){
+        mastered++;
+        // Counted INSIDE mastered, not beside it: the useful question is
+        // "how many of the words they own can they read at pace", so the
+        // dashboard prints "12 solid (4 slow)" and the ready-to-move-up
+        // rule uses mastered − slow. A word that is slow and not yet
+        // mastered is already counted as shaky.
+        if(isSlow(s)) slow++;
+      }
       else if(rawAccuracy(s) < 0.6) struggling++;
     }
     return {
@@ -231,6 +288,9 @@ window.Adaptive = (function(){
       accuracy: attempts ? right / attempts : null,
       mastered: mastered,
       struggling: struggling,
+      // Solid words that are still slow. Never printed on a student page
+      // — see isSlow(). The dashboard reads it; the tile does not.
+      slow: slow,
       lastSeen: last
     };
   }
@@ -323,6 +383,7 @@ window.Adaptive = (function(){
     accuracy: accuracy,
     rawAccuracy: rawAccuracy,
     isMastered: isMastered,
+    isSlow: isSlow,
     dueFactor: dueFactor,
     weight: weight,
     pickSession: pickSession,
@@ -331,7 +392,8 @@ window.Adaptive = (function(){
     _constants: {
       NEW_WEIGHT: NEW_WEIGHT, MAX_BOX: MAX_BOX, BOX_DAYS: BOX_DAYS,
       REST_FLOOR: REST_FLOOR, MASTERED_DAMP: MASTERED_DAMP,
-      MASTERED_ACC: MASTERED_ACC, DAY: DAY
+      MASTERED_ACC: MASTERED_ACC, DAY: DAY,
+      SLOW_MS: SLOW_MS, SLOW_BOOST: SLOW_BOOST, LAT_ALPHA: LAT_ALPHA, MAX_LAT_MS: MAX_LAT_MS
     }
   };
 })();

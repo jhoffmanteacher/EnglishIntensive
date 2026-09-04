@@ -584,7 +584,8 @@
       return "<tr><td>" + esc(l.icon + " " + l.title) + "</td>" +
         '<td class="num">' + ls.attempts + "</td>" +
         '<td class="num">' + accCell(ls.accuracy) + "</td>" +
-        '<td class="num">' + ls.mastered + " / " + total + "</td>" +
+        '<td class="num">' + ls.mastered + " / " + total +
+          (ls.slow ? ' <span class="muted tiny">(' + ls.slow + " slow)</span>" : "") + "</td>" +
         '<td class="num">' + (ls.struggling ? '<span class="pill bad">' + ls.struggling + "</span>" : '<span class="muted">0</span>') + "</td></tr>";
     }).filter(Boolean).join("");
 
@@ -1278,12 +1279,19 @@
   function listProgress(stats, listId){
     var sum = Adaptive.summarize(Adaptive.statsForList(stats, listId));
     var total = WordLists.wordsOf(listId).length;
+    /* Solid AND at pace. A word the student gets right after three
+       seconds of decoding is not a word they can move on from, and
+       suggesting the next list on the strength of thirty of them is how a
+       student ends up two lists ahead of their reading. */
+    var fluent = Math.max(0, sum.mastered - sum.slow);
     return {
       mastered: sum.mastered,
+      slow: sum.slow,
+      fluent: fluent,
       total: total,
       // No total means an id that isn't in the registry any more; treat
       // that as "no evidence" rather than as finished.
-      share: total ? sum.mastered / total : 0
+      share: total ? fluent / total : 0
     };
   }
 
