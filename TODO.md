@@ -30,6 +30,20 @@ turns out to need after a term of using it.
 
 ---
 
+## Decided during the reading-feedback build
+
+Choices the plan left to whoever built it, recorded here so the reasoning
+survives the commit that made them.
+
+- **A dropped final consonant on a final-blend list reads as a blend
+  error, not a dropped sound.** `diagnose()` tries the blend being
+  practised before anything else, so "gasp" read as "gas" says *Look at
+  the blend: sp* on the Blend Words list and *You dropped a sound: p*
+  everywhere else. Both are true; on that list the blend is the skill, so
+  it is the thing to point at.
+
+---
+
 ## Considered and not doing
 
 - **Homophone groups and read-aloud sentences for the new Match It

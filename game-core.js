@@ -349,6 +349,161 @@ window.GameCore = (function(){
     tent: ["tenth"]    // recogniser adds a trailing "th" sound
   };
 
+
+  /* ---------------- diagnosis (pure, testable) ----------------
+     A red ✗ tells a student they were wrong. It does not tell them WHICH
+     part was wrong, and for a reader who is guessing at blends or sliding
+     off vowels that is the only part worth knowing. diagnose() takes what
+     the recogniser heard and the word that was on screen, lines the two
+     up sound by sound, and names the first thing that went wrong — with
+     the letters that spell it, so the reveal can light them up.
+
+     It is deliberately one answer, not a list. A wrong reading usually
+     has one cause; showing three guesses at once is how a hint becomes
+     noise. The order the rules are tried in is the order a teacher would
+     look: the blend being practised first, then the target sound, then
+     the vowel, then everything else. */
+
+  // The edit script behind phoneticDistance: the same costs and the same
+  // total, plus a backtrace saying what happened where. `i` indexes the
+  // heard sounds, `j` the target's; an "ins" is a sound the student added
+  // and a "del" one they dropped.
+  function phoneticAlign(a, b){
+    var m = a.length, n = b.length, i, j;
+    var d = [];
+    for(i=0;i<=m;i++){ d[i] = []; d[i][0] = i; }
+    for(j=0;j<=n;j++) d[0][j] = j;
+    for(i=1;i<=m;i++){
+      for(j=1;j<=n;j++){
+        d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + subCostOf(a[i-1], b[j-1]));
+      }
+    }
+    var ops = [];
+    i = m; j = n;
+    while(i > 0 || j > 0){
+      if(i > 0 && j > 0 && d[i][j] === d[i-1][j-1] + subCostOf(a[i-1], b[j-1])){
+        ops.push({ op: a[i-1] === b[j-1] ? "match" : "sub", i: i-1, j: j-1 });
+        i--; j--;
+      } else if(i > 0 && d[i][j] === d[i-1][j] + 1){
+        ops.push({ op: "ins", i: i-1, j: j });
+        i--;
+      } else {
+        ops.push({ op: "del", i: i, j: j-1 });
+        j--;
+      }
+    }
+    ops.reverse();
+    return ops;
+  }
+
+  // phonemeSpans indexes the letters-only word; a highlight has to index
+  // the word as written, apostrophes and periods included ("they'd").
+  function letterOffsets(word){
+    var s = String(word == null ? "" : word), out = [], i;
+    for(i=0;i<s.length;i++) if(/[a-z]/i.test(s.charAt(i))) out.push(i);
+    return out;
+  }
+
+  // A [start,end) over the letters-only word, as a [start,end) over the
+  // word as written.
+  function spanInWord(word, start, end){
+    var off = letterOffsets(word);
+    if(!off.length) return [0, String(word || "").length];
+    if(start < 0) start = 0;
+    if(end > off.length) end = off.length;
+    if(end <= start) end = start + 1;
+    if(end > off.length) return [off[0], off[off.length-1] + 1];
+    return [off[start], off[end-1] + 1];
+  }
+
+  // ≤ 8 words each, and never a term a ninth grader hasn't been taught.
+  // The letters go in the sentence rather than beside it because the
+  // whole point is to send the eye back to that piece of the word.
+  function diagnosisMessage(kind, letters){
+    if(kind === "blend")     return "Look at the blend: " + letters;
+    if(kind === "sound")     return "The " + letters + " sound is the key";
+    if(kind === "vowel")     return "Check the vowel: " + letters;
+    if(kind === "consonant") return "Listen to the " + letters + " sound";
+    if(kind === "missing")   return "You dropped a sound: " + letters;
+    if(kind === "extra")     return "That's one sound too many";
+    return "Read it slowly, left to right";
+  }
+
+  /* diagnose(heard, target, opts) -> null when they match, else
+       { kind, span:[start,end], heard, message }
+     opts is what Say It already knows about the list: { atStart,
+     blendLength, soundSeq, highlight }. */
+  function diagnose(heard, target, opts){
+    opts = opts || {};
+    var word = String(target == null ? "" : target);
+    var tPh = phonemes(word);
+    var text = normalize(heard);
+    if(!text) return null;
+
+    // A transcript can be several words ("bread crab"). Judge the one that
+    // was the best attempt at the target, not the first thing said.
+    var parts = text.split(" "), best = parts[0], bestD = Infinity, k;
+    for(k=0;k<parts.length;k++){
+      if(!parts[k]) continue;
+      var dd = phoneticDistance(phonemes(parts[k]), tPh);
+      if(dd < bestD){ bestD = dd; best = parts[k]; }
+    }
+    var hPh = phonemes(best);
+    // Only the word itself is "no diagnosis". Same sounds spelled another
+    // way ("krab") still gets one: it is a miss at Challenge, and telling
+    // that student to slow down is the only honest thing left to say.
+    if(best === normalize(word)) return null;
+
+    function out(kind, span){
+      var letters = word.slice(span[0], span[1]);
+      return { kind: kind, span: span, heard: text, message: diagnosisMessage(kind, letters) };
+    }
+
+    var spans = phonemeSpans(word);
+    function spanOf(idx){
+      if(!spans.length) return [0, word.length];
+      if(idx < 0) idx = 0;
+      if(idx >= spans.length) idx = spans.length - 1;
+      return spanInWord(word, spans[idx].start, spans[idx].end);
+    }
+
+    // 1. The blend being practised. It is the skill on the page, so a
+    //    wrong blend is the answer even when something else is wrong too.
+    var blendLength = opts.blendLength;
+    if(blendLength > 0){
+      var atStart = !!opts.atStart;
+      var tBlend = phonemes(atStart ? word.slice(0, blendLength) : word.slice(-blendLength));
+      var hBlend = phonemes(atStart ? best.slice(0, blendLength) : best.slice(-blendLength));
+      if(tBlend.join(" ") !== hBlend.join(" ")){
+        var letters = word.replace(/[^a-z]/gi, "").length;
+        return out("blend", atStart ? spanInWord(word, 0, blendLength)
+                                    : spanInWord(word, letters - blendLength, letters));
+      }
+    }
+
+    // 2. Sound mode: the one sound the list exists for is simply absent.
+    if(opts.soundSeq && findPhonemeSeq(hPh, opts.soundSeq) === -1){
+      var hit = opts.highlight ? word.match(opts.highlight) : null;
+      var span = hit ? [hit.index, hit.index + hit[0].length] : [0, word.length];
+      return out("sound", span);
+    }
+
+    // 3-6. The first thing the alignment disagrees about.
+    var ops = phoneticAlign(hPh, tPh), o;
+    for(k=0;k<ops.length;k++){
+      o = ops[k];
+      if(o.op === "sub"){
+        var vowels = isVowelPhone(hPh[o.i]) && isVowelPhone(tPh[o.j]);
+        return out(vowels ? "vowel" : "consonant", spanOf(o.j));
+      }
+      if(o.op === "del") return out("missing", spanOf(o.j));
+      if(o.op === "ins") return out("extra", spanOf(o.j > 0 ? o.j - 1 : 0));
+    }
+
+    // 7. Same sounds, different word — nothing to point at.
+    return out("other", [0, word.length]);
+  }
+
   /* ---------------- syllable chunks (pure, testable) ----------------
      A word list may write a word with middle dots marking its syllable
      boundaries — "fan·tas·tic". The dots are a teaching aid for the
@@ -757,6 +912,8 @@ window.GameCore = (function(){
     normalize: normalize,
     findPhonemeSeq: findPhonemeSeq,
     ACCEPT: ACCEPT,
+    phoneticAlign: phoneticAlign,
+    diagnose: diagnose,
 
     spokenText: spokenText,
     directionParts: directionParts,

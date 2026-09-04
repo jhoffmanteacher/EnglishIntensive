@@ -241,6 +241,82 @@
   eq("phonemeSpans: qu is one span", JSON.stringify(GC.phonemeSpans("queen")[0]),
     JSON.stringify({ph:"KW",start:0,end:2}));
 
+  /* ---- the edit script behind the distance ----
+     phoneticAlign has to be the same DP phoneticDistance already is, or a
+     diagnosis would point at a difference the matcher never saw. Its ops,
+     priced the same way, must add up to the same number — checked on
+     pairs drawn from the real lists so the words are the ones students
+     actually miss. */
+  (function(){
+    var pool = [];
+    window.WordLists.ids.forEach(function(id){
+      window.WordLists.wordsOf(id).forEach(function(w){ pool.push(w); });
+    });
+    var s = 20260904 >>> 0;
+    function rnd(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }
+    var bad = [], n;
+    for(n=0;n<50;n++){
+      var a = GC.phonemes(pool[Math.floor(rnd() * pool.length)]);
+      var b = GC.phonemes(pool[Math.floor(rnd() * pool.length)]);
+      var cost = 0;
+      GC.phoneticAlign(a, b).forEach(function(o){
+        if(o.op === "sub") cost += (GC.isVowelPhone(a[o.i]) && GC.isVowelPhone(b[o.j])) ? 0.5 : 1.5;
+        else if(o.op !== "match") cost += 1;
+      });
+      if(cost !== GC.phoneticDistance(a, b)) bad.push(a.join("") + "/" + b.join("") + " " + cost + " vs " + GC.phoneticDistance(a, b));
+    }
+    eq("phoneticAlign: ops cost the same as phoneticDistance (50 seeded pairs)", bad.length, 0, bad.slice(0,3).join(", ") || "0");
+  })();
+  eq("phoneticAlign: a word against itself is all matches",
+    GC.phoneticAlign(GC.phonemes("crab"), GC.phonemes("crab")).every(function(o){ return o.op === "match"; }), true);
+  eq("phoneticAlign: a dropped sound is a del",
+    GC.phoneticAlign(GC.phonemes("gas"), GC.phonemes("gasp")).filter(function(o){ return o.op === "del"; }).length, 1);
+  eq("phoneticAlign: an added sound is an ins",
+    GC.phoneticAlign(GC.phonemes("gasps"), GC.phonemes("gasp")).filter(function(o){ return o.op === "ins"; }).length, 1);
+
+  /* ---- diagnose: which part went wrong ----
+     One answer, never a list, and always the first rule that applies:
+     the blend being practised, then the target sound, then the vowel,
+     then whatever is left. */
+  var D_START = { atStart:true, blendLength:2 };
+  var D_END   = { atStart:false, blendLength:2 };
+  var D_NONE  = { atStart:true, blendLength:0 };
+  var D_OY    = { atStart:true, blendLength:0, soundSeq:["OY"], highlight:/oi|oy/i };
+  function dg(heard, target, opts){ return GC.diagnose(heard, target, opts); }
+
+  eq("diagnose: bled heard \"bred\" is a blend", dg("bred","bled",D_START).kind, "blend");
+  eq("diagnose: ...and points at bl", JSON.stringify(dg("bred","bled",D_START).span), "[0,2]");
+  eq("diagnose: ...and says so in eight words or fewer",
+    dg("bred","bled",D_START).message.split(" ").length <= 8, true, dg("bred","bled",D_START).message);
+  eq("diagnose: sled heard \"slide\" is a vowel", dg("slide","sled",D_START).kind, "vowel");
+  eq("diagnose: ...on the e", "sled".slice(dg("slide","sled",D_START).span[0], dg("slide","sled",D_START).span[1]), "e");
+  eq("diagnose: gasp heard \"gas\" drops a sound", dg("gas","gasp",D_NONE).kind, "missing");
+  eq("diagnose: ...the p", "gasp".slice(dg("gas","gasp",D_NONE).span[0], dg("gas","gasp",D_NONE).span[1]), "p");
+  eq("diagnose: on the end-blend list the same miss is the blend", dg("gas","gasp",D_END).kind, "blend");
+  eq("diagnose: coin heard \"cone\" is the target sound", dg("cone","coin",D_OY).kind, "sound");
+  eq("diagnose: ...highlighting oi", "coin".slice(dg("cone","coin",D_OY).span[0], dg("cone","coin",D_OY).span[1]), "oi");
+  eq("diagnose: nest heard \"vest\" is a consonant", dg("vest","nest",D_END).kind, "consonant");
+  eq("diagnose: crab heard \"crab\" is nothing at all", dg("crab","crab",D_START), null);
+  eq("diagnose: an empty transcript is nothing at all", dg("","crab",D_START), null);
+  eq("diagnose: crab heard \"kraab\" is one sound too many", dg("kraab","crab",D_START).kind, "extra");
+  eq("diagnose: crab heard \"krab\" is right sounds, wrong word", dg("krab","crab",D_START).kind, "other");
+  eq("diagnose: it reports what it heard, normalized", dg("BRED!","bled",D_START).heard, "bred");
+  eq("diagnose: it judges the closest word in a phrase", dg("um bred","bled",D_START).heard, "um bred");
+  eq("diagnose: ...and diagnoses that word, not the filler", dg("um bred","bled",D_START).kind, "blend");
+  (function(){
+    var seen = {};
+    [dg("bred","bled",D_START), dg("slide","sled",D_START), dg("gas","gasp",D_NONE),
+     dg("cone","coin",D_OY), dg("vest","nest",D_END), dg("kraab","crab",D_START),
+     dg("krab","crab",D_START)].forEach(function(d){ if(d) seen[d.kind] = true; });
+    eq("diagnose: every kind is reachable", Object.keys(seen).sort().join(","),
+      "blend,consonant,extra,missing,other,sound,vowel");
+  })();
+  // The apostrophe is not a letter, so the fifth SOUND of "they'd" is the
+  // sixth character. A span that forgot that would underline the wrong one.
+  eq("diagnose: spans index the word as written, apostrophes and all",
+    JSON.stringify(dg("theyt","they'd",D_NONE).span), "[5,6]");
+  eq("diagnose: ...which is the d", "they'd".slice(5,6), "d");
+
   // ---- Regular accepts sound-alikes, Challenge does not ----
   eq("crab <- krab, Regular", match("krab","crab",1,START), true);
   eq("crab <- krab, Challenge", match("krab","crab",0,START), false);
