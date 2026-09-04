@@ -670,6 +670,87 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     game-core.js — the start screen, read aloud
+
+     All four engines used to build this text themselves, and all four
+     copies had grown the same two bugs. Both are pinned here, because
+     both are the kind that nobody notices from the code: you only find
+     them by listening.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var Core = window.GameCore;
+
+    function screen(html){
+      var d = document.createElement("div");
+      d.innerHTML = html;
+      return d;
+    }
+
+    // ---- bug 1: .textContent swallows the <br> ----
+    var twoSentences = screen(
+      '<p class="sub">Say each word out loud.<br>Every 5 in a row earns bonus points.</p>');
+    eq("an intro split by <br> is two things to say, not one",
+       Core.directionParts(twoSentences).length, 2);
+    eq("…the first sentence", Core.directionParts(twoSentences)[0], "Say each word out loud.");
+    eq("…the second", Core.directionParts(twoSentences)[1], "Every 5 in a row earns bonus points.");
+    eq("a self-closing <br /> breaks it too",
+       Core.directionParts(screen('<p class="sub">One.<br />Two.</p>')).length, 2);
+    eq("an intro with no break is one fragment",
+       Core.directionParts(screen('<p class="sub">Just the one.</p>')).length, 1);
+    eq("markup inside a sentence is read, not spelled out",
+       Core.directionParts(screen('<p class="sub">Put on <b>headphones</b>.</p>'))[0],
+       "Put on headphones.");
+
+    // ---- bug 2: nothing is glued together ----
+    var all = Core.directionParts(screen(
+      '<p class="sub">Intro one.<br>Intro two.</p>' +
+      '<ol class="steps"><li>Step one.</li><li>Step two.</li></ol>'));
+    eq("intro and steps come back as separate fragments", all.length, 4);
+    eq("…in screen order", all.join(" | "), "Intro one. | Intro two. | Step one. | Step two.");
+    eq("no fragment carries doubled punctuation",
+       all.filter(function(t){ return /\.\s*\.$/.test(t); }).length, 0);
+
+    // ---- the boxed sections, in screen order, each with its heading ----
+    var withRule = Core.directionParts(screen(
+      '<p class="sub">Intro.</p>' +
+      '<div class="rule"><div class="tag">The rule</div>' +
+        '<p>Both spellings say the same sound.</p>' +
+        '<ul><li>oy ends the word.</li><li>oi sits inside it.</li></ul></div>' +
+      '<ol class="steps"><li>Type it.</li></ol>'));
+    eq("the rule box is announced by its own on-screen tag",
+       withRule[1], "The rule.");
+    eq("…then its paragraph", withRule[2], "Both spellings say the same sound.");
+    eq("…then each bullet on its own", withRule.slice(3, 5).join(" | "),
+       "oy ends the word. | oi sits inside it.");
+    eq("a list and its items are not read twice over",
+       withRule.filter(function(t){ return t.indexOf("oy ends the word") !== -1; }).length, 1);
+    eq("…and the steps still come last", withRule[withRule.length - 1], "Type it.");
+
+    var withNote = Core.directionParts(screen(
+      '<p class="sub">Intro.</p>' +
+      '<div class="note"><div class="tag">Good to know</div><p>Red words break the rules.</p></div>'));
+    eq("the cards' note is announced the same way", withNote[1], "Good to know.");
+    eq("…and a tag already ending in punctuation isn't given a second full stop",
+       Core.directionParts(screen('<div class="note"><div class="tag">Ready?</div><p>Go.</p></div>'))[0],
+       "Ready?");
+
+    // ---- the arrow, which TTS either skips or calls "right arrow" ----
+    eq("an arrow is spoken as words",
+       Core.directionParts(screen('<p class="sub">A vowel → oy.</p>'))[0], "A vowel leads to oy.");
+
+    // ---- tidiness ----
+    eq("indentation in the markup doesn't become pauses",
+       Core.directionParts(screen('<ol class="steps"><li>\n   Lots\n   of   space.\n</li></ol>'))[0],
+       "Lots of space.");
+    eq("an empty fragment is dropped, not spoken as silence",
+       Core.directionParts(screen('<p class="sub">One.<br><br>Two.</p>')).length, 2);
+    eq("a start screen with nothing on it says nothing",
+       Core.directionParts(screen("<div></div>")).length, 0);
+    eq("no root at all is survivable", Core.directionParts(null).length, 0);
+    eq("spokenText of nothing is empty", Core.spokenText(null), "");
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      word-lists.js — the registry every other file trusts
      ══════════════════════════════════════════════════════════════════ */
   (function(){

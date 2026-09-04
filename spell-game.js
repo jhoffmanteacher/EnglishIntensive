@@ -153,12 +153,12 @@ window.SpellGame = (function(){
       </div>
       <button class="btn ghost" id="btnDirections" type="button" style="margin-bottom:16px">🔊 Read directions aloud</button>
       <ol class="steps">
-        <li>Put your <b>headphones</b> on. This game listens to nothing, so a loud room is fine.</li>
+        <li>Put on your <b>headphones</b>.</li>
         <li>${cfg.hasSentences
-          ? "The computer says a word, uses it in a sentence, then says the word again. <b>🔊 Say it again</b> repeats just the word. Click it twice for a slower read."
-          : "The computer says a word. <b>🔊 Say it again</b> repeats it. Click it twice for a slower read."}</li>
-        <li><b>Type</b> what you hear and press <kbd>Enter</kbd>.</li>
-        <li>Two tries at each word. Every 5 right in a row is bonus points.</li>
+          ? "Listen to the word and the sentence. Click <b>🔊 Say it again</b> to hear just the word — click it twice for a slower read."
+          : "Listen to the word. Click <b>🔊 Say it again</b> to hear it again — click it twice for a slower read."}</li>
+        <li><b>Type</b> the word, then press <kbd>Enter</kbd>.</li>
+        <li>Every 5 right in a row is bonus points.</li>
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
@@ -246,7 +246,7 @@ window.SpellGame = (function(){
     mount.className = "wrap";
     mount.innerHTML = shell({
       title: cfg.title,
-      intro: cfg.intro || "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!",
+      intro: cfg.intro || "Listen to the word, then type it.<br>You get two tries. Every 5 right in a row earns bonus points.",
       rule: cfg.rule || "",
       count: WORDS.length,
       hasSentences: Object.keys(SENTENCES).length > 0,
@@ -556,27 +556,17 @@ window.SpellGame = (function(){
       // parses as "leads to" for a listening student.
       return el.textContent.replace(/\s+/g, " ").replace(/→/g, "leads to").trim();
     }
+    // Read from the live DOM (Core.directionParts) rather than a second
+    // copy of the strings, and spoken one fragment at a time so the
+    // sentence breaks land where they are written.
     function readDirections(){
-      if(!window.speechSynthesis) return;
-      var start = $("s-start");
-      var parts = [];
-      var intro = start.querySelector(".sub");
-      if(intro) parts.push(spokenText(intro));
-      var rule = start.querySelector(".rule");
-      if(rule){
-        parts.push("The rule.");
-        rule.querySelectorAll(":scope > *:not(.tag)").forEach(function(el){
-          parts.push(spokenText(el));
-        });
-      }
-      start.querySelectorAll(".steps li").forEach(function(li){
-        parts.push(spokenText(li));
-      });
-      say(parts.join(". "), NORMAL_RATE);
+      sayParts(Core.directionParts($("s-start")).map(function(t){ return [t, NORMAL_RATE]; }));
     }
 
     /* ---------------- events ---------------- */
-    $("btnDirections").addEventListener("click", readDirections);
+    // Greyed out rather than silently dead on a browser that can't speak.
+    if(!window.speechSynthesis) $("btnDirections").disabled = true;
+    else $("btnDirections").addEventListener("click", readDirections);
     function renderShuffle(){
       $("shufLbl").textContent = shuffleOn ? "On" : "Off";
     }

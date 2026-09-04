@@ -735,29 +735,35 @@ window.MatchGame = (function(){
     // in order — pulled live from the DOM (textContent strips the <b>/<kbd>
     // markup for us) so this never drifts out of sync with the visible
     // directions.
-    function spokenText(el){
-      return el.textContent.replace(/\s+/g, " ").replace(/→/g, "leads to").trim();
+    /* One utterance per fragment rather than one glued string. Reading
+       the intro with .textContent used to swallow its <br>, welding two
+       sentences into a run-on, and joining fragments that already end in
+       full stops doubled the punctuation up. Core.directionParts does the
+       walk for all four engines now, so a fix lands in one place. */
+    function sayParts(parts){
+      if(!window.speechSynthesis) return;
+      parts = (parts || []).filter(function(p){ return p; });
+      if(!parts.length) return;
+      try{
+        window.speechSynthesis.cancel();
+        parts.forEach(function(text){
+          var u = new SpeechSynthesisUtterance(text);
+          u.lang = "en-US";
+          u.rate = NORMAL_RATE;
+          var v = Core.voice();
+          if(v) u.voice = v;
+          window.speechSynthesis.speak(u);
+        });
+      }catch(e){}
     }
     function readDirections(){
-      if(!window.speechSynthesis) return;
-      var startScreen = $("s-start");
-      var parts = [];
-      var intro = startScreen.querySelector(".sub");
-      if(intro) parts.push(spokenText(intro));
-      var note = startScreen.querySelector(".note");
-      if(note){
-        note.querySelectorAll(":scope > *:not(.tag)").forEach(function(el){
-          parts.push(spokenText(el));
-        });
-      }
-      startScreen.querySelectorAll(".steps li").forEach(function(li){
-        parts.push(spokenText(li));
-      });
-      say(parts.join(". "), NORMAL_RATE);
+      sayParts(Core.directionParts($("s-start")));
     }
 
     /* ---------------- events ---------------- */
-    $("btnDirections").addEventListener("click", readDirections);
+    // Greyed out rather than silently dead on a browser that can't speak.
+    if(!window.speechSynthesis) $("btnDirections").disabled = true;
+    else $("btnDirections").addEventListener("click", readDirections);
 
     function renderPicker(){
       var picker = $("deckPicker");

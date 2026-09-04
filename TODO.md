@@ -23,15 +23,6 @@ turns out to need after a term of using it.
   lines each, kept so bookmarks and anything written on paper keep
   working. Delete them once a school year has gone by and nothing links
   there.
-- **`simplify-directions-read-aloud` is unmerged.** Two commits from
-  August — a read-aloud button on the start screens, plus a fix for
-  run-on and doubled punctuation in it — touching `blend-game.js`,
-  `spell-game.js`, three game pages and the README. It is 22 commits
-  behind main and every file it touches has moved since, so merging it
-  will conflict; the `blend-game.js` overlap is the awkward one, since
-  the syllable-chunk helpers moved out to `game-core.js` in the
-  meantime. Worth either merging deliberately or deciding the work is
-  superseded — but not worth deleting unread.
 - **The board on a phone.** It works — the name column is narrowed at
   640px and the grid scrolls — but 15 columns on a handset is a lot of
   scrolling. The family fold (▾) is the existing escape hatch. Only worth

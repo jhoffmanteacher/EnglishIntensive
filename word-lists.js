@@ -50,6 +50,12 @@
    ════════════════════════════════════════════════════════════════════ */
 
 /* ── The four modes ────────────────────────────────────────────────────
+   A word on the `intro` copy, which is deliberately short and plain: this
+   is a phonics class, and the "how to play" text should not itself be a
+   decoding challenge. Each intro is one or two short sentences, split on
+   <br> — the split is load-bearing, because the Hear-directions button
+   speaks each sentence as its own utterance and reads the break as a
+   pause.
    `engine` picks which engine plays it. `page` is where cards and Match
    It live — one page each, serving every family, told which list to play
    by the address. Say-it and spell-it have no default: those pages carry
@@ -58,11 +64,11 @@
 var MODES = {
   say: {
     key: "say", engine: "blend", icon: "🎤", title: "Say it", needs: "mic",
-    intro: "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!"
+    intro: "Say each word out loud. The computer listens and tells you if you're right.<br>Every 5 in a row earns bonus points."
   },
   spell: {
     key: "spell", engine: "spell", icon: "⌨️", title: "Spell it", needs: "headphones",
-    intro: "No microphone — headphones only. The computer says a word, you type it.<br>Two tries each. Every 5 right in a row is bonus points!"
+    intro: "Put on headphones. Listen to the word, then type what you hear.<br>You get two tries for each word."
   },
   cards: {
     key: "cards", engine: "card", icon: "🃏", title: "Cards", needs: "", page: "cards-game.html",
@@ -288,7 +294,7 @@ window.LIST_FAMILIES = [
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
-        intro: "These aren't real words — sound out the letters and say it out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!"
+        intro: "These are made-up words. Sound out the letters, then say the word out loud.<br>The computer listens and tells you if you're right."
       },
       // Same reason as above: the flip shows the word, it doesn't say it.
       cards: {
@@ -345,7 +351,7 @@ window.LIST_FAMILIES = [
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
-        intro: "Read the whole word out loud, one syllable at a time. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!"
+        intro: "Break the word into syllables. Say each part, then say the whole word.<br>The computer listens and tells you if you're right."
       },
       cards: {
         note: `

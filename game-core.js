@@ -86,6 +86,83 @@ window.GameCore = (function(){
     return out;
   }
 
+  /* ---------------- the start screen, read aloud ----------------
+     Every game has a "Read directions aloud" button, and every game was
+     building the text for it itself: four copies of the same DOM walk,
+     which had drifted into four copies of the same two bugs.
+
+     The first was `.sub`.textContent. An intro is deliberately two short
+     sentences split by a <br>, and textContent drops the <br> silently —
+     so the two sentences came out welded into one run-on with no pause
+     exactly where the pause was meant to be. Splitting the innerHTML on
+     <br> first, then taking textContent of each half, keeps the break.
+
+     The second was joining the fragments with ". ". Every fragment
+     already ends in its own full stop, so the glue doubled it up, and it
+     all went to the synthesiser as ONE utterance — which is not how the
+     rest of this site speaks anything. An engine speaks these as separate
+     utterances queued back to back, which gives a truer pause between
+     them than any punctuation would.
+
+     So the walk lives here and returns fragments; each engine keeps its
+     own speaking, because that part legitimately differs — the blend game
+     has to stand its microphone down first and the others don't. */
+
+  // Collapse whitespace, and say the arrow rather than skipping it.
+  function spokenText(el){
+    return String(el && el.textContent || "").replace(/\s+/g, " ").replace(/→/g, "leads to").trim();
+  }
+
+  /* The start screen as an ordered list of things to say: the intro (one
+     fragment per <br>-separated sentence), then the rule box if there is
+     one, then any "good to know" note, then the numbered steps. Takes the
+     screen's element so it can be tested against a detached one. */
+  function directionParts(root){
+    var parts = [];
+    if(!root) return parts;
+
+    var intro = root.querySelector(".sub");
+    if(intro){
+      // innerHTML, not textContent: the <br> is the sentence break, and
+      // it has to survive into its own utterance.
+      intro.innerHTML.split(/<br\s*\/?>/i).forEach(function(html){
+        var tmp = document.createElement("div");
+        tmp.innerHTML = html;
+        var t = spokenText(tmp);
+        if(t) parts.push(t);
+      });
+    }
+    /* The rule box and the "Good to know" note, in the order they appear
+       on screen. Each starts with its own .tag — "The rule", "Good to
+       know" — spoken as its own fragment: it is a heading a sighted
+       student reads before the paragraph under it, and a listening
+       student should get the same warning that the subject just changed.
+       Announcing it from the tag rather than from a hard-coded string is
+       the same rule as everything else here — say what is on screen, so
+       there is no second copy to drift. */
+    [".rule", ".note"].forEach(function(sel){
+      var box = root.querySelector(sel);
+      if(!box) return;
+      var tag = box.querySelector(".tag");
+      if(tag){
+        var label = spokenText(tag);
+        // A heading, so it wants a full stop the paragraph won't supply.
+        if(label) parts.push(/[.!?]$/.test(label) ? label : label + ".");
+      }
+      box.querySelectorAll(":scope > *:not(.tag), :scope > *:not(.tag) li").forEach(function(el){
+        // A <ul> and its <li>s would otherwise be read twice over.
+        if(el.querySelector("li")) return;
+        var t = spokenText(el);
+        if(t) parts.push(t);
+      });
+    });
+    root.querySelectorAll(".steps li").forEach(function(li){
+      var t = spokenText(li);
+      if(t) parts.push(t);
+    });
+    return parts;
+  }
+
   /* ---------------- syllable chunks (pure, testable) ----------------
      A word list may write a word with middle dots marking its syllable
      boundaries — "fan·tas·tic". The dots are a teaching aid for the
@@ -486,6 +563,9 @@ window.GameCore = (function(){
     chunkSep: CHUNK_SEP,
     parseEntry: parseEntry,
     chunkMarkup: chunkMarkup,
+
+    spokenText: spokenText,
+    directionParts: directionParts,
 
     comebackCap: COMEBACK_CAP,
     sanitizeComeback: sanitizeComeback,

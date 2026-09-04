@@ -294,10 +294,10 @@ window.BlendGame = (function(){
       <div id="compatWarn" class="warn" style="display:none"></div>
       <button class="btn ghost" id="btnDirections" type="button" style="margin-bottom:16px">🔊 Read directions aloud</button>
       <ol class="steps">
-        <li>Put on <b>headphones with a mic</b>, or use your built-in mic.</li>
+        <li>Put on <b>headphones with a mic</b>.</li>
         <li>Click <b>Allow</b> so Chrome can use your microphone.</li>
-        <li>Check the <b>mic meter</b> on the next screen.</li>
-        <li>The mic <b>stays on</b> the whole game. Just say each word clearly.</li>
+        <li>Check the <b>mic meter</b>, then start.</li>
+        <li>Say each word clearly. The mic <b>stays on</b> the whole time.</li>
       </ol>
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
@@ -433,7 +433,7 @@ window.BlendGame = (function(){
     mount.className = "wrap";
     mount.innerHTML = shell({
       title: cfg.title,
-      intro: cfg.intro || "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!",
+      intro: cfg.intro || "Say each word out loud. The computer listens and tells you if you're right.<br>Every 5 in a row earns bonus points.",
       words: WORDS,
       theme: theme,
       progress: prog.markup()
@@ -1040,27 +1040,64 @@ window.BlendGame = (function(){
       }catch(e){ speaking = false; }
     }
 
-    // Reads the intro line and every step on the start screen, in order —
-    // pulled live from the DOM (textContent strips the <b>/<kbd> markup for
-    // us) so this never drifts out of sync with the visible directions.
-    function readDirections(){
+    /* One native utterance per fragment, queued back to back, rather than
+       one string glued together with ". " — each fragment already ends in
+       its own punctuation, and separate utterances give a truer pause
+       between them than any punctuation would. Generalises sayChunked()
+       above; the mic bookkeeping is why this engine can't just use a
+       plain say() the way the quiet games do. */
+    function sayParts(parts){
       if(!window.speechSynthesis) return;
-      var start = $("s-start");
-      var parts = [];
-      var intro = start.querySelector(".sub");
-      if(intro) parts.push(intro.textContent.replace(/\s+/g, " ").trim());
-      start.querySelectorAll(".steps li").forEach(function(li){
-        parts.push(li.textContent.replace(/\s+/g, " ").trim());
-      });
-      say(parts.join(". "), { rate: 0.92 });
+      parts = (parts || []).filter(function(p){ return p; });
+      if(!parts.length) return;
+      try{
+        window.speechSynthesis.cancel();
+        // Core.voice(), not a local `voice`: the branch this came from
+        // predates the shared core, and the bare identifier it used no
+        // longer exists — which the try/catch below was quietly hiding.
+        var v = Core.voice();
+        var utterances = parts.map(function(text){
+          var u = new SpeechSynthesisUtterance(text);
+          u.lang = "en-US";
+          if(v) u.voice = v;
+          return u;
+        });
+        var last = utterances[utterances.length - 1];
+        currentUtterance = last;
+        speaking = true;
+        stopListening();
+        updateMicUI();
+        var release = function(){
+          if(currentUtterance !== last) return;   // superseded by a newer say()/sayChunked()/sayParts()
+          currentUtterance = null;
+          speaking = false;
+          holdMic(350);   // let the speakers settle before listening again
+        };
+        last.onend = release;
+        last.onerror = release;
+        // Safety net in case onend never fires (Chrome does this sometimes).
+        var totalChars = parts.join(" ").length;
+        setTimeout(function(){ if(currentUtterance === last) release(); }, 1200 + 90 * totalChars);
+        utterances.forEach(function(u){ window.speechSynthesis.speak(u); });
+      }catch(e){ speaking = false; }
+    }
+
+    // Read from the live DOM (Core.directionParts) rather than a second
+    // copy of the strings, so the spoken directions can't drift from the
+    // ones on screen.
+    function readDirections(){
+      sayParts(Core.directionParts($("s-start")));
     }
 
     /* ---------------- events ---------------- */
-    $("btnDirections").addEventListener("click", readDirections);
+    // Greyed out rather than silently dead on a browser that can't speak.
+    if(!window.speechSynthesis) $("btnDirections").disabled = true;
+    else $("btnDirections").addEventListener("click", readDirections);
     $("btnStart").addEventListener("click", function(){
       pendingList = WORDS;
       snd.click(); startMicCheck();
     });
+
     $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(pendingList); });
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
 

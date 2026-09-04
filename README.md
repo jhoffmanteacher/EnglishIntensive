@@ -205,8 +205,44 @@ the one function that touches `localStorage`), the race/vault progress
 graphics, the confetti, the score pop-up, the feedback blips, the voice
 ranking, the syllable-chunk parser (`parseEntry`, `chunkMarkup` — three
 engines now play the dotted multisyllable list and all three need the same
-answer to "what word is this really?"), and the word-list helpers
-(`shuffled`, `dedupeWords`, `sampleWords`, `escapeHtml`).
+answer to "what word is this really?"), the start screen's read-aloud
+(`directionParts`, below), and the word-list helpers (`shuffled`,
+`dedupeWords`, `sampleWords`, `escapeHtml`).
+
+### Directions, and reading them aloud
+
+The intro line and numbered steps on every start screen are written short
+and plain. This is a phonics class, not a reading test: the *how to play*
+copy should not itself be a decoding challenge. Each intro is one or two
+short sentences separated by a `<br>`, and that break is load-bearing —
+see below.
+
+Every game has a **🔊 Read directions aloud** button, which speaks that
+same text in the same best-picked voice as the words themselves
+(`Core.voice()` prefers Chrome's network-backed "Google US English" over
+the flatter local default). It reads off the live DOM rather than a second
+copy of the strings, so the spoken directions cannot drift from the
+visible ones, and it's disabled outright where `speechSynthesis` is
+missing.
+
+`Core.directionParts(startScreen)` does the walk and returns the fragments
+to speak, in screen order: the intro, then the rule box or "good to know"
+note if there is one, then the numbered steps. Boxed sections lead with
+their own on-screen `.tag` — "The rule", "Good to know" — so a listening
+student gets the same heading a sighted one reads before the paragraph
+under it.
+
+It lives in the core because all four engines had grown their own copy of
+this walk, and all four copies had the same two bugs. The first: reading
+the intro with `.textContent`, which drops the `<br>` silently, welding
+two sentences into a run-on with no pause exactly where the pause was
+written. The second: joining the fragments with `". "` — every fragment
+already ends in its own full stop, so the glue doubled it, and the lot
+went to the synthesiser as **one** utterance. Each engine now speaks the
+fragments as separate queued utterances, which gives a truer pause than
+any punctuation would; the speaking itself stays per-engine, because the
+blend game has to stand its microphone down first and the quiet three
+don't.
 
 Still in each engine: how it asks its question, how it judges the answer,
 its own screens and styles, and anything to do with the microphone.
