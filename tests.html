@@ -869,6 +869,36 @@
        E({}, {periodLists:{"3":["b"]}}, ALL).join(","), "a,b,c,d");
     eq("the returned array is a copy, not the stored one",
        (function(){ var cfg = {defaultLists:["a"]}; E(null,cfg,ALL).push("x"); return cfg.defaultLists.length; })(), 1);
+
+    /* ---- the roster rung ----
+       Between the student's own assignment and their period. The rule
+       that lets this ship before the rules for it are published: with no
+       roster the walk is byte-for-byte what it was, so a read that fails
+       (permission denied, nothing imported) is indistinguishable from
+       the site as it was yesterday. */
+    eq("no roster at all is exactly the walk as it was",
+       E({period:"3"}, {defaultLists:["a"], periodLists:{"3":["b"]}}, ALL, null).join(","), "b");
+    eq("a roster read that failed looks the same as no roster",
+       E(null, {defaultLists:["a"]}, ALL, undefined).join(","),
+       E(null, {defaultLists:["a"]}, ALL).join(","));
+    eq("a roster row with no lists changes nothing",
+       E(null, {defaultLists:["a"]}, ALL, {name:"Ana"}).join(","), "a");
+    eq("a roster row's lists beat the class default",
+       E(null, {defaultLists:["a"]}, ALL, {lists:["c"]}).join(","), "c");
+    eq("…and beat the period",
+       E({period:"3"}, {periodLists:{"3":["b"]}}, ALL, {lists:["c"]}).join(","), "c");
+    eq("a student's OWN assignment still beats the roster",
+       E({lists:["d"]}, {}, ALL, {lists:["c"]}).join(","), "d");
+    eq("the roster's period is used when the assignment has none",
+       E(null, {periodLists:{"3":["b"]}, defaultLists:["a"]}, ALL, {period:"3"}).join(","), "b");
+    eq("…and the assignment's period wins when it has one",
+       E({period:"4"}, {periodLists:{"3":["b"],"4":["e"]}}, ALL, {period:"3"}).join(","), "e");
+    eq("an empty roster period is no period, not a period called ''",
+       E(null, {defaultLists:["a"], periodLists:{"":["z"]}}, ALL, {period:""}).join(","), "a");
+    eq("an explicit empty roster list parks them too",
+       E(null, {defaultLists:["a"]}, ALL, {lists:[]}).length, 0);
+    eq("nothing anywhere, roster included, still opens the whole site",
+       E(null, null, ALL, null).join(","), "a,b,c,d");
   })();
 
   /* ══════════════════════════════════════════════════════════════════

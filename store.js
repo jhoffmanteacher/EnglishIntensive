@@ -14,6 +14,12 @@
                          work — see firestore.rules.
      config/class        class-wide: the per-period list assignments and
                          the default. Everyone reads, teacher writes.
+     roster/{email}      the imported class list, keyed by the address
+                         this student signs in with. Teacher-written; a
+                         student may read exactly one document, their
+                         own. It is how a student who has never been
+                         touched by the dashboard still lands in the
+                         right period on their first sign-in.
 
    ── Two rules that are easy to get wrong ──────────────────────────────
    1. A FAILED READ IS NOT AN EMPTY RECORD. If the progress read fails —
@@ -40,6 +46,7 @@ window.EIStore = (function(){
   var totals = { n:0, r:0 };
   var recent = [];              // [{list, at, right, total}] newest last
   var assignment = null;        // { period, lists } or null
+  var rosterRow = null;         // roster/{email} — the imported class list
   var classCfg = null;          // { periodLists, defaultLists, periods }
   var loadFailed = false;
   var dirty = {};               // stat keys changed since the last write
@@ -73,14 +80,26 @@ window.EIStore = (function(){
   /* ── which lists is this student supposed to be practicing? ────────
      Pure, so tests.html can pin the precedence rather than trusting a
      reading of it: the student's own assignment wins, then their period's,
+     then the roster row the teacher imported them on, then their period's,
      then the class default, then — if the teacher has set nothing at all —
      everything, because a student who signs in on day one should find the
      site full rather than empty. An explicit EMPTY list at any level is a
-     real answer and stops the walk; that's how you park a student. */
-  function effectiveLists(assignment, classCfg, allIds){
+     real answer and stops the walk; that's how you park a student.
+
+     A missing roster (nothing imported, or the rules not published yet)
+     makes the walk exactly what it was before the roster existed, which
+     is the property that lets this ship ahead of the rules. */
+  function effectiveLists(assignment, classCfg, allIds, roster){
     var cfg = classCfg || {};
     if(assignment && Array.isArray(assignment.lists)) return assignment.lists.slice();
-    var period = assignment && assignment.period;
+    // The roster's own lists come next: a student the teacher placed on
+    // the import, before anybody had a uid to assign against. An
+    // assignment written later outranks it, which is the whole order.
+    if(roster && Array.isArray(roster.lists)) return roster.lists.slice();
+    // A period from either place. The assignment's wins where there is
+    // one, so a student moved on the dashboard stays moved.
+    var period = (assignment && assignment.period) || (roster && roster.period) || null;
+    if(period === "") period = null;
     var byPeriod = cfg.periodLists || {};
     if(period != null && Array.isArray(byPeriod[period])) return byPeriod[period].slice();
     if(Array.isArray(cfg.defaultLists)) return cfg.defaultLists.slice();
@@ -100,10 +119,20 @@ window.EIStore = (function(){
     return EIAuth.db().then(function(db){
       if(!db){ loadFailed = true; readyResolve({ offline:true }); return readyPromise; }
       var mine = db.collection("students").doc(uid);
+      /* The student's own document is the only read whose failure is a
+         failure. The other three are optional by design: a student with
+         no assignment, no class config and no roster row is a student on
+         day one, and the walk below has an answer for that. The roster
+         read in particular fails outright until the rules for it are
+         published — see firestore.rules — and that must look exactly
+         like "not imported yet", never like a broken account. */
+      var email = String((u && u.email) || "").toLowerCase();
       return Promise.all([
         mine.get(),
         db.collection("assignments").doc(uid).get().catch(function(){ return null; }),
-        db.collection("config").doc("class").get().catch(function(){ return null; })
+        db.collection("config").doc("class").get().catch(function(){ return null; }),
+        email ? db.collection("roster").doc(email).get().catch(function(){ return null; })
+              : Promise.resolve(null)
       ]).then(function(snaps){
         var d = snaps[0] && snaps[0].exists ? snaps[0].data() : null;
         if(d){
@@ -115,6 +144,7 @@ window.EIStore = (function(){
         }
         assignment = snaps[1] && snaps[1].exists ? snaps[1].data() : null;
         classCfg   = snaps[2] && snaps[2].exists ? snaps[2].data() : null;
+        rosterRow  = snaps[3] && snaps[3].exists ? snaps[3].data() : null;
         writeLocal();
         // Stamp identity on every sign-in: it is what turns an opaque uid
         // into a name on the teacher's roster, and it keeps up with a
@@ -248,7 +278,7 @@ window.EIStore = (function(){
   /* ── reads for the pages ──────────────────────────────────────────── */
   function statsFor(listId){ return Adaptive.statsForList(stats, listId); }
   function myLists(){
-    var ids = effectiveLists(assignment, classCfg, WordLists.ids);
+    var ids = effectiveLists(assignment, classCfg, WordLists.ids, rosterRow);
     // Drop assignments naming a list that no longer exists, so a deleted
     // list doesn't render a broken tile.
     return ids.filter(function(id){ return WordLists.exists(id); });
@@ -276,7 +306,12 @@ window.EIStore = (function(){
     totals: function(){ return { n: totals.n, r: totals.r }; },
     recent: function(){ return recent.slice(); },
     myLists: myLists,
-    period: function(){ return assignment ? assignment.period : null; },
+    // The assignment's period, or the roster's where the teacher hasn't
+    // set one — which on day one is the only one there is.
+    period: function(){
+      return (assignment && assignment.period) || (rosterRow && rosterRow.period) || null;
+    },
+    roster: function(){ return rosterRow; },
     failed: function(){ return loadFailed; },
     _internals: {
       effectiveLists: effectiveLists,
