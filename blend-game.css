@@ -187,6 +187,9 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
    stops being seen, this one moves from word to word and doesn't. The
    message under it says the same thing in words. */
 .word .dx{color:var(--accent);text-shadow:0 0 22px rgba(255,201,77,.45)}
+/* The reveal is made of buttons when the phoneme clips are available, so
+   the same gold has to reach a .tapbit as well as a bare span. */
+.word .tapbit.dx{color:var(--accent);text-shadow:0 0 22px rgba(255,201,77,.45)}
 .dxmsg{
   display:inline-block;margin-top:8px;font-size:17px;font-weight:700;
   color:var(--accent);

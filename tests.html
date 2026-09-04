@@ -58,6 +58,7 @@
 <script src="listen.js"></script>
 <script src="card-game.js"></script>
 <script src="fluency-game.js"></script>
+<script src="blend-it-game.js"></script>
 <script src="match-game.js"></script>
 <!-- The scheduler and the assignment resolver are pure too, so they're
      tested here alongside the engines. EI_REQUIRE_AUTH switches auth.js
@@ -1055,6 +1056,84 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     game-core.js — phoneme clips and tap-to-hear
+
+     The audio itself can't be tested headlessly, and doesn't need to be:
+     what could actually be wrong is which SOUNDS a word asks for and
+     which LETTERS each pressable piece covers. Both are pure.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+
+    eq("x is two sounds, one token", C.expandPhonemes(["B","KS"]).join(","), "B,K,S");
+    eq("qu is two sounds, one token", C.expandPhonemes(["KW","IY","N"]).join(","), "K,W,IY,N");
+    eq("everything else passes through", C.expandPhonemes(["S","H"]).join(","), "S,H");
+    eq("sh is one sound, not two", C.expandPhonemes(["SH"]).join(","), "SH");
+    eq("nothing expands to nothing", C.expandPhonemes([]).length, 0);
+    eq("a hole in the list is dropped", C.expandPhonemes(["B", "", null]).join(","), "B");
+
+    /* Every sound the encoder can emit has to have a clip, or a word
+       will play with a hole in it. The manifest is the list of clips that
+       shipped; this walks every word on every list and checks. */
+    (function(){
+      var have = {};
+      // The tokens tools/make-phonemes.sh writes, kept here rather than
+      // fetched: a test that skips itself when a fetch fails is a test
+      // that never fails.
+      ("B D G K P T C J F H L M N NG R S SH TH V W Y Z AE EH IH AO UH EY IY AY OW UW AW OY AR OR ER")
+        .split(" ").forEach(function(t){ have[t] = true; });
+      var missing = {};
+      window.WordLists.ids.forEach(function(id){
+        window.WordLists.wordsOf(id).forEach(function(w){
+          C.expandPhonemes(C.phonemes(w)).forEach(function(t){ if(!have[t]) missing[t] = w; });
+        });
+      });
+      eq("every sound in the library has a clip", Object.keys(missing).join(","), "",
+         JSON.stringify(missing));
+    })();
+
+    // ---- the pressable pieces ----
+    (function(){
+      var p = C.tapPieces("crab", null);
+      eq("a one-syllable word breaks into its sounds", p.length, 4);
+      eq("…each piece is its letters", p.map(function(x){ return x.text; }).join("-"), "c-r-a-b");
+      eq("…and each carries its sound", p.map(function(x){ return x.tokens.join(""); }).join("-"), "K-R-AE-B");
+      eq("…and they cover the whole word",
+         p.map(function(x){ return x.text; }).join(""), "crab");
+
+      var d = C.tapPieces("fantastic", ["fan","tas","tic"]);
+      eq("a dotted word breaks into its syllables", d.length, 3);
+      eq("…as written", d.map(function(x){ return x.text; }).join("-"), "fan-tas-tic");
+      eq("…each with the sounds inside it", d[0].tokens.join(","), "F,AE,N");
+      eq("…and the last one too", d[2].tokens.join(","), "T,IH,K");
+
+      var e = C.tapPieces("kite", null);
+      eq("a silent letter travels with the sound before it",
+         e.map(function(x){ return x.text; }).join("-"), "k-i-te");
+      var x = C.tapPieces("box", null);
+      eq("x is one piece", x.length, 3);
+      eq("…that plays two sounds", C.expandPhonemes(x[2].tokens).join(","), "K,S");
+      eq("nothing to press in an empty word", C.tapPieces("", null).length, 0);
+    })();
+
+    // ---- the markup ----
+    (function(){
+      var p = C.tapPieces("said", null);
+      var m = C.tapMarkup(p, [[1,3]], "");
+      eq("every piece is a button", (m.match(/data-tap=/g) || []).length, p.length);
+      eq("the buttons are press-only, not tab stops",
+         (m.match(/tabindex="-1"/g) || []).length, p.length);
+      eq("heart letters survive being cut into pieces",
+         m.indexOf('<span class="heart">') !== -1, true);
+      eq("a syllable separator only appears between pieces",
+         (C.tapMarkup(C.tapPieces("fantastic", ["fan","tas","tic"]), null, "·")
+           .match(/tapsep/g) || []).length, 2);
+      eq("markup is escaped", C.tapMarkup([{text:"<b>", start:0, end:3, tokens:[]}], null, "")
+           .indexOf("&lt;b&gt;") !== -1, true);
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — the Reading view
 
      Four switches applied as classes on <html>. The parts worth pinning:
@@ -1534,7 +1613,7 @@
     });
     eq("every list id is unique (they key stored stats)", dupes.length, 0, dupes.join(","));
     var missing = WordLists.all.filter(function(l){
-      return !l.title || !l.page || !l.words.length || ["blend","spell","card","match","fluency"].indexOf(l.engine) === -1;
+      return !l.title || !l.page || !l.words.length || ["blend","spell","card","match","fluency","blendit"].indexOf(l.engine) === -1;
     }).map(function(l){ return l.id; });
     eq("every list has a title, a page, an engine and words", missing.length, 0, missing.join(","));
     var badSection = WordLists.all.filter(function(l){ return ["decode","sight"].indexOf(l.section) === -1; });
@@ -1598,7 +1677,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("56 entries: six word families and eight passages, times their modes", W.all.length, 56);
+    eq("59 entries: six word families and eight passages, times their modes", W.all.length, 59);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -1637,7 +1716,7 @@
        W.modesOf("oi-oy").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
     // A synthesiser can't say "vab", so there is nothing for Match It to
     // ask, and the flip has to stay silent.
-    eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards,fluency");
+    eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards,fluency,blendit");
     eq("nonsense cards run with the read-aloud off", W.byId("nonsense-1-cards").config.speak, false);
     eq("every other family's cards still speak", W.byId("red-1-cards").config.speak, undefined);
 

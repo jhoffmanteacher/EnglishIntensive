@@ -331,6 +331,21 @@ window.BlendGame = (function(){
     // The Reading view panel is markup the core supplied; the core wires it.
     Core.mountReadingView();
 
+    /* Bound once to the word, not to each piece: the reveal rewrites its
+       contents on every miss. */
+    Core.wireTaps(document.getElementById("uiWord"), function(){ return revealPieces; },
+      function(piece, i, el){
+        if(!phAudio) return;
+        el.classList.add("playing");
+        holdMic(phAudio.estimate(piece.tokens, 220) + 900);
+        phAudio.play(piece.tokens, 220).then(function(ok){
+          el.classList.remove("playing");
+          // The part, then the whole — a piece on its own is only useful
+          // next to the thing it is part of.
+          if(ok && revealWord) setTimeout(function(){ say(revealWord, 0.85); }, 200);
+        });
+      });
+
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], missKind = {}, tries = 0, busy = false;
@@ -425,6 +440,13 @@ window.BlendGame = (function(){
     // by tests.html; the game itself just never asks for it.)
     var level = 0;
 
+    /* The phoneme clips, if they are on the server. The reveal uses them
+       to make the word pressable; without them it just shows the word,
+       which is what it always did. */
+    var phAudio = null;
+    Core.phonemeAudio().then(function(p){ phAudio = p; });
+    var revealPieces = [], revealWord = "";
+
     /* Homophone groups, where the list carries them. Only the red words do
        — and only they need to: their near-misses are words that sound
        identical ("to"/"two"), while the phonics lists' near-misses are
@@ -455,6 +477,20 @@ window.BlendGame = (function(){
       return Core.escapeHtml(word.slice(0, a)) +
              '<span class="dx">' + Core.escapeHtml(word.slice(a, b)) + '</span>' +
              Core.escapeHtml(word.slice(b));
+    }
+
+    /* diagnose() blamed some letters; the reveal is now made of buttons,
+       so the blame goes on whichever buttons those letters fall in. Same
+       gold, same meaning — it just has to survive the word being cut into
+       pieces for a different reason. */
+    function markDx(span){
+      if(!span) return;
+      revealPieces.forEach(function(p, i){
+        if(p.start < span[1] && p.end > span[0]){
+          var el = $("uiWord").querySelector('[data-tap="' + i + '"]');
+          if(el) el.classList.add("dx");
+        }
+      });
     }
 
     // The written hint read aloud: a colon is a pause, not a word.
@@ -573,6 +609,7 @@ window.BlendGame = (function(){
       var w = queue[idx];
       $("uiWord").innerHTML = markup(w);
       Core.markWordCase($("uiWord"), w);
+      revealPieces = []; revealWord = "";
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       renderCombo();
@@ -728,7 +765,19 @@ window.BlendGame = (function(){
                   : '<br><span class="heard">I didn\'t catch that</span>') +
         (dx ? '<br><span class="dxmsg">' + Core.escapeHtml(dx.message) + "</span>" : "");
       if(tries >= 2){
-        if(dx && !targetChunks) $("uiWord").innerHTML = dxMarkup(target, dx.span);
+        /* The reveal, pressable where the clips exist: each syllable (or
+           each sound on a one-syllable word) plays itself. A student who
+           has just been told a word twice usually cannot hear which part
+           they were getting wrong, and this is where they can find out
+           without anyone standing over them. */
+        if(phAudio){
+          revealWord = target;
+          revealPieces = Core.tapPieces(target, targetChunks);
+          $("uiWord").innerHTML = Core.tapMarkup(revealPieces, null, targetChunks ? CHUNK_SEP : "");
+          if(dx) markDx(dx.span);
+        } else if(dx && !targetChunks){
+          $("uiWord").innerHTML = dxMarkup(target, dx.span);
+        }
         if(missed.indexOf(target) === -1) missed.push(target);
         if(dx) missKind[target] = dx.kind;
         report(target, false, tries);

@@ -401,6 +401,21 @@ window.CardGame = (function(){
     }
     function heartOf(w){ return Object.prototype.hasOwnProperty.call(HEART, w) ? HEART[w] : null; }
 
+    /* Tap-to-hear on the back face. Bound once to the face rather than to
+       each button, so re-rendering the word on every card costs nothing;
+       tapList is whatever the current card put there. */
+    var tapList = [], tapWord = "";
+    Core.wireTaps($("uiWordBack"), function(){ return tapList; }, function(piece, i, el){
+      if(!phAudio) return;
+      el.classList.add("playing");
+      // The piece, then the whole word — the part on its own is only
+      // useful next to the thing it is part of.
+      phAudio.play(piece.tokens, 220).then(function(ok){
+        el.classList.remove("playing");
+        if(ok && SPEAK && tapWord) setTimeout(function(){ say(tapWord, SLOW_RATE); }, 200);
+      });
+    });
+
     /* The sentence to put on the front of this card, or null. Three gates,
        all of them deliberate: the list has to carry sentences at all, the
        student has to already own the word (this is a step up, not extra
@@ -485,6 +500,11 @@ window.CardGame = (function(){
     var listenOn = false, heardText = "";
     var HOMOPHONES = cfg.homophones || null;
     var SENTENCES = cfg.sentences || null;
+    // The phoneme clips, if they are on the server. Everything built on
+    // them checks for null and simply doesn't appear — a missing folder
+    // must never mean a card that plays silence at a student.
+    var phAudio = null;
+    Core.phonemeAudio().then(function(p){ phAudio = p; });
     // Counts only the cards that COULD have shown a sentence, so "one in
     // three" means one in three of those and not one in three of the round.
     var ctxTick = 0;
@@ -651,11 +671,22 @@ window.CardGame = (function(){
       // the word came apart once they've already had their go at it.
       var chunks = Object.prototype.hasOwnProperty.call(CHUNKS, w) ? CHUNKS[w] : null;
       var heart = heartOf(w);
-      if(chunks) $("uiWordBack").innerHTML = Core.chunkMarkup(chunks, heart);
+      /* With the clips available the back of the card is pressable: each
+         syllable, or each sound on a one-syllable word, plays itself and
+         then the whole word. A student who has been told a word twice and
+         still can't read it usually can't hear which part they are
+         getting wrong, and this is the cheapest way to find out. */
+      if(phAudio){
+        tapWord = w;
+        tapList = Core.tapPieces(w, chunks);
+        $("uiWordBack").innerHTML = Core.tapMarkup(tapList, heart, chunks ? Core.chunkSep : "");
+      }
+      else if(chunks) $("uiWordBack").innerHTML = Core.chunkMarkup(chunks, heart);
       else if(heart) $("uiWordBack").innerHTML = Core.heartMarkup(w, heart);
       else $("uiWordBack").textContent = w;
       $("uiBackHint").textContent = heart && !chunks
         ? "In red: the part to remember by heart."
+        : phAudio ? "Tap a part of the word to hear it."
         : "Did you read it right?";
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;

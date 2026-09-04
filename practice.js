@@ -28,8 +28,10 @@ window.EIPractice = (function(){
   // enough, relative to a 30-40 word list, for the weighting to bite.
   var SESSION_SIZE = 18;
 
-  var ENGINES = { blend: "BlendGame", spell: "SpellGame", card: "CardGame", match: "MatchGame", fluency: "FluencyGame" };
-  var ENGINE_FILES = { blend: "blend-game.js", spell: "spell-game.js", card: "card-game.js", match: "match-game.js", fluency: "fluency-game.js" };
+  var ENGINES = { blend: "BlendGame", spell: "SpellGame", card: "CardGame", match: "MatchGame",
+                  fluency: "FluencyGame", blendit: "BlendItGame" };
+  var ENGINE_FILES = { blend: "blend-game.js", spell: "spell-game.js", card: "card-game.js",
+                       match: "match-game.js", fluency: "fluency-game.js", blendit: "blend-it-game.js" };
   function engineFor(list){ return window[ENGINES[list.engine]] || null; }
 
   /* Pick this round's words, then map them back to the list's original
@@ -163,6 +165,7 @@ window.EIPractice = (function(){
   // not-assigned note can be appended to one without blanking it.
   function engineIntro(list){
     if(list.engine === "fluency") return "Read out loud. The computer follows along and times you.";
+    if(list.engine === "blendit") return "Hear the sounds one at a time, then say the word.";
     if(list.engine === "spell") return "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!";
     if(list.engine === "card")  return "Read the word out loud, then flip the card to check yourself.<br>Build a streak: every 5 in a row is bonus points!";
     if(list.engine === "match") return "The computer says a word — click the one that matches.<br>Every 5 right in a row is bonus points!";

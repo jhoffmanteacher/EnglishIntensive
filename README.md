@@ -878,6 +878,66 @@ latest and best are printed beside it), and the roster CSV gains a
 *latest*/*best* pair of columns for each fluency list somebody has actually
 read.
 
+## Phoneme clips
+
+A synthesiser will not say an isolated /b/. Asked for one it says **"buh"**
+— and a word sounded out as "buh-a-tuh" does not blend into "bat". That is
+the single most common thing a struggling reader has been taught wrong, and
+the student who does it has been doing it faithfully for years.
+
+So the sounds come from files. `audio/ph/<TOKEN>.mp3`, one per token
+`phonemes()` can emit (37 of them), made by `tools/make-phonemes.sh` out of
+espeak-ng's phoneme input — the one way to get a synthesiser to say a sound
+in isolation. Stops (b d g k p t) have no sound at all without a release, so
+they get a tiny schwa that is then trimmed back to the burst: the closest a
+machine gets to a pure /b/ without saying "buh". The script is a build-time
+tool; the clips are committed, and nothing on the site needs it.
+
+`GameCore.phonemeAudio()` fetches `audio/ph/manifest.json` once per page and
+resolves to a player — `play(tokens, gapMs)`, `has()`, `estimate()`,
+`cancel()` — or to **null**. Null is the feature switch: if the folder isn't
+there, everything built on it hides itself rather than playing silence at a
+student. `x` and `qu` stay single tokens everywhere else (the distance
+arithmetic depends on it) and are expanded to two clips only here.
+
+Playing goes through the same microphone hold the spoken coach uses, so the
+recogniser never transcribes the computer's own sounds back as the
+student's.
+
+### Blend It
+
+A mode that starts from **sound** rather than from letters, and the only one
+that can. The student hears /k/ /r/ /a/ /b/ spread 700 ms apart, then the
+same sounds 250 ms apart, then says the word. The word itself is not on
+screen until they have had their go — that is phonological blending with
+nothing to read off, which is the sub-skill every printed list has to
+assume.
+
+Dots under the prompt show how many sounds are coming, which is itself worth
+knowing before trying to blend them. On the second miss the sounds play once
+more and **the letters light up with them**, in order, using `phonemeSpans`
+— *that* sound is spelled by *those* letters, which is the join the whole
+game exists to make. Then the whole word, spoken; nothing for the nonsense
+list, where a synthesiser handed "vab" says "verb".
+
+On the starting blends, the final blends and the nonsense words.
+`blend-it-game.js` + `blend-it-game.html`.
+
+### Tap to hear
+
+The back of a flash card and Say It's reveal are pressable where the clips
+exist: each syllable on a dotted word, each sound on a one-syllable one.
+Press one and it plays itself, then the whole word — a part is only useful
+next to the thing it is part of.
+
+A student who has been told a word twice and still can't read it usually
+can't hear *which part* they are getting wrong. Pressing "tas" and hearing
+/t/ /a/ /s/ answers that without anybody having to explain it.
+
+Press-only on purpose (`tabindex="-1"`): these sit inside games where 1 and
+2 are the answer keys, and a tab stop on every syllable would put a dozen
+new stops between the student and the button they need.
+
 ## Adaptive practice
 
 A round is no longer the whole word list. `EIPractice.play()` draws

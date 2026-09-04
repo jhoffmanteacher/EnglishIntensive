@@ -86,6 +86,22 @@ html.view-cream .flipface .hint,
 html.view-cream .flipface .facehint,
 html.view-cream .miclabel{color:#6b6350}
 
+/* ---- tap-to-hear (GameCore) ----
+   The pieces of a revealed word, each one pressable. They have to look
+   like part of the word, not like a row of buttons: no borders until the
+   pointer is on one, and the sizing inherited from whatever is showing
+   the word. */
+.tapword{display:inline-flex;align-items:baseline;flex-wrap:wrap;justify-content:center}
+.tapbit{
+  font:inherit;color:inherit;background:transparent;border:none;
+  padding:0 .04em;border-radius:10px;cursor:pointer;line-height:inherit;
+  transition:background .12s ease, color .12s ease;
+}
+.tapbit:hover{background:rgba(255,201,77,.16);color:var(--accent)}
+.tapbit.playing{background:var(--accent);color:#1a1206}
+.tapsep{color:var(--muted);font-weight:400;margin:0 .02em}
+.taphint{color:var(--muted);font-size:14px;margin-top:8px}
+
 /* ---- the Reading view panel (GameCore) ---- */
 .rvwrap{margin:14px 0 0}
 .rvpanel{

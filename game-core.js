@@ -890,6 +890,193 @@ window.GameCore = (function(){
   // loads, so a cleared or stale cache costs one frame and nothing else.
   applyView(readView());
 
+  /* ---------------- tap-to-hear ----------------
+     A revealed word broken into pieces you can press. Syllables where the
+     entry marks them ("fan·tas·tic"); otherwise one piece per sound, from
+     phonemeSpans, which is the finest split that still corresponds to
+     something a student can hear.
+
+     The point is the join. A student who has been told a word twice and
+     still can't read it usually can't hear which part of it they are
+     getting wrong; pressing "tas" and hearing /t/ /a/ /s/ answers that
+     without anybody having to explain it. Press-only, deliberately —
+     these sit inside games where 1 and 2 are the answer keys, and a
+     tab-stop on every syllable would put a dozen new stops between the
+     student and the button they actually need. */
+  function tapPieces(word, chunks){
+    var w = String(word == null ? "" : word);
+    var spans = phonemeSpans(w);
+    if(!spans.length) return [];
+    function inWord(s){ return spanInWord(w, s.start, s.end); }
+    var ranges = [];
+    if(chunks && chunks.length > 1){
+      var at = 0;
+      chunks.forEach(function(ch){ ranges.push([at, at + ch.length]); at += ch.length; });
+    } else {
+      spans.forEach(function(s){ ranges.push(inWord(s)); });
+    }
+    return ranges.map(function(r){
+      // Every sound whose letters fall inside this piece. Overlap rather
+      // than containment: a syllable break can land mid-digraph in a
+      // hand-dotted entry, and half a /th/ is not a sound.
+      var toks = [];
+      spans.forEach(function(s){
+        var sr = inWord(s);
+        if(sr[0] < r[1] && sr[1] > r[0]) toks.push(s.ph);
+      });
+      return { text: w.slice(r[0], r[1]), start: r[0], end: r[1], tokens: toks };
+    }).filter(function(p){ return p.text; });
+  }
+
+  // The pieces as pressable markup. `sep` is drawn between them where the
+  // split is a syllable split, so the word still reads as one word.
+  function tapMarkup(pieces, heart, sep){
+    return '<span class="tapword">' + pieces.map(function(p, i){
+      return (i > 0 && sep ? '<span class="tapsep">' + escapeHtml(sep) + "</span>" : "") +
+        '<button type="button" class="tapbit" tabindex="-1" data-tap="' + i + '" ' +
+        'aria-label="Hear ' + escapeHtml(p.text) + '">' + markHeart(p.text, p.start, heart) + "</button>";
+    }).join("") + "</span>";
+  }
+
+  /* Wires whatever tapMarkup rendered inside `root`. Bound once to the
+     container, not to each button, so an engine that rewrites the word on
+     every card pays nothing for it — which is why `pieces` may be a
+     function: the binding outlives the pieces it is bound over.
+     Blurring after a press hands the keyboard back to the game, where 1
+     and 2 are still the answer keys. */
+  function wireTaps(root, pieces, onTap){
+    if(!root) return;
+    root.addEventListener("click", function(ev){
+      var list = typeof pieces === "function" ? pieces() : pieces;
+      if(!list || !list.length) return;
+      var t = ev.target;
+      while(t && t !== root && !(t.getAttribute && t.getAttribute("data-tap") !== null)) t = t.parentNode;
+      if(!t || t === root) return;
+      var i = parseInt(t.getAttribute("data-tap"), 10);
+      if(!isFinite(i) || !list[i]) return;
+      try{ t.blur(); }catch(e){}
+      onTap(list[i], i, t);
+    });
+  }
+
+  /* ---------------- phoneme clips ----------------
+     A synthesiser will not say an isolated /b/. Asked for one it says
+     "buh", which is the single most common thing a struggling reader has
+     been taught wrong: a word sounded out as "buh-a-tuh" does not blend
+     into "bat", and the student who has been doing that for years has
+     been doing it faithfully. So the sounds come from files instead —
+     audio/ph/<TOKEN>.mp3, one per token phonemes() can emit, made by
+     tools/make-phonemes.sh out of espeak-ng's phoneme input.
+
+     The manifest is the feature switch. Fetched once per page; if it
+     isn't there (a stale checkout, a deploy that missed the folder)
+     phonemeAudio() resolves to null and every feature built on it hides
+     itself rather than playing silence at a student.
+
+     Two tokens are compound: x is /k/+/s/ and qu is /k/+/w/. They stay
+     single tokens everywhere else — the distance arithmetic depends on
+     it — and are expanded only here, where they have to become two
+     actual sounds. */
+  var PH_DIR = "audio/ph/";
+  var PH_COMPOUND = { KS: ["K","S"], KW: ["K","W"] };
+  var phAudioPromise = null;
+
+  // The sounds a list of tokens actually plays as. Pure, so a test can
+  // pin it without any audio at all.
+  function expandPhonemes(tokens){
+    var out = [];
+    (tokens || []).forEach(function(t){
+      var c = PH_COMPOUND[t];
+      if(c) out = out.concat(c);
+      else if(t) out.push(t);
+    });
+    return out;
+  }
+
+  function phonemeAudio(){
+    if(phAudioPromise) return phAudioPromise;
+    phAudioPromise = (window.fetch
+      ? window.fetch(PH_DIR + "manifest.json", { cache: "force-cache" })
+          .then(function(r){ if(!r.ok) throw new Error("no manifest"); return r.json(); })
+      : Promise.reject(new Error("no fetch"))
+    ).then(function(m){
+      var have = {};
+      var list = (m && m.tokens) || [];
+      list.forEach(function(t){ have[t] = true; });
+      if(!list.length) return null;
+      var ext = "." + String((m && m.format) || "mp3");
+      var cache = {};
+      var generation = 0;
+
+      function clip(token){
+        if(!cache[token]){
+          var a = new Audio(PH_DIR + token + ext);
+          a.preload = "auto";
+          cache[token] = a;
+        }
+        return cache[token];
+      }
+
+      // True only if every sound the tokens need is actually on disk.
+      function has(tokens){
+        var want = expandPhonemes([].concat(tokens));
+        if(!want.length) return false;
+        for(var i=0;i<want.length;i++) if(!have[want[i]]) return false;
+        return true;
+      }
+
+      /* Plays the sounds one after another with `gapMs` between them, and
+         resolves when the last one is done — which is what a caller needs
+         to know: the microphone stays shut until then, the same way it
+         does around anything the page says out loud.
+
+         A new call cancels the one before it. Two overlapping reads of a
+         word is not a slower version of one read; it is noise. */
+      function play(tokens, gapMs){
+        var want = expandPhonemes([].concat(tokens)).filter(function(t){ return have[t]; });
+        var mine = ++generation;
+        var gap = typeof gapMs === "number" ? gapMs : 300;
+        return want.reduce(function(chain, token){
+          return chain.then(function(){
+            if(mine !== generation) return null;
+            return new Promise(function(resolve){
+              var a = clip(token);
+              var done = false;
+              function finish(){
+                if(done) return;
+                done = true;
+                a.onended = a.onerror = null;
+                setTimeout(resolve, gap);
+              }
+              a.onended = finish;
+              a.onerror = finish;
+              try{
+                a.currentTime = 0;
+                var p = a.play();
+                if(p && p.catch) p.catch(finish);
+              }catch(e){ finish(); return; }
+              // A clip that never fires ended (a tab that lost focus mid
+              // word) must not leave the caller's mic shut forever.
+              setTimeout(finish, 1400);
+            });
+          });
+        }, Promise.resolve()).then(function(){ return mine === generation; });
+      }
+
+      function cancel(){ generation++; }
+
+      // Roughly how long play() will take, for a caller that has to hold
+      // a microphone shut before the promise can tell it anything.
+      function estimate(tokens, gapMs){
+        var n = expandPhonemes([].concat(tokens)).length;
+        return n * (260 + (typeof gapMs === "number" ? gapMs : 300)) + 200;
+      }
+
+      return { play: play, has: has, cancel: cancel, estimate: estimate, tokens: list.slice() };
+    }).catch(function(){ return null; });
+    return phAudioPromise;
+  }
+
   /* ---------------- comeback deck (pure, testable) ----------------
      Missed words don't vanish when the round ends — they're kept per game
      page so the next session can start with the words that are actually
@@ -1251,6 +1438,11 @@ window.GameCore = (function(){
     homophoneGroup: homophoneGroup,
     sameHomophone: sameHomophone,
     spokenMatch: spokenMatch,
+    expandPhonemes: expandPhonemes,
+    phonemeAudio: phonemeAudio,
+    tapPieces: tapPieces,
+    tapMarkup: tapMarkup,
+    wireTaps: wireTaps,
     phoneticAlign: phoneticAlign,
     diagnose: diagnose,
 

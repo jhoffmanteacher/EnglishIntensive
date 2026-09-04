@@ -92,6 +92,13 @@ var MODES = {
   read: {
     key: "read", engine: "fluency", icon: "📖", title: "Read it", needs: "mic", page: "fluency-game.html",
     intro: "Read the whole thing out loud, at a pace you can hear yourself at.<br>The words light up as you pass them. Keep going if you slip."
+  },
+  /* The one mode that starts from SOUND rather than from letters. It can
+     only exist because the phoneme clips do: a synthesiser asked for an
+     isolated /b/ says "buh", and "buh-a-tuh" does not blend into "bat". */
+  blendit: {
+    key: "blendit", engine: "blendit", icon: "🔊", title: "Blend it", needs: "mic", page: "blend-it-game.html",
+    intro: "Listen to the sounds one at a time, then run them together and say the word.<br>The word stays hidden until you've had your go."
   }
 };
 
@@ -290,7 +297,7 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Words that begin with a consonant blend — bl, cr, sl, tr.",
     description: "Words that begin with a consonant blend — bl, cr, sl, tr.",
-    modes: ["say", "cards", "match", "fluency"],
+    modes: ["say", "cards", "match", "fluency", "blendit"],
     pages: { say: "initial-blends-game.html" },
     modeConfig: {
       say: { blend: "start", theme: "maze" }
@@ -309,7 +316,7 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Words that end with a consonant blend — the hard half of a blend, because the sounds run together on the way out.",
     description: "Words that end with a consonant blend — soft, pond, risk, milk.",
-    modes: ["say", "cards", "match", "fluency"],
+    modes: ["say", "cards", "match", "fluency", "blendit"],
     pages: { say: "blend-words-game.html" },
     modeConfig: {
       say: { blend: "end", theme: "race" }
@@ -332,13 +339,16 @@ window.LIST_FAMILIES = [
        not say "vab" — it guesses, and it guesses "verb" often enough that
        the answer key would be wrong. A list with no meanings can only be
        read, not heard. */
-    modes: ["say", "cards", "fluency"],
+    modes: ["say", "cards", "fluency", "blendit"],
     pages: { say: "nonsense-words-game.html" },
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
         intro: "These are made-up words. Sound out the letters, then say the word out loud.<br>The computer listens and tells you if you're right."
       },
+      // Same reason again: the reveal plays the sounds, and then has
+      // nothing to say — a synthesiser handed "vab" guesses "verb".
+      blendit: { speak: false, phonetic: true, theme: "race" },
       // Same reason as above: the flip shows the word, it doesn't say it.
       cards: {
         speak: false,
