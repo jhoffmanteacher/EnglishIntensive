@@ -51,6 +51,14 @@ window.BlendGame = (function(){
     return atStart ? word.slice(0, blendLength) : word.slice(-blendLength);
   }
 
+  // diagnose()'s seven kinds as something that fits on a chip. Deliberately
+  // the student's words, not a phonics term: the end screen is read by the
+  // student first and the teacher second.
+  var KIND_LABEL = {
+    blend: "blend", sound: "the sound", vowel: "vowel", consonant: "consonant",
+    missing: "dropped a sound", extra: "extra sound", other: "read it slower"
+  };
+
   // True if `heard` sounds more like some OTHER word in the same list than
   // it sounds like `target` — i.e. the distance budget below only forgives
   // an error when the target is still the best explanation for what was
@@ -302,7 +310,7 @@ window.BlendGame = (function(){
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
-    var missed = [], tries = 0, busy = false;
+    var missed = [], missKind = {}, tries = 0, busy = false;
 
     var shuffleOn = true;
     try{
@@ -405,6 +413,24 @@ window.BlendGame = (function(){
       return atStart
         ? '<span class="blend">' + word.slice(0,blendLength) + '</span>' + word.slice(blendLength)
         : word.slice(0, word.length-blendLength) + '<span class="blend">' + word.slice(-blendLength) + '</span>';
+    }
+
+    /* The reveal's own highlight: the letters diagnose() blamed, in the
+       accent colour, over the top of whatever markup() would have drawn.
+       markup() colours the blend being practised — the same colour on
+       every word, so it fades into the background. This one moves. */
+    function dxMarkup(word, span){
+      if(!span) return markup(word);
+      var a = Math.max(0, span[0]), b = Math.min(word.length, span[1]);
+      if(b <= a) return markup(word);
+      return Core.escapeHtml(word.slice(0, a)) +
+             '<span class="dx">' + Core.escapeHtml(word.slice(a, b)) + '</span>' +
+             Core.escapeHtml(word.slice(b));
+    }
+
+    // The written hint read aloud: a colon is a pause, not a word.
+    function spokenHint(message){
+      return String(message || "").replace(/:\s*/, ", ") + ".";
     }
 
     function wordMatches(heard, target){
@@ -529,7 +555,7 @@ window.BlendGame = (function(){
     /* ---------------- game flow ---------------- */
     function startGame(list){
       queue = shuffleOn ? shuffled(list) : list.slice();
-      idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; mastered = []; tries = 0; busy = false;
+      idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; missKind = {}; mastered = []; tries = 0; busy = false;
       prog.reset();
       show("s-play");
       micOn = !!SR;           // mic is on for the whole game from here
@@ -578,6 +604,10 @@ window.BlendGame = (function(){
           // words without chunk data keep the plain highlighted markup.
           if(wChunks) d.textContent = wChunks.join(CHUNK_SEP);
           else d.innerHTML = markup(w).replace(/class="blend"/g,'class="b"');
+          /* One word tells you nothing; four words all tagged "vowel" tell
+             you what to teach tomorrow. The tag is the same word diagnose()
+             used, so the chip and the hint the student saw agree. */
+          if(missKind[w]) d.innerHTML += '<span class="kind">' + Core.escapeHtml(KIND_LABEL[missKind[w]] || missKind[w]) + "</span>";
           grid.appendChild(d);
         });
         $("btnRetryMissed").style.display = "";
@@ -643,6 +673,14 @@ window.BlendGame = (function(){
       var target = queue[idx];
       var targetChunks = tries >= 2 ? chunksFor(target) : null;
       var heardTxt = normalize(heard);
+      /* Which part went wrong — but only on the reveal. On the first miss
+         the student gets the transcript and nothing else: they are about
+         to try again, and a hint they haven't asked for yet just slows
+         the retry down. */
+      var dx = tries >= 2 ? Core.diagnose(heard, target, {
+        atStart: atStart, blendLength: blendLength,
+        soundSeq: soundSeq, highlight: highlightRe
+      }) : null;
       var msg;
       if(tries < 2){
         msg = "Not quite — try once more.";
@@ -654,16 +692,23 @@ window.BlendGame = (function(){
       } else {
         msg = "Let's move on. The word was <b>" + target + "</b>.";
       }
-      $("uiMic").innerHTML = msg + (heardTxt ? '<br><span class="heard">I heard: ' + heardTxt + "</span>" : '<br><span class="heard">I didn\'t catch that</span>');
+      $("uiMic").innerHTML = msg +
+        (heardTxt ? '<br><span class="heard">I heard: ' + Core.escapeHtml(heardTxt) + "</span>"
+                  : '<br><span class="heard">I didn\'t catch that</span>') +
+        (dx ? '<br><span class="dxmsg">' + Core.escapeHtml(dx.message) + "</span>" : "");
       if(tries >= 2){
+        if(dx && !targetChunks) $("uiWord").innerHTML = dxMarkup(target, dx.span);
         if(missed.indexOf(target) === -1) missed.push(target);
+        if(dx) missKind[target] = dx.kind;
         report(target, false, tries);
         // Never on the first miss — that stays fast so the retry isn't slowed down.
         if(voiceOn){
-          if(targetChunks) sayChunked(targetChunks, target);
-          else say("The word was, " + target + ".", { rate: 0.9 });
+          if(targetChunks) sayChunked(targetChunks, target, dx ? spokenHint(dx.message) : null);
+          else say("The word was, " + target + ". " + (dx ? spokenHint(dx.message) : ""), { rate: 0.9 });
         }
-        setTimeout(function(){ busy = false; next(); }, voiceOn ? 2600 : 1900);
+        // The hint is another sentence to get through, so the reveal holds
+        // a little longer — but only when there is a voice saying it.
+        setTimeout(function(){ busy = false; next(); }, voiceOn ? (dx ? 3300 : 2600) : 1900);
       } else {
         setTimeout(function(){ busy = false; $("wordCard").className = "wordcard"; }, 900);
       }
@@ -872,12 +917,12 @@ window.BlendGame = (function(){
     // queued back-to-back rather than two say() calls, since say() cancels
     // whatever's already talking — calling it twice in a row would just
     // clip the first utterance instead of letting both play in sequence.
-    function sayChunked(chunks, word){
+    function sayChunked(chunks, word, tail){
       if(!window.speechSynthesis) return;
       try{
         window.speechSynthesis.cancel();
         var u1 = new SpeechSynthesisUtterance(chunks.join(", "));
-        var u2 = new SpeechSynthesisUtterance(word);
+        var u2 = new SpeechSynthesisUtterance(word + (tail ? ". " + tail : ""));
         [u1, u2].forEach(function(u){ u.lang = "en-US"; if(voice) u.voice = voice; });
         u1.rate = 0.7;
         u2.rate = 0.9;
@@ -894,7 +939,7 @@ window.BlendGame = (function(){
         u2.onend = release;
         u2.onerror = release;
         // Safety net in case onend never fires (Chrome does this sometimes).
-        var totalChars = chunks.join(", ").length + word.length;
+        var totalChars = chunks.join(", ").length + word.length + (tail ? tail.length : 0);
         setTimeout(function(){ if(currentUtterance === u2) release(); }, 1200 + 90 * totalChars);
         window.speechSynthesis.speak(u1);
         window.speechSynthesis.speak(u2);
