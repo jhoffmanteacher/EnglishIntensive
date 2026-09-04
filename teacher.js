@@ -60,6 +60,8 @@
   var students = [];          // [{uid, name, email, photo, words, totals, recent, lastSeen}]
   var assignments = {};       // uid → { period, lists }
   var notes = {};             // uid → { text, updatedAt } — teacher-only
+  var roster = {};            // email → { name, id, period, start, lists, importedAt }
+  var rosterReadable = false; // false until the roster rules are published
   var classCfg = { periodLists:{}, defaultLists:null, periods:[] };
   var view = "roster";
   var detailUid = null;
@@ -125,7 +127,13 @@
         // Teacher-only, by firestore.rules. A student reading this
         // collection gets nothing, which is the point of it existing
         // separately from assignments/{uid} — see the rules file.
-        db.collection("notes").get()
+        db.collection("notes").get(),
+        /* Its own catch, and the only read here that has one. Every other
+           collection failing means the dashboard is broken; this one
+           failing means the roster rules have not been published yet,
+           which is a state the site is designed to survive — see
+           firestore.rules and the box at the top of TODO.md. */
+        db.collection("roster").get().catch(function(){ return null; })
       ]);
     }).then(function(snaps){
       students = [];
@@ -148,18 +156,294 @@
       snaps[1].forEach(function(doc){ assignments[doc.id] = doc.data() || {}; });
       notes = {};
       snaps[3].forEach(function(doc){ notes[doc.id] = doc.data() || {}; });
+      roster = {};
+      rosterReadable = !!snaps[4];
+      if(snaps[4]) snaps[4].forEach(function(doc){
+        var d = doc.data() || {};
+        roster[String(doc.id).toLowerCase()] = {
+          email: String(doc.id).toLowerCase(),
+          name: d.name || "",
+          id: d.id || "",
+          period: d.period == null ? "" : String(d.period),
+          start: d.start || "",
+          lists: Array.isArray(d.lists) ? d.lists : null,
+          importedAt: d.importedAt || 0
+        };
+      });
       var c = snaps[2].exists ? (snaps[2].data() || {}) : {};
       classCfg = {
         periodLists: c.periodLists || {},
         defaultLists: Array.isArray(c.defaultLists) ? c.defaultLists : null,
         periods: Array.isArray(c.periods) ? c.periods : []
       };
+      addPendingStudents();
       // Sort by display name, falling back to the email local part — an
       // account with no display name shouldn't sink to the bottom.
       students.sort(function(a,b){
         var an = (a.name || a.email).toLowerCase(), bn = (b.name || b.email).toLowerCase();
         return an < bn ? -1 : an > bn ? 1 : 0;
       });
+    });
+  }
+
+  /* ---------------- the roster ----------------
+     A class exists on this dashboard only once every student has signed
+     in, which makes the first day of term an empty page. The roster fixes
+     that: a row per student, keyed by the address they WILL sign in with,
+     imported before any of them has touched the site.
+
+     A roster row with no account behind it is folded into `students` as a
+     PENDING student rather than being kept in a list of its own. That is
+     the whole design decision here: every view — the table, the detail
+     page, the Assign board, both exports — then shows the class as it
+     actually is, with the ones who haven't arrived greyed out, and none
+     of them had to learn about a second kind of student. What they do
+     have to know is that a pending student's assignment is written to
+     their roster row instead of to assignments/{uid}; there is no uid to
+     write one against yet. */
+  var PENDING_PREFIX = "roster:";
+  function isPending(uid){ return String(uid).indexOf(PENDING_PREFIX) === 0; }
+  function emailOfPending(uid){ return String(uid).slice(PENDING_PREFIX.length); }
+
+  function addPendingStudents(){
+    var signedIn = {};
+    students.forEach(function(s){ if(s.email) signedIn[s.email.toLowerCase()] = true; });
+    for(var email in roster){
+      if(!Object.prototype.hasOwnProperty.call(roster, email)) continue;
+      if(signedIn[email]) continue;
+      var r = roster[email];
+      students.push({
+        uid: PENDING_PREFIX + email,
+        name: r.name || email,
+        email: email,
+        photo: "",
+        pending: true,
+        stats: {}, heard: {}, fluency: {},
+        totals: { n:0, r:0 }, recent: [], lastSeen: 0
+      });
+    }
+  }
+
+  function rosterFor(s){
+    if(!s || !s.email) return null;
+    var r = roster[s.email.toLowerCase()];
+    return r || null;
+  }
+
+  /* ---------------- importing a roster ----------------
+     Paste or drop whatever the student information system produced.
+     GameCore.parseRoster does the reading; everything here is about what
+     a teacher sees before anything is written, because an import that
+     silently did the wrong thing to thirty students is worse than no
+     import at all. Nothing is written until the preview has been looked
+     at and Import pressed. */
+  var importWrap = null;
+  var importParsed = null;
+
+  function closeImport(){
+    if(importWrap && importWrap.parentNode) importWrap.parentNode.removeChild(importWrap);
+    importWrap = null;
+    importParsed = null;
+  }
+
+  // new · update · already signed in. The third one matters most: it is
+  // the row that will NOT get an assignment written for it, because that
+  // student already has one.
+  function rosterStatus(row){
+    var signedIn = students.filter(function(s){
+      return !s.pending && s.email && s.email.toLowerCase() === row.email;
+    })[0];
+    if(signedIn) return { key: "signed-in", text: "already signed in", uid: signedIn.uid };
+    if(roster[row.email]) return { key: "update", text: "update" };
+    return { key: "new", text: "new" };
+  }
+
+  function renderImportPreview(){
+    var box = document.getElementById("riPreview");
+    if(!box) return;
+    var p = importParsed;
+    if(!p){ box.innerHTML = ""; return; }
+    if(!p.rows.length && !p.errors.length){
+      box.innerHTML = '<div class="empty">Nothing read out of that yet — paste a roster, or drop a file.</div>';
+      document.getElementById("riGo").disabled = true;
+      return;
+    }
+    var warnings = p.rows.filter(function(r){ return r.warning; });
+    var body = p.rows.map(function(r){
+      var st = rosterStatus(r);
+      return "<tr><td>" + esc(r.name || "—") + "</td>" +
+        '<td class="muted tiny">' + esc(r.email) + "</td>" +
+        "<td>" + (r.period ? '<span class="pill">' + esc(r.period) + "</span>" : '<span class="muted tiny">—</span>') + "</td>" +
+        "<td>" + (r.start ? esc(WordLists.byId(r.start) ? WordLists.byId(r.start).listTitle : r.start)
+                          : '<span class="muted tiny">the beginning</span>') + "</td>" +
+        '<td><span class="pill ' + (st.key === "new" ? "good" : st.key === "update" ? "warn" : "") + '">' + esc(st.text) + "</span></td></tr>";
+    }).join("");
+
+    box.innerHTML =
+      "<p class=\"note\"><b>" + p.rows.length + (p.rows.length === 1 ? " student" : " students") + "</b> ready" +
+      (p.errors.length ? ", <b>" + p.errors.length + "</b> " + (p.errors.length === 1 ? "row" : "rows") + " left out" : "") +
+      (p.hadHeader ? "" : " · no header row found, so the columns were guessed from their shape") +
+      ".</p>" +
+      (p.errors.length ? '<div class="empty"><b>Left out:</b><br>' + p.errors.map(function(e){
+        return "line " + e.line + (e.name ? " (" + esc(e.name) + ")" : "") + " — " + esc(e.message);
+      }).join("<br>") + "</div>" : "") +
+      (warnings.length ? '<div class="empty">' + warnings.map(function(r){
+        return esc(r.name || r.email) + " — " + esc(r.warning);
+      }).join("<br>") + "</div>" : "") +
+      '<div class="tableScroll" style="max-height:46vh"><table class="t"><thead><tr>' +
+      "<th>Name</th><th>Signs in as</th><th>Period</th><th>Starts on</th><th>Status</th>" +
+      "</tr></thead><tbody>" + body + "</tbody></table></div>";
+    document.getElementById("riGo").disabled = !p.rows.length;
+    document.getElementById("riGo").textContent = "Import " + p.rows.length +
+      (p.rows.length === 1 ? " student" : " students");
+  }
+
+  function readImport(text){
+    importParsed = GameCore.parseRoster(text, function(s){ return WordLists.resolveListRef(s); });
+    renderImportPreview();
+  }
+
+  function openImport(){
+    closeImport();
+    importWrap = document.createElement("div");
+    importWrap.className = "abModal";
+    importWrap.innerHTML =
+      '<div class="abModalBox riBox" role="dialog" aria-modal="true">' +
+        "<h2>Import a roster</h2>" +
+        '<p class="note">Whatever your student information system exports — comma, tab or semicolon separated. ' +
+        "It needs an <b>ID number</b> column and a <b>name</b>; a <b>period</b> and a <b>starting list</b> are " +
+        "used if they're there. Students sign in as <b>&lt;ID number&gt;@seq.org</b>, which is how a row and an " +
+        "account find each other.</p>" +
+        (rosterReadable ? "" : '<div class="empty" style="border-color:rgba(255,107,107,.45)"><b>The roster rules ' +
+          "aren't published yet.</b> This import will fail until somebody pastes <code>firestore.rules</code> into " +
+          "Firebase console → Firestore → Rules → Publish. See the top of TODO.md.</div>") +
+        '<div class="riDrop" id="riDrop">' +
+          "<b>Drop a file here</b><br><span class=\"muted tiny\">.csv, .tsv or .txt</span><br>" +
+          '<input type="file" id="riFile" accept=".csv,.tsv,.txt,text/plain,text/csv">' +
+        "</div>" +
+        '<p class="note" style="margin:14px 0 6px">…or paste it:</p>' +
+        '<textarea class="riPaste" id="riPaste" spellcheck="false" ' +
+          'placeholder="Student ID,Last Name,First Name,Period&#10;102345,Ruiz,Ana,3"></textarea>' +
+        '<div id="riPreview"></div>' +
+        '<div class="rowActions">' +
+          '<button class="btn sm" id="riGo" disabled>Import</button>' +
+          '<button class="btn ghost sm" id="riCancel">Cancel</button>' +
+          '<span class="saveNote" id="riNote"></span>' +
+        "</div>" +
+      "</div>";
+    document.body.appendChild(importWrap);
+    importWrap.addEventListener("click", function(e){ if(e.target === importWrap) closeImport(); });
+    document.getElementById("riCancel").addEventListener("click", closeImport);
+
+    var paste = document.getElementById("riPaste");
+    paste.addEventListener("input", function(){ readImport(paste.value); });
+
+    var drop = document.getElementById("riDrop");
+    var file = document.getElementById("riFile");
+    function takeFile(f){
+      if(!f) return;
+      var fr = new FileReader();
+      fr.onload = function(){ paste.value = String(fr.result || ""); readImport(paste.value); };
+      fr.readAsText(f);
+    }
+    file.addEventListener("change", function(){ takeFile(file.files && file.files[0]); });
+    ["dragenter","dragover"].forEach(function(ev){
+      drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add("over"); });
+    });
+    ["dragleave","drop"].forEach(function(ev){
+      drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove("over"); });
+    });
+    drop.addEventListener("drop", function(e){
+      takeFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+    });
+
+    document.getElementById("riGo").addEventListener("click", commitImport);
+    renderImportPreview();
+  }
+
+  /* What an import actually writes. Three things, one batch (or as few
+     batches as 400-a-piece allows):
+
+       roster/{email}   one set-merge per row
+       config/class     any period the file mentioned that the class
+                        didn't have
+       assignments/{uid} ONLY where a student has already signed in, has
+                        a roster row, and has NO assignment document yet
+
+     That last one is the only place the roster ever writes into
+     assignments, and it only ever fills a blank. A teacher who moved a
+     student to another period in March must not have that undone by a
+     re-import in April, so an existing assignment is never touched.
+
+     And nothing is ever deleted. A student left out of an export by
+     mistake keeps their row; removing one is an explicit click on their
+     page. */
+  function importBody(rows, now){
+    var out = { roster: {}, periods: [], assignments: {} };
+    var known = {};
+    allPeriods().forEach(function(p){ known[p] = true; });
+    rows.forEach(function(r){
+      var doc = { name: r.name, id: r.id, period: r.period, importedAt: now };
+      if(r.start) doc.startAt = r.start;
+      out.roster[r.email] = doc;
+      if(r.period && !known[r.period]){ known[r.period] = true; out.periods.push(r.period); }
+
+      var signedIn = students.filter(function(s){
+        return !s.pending && s.email && s.email.toLowerCase() === r.email;
+      })[0];
+      if(signedIn && !assignments[signedIn.uid]){
+        var a = { period: r.period || null, updatedAt: now };
+        out.assignments[signedIn.uid] = a;
+      }
+    });
+    return out;
+  }
+
+  function commitImport(){
+    var p = importParsed;
+    if(!p || !p.rows.length) return;
+    var note = document.getElementById("riNote");
+    var now = Date.now();
+    var body = importBody(p.rows, now);
+    note.className = "saveNote";
+    note.textContent = "Importing…";
+
+    // Firestore caps a batch at 500 writes; 400 leaves room for the
+    // config document and the assignment fill-ins riding along.
+    var writes = Object.keys(body.roster).map(function(email){
+      return { ref: db.collection("roster").doc(email), data: body.roster[email] };
+    }).concat(Object.keys(body.assignments).map(function(uid){
+      return { ref: db.collection("assignments").doc(uid), data: body.assignments[uid] };
+    }));
+    if(body.periods.length){
+      writes.push({ ref: db.collection("config").doc("class"),
+                    data: { periods: allPeriods().concat(body.periods) } });
+    }
+
+    var chunks = [], i;
+    for(i=0;i<writes.length;i+=400) chunks.push(writes.slice(i, i+400));
+
+    chunks.reduce(function(chain, chunk){
+      return chain.then(function(){
+        var batch = db.batch();
+        chunk.forEach(function(w){ batch.set(w.ref, w.data, { merge:true }); });
+        return batch.commit();
+      });
+    }, Promise.resolve()).then(function(){
+      closeImport();
+      return loadAll();
+    }).then(function(){
+      view = "roster";
+      detailUid = null;
+      renderSub();
+      render();
+    }).catch(function(){
+      if(note){
+        note.className = "saveNote err";
+        note.textContent = rosterReadable
+          ? "Nothing imported — check the network and try again."
+          : "Nothing imported — the roster rules aren't published yet (see TODO.md).";
+      }
     });
   }
 
@@ -185,11 +469,18 @@
   // Same precedence as EIStore.effectiveLists, restated here because the
   // dashboard runs without store.js loaded. If you change one, change
   // both — tests.html pins the student-side copy.
+  /* The same walk store.js does for the student, with the roster rung in
+     the same place: own assignment → roster row → period → class default
+     → everything. Kept in step with EIStore.effectiveLists by tests.html,
+     which pins both. */
   function effectiveLists(uid){
     var a = assignments[uid];
     if(a && Array.isArray(a.lists)) return { ids: a.lists, from: "student" };
-    var p = a && a.period;
-    if(p != null && Array.isArray(classCfg.periodLists[p])) return { ids: classCfg.periodLists[p], from: "period " + p };
+    var s = studentByUid(uid);
+    var r = rosterFor(s);
+    if(r && Array.isArray(r.lists)) return { ids: r.lists, from: "roster" };
+    var p = (a && a.period) || (r && r.period) || null;
+    if(p != null && p !== "" && Array.isArray(classCfg.periodLists[p])) return { ids: classCfg.periodLists[p], from: "period " + p };
     if(Array.isArray(classCfg.defaultLists)) return { ids: classCfg.defaultLists, from: "class default" };
     return { ids: WordLists.ids, from: "everything (nothing set)" };
   }
@@ -456,7 +747,7 @@
     var flCols = fluencyColumns();
     var rows = [[
       "Name","Email","Period","Lists","Lists from",
-      "Answers","Accuracy %","Words solid","Words shaky","Slow but right","Top error","Last active","Note"
+      "Answers","Accuracy %","Words solid","Words shaky","Slow but right","Top error","Last active","Signed in","Note"
     ].concat(flCols.reduce(function(acc, l){
       return acc.concat([l.listTitle + " latest", l.listTitle + " best"]);
     }, []))];
@@ -464,12 +755,13 @@
       var sum = Adaptive.summarize(s.stats);
       var eff = effectiveLists(s.uid);
       rows.push([
-        s.name, s.email, (assignments[s.uid] || {}).period || "",
+        s.name, s.email,
+        (assignments[s.uid] || {}).period || (rosterFor(s) && rosterFor(s).period) || "",
         WordLists.describeAssignment(eff.ids), eff.from,
         sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
         sum.slowRight,
         (function(){ var k = Adaptive.topKind(sum.kinds); return k ? kindText(k.kind) : ""; })(),
-        isoDay(sum.lastSeen || s.lastSeen), noteOf(s.uid)
+        isoDay(sum.lastSeen || s.lastSeen), s.pending ? "no" : "yes", noteOf(s.uid)
       ].concat(flCols.reduce(function(acc, l){
         var f = Adaptive.fluencySummary((s.fluency || {})[l.id]);
         return acc.concat(f ? [f.latest, f.best] : ["", ""]);
@@ -543,17 +835,32 @@
   function renderRoster(){
     if(!students.length){
       $("tBody").innerHTML = '<div class="panel"><h2>Nobody yet</h2>' +
-        '<p class="note">A student appears here the first time they sign in and play a round. ' +
-        "Until then there's nothing to assign to.</p></div>";
+        '<p class="note">A student appears here the first time they sign in and play a round — or ' +
+        "the moment you import a roster, which is the quicker way round. " +
+        '<b>Periods &amp; Lists → 📋 Import roster</b>.</p></div>';
       return;
     }
+    var waiting = students.filter(function(s){ return s.pending; }).length;
     var rows = students.map(function(s){
       var sum = Adaptive.summarize(s.stats);
       var eff = effectiveLists(s.uid);
       var a = assignments[s.uid] || {};
+      var r = rosterFor(s);
+      var period = a.period || (r && r.period) || "";
+      /* A student on the roster who hasn't signed in yet is a real row
+         with nothing in it. Greyed rather than hidden: on day one the
+         useful thing this table can tell a teacher is who is MISSING. */
+      if(s.pending){
+        return '<tr class="clickable pending" data-uid="' + esc(s.uid) + '">' +
+          "<td>" + whoHtml(s) + "</td>" +
+          "<td>" + (period ? '<span class="pill">Period ' + esc(period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
+          '<td class="listsCell">' + esc(WordLists.describeAssignment(eff.ids)) + ' <span class="muted tiny">(' + esc(eff.from) + ")</span></td>" +
+          '<td class="muted tiny" colspan="4">on the roster — hasn\u2019t signed in yet</td>' +
+          '<td class="muted tiny">—</td></tr>';
+      }
       return "<tr class=\"clickable\" data-uid=\"" + esc(s.uid) + "\">" +
         "<td>" + whoHtml(s) + "</td>" +
-        '<td>' + (a.period ? '<span class="pill">Period ' + esc(a.period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
+        '<td>' + (period ? '<span class="pill">Period ' + esc(period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
         '<td class="listsCell">' + esc(WordLists.describeAssignment(eff.ids)) + ' <span class="muted tiny">(' + esc(eff.from) + ")</span></td>" +
         '<td class="num">' + sum.attempts + "</td>" +
         '<td class="num">' + accCell(sum.accuracy) + "</td>" +
@@ -565,6 +872,9 @@
 
     $("tBody").innerHTML =
       '<div class="panel"><h2>Students</h2>' +
+      (waiting ? '<p class="note"><b>' + waiting + (waiting === 1 ? " student on the roster hasn\u2019t" : " students on the roster haven\u2019t") +
+        ' signed in yet</b> — greyed out below. They already have their period and their lists; ' +
+        "the site picks those up the first time they sign in.</p>" : "") +
       '<p class="note">Click a student for their worst words and their list assignment. ' +
       '“Solid” is a word answered right, first try, enough times in a row to have earned a long rest; ' +
       '“shaky” is one under 60&nbsp;% accuracy.</p>' +
@@ -686,6 +996,8 @@
       return n ? "<b>" + n + "</b> " + esc(kindText(k)) : "";
     }).filter(Boolean).join(" · ");
 
+    var rosterRow = rosterFor(s);
+
     var picker = pickerHtml("student", eff.ids, true);
 
     var periodOpts = ['<option value="">— not set —</option>'].concat(allPeriods().map(function(p){
@@ -731,6 +1043,15 @@
         "One count per word given up on, not per fumble.</p>" +
         "<p>" + errorMix + "</p></div>" : "") +
 
+      (rosterRow ? '<div class="panel"><h2>Roster row</h2>' +
+        '<p class="note">Imported ' + esc(rosterRow.importedAt ? ago(rosterRow.importedAt) : "at some point") +
+        " · ID <b>" + esc(rosterRow.id || "—") + "</b> · signs in as <b>" + esc(s.email) + "</b>" +
+        (s.pending ? " · <b>hasn\u2019t signed in yet</b>" : "") + ". " +
+        "A re-import updates this row and never deletes it; removing one is this button, and only this button.</p>" +
+        '<div class="rowActions"><button class="btn ghost sm" id="tRosterOut">Remove from roster</button>' +
+        '<span class="saveNote" id="tRosterNote"></span></div>' +
+      "</div>" : "") +
+
       notePanelHtml(s.uid) +
 
       '<div class="panel"><h2>Hardest words</h2>' +
@@ -752,6 +1073,21 @@
         "</tr></thead><tbody>" + perList + "</tbody></table></div></div>" : "");
 
     $("tBack").addEventListener("click", function(){ detailUid = null; render(); });
+    if($("tRosterOut")) $("tRosterOut").addEventListener("click", function(){
+      var em = s.email.toLowerCase();
+      if(!window.confirm("Remove " + (s.name || em) + " from the roster?\n\n" +
+        (s.pending ? "They haven\u2019t signed in, so this takes them off the dashboard entirely."
+                   : "Their practice record stays; only the imported row goes."))) return;
+      var note = $("tRosterNote");
+      note.className = "saveNote"; note.textContent = "Removing…";
+      db.collection("roster").doc(em).delete().then(function(){
+        delete roster[em];
+        detailUid = null;
+        return loadAll();
+      }).then(function(){ render(); }).catch(function(){
+        note.className = "saveNote err"; note.textContent = "Didn't remove — check the network and try again.";
+      });
+    });
     $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
     $("tClearA").addEventListener("click", function(){ saveStudentAssignment(s.uid, true); });
     $("tNoteSave").addEventListener("click", function(){ saveNote(s.uid, $("tNote").value); });
@@ -825,6 +1161,35 @@
     var note = $("tANote");
     var period = ($("tNewPeriod").value || "").trim() || $("tPeriod").value || null;
     var lists = clearLists ? null : checkedLists();
+
+    /* A student who hasn't signed in yet is edited the same way and
+       written somewhere else — their roster row, which store.js reads on
+       the first sign-in. */
+    if(isPending(uid)){
+      var em = emailOfPending(uid);
+      var wasRow = roster[em] ? JSON.parse(JSON.stringify(roster[em])) : null;
+      var rowBody = { period: period || "", lists: lists, updatedAt: Date.now() };
+      roster[em] = roster[em] || { email: em };
+      roster[em].period = rowBody.period;
+      roster[em].lists = lists;
+      if(period && classCfg.periods.indexOf(period) === -1) classCfg.periods.push(period);
+      note.className = "saveNote"; note.textContent = "Saving…";
+      db.collection("roster").doc(em).set(rowBody, { merge:true })
+        .then(function(){ return db.collection("config").doc("class").set({ periods: classCfg.periods }, { merge:true }); })
+        .then(function(){
+          note.className = "saveNote ok"; note.textContent = "Saved.";
+          render();
+        })
+        .catch(function(){
+          if(wasRow) roster[em] = wasRow; else delete roster[em];
+          note.className = "saveNote err";
+          note.textContent = rosterReadable
+            ? "Didn't save — check the network and try again."
+            : "Didn't save — the roster rules aren't published yet (see TODO.md).";
+        });
+      return;
+    }
+
     var before = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
     var body = { period: period, lists: lists, updatedAt: Date.now() };
     assignments[uid] = body;
@@ -883,6 +1248,16 @@
         '<span class="saveNote" data-note="default"></span></div>' +
       "</div>" +
 
+      '<div class="panel"><h2>Import a roster</h2>' +
+        '<p class="note">Drop or paste whatever your student information system exports. ' +
+        "Students get their period, and their lists, before they ever sign in — so the first day of term " +
+        "isn't a teacher typing thirty names in. Re-importing updates rows and never deletes one.</p>" +
+        '<div class="rowActions"><button class="btn sm" id="tImport">📋 Import roster</button>' +
+        '<span class="muted tiny">' + (Object.keys(roster).length
+          ? Object.keys(roster).length + " on the roster now"
+          : "nothing imported yet") + "</span></div>" +
+      "</div>" +
+
       '<div class="panel"><h2>Add a period</h2>' +
         '<p class="note">Periods are just labels — “3”, “5”, “Support”. Add one here, then put students in it below.</p>' +
         '<div class="rowActions"><input class="txt" id="tAddPeriod" placeholder="e.g. 3"> ' +
@@ -896,6 +1271,8 @@
         '<p class="note">Changes save as soon as you pick.</p>' +
         '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Period</th><th>Lists</th></tr></thead>' +
         "<tbody>" + roster + "</tbody></table></div></div>" : "");
+
+    $("tImport").addEventListener("click", openImport);
 
     Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-save]"), function(b){
       b.addEventListener("click", function(){ saveScope(b.dataset.save, false); });
@@ -1842,7 +2219,7 @@
      the student body would overwrite a period, and a second config write
      would defeat the batch. `now` is a parameter so a test can pin it. */
   function saveBody(scopes, now){
-    var out = { students: {}, config: null };
+    var out = { students: {}, roster: {}, config: null };
     var periodPatch = {}, touchedCfg = false;
     scopes.forEach(function(scope){
       var val = board.draft[scope];
@@ -1853,6 +2230,10 @@
       } else if(scope.slice(0,2) === "p:"){
         periodPatch[scope.slice(2)] = val;
         touchedCfg = true;
+      } else if(isPending(scope.slice(2))){
+        // No uid yet, so the lists ride on the roster row until there is
+        // one. Same two fields, different collection.
+        out.roster[emailOfPending(scope.slice(2))] = { lists: val, updatedAt: now };
       } else {
         // These two fields and no others: the student's period lives in
         // the same document and must survive the write.
@@ -1870,7 +2251,7 @@
     var scopes = dirtyScopes();
     if(!scopes.length) return;
     var note = $("abNote");
-    var undo = { def: classCfg.defaultLists, periods: {}, students: {} };
+    var undo = { def: classCfg.defaultLists, periods: {}, students: {}, roster: {} };
     var body = saveBody(scopes, Date.now());
     var batch = db.batch();
 
@@ -1886,14 +2267,28 @@
         classCfg.periodLists[p] = val;
       } else {
         var uid = scope.slice(2);
-        undo.students[uid] = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
-        var a = assignments[uid] || (assignments[uid] = {});
-        a.lists = val;
-        a.updatedAt = body.students[uid].updatedAt;
+        /* A student who hasn't signed in has no uid to write an
+           assignment against, so their lists go on their roster row and
+           store.js reads them from there on the first sign-in. Same
+           board, same cell, different document. */
+        if(isPending(uid)){
+          var em = emailOfPending(uid);
+          undo.roster[em] = roster[em] ? JSON.parse(JSON.stringify(roster[em])) : null;
+          if(!roster[em]) roster[em] = { email: em };
+          roster[em].lists = val;
+        } else {
+          undo.students[uid] = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
+          var a = assignments[uid] || (assignments[uid] = {});
+          a.lists = val;
+          a.updatedAt = body.students[uid].updatedAt;
+        }
       }
     });
     Object.keys(body.students).forEach(function(uid){
       batch.set(db.collection("assignments").doc(uid), body.students[uid], { merge:true });
+    });
+    Object.keys(body.roster).forEach(function(email){
+      batch.set(db.collection("roster").doc(email), body.roster[email], { merge:true });
     });
     if(body.config) batch.set(db.collection("config").doc("class"), body.config, { merge:true });
 
@@ -1913,6 +2308,9 @@
       for(var p in undo.periods) classCfg.periodLists[p] = undo.periods[p];
       for(var u in undo.students){
         if(undo.students[u]) assignments[u] = undo.students[u]; else delete assignments[u];
+      }
+      for(var e in undo.roster){
+        if(undo.roster[e]) roster[e] = undo.roster[e]; else delete roster[e];
       }
       if(note){ note.className = "saveNote err"; note.textContent = "Nothing saved — check the network and try again."; }
     });
@@ -2097,6 +2495,10 @@
   window.EITeacher = {
     _internals: {
       modeHeard: modeHeard,
+      importBody: importBody,
+      rosterStatus: rosterStatus,
+      isPending: isPending,
+      studentUids: function(){ return students.map(function(s){ return s.uid; }); },
       patternRows: patternRows,
       kindText: kindText,
       feed: function(st){
@@ -2109,6 +2511,11 @@
           periods: (st.classCfg && st.classCfg.periods) || []
         };
         notes = st.notes || {};
+        roster = st.roster || {};
+        rosterReadable = st.rosterReadable !== false;
+        // Same fold the real load does, so a test sees the class the way
+        // the dashboard does: signed-in students and roster rows together.
+        if(st.roster) addPendingStudents();
         board.draft = {}; board.sel = {}; board.collapsed = {};
         board.period = st.period || "";      // set directly: no localStorage in tests
         board.q = st.q || "";

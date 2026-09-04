@@ -1198,6 +1198,113 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     game-core.js — reading a roster export
+
+     What comes out of a student information system is never the same
+     twice, so the parser reads what it is given rather than a format.
+     The rule that must never bend: an ID is never guessed. A guessed ID
+     is a student matched to somebody else's record.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore, W = window.WordLists;
+    function P(text){ return C.parseRoster(text, function(s){ return W.resolveListRef(s); }); }
+
+    eq("the email is the ID plus the domain", C.emailForId("102345"), "102345@seq.org");
+    eq("…lowercased and trimmed", C.emailForId("  102345  "), "102345@seq.org");
+    eq("no ID, no email", C.emailForId(""), "");
+    eq("…and nothing isn't an email either", C.emailForId(null), "");
+
+    // ---- the shapes a real export arrives in ----
+    (function(){
+      var r = P("Student ID,Name,Period\n102345,Ana Ruiz,Period 3\n102346,Sam Lee,P4");
+      eq("a header row is recognised", r.hadHeader, true);
+      eq("both students come through", r.rows.length, 2);
+      eq("the ID becomes an email", r.rows[0].email, "102345@seq.org");
+      eq("“Period 3” is period 3", r.rows[0].period, "3");
+      eq("“P4” is period 4", r.rows[1].period, "4");
+      eq("nothing went wrong", r.errors.length, 0);
+    })();
+
+    eq("tabs are sniffed", P("id\tname\tperiod\n1\tA B\t3").delimiter, "\t");
+    eq("semicolons are sniffed", P("id;name;period\n1;A B;3").delimiter, ";");
+    eq("a BOM doesn't eat the first header", P("\ufeffid,name\n1,A B").columns.id, 0);
+    eq("Windows line endings are lines", P("id,name\r\n1,A B\r\n2,C D").rows.length, 2);
+    eq("trailing blank lines aren't rows", P("id,name\n1,A B\n\n\n").rows.length, 1);
+
+    // A comma inside a quoted name is the case that breaks a naive split.
+    (function(){
+      var r = P('id,name,period\n1,"O\'Brien, Jr.",3');
+      eq("a quoted comma stays inside the name", r.rows[0].name, "O'Brien, Jr.");
+      eq("…and the period is still the period", r.rows[0].period, "3");
+    })();
+    eq("a doubled quote is one quote",
+       P('id,name\n1,"She said ""hi"""').rows[0].name, 'She said "hi"');
+
+    // ---- the header aliases ----
+    eq("Perm ID counts", P("Perm ID,Name\n7,A B").rows[0].id, "7");
+    eq("Local ID counts", P("Local ID,Name\n7,A B").rows[0].id, "7");
+    eq("SIS ID counts", P("SIS ID,Name\n7,A B").rows[0].id, "7");
+    eq("headers are case-insensitive", P("STUDENT NUMBER,STUDENT\n7,A B").rows[0].id, "7");
+    eq("last and first become one name",
+       P("id,Last Name,First Name\n7,Ruiz,Ana").rows[0].name, "Ana Ruiz");
+    eq("…in the order a person says it",
+       P("id,First Name,Last Name\n7,Ana,Ruiz").rows[0].name, "Ana Ruiz");
+    eq("a lone Name column wins over Last/First",
+       P("id,Name,Last Name\n7,Ana Ruiz,Ignored").rows[0].name, "Ana Ruiz");
+    eq("Section is a period", P("id,name,Section\n7,A B,2").rows[0].period, "2");
+
+    // ---- no header at all ----
+    (function(){
+      var r = P("102345\tAna Ruiz\t3\n102346\tSam Lee\t4");
+      eq("a headerless file is read by shape", r.hadHeader, false);
+      eq("…the long digits are the IDs", r.rows[0].id, "102345");
+      eq("…the words are the names", r.rows[0].name, "Ana Ruiz");
+      eq("…the short digits are the periods", r.rows[1].period, "4");
+    })();
+
+    // ---- what is rejected, and what is only a warning ----
+    (function(){
+      var r = P("id,name\n,Nobody\nabc,Bad Id\n7,Fine\n7,Twin");
+      eq("a row with no ID is rejected", r.errors[0].message, "No ID number");
+      eq("a non-numeric ID is rejected", r.errors[1].message.indexOf("isn't a number") !== -1, true);
+      eq("a duplicate ID is rejected", r.errors[2].message.indexOf("Duplicate"), 0);
+      eq("…and the rest still imports", r.rows.length, 1);
+      eq("…the one that was fine", r.rows[0].name, "Fine");
+      eq("an error names the line it was on", r.errors[0].line, 2);
+    })();
+    (function(){
+      var r = P("id,name,start\n7,A B,Red 3\n8,C D,somewhere else");
+      eq("a start that resolves becomes a list id", r.rows[0].start, "red-3-say");
+      eq("one that doesn't is a warning, not an error", r.errors.length, 0);
+      eq("…on the row", r.rows[1].warning.indexOf("somewhere else") !== -1, true);
+      eq("…and the student still imports", r.rows.length, 2);
+    })();
+    eq("a file with nothing usable says so",
+       P("colour,shape\nred,round").errors.length > 0, true);
+    eq("an empty file is empty, not an error", P("").rows.length, 0);
+
+    // ---- period normalising ----
+    eq("“3rd” is 3", C.normalizePeriod("3rd"), "3");
+    eq("“ 03 ” is 3", C.normalizePeriod(" 03 "), "3");
+    eq("a period with no digits keeps its name", C.normalizePeriod("A"), "A");
+    eq("no period is no period", C.normalizePeriod(""), "");
+
+    // ---- what a teacher may write in a "start" column ----
+    eq("a list id is itself", W.resolveListRef("red-3-cards"), "red-3-cards");
+    eq("“Red 3” is the third red list", W.resolveListRef("Red 3"), "red-3-say");
+    eq("“Red Words 3” is the same", W.resolveListRef("Red Words 3"), "red-3-say");
+    eq("“oi/oy” finds the family whatever the spacing", W.resolveListRef("oi/oy"), "oi-oy-read");
+    eq("…and so does “oi oy”", W.resolveListRef("oi oy"), "oi-oy-read");
+    eq("“Starting Blends” is the starting blends", W.resolveListRef("Starting Blends"), "initial-blends");
+    eq("“Blend Words” is the other one", W.resolveListRef("Blend Words"), "final-blends");
+    eq("a family with no number starts at its first list", W.resolveListRef("Red Words"), "red-1-say");
+    eq("a list number that doesn't exist falls back to the first",
+       W.resolveListRef("Red 99"), "red-1-say");
+    eq("nonsense is nonsense", W.resolveListRef("zzz"), null);
+    eq("nothing is nothing", W.resolveListRef(""), null);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — the Reading view
 
      Four switches applied as classes on <html>. The parts worth pinning:
@@ -1663,6 +1770,120 @@
 
     eq("the kinds read as a teacher would write them", T2.kindText("missing"), "dropped a sound");
     eq("an unknown kind passes through rather than blanking a cell", T2.kindText("zzz"), "zzz");
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     teacher.js — the roster on the dashboard
+
+     Two rules do the work and both are about not destroying anything: an
+     import never deletes a row, and it never overwrites an assignment
+     that already exists. A teacher who moved a student in March must not
+     have that undone by an April re-import.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T2 = window.EITeacher._internals;
+    function feed(st){ T2.feed(st); }
+
+    function rows(){
+      return [
+        { id:"1", name:"Ana Ruiz",  email:"1@seq.org", period:"3", start:null },
+        { id:"2", name:"Sam Lee",   email:"2@seq.org", period:"4", start:"red-3-cards" },
+        { id:"3", name:"Kai Moore", email:"3@seq.org", period:"",  start:null }
+      ];
+    }
+
+    // A class where 1 has signed in and already has an assignment, 2 has
+    // signed in with none, 3 has never appeared.
+    function aClass(){
+      return {
+        students: [
+          { uid:"u1", name:"Ana Ruiz", email:"1@seq.org", stats:{}, heard:{}, fluency:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 },
+          { uid:"u2", name:"Sam Lee",  email:"2@seq.org", stats:{}, heard:{}, fluency:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 }
+        ],
+        assignments: { u1: { period:"9", lists:["nonsense"] } },
+        classCfg: { periods: ["9"] },
+        roster: {}
+      };
+    }
+
+    (function(){
+      feed(aClass());
+      var b = T2.importBody(rows(), 1000);
+      eq("every row becomes a roster document", Object.keys(b.roster).sort().join(","), "1@seq.org,2@seq.org,3@seq.org");
+      eq("…carrying the name", b.roster["1@seq.org"].name, "Ana Ruiz");
+      eq("…the ID", b.roster["1@seq.org"].id, "1");
+      eq("…the period", b.roster["1@seq.org"].period, "3");
+      eq("…and a start where the file gave one", b.roster["2@seq.org"].startAt, "red-3-cards");
+      eq("…and none where it didn't",
+         Object.prototype.hasOwnProperty.call(b.roster["1@seq.org"], "startAt"), false);
+      eq("a period the class didn't have is created", b.periods.sort().join(","), "3,4");
+      eq("…and one it already had isn't", b.periods.indexOf("9"), -1);
+
+      eq("a signed-in student with NO assignment gets one filled in",
+         Object.keys(b.assignments).join(","), "u2");
+      eq("…from the roster row", b.assignments.u2.period, "4");
+      eq("a signed-in student who already has one is never touched",
+         Object.prototype.hasOwnProperty.call(b.assignments, "u1"), false);
+      eq("a student who hasn't signed in gets no assignment at all",
+         Object.keys(b.assignments).length, 1);
+    })();
+
+    // The preview's status column.
+    (function(){
+      var c = aClass();
+      c.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
+      feed(c);
+      eq("a student already signed in says so", T2.rosterStatus(rows()[0]).key, "signed-in");
+      eq("a row that exists is an update", T2.rosterStatus(rows()[2]).key, "update");
+      eq("anything else is new",
+         T2.rosterStatus({ id:"9", email:"9@seq.org", name:"New", period:"1" }).key, "new");
+    })();
+
+    // Roster rows with no account fold into the class as pending students.
+    (function(){
+      var c = aClass();
+      c.roster = {
+        "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5", lists:["nonsense","initial-blends"] },
+        "1@seq.org": { email:"1@seq.org", name:"Ana Ruiz", period:"3" }
+      };
+      feed(c);
+      var uids = T2.studentUids();
+      eq("a roster row with no account becomes a student", uids.indexOf("roster:3@seq.org") !== -1, true);
+      eq("…and one WITH an account does not duplicate them",
+         uids.filter(function(u){ return u.indexOf("1@seq.org") !== -1; }).length, 0);
+      eq("a pending uid is recognisable", T2.isPending("roster:3@seq.org"), true);
+      eq("…and a real one isn't", T2.isPending("u1"), false);
+
+      eq("a pending student's lists come off their roster row",
+         T2.effectiveLists("roster:3@seq.org").ids.join(","), "nonsense,initial-blends");
+      eq("…and say where from", T2.effectiveLists("roster:3@seq.org").from, "roster");
+
+      // Precedence, the same walk store.js does.
+      c.roster["3@seq.org"].lists = null;
+      c.classCfg = { periods:["5"], periodLists: { "5": ["red-1-cards"] } };
+      feed(c);
+      eq("with no roster lists, the roster's PERIOD decides",
+         T2.effectiveLists("roster:3@seq.org").ids.join(","), "red-1-cards");
+      eq("…and says so", T2.effectiveLists("roster:3@seq.org").from, "period 5");
+      eq("a signed-in student's own assignment still wins over everything",
+         T2.effectiveLists("u1").ids.join(","), "nonsense");
+    })();
+
+    // Board edits for a pending student go to the roster, not assignments.
+    (function(){
+      var c = aClass();
+      c.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
+      feed(c);
+      T2.setScope("s:roster:3@seq.org", ["nonsense"]);
+      T2.setScope("s:u2", ["initial-blends"]);
+      var b = T2.saveBody(["s:roster:3@seq.org", "s:u2"], 500);
+      eq("the pending student is written to the roster",
+         Object.keys(b.roster).join(","), "3@seq.org");
+      eq("…with their lists", b.roster["3@seq.org"].lists.join(","), "nonsense");
+      eq("the signed-in one is written to assignments", Object.keys(b.students).join(","), "u2");
+      eq("…and never to both",
+         Object.prototype.hasOwnProperty.call(b.students, "roster:3@seq.org"), false);
+    })();
   })();
 
   /* ---- the dashboard's mode across students ---- */
@@ -2304,7 +2525,7 @@
     var roster = T.rosterCsv().split("\r\n");
     eq("the roster has a header and a row per student", roster.length, 3, JSON.stringify(roster));
     eq("the header names the columns",
-       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Note");
+       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Signed in,Note");
     eq("a name with a comma and an apostrophe survives whole",
        roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,3,'), 0);
     eq("the roster carries the same sentence the screen shows",

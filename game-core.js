@@ -1176,6 +1176,209 @@ window.GameCore = (function(){
     return phAudioPromise;
   }
 
+
+  /* ---------------- roster parsing (pure, testable) ----------------
+     A class exists on the dashboard only once every student has signed in,
+     which makes day one an empty roster and a teacher typing periods in
+     by hand. A roster export fixes that, and the join is the ID number:
+     students sign in as <student id>@seq.org, so the address is knowable
+     in August and the uid is not.
+
+     What comes out of a student information system is never the same
+     twice — tabs one year and semicolons the next, "Perm ID" or "Local
+     ID", one Name column or Last and First — so this reads what it is
+     given rather than a format. What it will NOT do is guess an ID: a row
+     without one is rejected and listed, because a guessed ID is a student
+     matched to somebody else's record. */
+
+  // The one identity rule on the site. Everything else joins through it.
+  function emailForId(id){
+    var s = String(id == null ? "" : id).trim().toLowerCase();
+    return s ? s + "@seq.org" : "";
+  }
+
+  var ROSTER_HEADERS = {
+    id:     ["id","student id","studentid","student number","perm id","permid",
+             "local id","permanent id","sis id","sisid","number","student #","id #"],
+    name:   ["name","student","student name","full name"],
+    last:   ["last name","last","surname"],
+    first:  ["first name","first","given name"],
+    period: ["period","per","pd","section","class","block"],
+    start:  ["start","start at","starting list","starting point","list","begin"]
+  };
+
+  // Comma, tab or semicolon, whichever the first real line has most of
+  // outside its quotes. Sniffed rather than configured: nobody exporting a
+  // roster knows or cares which one their system used.
+  function sniffDelimiter(line){
+    var counts = { ",":0, "\t":0, ";":0 }, inQ = false, i, ch;
+    for(i=0;i<line.length;i++){
+      ch = line.charAt(i);
+      if(ch === '"'){ inQ = !inQ; continue; }
+      if(!inQ && has(counts, ch)) counts[ch]++;
+    }
+    var best = ",", bestN = -1;
+    [",", "\t", ";"].forEach(function(d){ if(counts[d] > bestN){ best = d; bestN = counts[d]; } });
+    return bestN > 0 ? best : ",";
+  }
+
+  /* A whole file into rows of cells. Written as one pass rather than
+     split("\n").map(split(delim)) because a quoted field may contain the
+     delimiter, a newline, or a doubled quote, and all three turn up in
+     real exports (a name like "O'Brien, Jr." does it on its own). */
+  function parseDelimited(text, delim){
+    var s = String(text == null ? "" : text).replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+    var rows = [], row = [], cell = "", inQ = false, i = 0;
+    while(i < s.length){
+      var ch = s.charAt(i);
+      if(inQ){
+        if(ch === '"'){
+          if(s.charAt(i+1) === '"'){ cell += '"'; i += 2; continue; }
+          inQ = false; i++; continue;
+        }
+        cell += ch; i++; continue;
+      }
+      if(ch === '"'){ inQ = true; i++; continue; }
+      if(ch === delim){ row.push(cell); cell = ""; i++; continue; }
+      if(ch === "\n"){ row.push(cell); rows.push(row); row = []; cell = ""; i++; continue; }
+      cell += ch; i++;
+    }
+    row.push(cell);
+    rows.push(row);
+    // Trailing blank lines are not rows.
+    return rows.filter(function(r){ return r.some(function(c){ return String(c).trim(); }); })
+               .map(function(r){ return r.map(function(c){ return String(c).trim(); }); });
+  }
+
+  function normHeader(s){ return String(s || "").toLowerCase().replace(/[_.]/g, " ").replace(/\s+/g, " ").trim(); }
+
+  /* Which column is which. Header cells are walked left to right and the
+     first one that names a column it hasn't found yet claims it, so a file
+     with both "Student ID" and "Number" uses the one that comes first
+     rather than whichever the alias list happens to mention first. */
+  function mapColumns(header){
+    var out = {}, i, k, h;
+    for(i=0;i<header.length;i++){
+      h = normHeader(header[i]);
+      for(k in ROSTER_HEADERS){
+        if(!has(ROSTER_HEADERS, k) || has(out, k)) continue;
+        if(ROSTER_HEADERS[k].indexOf(h) !== -1){ out[k] = i; break; }
+      }
+    }
+    return out;
+  }
+
+  function looksLikeHeader(row){
+    var found = mapColumns(row);
+    // An ID and something else. One lone match is as likely to be a name
+    // that happens to read like a header ("Class" is a surname).
+    return has(found, "id") && Object.keys(found).length > 1;
+  }
+
+  /* No header row is common enough to handle: a paste out of a
+     spreadsheet's body, or an export with the header already stripped.
+     The shapes are distinctive — the all-digits column is the ID, the one
+     with spaces and letters is the name, a column of one- or two-digit
+     values is the period. */
+  function guessColumns(rows){
+    var width = 0;
+    rows.forEach(function(r){ if(r.length > width) width = r.length; });
+    var out = {}, c, i, vals;
+    for(c=0;c<width;c++){
+      vals = [];
+      for(i=0;i<rows.length;i++) if(rows[i][c]) vals.push(rows[i][c]);
+      if(!vals.length) continue;
+      var allDigits = vals.every(function(v){ return /^\d+$/.test(v); });
+      var short = vals.every(function(v){ return /^\d{1,2}$/.test(v); });
+      var wordy = vals.every(function(v){ return /[A-Za-z]/.test(v) && v.length > 1; });
+      if(allDigits && !short && !has(out, "id")) out.id = c;
+      else if(short && !has(out, "period")) out.period = c;
+      else if(wordy && !has(out, "name")) out.name = c;
+      else if(allDigits && !has(out, "id")) out.id = c;
+    }
+    return out;
+  }
+
+  // "Period 3", "P3", "3rd", " 03 " → "3". Anything with no digits in it
+  // keeps its own text, because a period called "A" is a real thing.
+  function normalizePeriod(v){
+    var s = String(v == null ? "" : v).trim();
+    if(!s) return "";
+    var m = /\d+/.exec(s);
+    return m ? String(parseInt(m[0], 10)) : s;
+  }
+
+  function cellAt(row, cols, key){
+    return has(cols, key) && row[cols[key]] !== undefined ? String(row[cols[key]]).trim() : "";
+  }
+
+  /* parseRoster(text, resolveStart) -> { rows, errors, columns, hadHeader }
+
+     `resolveStart` turns whatever the file says a student starts on into a
+     list id, and is injected rather than imported: this file knows nothing
+     about the list registry, and a test wants to pin the parsing without
+     dragging the whole library in. Unresolvable values are warnings on the
+     row, never errors — a start nobody can read is a student who starts at
+     the beginning, not a student who fails to import. */
+  function parseRoster(text, resolveStart){
+    var raw = String(text == null ? "" : text).replace(/^﻿/, "");
+    var firstLine = (raw.replace(/\r\n?/g, "\n").split("\n").filter(function(l){ return l.trim(); })[0]) || "";
+    var delim = sniffDelimiter(firstLine);
+    var rows = parseDelimited(raw, delim);
+    var out = { rows: [], errors: [], columns: {}, hadHeader: false, delimiter: delim };
+    if(!rows.length) return out;
+
+    var body = rows, cols;
+    if(looksLikeHeader(rows[0])){
+      out.hadHeader = true;
+      cols = mapColumns(rows[0]);
+      body = rows.slice(1);
+    } else {
+      cols = guessColumns(rows);
+    }
+    out.columns = cols;
+
+    if(!has(cols, "id") && !(has(cols, "last") || has(cols, "name"))){
+      out.errors.push({ line: 1, message: "Couldn't find an ID column or a name column. Check the header row." });
+      return out;
+    }
+
+    var seen = {};
+    body.forEach(function(r, i){
+      var line = i + (out.hadHeader ? 2 : 1);
+      var id = cellAt(r, cols, "id").replace(/\s+/g, "");
+      var name = cellAt(r, cols, "name");
+      if(!name && (has(cols, "last") || has(cols, "first"))){
+        // "Last, First" columns are the other common shape. Printed the
+        // way a person says it, because this ends up on screen.
+        name = [cellAt(r, cols, "first"), cellAt(r, cols, "last")].filter(Boolean).join(" ");
+      }
+      if(!id){ out.errors.push({ line: line, name: name, message: "No ID number" }); return; }
+      if(!/^\d+$/.test(id)){ out.errors.push({ line: line, name: name, message: "ID isn't a number: " + id }); return; }
+      if(has(seen, id)){ out.errors.push({ line: line, name: name, message: "Duplicate ID: " + id }); return; }
+      seen[id] = true;
+
+      var startRaw = cellAt(r, cols, "start");
+      var start = null, warning = "";
+      if(startRaw){
+        start = (typeof resolveStart === "function" ? resolveStart(startRaw) : null) || null;
+        if(!start) warning = "Couldn't work out where “" + startRaw + "” starts — they'll start at the beginning.";
+      }
+
+      out.rows.push({
+        id: id,
+        name: name,
+        email: emailForId(id),
+        period: normalizePeriod(cellAt(r, cols, "period")),
+        startRaw: startRaw,
+        start: start,
+        warning: warning,
+        line: line
+      });
+    });
+    return out;
+  }
+
   /* ---------------- comeback deck (pure, testable) ----------------
      Missed words don't vanish when the round ends — they're kept per game
      page so the next session can start with the words that are actually
@@ -1548,6 +1751,10 @@ window.GameCore = (function(){
 
     spokenText: spokenText,
     directionParts: directionParts,
+
+    emailForId: emailForId,
+    parseRoster: parseRoster,
+    normalizePeriod: normalizePeriod,
 
     sanitizeView: sanitizeView,
     viewClasses: viewClasses,

@@ -671,6 +671,53 @@ window.WordLists = (function(){
 
     /* ── families ───────────────────────────────────────────────────── */
     families: function(){ return window.LIST_FAMILIES.slice(); },
+    /* Whatever a roster export calls a starting point, as a list id.
+       Accepts an id outright ("red-3-cards"), and otherwise the shorthand
+       a teacher actually writes in a spreadsheet column — "Red 3", "Red
+       Words 3", "oi/oy", "Blends" — because the alternative is telling a
+       teacher to look up thirty ids before they can import their class.
+
+       Ambiguity resolves to the family's FIRST mode in its own order,
+       which is the one a student starts on. Null when nothing matches;
+       the caller treats that as a warning, never an error. */
+    resolveListRef: function(text){
+      var s = String(text == null ? "" : text).toLowerCase().trim();
+      if(!s) return null;
+      if(index[s]) return s;
+      var num = null;
+      var m = /(\d+)\s*$/.exec(s);
+      if(m){ num = parseInt(m[1], 10); s = s.slice(0, m.index).trim(); }
+      /* Compare with every separator gone: a teacher writes "oi/oy" and
+         the family is titled "oi / oy", and neither of them is wrong. */
+      function squash(x){ return String(x).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+      s = squash(s);
+      if(!s) return null;
+      var fam = null, i, f;
+      for(i=0;i<window.LIST_FAMILIES.length;i++){
+        f = window.LIST_FAMILIES[i];
+        if(squash(f.title) === s || squash(f.key) === s){ fam = f; break; }
+      }
+      if(!fam){
+        /* A prefix is enough — "red" for "Red Words". Longest title first,
+           so a short word that prefixes two families lands on the more
+           specific one rather than on whichever is declared earliest. */
+        var cands = window.LIST_FAMILIES.slice().sort(function(a, b){ return b.title.length - a.title.length; });
+        for(i=0;i<cands.length;i++){
+          var t = squash(cands[i].title), k = squash(cands[i].key);
+          if(t.indexOf(s) === 0 || s.indexOf(t) === 0 || k.indexOf(s) === 0){ fam = cands[i]; break; }
+        }
+      }
+      if(!fam) return null;
+      var nums = this.listNumsOf(fam.key);
+      var n = (num != null && nums.indexOf(num) !== -1) ? num : nums[0];
+      var modes = fam.modes;
+      for(i=0;i<modes.length;i++){
+        var id = this.idFor(fam.key, n, modes[i]);
+        if(id) return id;
+      }
+      return null;
+    },
+
     // What a list is teaching, in a teacher's words. Falls back to the
     // family title so a family added without a tag still reads sensibly.
     patternOf: function(listId){
