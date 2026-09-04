@@ -125,6 +125,39 @@ say about *which* list, so it prints only the modes; a family with ten
 prints the list numbers per mode, as ranges, so ten ticked boxes read as
 "1–10" rather than as ten numbers.
 
+### Heart letters
+
+A red word is irregular, but it is rarely irregular all the way through.
+"said" is s + d with one impossible middle; "could" is c + d with one. The
+lists mark that middle with braces — `"s{ai}d"`, `"c{oul}d"` — and the
+flash cards show it in red on the **back** of the card, under "In red: the
+part to remember by heart". The front stays plain: the card has to be read
+cold first.
+
+The point is the size of the thing being memorised. "Learn s-a-i-d" is four
+letters with no pattern. "Learn that *said* has an **ai** in the middle" is
+one chunk, and the s and the d are just reading.
+
+Marks are display only and stack with the syllable dots (`"al{th}·ough"` is
+legal). `GameCore.parseEntry` returns `{ word, chunks, heart }` — the heart
+ranges index the **plain** word, apostrophes and periods included — and
+`WordLists.plain()` strips braces as well as dots. Everything that stores or
+matches a word sees the plain form, so adding the marks changed no stat key;
+`tests.html` pins all ten red lists' `wordsOf()` byte for byte against what
+they produced before, because those strings have a term of practice behind
+them.
+
+Marking is by hand, deliberately. `phonemes()` could flag the vowel team in
+every word, including the regular ones — "which part can't be sounded out"
+is a teaching judgement, not something the encoder knows. The unmarked words
+in those lists are unmarked on purpose: *carrot*, *spirit*, *radio* and
+*about* are regular enough to sound out, and *Mrs.*, *Mr.* and *wind* are an
+abbreviation and a heteronym, which is a different problem.
+
+On **Not yet**, a word with heart letters is spelled rather than just
+re-read: "s. a. i. d. said", as one utterance, because four utterances come
+out as four separate thoughts.
+
 ### Syllable dots
 
 The multisyllable list writes its words with middle dots marking the
@@ -179,6 +212,53 @@ A shared page with no `?list=`, or a stale one, isn't an error: it shows
 a chooser of every list that has that mode, the student's own first and
 the rest under "More", so a bookmarked or hand-typed address still lands
 somewhere useful. A list id belonging to a different page redirects there.
+
+## Reading view
+
+Four switches on every game's start screen, under **👁 Reading view**:
+
+| | |
+|---|---|
+| **Font** | Site default · **Lexend** · **Atkinson Hyperlegible** |
+| **Letter spacing** | Normal · Wide |
+| **Word case** | As written · lowercase |
+| **Card colour** | Dark · Cream |
+
+None of these is decoration. A reader who loses their place between b and d,
+or who can't hold a word together when the letters sit tight, is describing
+the thing that is actually hard. Lexend was drawn against reading-speed
+research; Atkinson Hyperlegible was drawn by the Braille Institute for low
+vision, and its b/d/p/q and I/l/1 are made to be told apart at a glance.
+
+Both fonts are **self-hosted** (`fonts/`, latin subset, 400 and 700, OFL
+licences included). Linking them from Google would mean a school network
+that blocks `fonts.gstatic.com` silently falls back to the default face —
+for exactly the student the setting exists for.
+
+The settings live in `localStorage` under `eiView`, per device, like Shuffle
+and Voice: a shared Chromebook cart means the setting belongs to the seat.
+They are applied as classes on `<html>` (`view-lexend`, `view-wide`,
+`view-lower`, `view-cream`), so a setting reaches every page and every
+engine without any of them knowing about it. `game-core.js` owns the object,
+the panel and the sanitizer — an unrecognised stored value is the default,
+not an error.
+
+`view-boot.js` runs in each page's `<head>`, before any stylesheet, and does
+one thing: copy a cached class string out of `localStorage` onto `<html>`.
+Without it a student with Lexend on watches every page render in the default
+face and then jump. It reads only the derived cache and scrubs it to
+`[a-z- ]` before it touches `className`, because localStorage is
+hand-editable; the cache is disposable, and `game-core.js` re-derives it from
+the real object as soon as it loads.
+
+**lowercase** is the one switch that isn't blanket. Lowercasing "Mrs." makes
+a different word and lowercasing "Wednesday" makes a spelling error, so the
+engines mark any word carrying a capital and CSS leaves those alone. The
+four such words in the whole library — *Mr.*, *Mrs.*, *Tuesday*,
+*Wednesday* — are pinned by a test, so a new one can't slip in unnoticed.
+
+**Cream** reaches the card faces and the word and nothing else. A student who
+wants paper-coloured words is not asking for a beige teacher dashboard.
 
 ## Shared core
 
@@ -292,6 +372,37 @@ words:
 family sets them, so the same words played three ways get three headings
 that read as one game asking different questions.
 
+### Say It for the red words
+
+The red words got a say-it mode late, after the reason they didn't have one
+turned out to be wrong. "A phoneme matcher has nothing to check an irregular
+word against" is true and beside the point: Say It takes an **exact
+transcript** first and only falls back to phonemes, and a red word is an
+ordinary dictionary word that Chrome returns reliably. What actually blocked
+it was two things, both now fixed where they belong.
+
+**Homophones.** No amount of listening separates *to* from *two*, and a
+student who read the card correctly must not be marked wrong because the
+recogniser guessed the other spelling. A list may carry `homophones` groups
+(the red words pass the same `RED_HOMOPHONES` Match It already used), and
+any member of the target's group is accepted — checked *before* the level
+rules, including at Challenge, because a homophone is not a near miss the
+game is being generous about. The phonics lists deliberately have no groups:
+their near-misses are minimal pairs (*sled* / *bled*), and telling those
+apart is the exercise.
+
+**Contractions.** "they'd" said out loud *is* "they would", and the
+recogniser writes down whichever it likes. `GameCore.normalize` folds the
+expansion to the contraction so both are the same string — but only when
+the transcript is exactly that phrase. Folding inside a longer transcript
+would destroy tokens the matcher needs: "they have" is the expansion of
+"they've" and also a student reading the word *have* with a run-up.
+
+The mode runs on a generic `say-game.html?list=red-3-say`, the way
+`cards-game.html` already works. The four phonics families keep their own
+pages, because each carries a rule box or a mic note that only makes sense
+for that list.
+
 Three matching modes for `blend`, depending on what's being drilled:
 
 - `"start"` / `"end"` — a fixed-length blend at one end of the word
@@ -382,12 +493,14 @@ have to reconnect between words. Silence never counts as a wrong answer.
 
 The word has to come back exactly right to be marked correct — there's no
 forgiving near-misses, since the student actually saying the word correctly
-is the whole point. `blend-game.js` also carries a more forgiving phonetic
-matcher (`phonemes()`, `phoneticDistance()`, the `ACCEPT` table of known
-recogniser mishearings) that compares **sounds** rather than letters — e.g.
-"krab" would pass for "crab" — but the games no longer expose it; it only
-runs today through the `_internals` seam that `tests.html` exercises
-directly, in case a more forgiving mode is wanted again later.
+is the whole point. A more forgiving phonetic matcher lives in
+`game-core.js` (`phonemes()`, `phoneticDistance()`, the `ACCEPT` table of
+known recogniser mishearings); it compares **sounds** rather than letters,
+so "krab" would pass for "crab". The games don't expose it as a level any
+more, but it is not dead code: the encoder underneath it is what tells a
+student which part of a word went wrong (below), what the phoneme clips in
+`audio/ph/` are named after, and what the flash cards use to judge a spoken
+answer.
 
 Run `tests.html` (served the same way as the games) to check the matcher
 itself, along with everything shared in `game-core.js` (scoring, stars, the
@@ -396,9 +509,65 @@ on), the syllable parser, the spelling checker, the flash-card deck builders
 and the matching game's distractor picker — it renders a pass/fail table
 with a summary line.
 
+Three scripts in `tools/` run the checks headlessly, against a plain
+`python3 -m http.server`:
+
+| | |
+|---|---|
+| `tools/run-tests.sh` | `tests.html` in headless Chrome; prints the summary line |
+| `tools/check-pages.sh <pages…>` | loads each page and reports console errors and CSP violations |
+| `tools/boot-check.sh` | **starts every engine** against its real list and clicks a few steps through it |
+
+The last one exists because of the gap the other two leave. `tests.html`
+covers pure logic; page loads stop at the sign-in wall, so an engine's
+`start()` never runs on a real page without an account. A listener bound to
+an element before the shell exists throws on the first card and passes both
+of the other checks — which is exactly what happened once, and is why this
+one is here.
+
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.
+
+### Which part went wrong
+
+A red ✗ tells a student they were wrong. It doesn't tell them *which part*,
+and for a reader who is guessing at blends or sliding off vowels that is the
+only part worth knowing. `GameCore.diagnose()` lines up what the mic heard
+against the word that was on screen, sound by sound, and names one thing:
+
+| kind | what it means | what the student sees |
+|---|---|---|
+| `blend` | the blend being practised came back wrong | Look at the blend: **bl** |
+| `sound` | the sound the list exists for is missing | The **oi** sound is the key |
+| `vowel` | one vowel swapped for another | Check the vowel: **e** |
+| `consonant` | one consonant swapped for another | Listen to the **s** sound |
+| `missing` | a sound was dropped | You dropped a sound: **st** |
+| `extra` | a sound was added | That's one sound too many |
+| `other` | right sounds, wrong word | Read it slowly, left to right |
+
+One answer, never a list. A wrong reading usually has one cause, and three
+guesses at once is how a hint becomes noise. The rules are tried in the
+order a teacher would look — the blend on the page first, then the target
+sound, then the vowel, then the rest — so on the Blend Words list "gasp"
+read as "gas" points at the blend, and everywhere else it points at the
+dropped **p**.
+
+It is built on `phonemeSpans()`, which is `phonemes()` with the letters kept:
+each sound carries the slice of the word that spells it, so the reveal can
+light up **cr** rather than saying "the second phoneme". Silent letters fold
+into the sound before them, so every letter belongs to something.
+
+The first miss doesn't get any of this — just "I heard: *bred*", because the
+student is about to try again and a hint they haven't asked for slows the
+retry down. The reveal is where it lands: the letters turn gold, the message
+appears under the word, and with **Voice** on it is read out as one sentence
+after the word ("The word was, crab. Look at the blend, cr."). That costs
+700 ms of extra reveal time, spent only when there is a voice saying it.
+
+The end screen's missed-word chips carry the kind of error too, so a round
+that went wrong in four different ways looks different from one that went
+wrong the same way four times.
 
 ### Scoring
 
@@ -588,6 +757,256 @@ Cards and Match It on the same list keep **separate** ids, stats and
 comeback decks, on purpose: knowing a word on sight and picking it out of
 five look-alikes are different days' work.
 
+### Words in context
+
+Once a word is solid on its own, the next thing worth asking is whether it
+survives a sentence — which is where a word actually gets read, and where a
+student who has memorised a shape rather than a word comes unstuck. On lists
+that carry sentences (the red words and oi/oy), **one card in three** shows a
+mastered word inside its sentence on the front, the word in full weight and
+the rest muted. The back is the word alone: the sentence was the question.
+
+Three gates, all deliberate. The word has to be one the scheduler already
+counts as solid, so this reads as a step up rather than the game getting
+harder; the counter only advances on cards that *could* have shown a
+sentence, so "one in three" means one in three of those; and the speed round
+is exempt, because that round is about reading one word fast and a sentence
+in it is just a slower card.
+
+The bold lands on the word and nowhere else — a word-boundary match, so
+"one" doesn't light up inside "money", and case-insensitive, so a
+sentence-initial "The" still matches "the". A test walks every sentence a
+card can show and checks the word is actually in it.
+
+### Listen (optional)
+
+Off by default and remembered per device, like Shuffle and Voice. With it
+on, the mic keeps whatever the student said while the card was face up; on
+the flip the back shows "I heard: *could*" and **pulses** the rating button
+it thinks is right. The student still presses one — that self-rating is
+still the score, and a suggestion that pre-pressed it would quietly take
+the game over. No transcript means no line and no pulse: an empty mic looks
+exactly like the game with Listen off.
+
+Turning it on is where Chrome asks for the microphone, so the prompt
+happens on the start screen and not in the middle of a card. A blocked mic
+snaps the toggle back to Off with the same message Say It gives, and the
+cards carry on.
+
+`judgeHeard()` (pure, in `tests.html`) accepts four things, in order of how
+sure they are: the word; a homophone of it (the red lists pass their
+`RED_HOMOPHONES` groups — no recogniser separates *to* from *two*, and
+neither does a listener); a mishearing already recorded for it in `ACCEPT`;
+and, **on the nonsense list only**, anything within one sound of it. That
+last one is off for real words on purpose: "bread" for "bred" is exactly
+the error worth catching, while "vab" has no dictionary entry to come back
+as and a letter-perfect match would be a bar no student could clear.
+
+The listening itself is `listen.js` (`EIListen`) — a small wrapper over
+`SpeechRecognition` with `start`/`stop`/`hold`/`onTranscript`. It is
+deliberately **not** a refactor of Say It's loop. That one is the whole
+game: it holds the mic open for a round, mutes around every beep and
+utterance, and its hold lengths were tuned by ear against a room of
+Chromebooks. The cards want something much smaller, and touching a tuned
+thing to serve a second caller is how it stops being tuned. Both exist; the
+mic is stopped before the card speaks, so the recogniser can never
+transcribe the computer's own read back as the student's answer.
+
+## Fluency games
+
+Every other mode asks whether a student knows a word. These two ask how
+fast, which is a different question and the one that goes on being worth
+asking long after accuracy has stopped moving. A student can be right
+about *would* every single time and still take three seconds to get there,
+and a reader who takes three seconds a word cannot read a paragraph — by
+the end of the sentence the beginning is gone.
+
+`fluency-game.js` + `fluency-game.html` are one engine in two shapes,
+chosen by whether the list carries a `text`:
+
+- **One minute** (`fluency`) — the word list in rows of five, sixty
+  seconds, the deck cycling so a fast reader never runs out. Space skips.
+  Score: **correct words per minute**. On the starting blends, the final
+  blends and the nonsense words.
+- **Read it** (`read`) — a passage of connected text; words light up as the
+  student passes them, and tapping one reads it aloud. Score: **words
+  correct per minute**, plus the delta since last time, which is the reason
+  to do it twice.
+
+The clock starts on the **first word actually read**, not on the button: a
+student fumbling with headphones for four seconds has not been reading for
+four seconds.
+
+### Following a reader
+
+`consume()` (pure, in `tests.html`) walks a transcript's tokens against the
+words still to be read. Its `lookahead` is the whole difference between the
+two games:
+
+- **0** — the one-minute list. Every token answers the current word, right
+  or wrong, and the pointer moves either way, so the run never stalls on a
+  word the student has given up on.
+- **3** — a passage. A token that doesn't match the current word is tried
+  against the next three, so a reader who skips a word carries on from
+  where they actually are and the skipped words go red behind them. A token
+  matching nothing at all is *ignored*: in connected text the recogniser
+  returns plenty that isn't on the page, and scoring that would be scoring
+  the microphone.
+
+Interim results drive the pointer, not just finals — a reader at sixty
+words a minute is four words past whatever the recogniser is still thinking
+about, and waiting would leave the highlight hopelessly behind.
+
+Stars are the usual three tiers against a target rate: **60 CWPM** for real
+words, **40** for the nonsense list, with two stars at 70 % of that and one
+at 50 %.
+
+### Passages
+
+`passages.js` holds eight — two each for starting blends, final blends,
+oi/oy and multisyllable — of 80–120 words. Every single word in every
+passage is on that family's list, on another family's list, on Red Lists
+1–3, or in a closed set of function words at the top of the file. About two
+hundred words in total, and a test walks every passage against it.
+
+The rule is the point: a student who stalls here has stalled on reading
+connected text, not on a word nobody taught them. It also bites hard —
+there is no *them*, no *him*, no past tense the lists don't carry — which
+is why these read the way they do. A draft that fails the test gets edited;
+the rule doesn't.
+
+Only a passage's `targets` — the family words it actually uses — are
+reported to the scheduler. *the* going past tells nobody anything about
+anybody's reading.
+
+### What gets stored
+
+`students/{uid}.fluency[listId]` is a list of `{at, cwpm, errors, n}`,
+oldest first, capped at **30** — a term of weekly reads, and a few
+kilobytes. It is not a stat: a rate belongs to a run, not to a word, and
+nothing in the scheduler reads it. The tail is what makes the dashboard's
+sparkline; a single latest number would say nothing about whether anything
+is changing.
+
+The student page draws one inline-SVG sparkline per fluency list (no
+library, no axes, no labels — the question is "is this going up", and the
+latest and best are printed beside it), and the roster CSV gains a
+*latest*/*best* pair of columns for each fluency list somebody has actually
+read.
+
+## Phoneme clips
+
+A synthesiser will not say an isolated /b/. Asked for one it says **"buh"**
+— and a word sounded out as "buh-a-tuh" does not blend into "bat". That is
+the single most common thing a struggling reader has been taught wrong, and
+the student who does it has been doing it faithfully for years.
+
+So the sounds come from files. `audio/ph/<TOKEN>.mp3`, one per token
+`phonemes()` can emit (37 of them), made by `tools/make-phonemes.sh` out of
+espeak-ng's phoneme input — the one way to get a synthesiser to say a sound
+in isolation. Stops (b d g k p t) have no sound at all without a release, so
+they get a tiny schwa that is then trimmed back to the burst: the closest a
+machine gets to a pure /b/ without saying "buh". The script is a build-time
+tool; the clips are committed, and nothing on the site needs it.
+
+`GameCore.phonemeAudio()` fetches `audio/ph/manifest.json` once per page and
+resolves to a player — `play(tokens, gapMs)`, `has()`, `estimate()`,
+`cancel()` — or to **null**. Null is the feature switch: if the folder isn't
+there, everything built on it hides itself rather than playing silence at a
+student. `x` and `qu` stay single tokens everywhere else (the distance
+arithmetic depends on it) and are expanded to two clips only here.
+
+Playing goes through the same microphone hold the spoken coach uses, so the
+recogniser never transcribes the computer's own sounds back as the
+student's.
+
+### Blend It
+
+A mode that starts from **sound** rather than from letters, and the only one
+that can. The student hears /k/ /r/ /a/ /b/ spread 700 ms apart, then the
+same sounds 250 ms apart, then says the word. The word itself is not on
+screen until they have had their go — that is phonological blending with
+nothing to read off, which is the sub-skill every printed list has to
+assume.
+
+Dots under the prompt show how many sounds are coming, which is itself worth
+knowing before trying to blend them. On the second miss the sounds play once
+more and **the letters light up with them**, in order, using `phonemeSpans`
+— *that* sound is spelled by *those* letters, which is the join the whole
+game exists to make. Then the whole word, spoken; nothing for the nonsense
+list, where a synthesiser handed "vab" says "verb".
+
+On the starting blends, the final blends and the nonsense words.
+`blend-it-game.js` + `blend-it-game.html`.
+
+### Tap to hear
+
+The back of a flash card and Say It's reveal are pressable where the clips
+exist: each syllable on a dotted word, each sound on a one-syllable one.
+Press one and it plays itself, then the whole word — a part is only useful
+next to the thing it is part of.
+
+A student who has been told a word twice and still can't read it usually
+can't hear *which part* they are getting wrong. Pressing "tas" and hearing
+/t/ /a/ /s/ answers that without anybody having to explain it.
+
+Press-only on purpose (`tabindex="-1"`): these sit inside games where 1 and
+2 are the answer keys, and a tab stop on every syllable would put a dozen
+new stops between the student and the button they need.
+
+## Sound boxes, splitting and hearing yourself
+
+Three smaller things, each aimed at a sub-skill the other modes step over.
+
+### Sound boxes (oi/oy spelling)
+
+One input per **sound**, not one for the word. "coin" is three sounds and
+four letters, and a student who puts one letter in each box has already
+found the thing they were going to get wrong. Typing auto-advances when a
+box is as long as the sound it holds — that length is the scaffold, exactly
+as the width of a drawn box is on paper — and Backspace out of an empty box
+goes back.
+
+The first miss marks the wrong boxes red and says how many; the student
+types over them. The second fills those boxes in gold and leaves the right
+ones alone, so what they see is their own spelling with the missing piece
+dropped in rather than the answer handed over whole. When exactly **one**
+box is wrong there is a single thing to point at, so `diagnose()` says what
+it is and the voice reads it after the word; two or more and it says nothing
+rather than guessing.
+
+Stats are unchanged: correct means every box right first try.
+
+### Split it (multisyllable)
+
+A variant inside the flash-card engine — same deck, same scoring, same
+screens — where the word shows with a clickable gap between every pair of
+letters. The student marks where it comes apart and presses Enter. Their
+extra splits go red where they put them; the ones they missed slide in gold.
+
+The answer key is the list itself: the entry's own syllable dots. Splits are
+compared as **sets of positions**, which is what lets a one-syllable word
+have the perfectly good answer "no splits at all".
+
+### Hear yourself
+
+A student who has just read a word wrong twice usually has no idea what they
+actually said — they heard the word correctly in their own head the whole
+time. "🎙 Hear yourself" plays the last few seconds back and then reads the
+word properly, which is the comparison the button exists for. There is no
+arguing with the recording.
+
+**In memory only.** The clip lives as a blob URL for exactly as long as its
+card is on screen and is revoked when the next one arrives. Nothing is
+stored and nothing is uploaded: a recording of a fifteen-year-old struggling
+to read is not a thing to keep, and the moment it is kept somebody has to
+decide who may hear it.
+
+Feature-detected (`MediaRecorder`), and only ever enabled where the
+microphone prompt has already been answered — after Say It's mic check, or
+when the cards' Listen toggle is switched on. It never causes a prompt of
+its own, and where there is no permission the button simply never appears.
+
 ## Adaptive practice
 
 A round is no longer the whole word list. `EIPractice.play()` draws
@@ -613,6 +1032,40 @@ it isn't knowing it — the same rule the comeback deck already used. A miss
 drops a word one box rather than resetting it to zero: resetting is the
 textbook Leitner move and it turns one fumble into a week of seeing that
 word every session.
+
+### Speed
+
+A word decoded in three seconds is not a sight word, however reliably it
+comes back right. The flash cards time the flip (`performance.now()` when
+the card lands, again when it turns) and pass the milliseconds along with
+the rating; the other three engines can't measure anything meaningful — a
+mic answer's clock includes the recogniser and a typed one includes the
+typing — and simply don't pass it.
+
+The stat gains `lat`, a running average of how long a **correct** answer
+took. Wrong answers aren't timed: that clock is measuring how long a
+student stared at a word they didn't know. Over `SLOW_MS` (2.5 s) a word
+counts as slow and the scheduler weights it up by ×1.5, so it keeps coming
+round after its accuracy has stopped moving.
+
+What slow does **not** do is change `isMastered`. The student's own tile
+says "12 of 20 solid", and that number must not drop the day the cards
+learn to use a stopwatch — nothing about their reading changed. Speed is
+the scheduler's business and the teacher's: the dashboard's per-list
+breakdown reads "12 / 20 (4 slow)", and **Ready to move up** counts a word
+only when it is solid *and* at pace, so nobody gets advanced on the
+strength of thirty words they can decode but not read.
+
+On the card itself, a flip under 1.5 s earns a "⚡ fast" pill and the end
+screen counts them. There is deliberately no slow pill: "you were quick" is
+worth saying out loud, and "you were slow" is a thing the scheduler acts on
+quietly, because being told would make the next card slower, not faster.
+
+A list with at least eight solid words also offers a **⚡ Speed round** on
+the start screen — a deck of nothing but words the student already owns,
+with the cards flipping themselves after two seconds so there is no waiting
+the clock out. Useless as practice; the only thing on the site that asks
+whether a word can be read without thinking about it.
 
 Never-practiced words sit at a flat weight of 3.0, between "solid" and
 "shaky", so new material keeps flowing without crowding out what's
@@ -643,6 +1096,18 @@ There's also a per-device mirror in `localStorage`, scoped by uid so a
 shared Chromebook can't leak one student's deck into the next student's
 session. It keeps word selection sensible if the network drops mid-round;
 it is never merged back up.
+
+The document also carries a `heard` map: for each word Say It marked wrong,
+the last **five** transcripts the recogniser returned, cleaned (lowercase,
+letters/digits/apostrophe/space, 40 characters) and deduplicated. It is
+evidence, not a score — nothing in the scheduler reads it. It is there
+because a word that keeps coming back as "bread" is a reading error worth a
+lesson, and a word that comes back as three spellings of itself is the
+recogniser failing and wants a line in `ACCEPT` instead. The shape lives in
+`adaptive.js` (`cleanHeard`, `pushHeard`, `sanitizeHeard`) beside
+`sanitizeStats`, because both the student's store and the teacher's
+dashboard have to agree about it. Both places sanitize on the way in: the
+document is hand-editable and outlives any change to this repo.
 
 ## Teacher dashboard
 
@@ -763,6 +1228,32 @@ take the finished list away, since each list is its own tile with its own
 adaptive deck, so keeping List 3 alongside List 4 costs nothing and keeps
 those words in rotation. Dropping one stays a judgement call.
 
+### Patterns
+
+Thirty words all going wrong on the same vowel team is **one** problem with
+one lesson behind it, and a list of thirty words is exactly the shape that
+hides that. So every family carries a `pattern` — *initial blend*, *final
+blend*, *vowel team oi/oy*, *multisyllable*, *irregular*, *nonsense CVC*,
+*connected text* — in the words a teacher would use in a plan, and **Trouble
+spots** has a second table grouped by it, filterable by period like the
+first.
+
+"Shaky" in that table counts **students**, not words: a student struggling
+with six words of one pattern counts once, because the question the table
+answers is how many people to reteach.
+
+The **Most common error** column comes from the seven kinds `diagnose()` can
+name, counted per miss on the stat as `k: {blend:3, vowel:1}`. Only Say It
+writes them — it is the only mode that hears what the student actually said
+— and only on the reveal, so it counts words given up on rather than words
+fumbled once. The key set is closed and sanitized on the way in: this goes
+from a game engine into a document a teacher reads.
+
+The student page gains a **Slow but right** count (from `lat` — see Speed;
+still never shown to the student) and a one-line error mix. Both exports
+grow columns: *Slow but right* and *Top error* on the roster; *Pattern*,
+*Slow* and *Top error* per word.
+
 ### Notes
 
 A short note per student, on their detail page, for the things the
@@ -847,3 +1338,7 @@ every list"* rather than pretending to be a configured one, and its
 The teacher has **read** on `students/{uid}` and no write. Everything the
 teacher sets lives in `assignments/{uid}` instead, so a compromised
 teacher session can't erase anyone's work.
+
+The `heard` map added with the sound-level feedback needed no rules change
+either: `students/{uid}` is write-your-own-document, not a whitelist of
+fields.

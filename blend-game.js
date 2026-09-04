@@ -30,164 +30,33 @@ window.BlendGame = (function(){
       '<path d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 1 0 2 0v-3.08A7 7 0 0 0 19 11z"/>' +
     '</svg>';
 
-  /* ---------------- phonetic matching (pure, testable) ----------------
-     Everything below compares SOUNDS, not letters, so "krab" can match
-     "crab" (same sounds, different spelling) while "bled" still never
-     matches "bred" (different sounds, similar spelling). None of this is
-     full text-to-speech phoneme conversion (G2P) — it's a small rule-based
-     encoder good enough for the 1–2 syllable classroom words used here.
-
-     phonemes(word) walks the string left to right, matching the longest
-     applicable rule at each position first: digraphs/trigraphs (ch, th,
-     igh, dge…), then vowel teams (ai, ee, oo…) and r-controlled vowels
-     (ar, er…), then magic-e (silent final e that lengthens the vowel
-     before it), then plain letters. Examples:
-       phonemes("crab")  -> ["K","R","AE","B"]
-       phonemes("krab")  -> ["K","R","AE","B"]   (same — passes)
-       phonemes("plum")  -> ["P","L","UH","M"]
-       phonemes("plumb") -> ["P","L","UH","M"]   (silent b after m — same)
-       phonemes("sled")  -> ["S","L","EH","D"]
-       phonemes("slade") -> ["S","L","EY","D"]   (differ only in the vowel) */
-
-  var SHORT_VOWEL = { a:"AE", e:"EH", i:"IH", o:"AO", u:"UH" };
-  var LONG_VOWEL  = { a:"EY", e:"IY", i:"AY", o:"OW", u:"UW" };
-  var VOWEL_PHONES = { AE:1,EH:1,IH:1,AO:1,UH:1,EY:1,IY:1,AY:1,OW:1,UW:1,AW:1,OY:1,AR:1,OR:1,ER:1 };
-
-  function isVowelPhone(p){ return !!VOWEL_PHONES[p]; }
-  function isVowelLetter(ch){ return ch==="a"||ch==="e"||ch==="i"||ch==="o"||ch==="u"; }
-  function isConsonantLetter(ch){ return /[a-z]/.test(ch) && !isVowelLetter(ch); }
-
-  // c/g are "soft" before e, i or y (cent, gem); x and everything else is
-  // a fixed letter-to-sound mapping.
-  function consonantToken(ch, next){
-    if(ch === "c") return (next==="e"||next==="i"||next==="y") ? "S" : "K";
-    if(ch === "g") return (next==="e"||next==="i"||next==="y") ? "J" : "G";
-    if(ch === "x") return "KS";
-    return ch.toUpperCase();
-  }
-
-  function phonemes(word){
-    word = String(word||"").toLowerCase().replace(/[^a-z]/g,"");
-    var out = [], i = 0, n = word.length;
-    function at(s){ return word.substr(i, s.length) === s; }
-    while(i < n){
-      var c = word.charAt(i);
-
-      // Trigraphs/tetragraphs first, longest match wins.
-      if(at("eigh")){ out.push("EY"); i+=4; continue; }
-      if(at("igh")){ out.push("AY"); i+=3; continue; }
-      if(at("tch")){ out.push("C"); i+=3; continue; }
-      if(at("dge")){ out.push("J"); i+=3; continue; }
-      if(at("mb") && i+2===n){ out.push("M"); i+=2; continue; }   // silent b, end only
-
-      // Digraphs.
-      if(at("ch")){ out.push("C"); i+=2; continue; }
-      if(at("sh")){ out.push("S"); i+=2; continue; }
-      if(at("th")){ out.push("TH"); i+=2; continue; }
-      if(at("ph")){ out.push("F"); i+=2; continue; }
-      if(at("wh")){ out.push("W"); i+=2; continue; }
-      if(at("ck")){ out.push("K"); i+=2; continue; }
-      if(at("ng")){ out.push("NG"); i+=2; continue; }
-      if(at("qu")){ out.push("KW"); i+=2; continue; }
-      if(i===0 && at("wr")){ out.push("R"); i+=2; continue; }
-      if(i===0 && at("kn")){ out.push("N"); i+=2; continue; }
-      if(i===0 && at("gn")){ out.push("N"); i+=2; continue; }
-
-      // Vowel teams and r-controlled vowels.
-      if(at("ai")||at("ay")){ out.push("EY"); i+=2; continue; }
-      if(at("ee")||at("ea")){ out.push("IY"); i+=2; continue; }
-      if(at("oa")||at("ow")){ out.push("OW"); i+=2; continue; }
-      if(at("oo")){ out.push("UW"); i+=2; continue; }
-      if(at("ou")){ out.push("AW"); i+=2; continue; }
-      if(at("oi")||at("oy")){ out.push("OY"); i+=2; continue; }
-      if(at("ar")){ out.push("AR"); i+=2; continue; }
-      if(at("or")){ out.push("OR"); i+=2; continue; }
-      if(at("er")||at("ir")||at("ur")){ out.push("ER"); i+=2; continue; }
-
-      // Magic e: vowel + single consonant + silent final e lengthens the vowel.
-      if(isVowelLetter(c) && (i+2)===(n-1) && word.charAt(i+2)==="e" && isConsonantLetter(word.charAt(i+1))){
-        out.push(LONG_VOWEL[c]); i+=1; continue;
-      }
-      // A word-final e that wasn't just consumed above is silent.
-      if(c==="e" && i===n-1 && n>1){ i+=1; continue; }
-
-      // Doubled consonants collapse to one sound ("ll" -> L, "ss" -> S…).
-      if(isConsonantLetter(c) && word.charAt(i+1)===c){
-        out.push(consonantToken(c, word.charAt(i+2))); i+=2; continue;
-      }
-
-      if(c==="y"){
-        out.push(i===0 ? "Y" : (i===n-1 ? "IY" : "IH"));
-        i+=1; continue;
-      }
-      if(isVowelLetter(c)){ out.push(SHORT_VOWEL[c]); i+=1; continue; }
-      out.push(consonantToken(c, word.charAt(i+1)));
-      i+=1;
-    }
-    return out;
-  }
-
-  // Phoneme-level edit distance. Recognisers mangle vowels far more than
-  // consonants, so swapping one vowel sound for another costs half as much
-  // as any other kind of change. A plain consonant-for-consonant swap costs
-  // *more* than a full point (not exactly 1) so it never fits inside
-  // Regular's budget of 1 — a wrong consonant almost always means a
-  // different word entirely (e.g. "vest" heard as "nest"), not a mishearing,
-  // so Regular shouldn't forgive it the same way it forgives vowel drift.
-  function phoneticDistance(a, b){
-    var m=a.length, n=b.length, i, j, prev=[], cur=[];
-    for(j=0;j<=n;j++) prev[j]=j;
-    for(i=1;i<=m;i++){
-      cur[0]=i;
-      for(j=1;j<=n;j++){
-        var subCost = a[i-1]===b[j-1] ? 0 : (isVowelPhone(a[i-1]) && isVowelPhone(b[j-1]) ? 0.5 : 1.5);
-        cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+subCost);
-      }
-      for(j=0;j<=n;j++) prev[j]=cur[j];
-    }
-    return prev[n];
-  }
-
-  var NUM_WORDS = ["zero","one","two","three","four","five","six","seven","eight","nine","ten",
-                    "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
-                    "eighteen","nineteen","twenty"];
-
-  function normalize(s){
-    s = String(s||"");
-    // The recogniser sometimes returns a number instead of a short word
-    // ("tent" -> "10"); spell 0-20 back out before stripping non-letters,
-    // since that stripping would otherwise just delete the digits.
-    s = s.replace(/\b\d{1,2}\b/g, function(d){
-      var v = parseInt(d,10);
-      return NUM_WORDS[v] !== undefined ? NUM_WORDS[v] : d;
-    });
-    return s.toLowerCase().replace(/[^a-z' ]/g," ").replace(/\s+/g," ").trim();
-  }
+  /* ---------------- phonetic matching ----------------
+     The encoder itself — phonemes(), the spans behind them, the edit
+     distance, transcript normalising and the ACCEPT table — lives in
+     game-core.js now, because the cards page has to judge a spoken answer
+     without loading this engine and the phoneme clips are keyed by the
+     same tokens. Aliased here the way dedupeWords is, so the matching code
+     below reads exactly as it did when the encoder lived in this file.
+     What stays is what only Say It does: slicing the blend out of a word,
+     and the level rules for how much drift a match forgives. */
+  var phonemes         = Core.phonemes,
+      phonemeSpans     = Core.phonemeSpans,
+      isVowelPhone     = Core.isVowelPhone,
+      phoneticDistance = Core.phoneticDistance,
+      normalize        = Core.normalize,
+      findPhonemeSeq   = Core.findPhonemeSeq,
+      ACCEPT           = Core.ACCEPT;
 
   function blendPart(word, atStart, blendLength){
     return atStart ? word.slice(0, blendLength) : word.slice(-blendLength);
   }
 
-  // Locate a phoneme subsequence (e.g. ["OY"]) anywhere in a phoneme array —
-  // used by "sound" mode, where the target sound isn't pinned to the start
-  // or end of the word (the oi/oy diphthong can land anywhere: "coin",
-  // "boyish", "annoy"). Returns the index it starts at, or -1.
-  function findPhonemeSeq(arr, seq){
-    for(var i=0;i+seq.length<=arr.length;i++){
-      var ok = true;
-      for(var j=0;j<seq.length;j++){ if(arr[i+j]!==seq[j]){ ok=false; break; } }
-      if(ok) return i;
-    }
-    return -1;
-  }
-
-  // Known-good transcripts the recogniser returns for specific target words,
-  // seeded from mishearings actually observed in class — not a guess at
-  // every possible mishearing. Accepted at Regular, never Challenge.
-  // Add more here as they turn up; keep it short and commented.
-  var ACCEPT = {
-    gasp: ["gas"],     // final consonant dropped
-    tent: ["tenth"]    // recogniser adds a trailing "th" sound
+  // diagnose()'s seven kinds as something that fits on a chip. Deliberately
+  // the student's words, not a phonics term: the end screen is read by the
+  // student first and the teacher second.
+  var KIND_LABEL = {
+    blend: "blend", sound: "the sound", vowel: "vowel", consonant: "consonant",
+    missing: "dropped a sound", extra: "extra sound", other: "read it slower"
   };
 
   // True if `heard` sounds more like some OTHER word in the same list than
@@ -209,8 +78,14 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function wordMatchesCore(heard, target, level, atStart, blendLength, wordList, soundSeq){
+  function wordMatchesCore(heard, target, level, atStart, blendLength, wordList, soundSeq, homophones){
     if(heard === target) return true;
+    /* Before the level rules, not after: a homophone is not a near miss
+       the game is being generous about, it is the same sound. No listener
+       separates "to" from "two" either, and a student who reads the card
+       correctly must not be marked wrong because the recogniser guessed
+       the other spelling. Accepted at Challenge for the same reason. */
+    if(homophones && Core.sameHomophone(heard, target, homophones)) return true;
     if(level === 0) return false;                              // Challenge: exact only
 
     if(ACCEPT[target] && ACCEPT[target].indexOf(heard) !== -1) return true;
@@ -256,10 +131,13 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq){
-    var parts = normalize(heardText).split(" ");
+  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq, homophones){
+    var said = normalize(heardText);
+    // The whole transcript is a candidate before it is split, because
+    // normalize folds "they would" into "they'd" and splitting undoes it.
+    var parts = [said].concat(said.indexOf(" ") === -1 ? [] : said.split(" "));
     for(var i=0;i<parts.length;i++){
-      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList, soundSeq)) return true;
+      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList, soundSeq, homophones)) return true;
     }
     return false;
   }
@@ -299,6 +177,7 @@ window.BlendGame = (function(){
         <li>Check the <b>mic meter</b>, then start.</li>
         <li>Say each word clearly. The mic <b>stays on</b> the whole time.</li>
       </ol>
+      ${window.GameCore.readingViewButton()}
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <!-- Only rendered once there's actually a deck to practise — see
@@ -347,6 +226,7 @@ window.BlendGame = (function(){
 
     <div class="toolbar">
       <button class="btn ghost" id="btnHear">🔊 Hear it</button>
+      <button class="btn ghost" id="btnSelf" style="display:none">🎙 Hear yourself</button>
       <button class="btn ghost" id="btnSkip">Skip ▸</button>
       <button class="btn ghost" id="btnQuit">End game</button>
     </div>
@@ -411,6 +291,9 @@ window.BlendGame = (function(){
        passes nothing and behaves exactly as it always did.
 
          onResult(word, firstTryCorrect, tries)  once per word, per visit
+         onHeard(word, transcript)               on every miss, so the
+                                                 teacher can see what the
+                                                 recogniser actually heard
          onFinish({right, total})                once per round
          nextRound()                             a fresh word list for
                                                  "Play again", so the
@@ -422,11 +305,19 @@ window.BlendGame = (function(){
        right, missed twice, or skipped — never on the first miss, so the
        retry doesn't get counted as its own answer. */
     var onResult   = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onHeard    = typeof cfg.onHeard === "function" ? cfg.onHeard : null;
     var onFinish   = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
     var nextRound  = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
-    function report(word, correct, tryCount){
+    function report(word, correct, tryCount, opts){
       if(!onResult) return;
-      try{ onResult(word, !!correct, tryCount|0); }catch(e){}
+      try{ onResult(word, !!correct, tryCount|0, opts || {}); }catch(e){}
+    }
+    // Every miss, not just the reveal: the first wrong transcript is often
+    // the honest one, and the retry is where the student has already been
+    // told to slow down.
+    function reportHeard(word, text){
+      if(!onHeard || !text) return;
+      try{ onHeard(word, text); }catch(e){}
     }
 
     var mount = document.getElementById(cfg.mount || "app");
@@ -438,10 +329,27 @@ window.BlendGame = (function(){
       theme: theme,
       progress: prog.markup()
     });
+    // The Reading view panel is markup the core supplied; the core wires it.
+    Core.mountReadingView();
+
+    /* Bound once to the word, not to each piece: the reveal rewrites its
+       contents on every miss. */
+    Core.wireTaps(document.getElementById("uiWord"), function(){ return revealPieces; },
+      function(piece, i, el){
+        if(!phAudio) return;
+        el.classList.add("playing");
+        holdMic(phAudio.estimate(piece.tokens, 220) + 900);
+        phAudio.play(piece.tokens, 220).then(function(ok){
+          el.classList.remove("playing");
+          // The part, then the whole — a piece on its own is only useful
+          // next to the thing it is part of.
+          if(ok && revealWord) setTimeout(function(){ say(revealWord, 0.85); }, 200);
+        });
+      });
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
-    var missed = [], tries = 0, busy = false;
+    var missed = [], missKind = {}, tries = 0, busy = false;
 
     var shuffleOn = true;
     try{
@@ -533,6 +441,25 @@ window.BlendGame = (function(){
     // by tests.html; the game itself just never asks for it.)
     var level = 0;
 
+    /* The phoneme clips, if they are on the server. The reveal uses them
+       to make the word pressable; without them it just shows the word,
+       which is what it always did. */
+    var phAudio = null;
+    Core.phonemeAudio().then(function(p){ phAudio = p; });
+    var revealPieces = [], revealWord = "";
+
+    /* Recording the student, in memory, for as long as one word is on
+       screen. Enabled only after the mic check — the permission prompt
+       has already happened by then, so this never causes a second one. */
+    var selfRec = Core.selfRecorder();
+    var haveSelf = false;
+
+    /* Homophone groups, where the list carries them. Only the red words do
+       — and only they need to: their near-misses are words that sound
+       identical ("to"/"two"), while the phonics lists' near-misses are
+       minimal pairs ("sled"/"bled") whose difference is the whole exercise. */
+    var HOMOPHONES = cfg.homophones || null;
+
     function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }
 
     function markup(word){
@@ -546,12 +473,44 @@ window.BlendGame = (function(){
         : word.slice(0, word.length-blendLength) + '<span class="blend">' + word.slice(-blendLength) + '</span>';
     }
 
+    /* The reveal's own highlight: the letters diagnose() blamed, in the
+       accent colour, over the top of whatever markup() would have drawn.
+       markup() colours the blend being practised — the same colour on
+       every word, so it fades into the background. This one moves. */
+    function dxMarkup(word, span){
+      if(!span) return markup(word);
+      var a = Math.max(0, span[0]), b = Math.min(word.length, span[1]);
+      if(b <= a) return markup(word);
+      return Core.escapeHtml(word.slice(0, a)) +
+             '<span class="dx">' + Core.escapeHtml(word.slice(a, b)) + '</span>' +
+             Core.escapeHtml(word.slice(b));
+    }
+
+    /* diagnose() blamed some letters; the reveal is now made of buttons,
+       so the blame goes on whichever buttons those letters fall in. Same
+       gold, same meaning — it just has to survive the word being cut into
+       pieces for a different reason. */
+    function markDx(span){
+      if(!span) return;
+      revealPieces.forEach(function(p, i){
+        if(p.start < span[1] && p.end > span[0]){
+          var el = $("uiWord").querySelector('[data-tap="' + i + '"]');
+          if(el) el.classList.add("dx");
+        }
+      });
+    }
+
+    // The written hint read aloud: a colon is a pause, not a word.
+    function spokenHint(message){
+      return String(message || "").replace(/:\s*/, ", ") + ".";
+    }
+
     function wordMatches(heard, target){
-      return wordMatchesCore(heard, target, level, atStart, blendLength, WORDS, soundSeq);
+      return wordMatchesCore(heard, target, level, atStart, blendLength, WORDS, soundSeq, HOMOPHONES);
     }
 
     function isMatch(heardText, target){
-      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq);
+      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq, HOMOPHONES);
     }
 
     /* ---------------- mic check + level meter ----------------
@@ -656,6 +615,13 @@ window.BlendGame = (function(){
     function render(){
       var w = queue[idx];
       $("uiWord").innerHTML = markup(w);
+      Core.markWordCase($("uiWord"), w);
+      revealPieces = []; revealWord = "";
+      // A new word, a new recording. The old one is dropped rather than
+      // kept: nothing here is worth keeping past the card it belongs to.
+      haveSelf = false;
+      $("btnSelf").style.display = "none";
+      if(selfRec && selfRec.available()){ selfRec.drop(); selfRec.start(); }
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       renderCombo();
@@ -668,7 +634,7 @@ window.BlendGame = (function(){
     /* ---------------- game flow ---------------- */
     function startGame(list){
       queue = shuffleOn ? shuffled(list) : list.slice();
-      idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; mastered = []; tries = 0; busy = false;
+      idx = 0; score = 0; streak = 0; best = 0; right = 0; missed = []; missKind = {}; mastered = []; tries = 0; busy = false;
       prog.reset();
       show("s-play");
       micOn = !!SR;           // mic is on for the whole game from here
@@ -717,6 +683,10 @@ window.BlendGame = (function(){
           // words without chunk data keep the plain highlighted markup.
           if(wChunks) d.textContent = wChunks.join(CHUNK_SEP);
           else d.innerHTML = markup(w).replace(/class="blend"/g,'class="b"');
+          /* One word tells you nothing; four words all tagged "vowel" tell
+             you what to teach tomorrow. The tag is the same word diagnose()
+             used, so the chip and the hint the student saw agree. */
+          if(missKind[w]) d.innerHTML += '<span class="kind">' + Core.escapeHtml(KIND_LABEL[missKind[w]] || missKind[w]) + "</span>";
           grid.appendChild(d);
         });
         $("btnRetryMissed").style.display = "";
@@ -731,8 +701,20 @@ window.BlendGame = (function(){
 
     // A one-shot burst of falling confetti pieces on a good finish — pure CSS
     // animation, each piece removes itself once its fall finishes.
+    // The word is finished with, so the recording of it is too. Offered
+    // rather than played: a student who got it right does not need to
+    // hear themselves, and one who didn't may not want to in a full room.
+    function keepRecording(){
+      if(!selfRec || !selfRec.available()) return;
+      selfRec.stop().then(function(ok){
+        haveSelf = !!ok;
+        if(ok && playing()) $("btnSelf").style.display = "";
+      });
+    }
+
     function handleCorrect(){
       busy = true;
+      keepRecording();
       right++;
       streak++;
       // First try, no stumble: the word has earned its way out of the
@@ -772,6 +754,7 @@ window.BlendGame = (function(){
 
     function handleWrong(heard){
       busy = true;
+      keepRecording();
       streak = 0;
       $("uiStreak").textContent = 0;
       renderCombo();
@@ -782,6 +765,15 @@ window.BlendGame = (function(){
       var target = queue[idx];
       var targetChunks = tries >= 2 ? chunksFor(target) : null;
       var heardTxt = normalize(heard);
+      reportHeard(target, heardTxt);
+      /* Which part went wrong — but only on the reveal. On the first miss
+         the student gets the transcript and nothing else: they are about
+         to try again, and a hint they haven't asked for yet just slows
+         the retry down. */
+      var dx = tries >= 2 ? Core.diagnose(heard, target, {
+        atStart: atStart, blendLength: blendLength,
+        soundSeq: soundSeq, highlight: highlightRe
+      }) : null;
       var msg;
       if(tries < 2){
         msg = "Not quite — try once more.";
@@ -793,16 +785,37 @@ window.BlendGame = (function(){
       } else {
         msg = "Let's move on. The word was <b>" + target + "</b>.";
       }
-      $("uiMic").innerHTML = msg + (heardTxt ? '<br><span class="heard">I heard: ' + heardTxt + "</span>" : '<br><span class="heard">I didn\'t catch that</span>');
+      $("uiMic").innerHTML = msg +
+        (heardTxt ? '<br><span class="heard">I heard: ' + Core.escapeHtml(heardTxt) + "</span>"
+                  : '<br><span class="heard">I didn\'t catch that</span>') +
+        (dx ? '<br><span class="dxmsg">' + Core.escapeHtml(dx.message) + "</span>" : "");
       if(tries >= 2){
+        /* The reveal, pressable where the clips exist: each syllable (or
+           each sound on a one-syllable word) plays itself. A student who
+           has just been told a word twice usually cannot hear which part
+           they were getting wrong, and this is where they can find out
+           without anyone standing over them. */
+        if(phAudio){
+          revealWord = target;
+          revealPieces = Core.tapPieces(target, targetChunks);
+          $("uiWord").innerHTML = Core.tapMarkup(revealPieces, null, targetChunks ? CHUNK_SEP : "");
+          if(dx) markDx(dx.span);
+        } else if(dx && !targetChunks){
+          $("uiWord").innerHTML = dxMarkup(target, dx.span);
+        }
         if(missed.indexOf(target) === -1) missed.push(target);
-        report(target, false, tries);
+        if(dx) missKind[target] = dx.kind;
+        // The diagnosis rides along with the result: the dashboard counts
+        // these per word, and Say It is the only mode that can name one.
+        report(target, false, tries, dx ? { kind: dx.kind } : null);
         // Never on the first miss — that stays fast so the retry isn't slowed down.
         if(voiceOn){
-          if(targetChunks) sayChunked(targetChunks, target);
-          else say("The word was, " + target + ".", { rate: 0.9 });
+          if(targetChunks) sayChunked(targetChunks, target, dx ? spokenHint(dx.message) : null);
+          else say("The word was, " + target + ". " + (dx ? spokenHint(dx.message) : ""), { rate: 0.9 });
         }
-        setTimeout(function(){ busy = false; next(); }, voiceOn ? 2600 : 1900);
+        // The hint is another sentence to get through, so the reveal holds
+        // a little longer — but only when there is a voice saying it.
+        setTimeout(function(){ busy = false; next(); }, voiceOn ? (dx ? 3300 : 2600) : 1900);
       } else {
         setTimeout(function(){ busy = false; $("wordCard").className = "wordcard"; }, 900);
       }
@@ -1011,12 +1024,12 @@ window.BlendGame = (function(){
     // queued back-to-back rather than two say() calls, since say() cancels
     // whatever's already talking — calling it twice in a row would just
     // clip the first utterance instead of letting both play in sequence.
-    function sayChunked(chunks, word){
+    function sayChunked(chunks, word, tail){
       if(!window.speechSynthesis) return;
       try{
         window.speechSynthesis.cancel();
         var u1 = new SpeechSynthesisUtterance(chunks.join(", "));
-        var u2 = new SpeechSynthesisUtterance(word);
+        var u2 = new SpeechSynthesisUtterance(word + (tail ? ". " + tail : ""));
         [u1, u2].forEach(function(u){ u.lang = "en-US"; if(voice) u.voice = voice; });
         u1.rate = 0.7;
         u2.rate = 0.9;
@@ -1033,7 +1046,7 @@ window.BlendGame = (function(){
         u2.onend = release;
         u2.onerror = release;
         // Safety net in case onend never fires (Chrome does this sometimes).
-        var totalChars = chunks.join(", ").length + word.length;
+        var totalChars = chunks.join(", ").length + word.length + (tail ? tail.length : 0);
         setTimeout(function(){ if(currentUtterance === u2) release(); }, 1200 + 90 * totalChars);
         window.speechSynthesis.speak(u1);
         window.speechSynthesis.speak(u2);
@@ -1090,6 +1103,23 @@ window.BlendGame = (function(){
     }
 
     /* ---------------- events ---------------- */
+    /* "Hear yourself" plays the student back and then reads the word
+       properly, which is the comparison the button exists to make. A
+       student who has just been marked wrong twice usually believes they
+       said it right — they heard it right in their head the whole time —
+       and there is no argument with the recording. */
+    $("btnSelf").addEventListener("click", function(){
+      if(!haveSelf || !selfRec) return;
+      $("btnSelf").disabled = true;
+      holdMic(4000);
+      selfRec.play().then(function(){
+        $("btnSelf").disabled = false;
+        // Always, whatever the Voice setting says: the point of the
+        // button is the comparison, and half of it is the correct read.
+        say(queue[idx], 0.85);
+      });
+    });
+
     // Greyed out rather than silently dead on a browser that can't speak.
     if(!window.speechSynthesis) $("btnDirections").disabled = true;
     else $("btnDirections").addEventListener("click", readDirections);
@@ -1098,7 +1128,14 @@ window.BlendGame = (function(){
       snd.click(); startMicCheck();
     });
 
-    $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(pendingList); });
+    $("btnPlay").addEventListener("click", function(){
+      stopMicCheck();
+      // The permission prompt has just been answered, so asking for a
+      // second stream costs nothing and prompts nobody. If it fails, the
+      // button simply never appears.
+      if(selfRec) selfRec.enable();
+      startGame(pendingList);
+    });
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
 
     // The count has to be right at the moment the student looks at it, so
@@ -1180,6 +1217,7 @@ window.BlendGame = (function(){
 
     window.addEventListener("beforeunload", function(){
       micOn = false; stopMicLoop(); stopListening(); stopMicCheck();
+      if(selfRec) selfRec.release();
       // A coach utterance mid-sentence would otherwise keep talking over
       // the next page for a beat — speechSynthesis is window-global.
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
@@ -1194,6 +1232,7 @@ window.BlendGame = (function(){
     _internals: {
       normalize: normalize,
       phonemes: phonemes,
+      phonemeSpans: phonemeSpans,
       isVowelPhone: isVowelPhone,
       phoneticDistance: phoneticDistance,
       wordMatches: wordMatchesCore,

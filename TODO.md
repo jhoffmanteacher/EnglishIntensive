@@ -14,8 +14,18 @@ with the reasoning, so they don't get re-proposed every few months.
 *(The three items that were here — progression rules, per-student notes and
 export — are all done. See the Teacher dashboard section of the README.)*
 
-Nothing outstanding. The next thing worth building is whatever the class
-turns out to need after a term of using it.
+Nothing outstanding from the assignment-board work. The reading-feedback
+build (sound-level feedback, fluency, phoneme clips, sound boxes, patterns)
+is done and described in the README; what it wants now is a term of use.
+
+Two things worth watching once it has had one:
+
+- **The Assign board is 23 columns wide.** The passages added eight. The
+  family fold (▾) is the escape hatch and it works, but if the board
+  becomes unusable the passages are the family to fold by default.
+- **`ACCEPT` is still hand-edited.** The dashboard's "most often heard as"
+  column now shows which mishearings are common across the class, which is
+  the signal for adding one. Nobody has added one yet.
 
 ## Smaller
 
@@ -27,6 +37,37 @@ turns out to need after a term of using it.
   640px and the grid scrolls — but 15 columns on a handset is a lot of
   scrolling. The family fold (▾) is the existing escape hatch. Only worth
   more if someone actually assigns lists from a phone.
+
+---
+
+## Reversed
+
+- **A say-it mode for the red words** — previously "not doing", on the
+  grounds that a phoneme matcher has nothing to check an irregular word
+  against. The reason didn't survive a second look: Say It accepts an
+  **exact transcript first** and only falls back to phonemes, and a red
+  word is an ordinary dictionary word that Chrome returns reliably. The
+  two things that genuinely blocked it were homophones (*to* / *two*) and
+  contractions (*they'd* heard as "they would"), and both are now fixed
+  where they belong — `RED_HOMOPHONES` reaches the say matcher, and
+  `GameCore.normalize` folds a contraction and its expansion to the same
+  string. Ten new ids (`red-N-say`) on the generic `say-game.html`.
+
+## Decided during the reading-feedback build
+
+Choices the plan left to whoever built it, recorded here so the reasoning
+survives the commit that made them.
+
+- **The dashboard's "most often heard as" is a line on each chip, not a
+  column.** Trouble spots renders word chips, not a table, so the mode
+  transcript goes under the word the way the counts already do. A column
+  would have meant rebuilding the panel as a table for one field.
+- **A dropped final consonant on a final-blend list reads as a blend
+  error, not a dropped sound.** `diagnose()` tries the blend being
+  practised before anything else, so "gasp" read as "gas" says *Look at
+  the blend: sp* on the Blend Words list and *You dropped a sound: p*
+  everywhere else. Both are true; on that list the blend is the skill, so
+  it is the thing to point at.
 
 ---
 
@@ -46,9 +87,6 @@ turns out to need after a term of using it.
   and it guesses "verb" often enough that the answer key would be wrong. A
   list with no meanings can only be read, not heard. Same reason their
   cards mode runs with `speak: false`.
-- **A say-it mode for the red words.** They are irregular by definition,
-  so a phoneme matcher has nothing to check them against — which is the
-  whole reason they're taught by sight.
 - **Making "everything" a stored sentinel.** Editing an unset class
   default pins the 35 lists it was handing down, so a family added later
   wouldn't reach students who were on the old "everything". Tempting to

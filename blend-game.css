@@ -181,6 +181,20 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
   font-size:16px;color:var(--ink);
 }
 
+/* ---- what went wrong (second-miss reveal) ----
+   .dx re-colours the letters diagnose() blamed, over the top of the blend
+   highlight the word already had: the blend colour is on every word and
+   stops being seen, this one moves from word to word and doesn't. The
+   message under it says the same thing in words. */
+.word .dx{color:var(--accent);text-shadow:0 0 22px rgba(255,201,77,.45)}
+/* The reveal is made of buttons when the phoneme clips are available, so
+   the same gold has to reach a .tapbit as well as a bare span. */
+.word .tapbit.dx{color:var(--accent);text-shadow:0 0 22px rgba(255,201,77,.45)}
+.dxmsg{
+  display:inline-block;margin-top:8px;font-size:17px;font-weight:700;
+  color:var(--accent);
+}
+
 /* ---- syllable-chunk scaffold (second-miss reveal) ----
    Shown instead of the plain "The word was X" once a word with chunk data
    (a dotted entry, e.g. "fan·tas·tic") is missed twice — alternating colors
@@ -266,6 +280,8 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:3p
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:16px 0 4px}
 .chip{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;font-size:22px;font-weight:700}
 .chip .b{color:var(--accent)}
+/* The takeaway list says which words, and now also what kind of wrong. */
+.chip .kind{display:block;margin-top:4px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.3px;text-transform:uppercase}
 h2{font-size:30px;margin:0 0 4px}
 h3{font-size:18px;color:var(--muted);margin:26px 0 2px;font-weight:600;letter-spacing:.5px}
 .warn{background:#3a2a12;border:1px solid #7a5a1e;color:#ffd98a;border-radius:14px;padding:14px 18px;font-size:16px;line-height:1.55;margin-bottom:20px}

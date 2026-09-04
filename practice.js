@@ -28,8 +28,10 @@ window.EIPractice = (function(){
   // enough, relative to a 30-40 word list, for the weighting to bite.
   var SESSION_SIZE = 18;
 
-  var ENGINES = { blend: "BlendGame", spell: "SpellGame", card: "CardGame", match: "MatchGame" };
-  var ENGINE_FILES = { blend: "blend-game.js", spell: "spell-game.js", card: "card-game.js", match: "match-game.js" };
+  var ENGINES = { blend: "BlendGame", spell: "SpellGame", card: "CardGame", match: "MatchGame",
+                  fluency: "FluencyGame", blendit: "BlendItGame" };
+  var ENGINE_FILES = { blend: "blend-game.js", spell: "spell-game.js", card: "card-game.js",
+                       match: "match-game.js", fluency: "fluency-game.js", blendit: "blend-it-game.js" };
   function engineFor(list){ return window[ENGINES[list.engine]] || null; }
 
   /* Pick this round's words, then map them back to the list's original
@@ -43,6 +45,17 @@ window.EIPractice = (function(){
     var picked = Adaptive.pickSession(plainWords, stats, size, Date.now());
     var entries = WordLists.entryMap(list.id);
     return picked.map(function(w){ return entries[w] || w; });
+  }
+
+  /* Every word on the list the scheduler counts as solid. The flash cards
+     use it for the speed round — a deck of words the student already owns,
+     which is useless as practice and exactly right as a fluency drill. An
+     engine that doesn't care simply ignores it. */
+  function masteredOf(list){
+    var stats = EIStore.statsFor(list.id);
+    return WordLists.wordsOf(list.id).filter(function(w){
+      return Adaptive.isMastered(stats[w]);
+    });
   }
 
   /* A one-line note under the game title when a student opens a list that
@@ -109,12 +122,33 @@ window.EIPractice = (function(){
       }
       var cfg = {};
       for(var k in list.config){ if(Object.prototype.hasOwnProperty.call(list.config, k)) cfg[k] = list.config[k]; }
-      cfg.words = drawRound(list);
+      /* Every engine but one gets a weighted DRAW of the list. The
+         fluency engine gets the whole thing: its one-minute deck cycles,
+         and a fast reader who ran out of words would be scored on the
+         length of the draw rather than on their reading. A passage isn't
+         a draw at all — it is one text, and it arrives as cfg.text. */
+      if(list.engine === "fluency"){
+        cfg.words = list.words.slice();
+        if(list.text) cfg.text = list.text;
+        if(list.targets) cfg.targets = list.targets;
+        var fl = EIStore.fluencyFor(list.id);
+        if(fl){ cfg.best = fl.best; cfg.last = fl.latest; }
+        cfg.onFluency = function(run){ EIStore.recordFluency(list.id, run); };
+      } else {
+        cfg.words = drawRound(list);
+      }
+      cfg.mastered = masteredOf(list);
       var note = assignmentNote(list);
       if(note) cfg.intro = (cfg.intro || engineIntro(list)) + "<br>" + note;
 
-      cfg.onResult = function(word, firstTryCorrect){
-        EIStore.record(list.id, word, firstTryCorrect);
+      /* The 4th argument is an options bag: the flash cards put a time in
+         it, Say It puts the kind of error in it, and the engines that
+         have neither call onResult with three arguments and never know. */
+      cfg.onResult = function(word, firstTryCorrect, tries, opts){
+        EIStore.record(list.id, word, firstTryCorrect, opts && opts.ms, opts && opts.kind);
+      };
+      cfg.onHeard = function(word, text){
+        EIStore.recordHeard(list.id, word, text);
       };
       cfg.onFinish = function(sum){
         EIStore.finishRound(list.id, sum.right, sum.total);
@@ -131,6 +165,8 @@ window.EIPractice = (function(){
   // The engines' own default intros, repeated here only so the
   // not-assigned note can be appended to one without blanking it.
   function engineIntro(list){
+    if(list.engine === "fluency") return "Read out loud. The computer follows along and times you.";
+    if(list.engine === "blendit") return "Hear the sounds one at a time, then say the word.";
     if(list.engine === "spell") return "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!";
     if(list.engine === "card")  return "Read the word out loud, then flip the card to check yourself.<br>Build a streak: every 5 in a row is bonus points!";
     if(list.engine === "match") return "The computer says a word — click the one that matches.<br>Every 5 right in a row is bonus points!";

@@ -19,6 +19,7 @@ rules_version = '2';
    The site only ever touches four paths (verified against store.js and
    teacher.js):
      students/{uid}      one doc per student: words (per-word stats),
+                         heard (what the mic returned on a miss),
                          totals, recent rounds, name/email/photo
      assignments/{uid}   teacher-written: period + assigned list ids
                          (student reads their own)

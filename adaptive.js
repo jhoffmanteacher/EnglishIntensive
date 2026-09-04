@@ -10,13 +10,15 @@
    ── The model ─────────────────────────────────────────────────────────
    One stat record per word, per list:
 
-     { n, r, w, s, box, last }
+     { n, r, w, s, box, last, lat }
        n     times the word has come up
        r     times it came back RIGHT ON THE FIRST TRY
        w     times it didn't
        s     current run of first-try-correct answers
        box   Leitner box, 0–5 — how long the word has earned off
        last  epoch ms of the last time it came up
+       lat   running average of how long a CORRECT answer took, in ms;
+             0 where nothing has timed it (most modes can't)
 
    Only first-try answers count as right. Getting a word after being told
    it isn't knowing it, and the whole point of the deck is to be honest
@@ -40,6 +42,15 @@
    A word the student has never seen sits at a flat NEW_WEIGHT, between
    "solid" and "shaky" — new material keeps flowing without crowding out
    the words that are actually failing.
+
+   ── Speed ─────────────────────────────────────────────────────────────
+   A word decoded in three seconds is not a sight word. Where a mode can
+   time an answer (the flash cards can; the mic and typing modes can't),
+   a word averaging over SLOW_MS is pulled back into rotation harder than
+   its accuracy alone would ask for. It does NOT stop counting as
+   mastered: the student's own "12 of 20 solid" must not drop the day a
+   stopwatch appears. Slow-but-right is the teacher's report, not the
+   student's score.
    ════════════════════════════════════════════════════════════════════ */
 
 window.Adaptive = (function(){
@@ -58,12 +69,29 @@ window.Adaptive = (function(){
   // on top of that — it has earned the right to stop taking up slots.
   var MASTERED_DAMP = 0.35;
   var MASTERED_ACC  = 0.9;
+  /* How long a word may take before it stops counting as read and starts
+     counting as worked out. 2.5 s is generous for a one-syllable word on a
+     flash card and still well short of what sounding out takes. A slow
+     word is pulled back into rotation harder than its accuracy alone
+     would ask for — being right about a word you had to decode is not the
+     same as knowing it. */
+  /* The seven things diagnose() can blame, and the only keys the stat's
+     error tally will hold. A closed set on purpose: this is written from
+     a game engine into a document the teacher reads, and an open map
+     would let one bad build put anything in front of a class. */
+  var ERROR_KINDS = ["blend","sound","vowel","consonant","missing","extra","other"];
+  var MAX_KIND = 999;
+
+  var SLOW_MS     = 2500;
+  var SLOW_BOOST  = 1.5;
+  var LAT_ALPHA   = 0.4;    // weight of the newest time in the running average
+  var MAX_LAT_MS  = 60000;  // anything longer is a student who walked away
 
   function has(o, k){ return !!o && Object.prototype.hasOwnProperty.call(o, k); }
   function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
   function num(v, dflt){ return (typeof v === "number" && isFinite(v)) ? v : dflt; }
 
-  function emptyStat(){ return { n:0, r:0, w:0, s:0, box:0, last:0 }; }
+  function emptyStat(){ return { n:0, r:0, w:0, s:0, box:0, last:0, lat:0, k:{} }; }
 
   /* localStorage and Firestore are both hand-editable and outlive any
      change to this file, so nothing read back is trusted: a record is
@@ -78,8 +106,26 @@ window.Adaptive = (function(){
       n: n, r: r, w: w,
       s: Math.max(0, Math.floor(num(raw.s, 0))),
       box: clamp(Math.floor(num(raw.box, 0)), 0, MAX_BOX),
-      last: Math.max(0, Math.floor(num(raw.last, 0)))
+      last: Math.max(0, Math.floor(num(raw.last, 0))),
+      // Time to answer, in ms — 0 means "never timed", which is every
+      // stat written before the flash cards started measuring and every
+      // stat from a mode that can't measure.
+      lat: clamp(Math.floor(num(raw.lat, 0)), 0, MAX_LAT_MS),
+      // What kind of wrong, counted. Only Say It can say, and only on the
+      // reveal; everything else leaves this empty.
+      k: sanitizeKinds(raw.k)
     };
+  }
+
+  function sanitizeKinds(raw){
+    var out = {};
+    if(!raw || typeof raw !== "object") return out;
+    for(var i=0;i<ERROR_KINDS.length;i++){
+      var k = ERROR_KINDS[i];
+      var v = clamp(Math.floor(num(raw[k], 0)), 0, MAX_KIND);
+      if(v > 0) out[k] = v;
+    }
+    return out;
   }
 
   function sanitizeStats(raw){
@@ -100,14 +146,33 @@ window.Adaptive = (function(){
      fumbles one word in the middle of a good run then sees it every single
      session for a week, which is how a practice deck turns into a
      punishment. One box back means it comes around soon, not constantly. */
-  function updateStat(stat, correct, now){
+  function updateStat(stat, correct, now, ms, kind){
     var s = sanitizeStat(stat);
     s.n += 1;
+    /* One vote per miss for what kind of wrong it was. Only Say It knows
+       — it is the only mode that hears what the student actually said —
+       and only on the reveal, so this counts words given up on rather
+       than words fumbled once. A kind that isn't one of the seven is
+       simply not counted. */
+    if(!correct && kind && ERROR_KINDS.indexOf(kind) !== -1){
+      s.k[kind] = Math.min(MAX_KIND, (s.k[kind] || 0) + 1);
+    }
     s.last = Math.max(0, Math.floor(num(now, 0)));
     if(correct){
       s.r += 1;
       s.s += 1;
       s.box = Math.min(MAX_BOX, s.box + 1);
+      /* Only correct answers are timed. A wrong answer's clock is
+         measuring how long the student stared at a word they didn't
+         know, which is a different thing and would drag the average
+         toward "slow" for words they simply haven't learned yet.
+         A running average, not the last reading: one interruption
+         shouldn't reclassify a word. */
+      var t = num(ms, 0);
+      if(t > 0){
+        t = clamp(Math.round(t), 0, MAX_LAT_MS);
+        s.lat = s.lat ? Math.round((1 - LAT_ALPHA) * s.lat + LAT_ALPHA * t) : t;
+      }
     } else {
       s.w += 1;
       s.s = 0;
@@ -138,6 +203,16 @@ window.Adaptive = (function(){
     return s.box >= MAX_BOX && rawAccuracy(s) !== null && rawAccuracy(s) >= MASTERED_ACC;
   }
 
+  /* Right, but not yet a sight word. Deliberately NOT part of
+     isMastered(): the student's own tile says "12 of 20 solid", and a
+     speed measurement arriving should never make that number go down —
+     nothing about their reading changed the day the cards learned to use
+     a stopwatch. Speed is the scheduler's business and the teacher's. */
+  function isSlow(stat){
+    var s = sanitizeStat(stat);
+    return s.lat > SLOW_MS;
+  }
+
   function dueFactor(stat, now){
     var s = sanitizeStat(stat);
     if(!s.last) return 1;
@@ -155,6 +230,9 @@ window.Adaptive = (function(){
     var missWeight = 1 + 5 * (1 - accuracy(s));
     var wgt = missWeight * dueFactor(s, now);
     if(isMastered(s)) wgt *= MASTERED_DAMP;
+    // A word decoded in three seconds is not a sight word, however
+    // reliably it comes back right. It keeps coming round.
+    if(isSlow(s)) wgt *= SLOW_BOOST;
     return Math.max(MIN_WEIGHT, wgt);
   }
 
@@ -214,14 +292,31 @@ window.Adaptive = (function(){
   /* One student's headline numbers, for the roster row and the end-screen
      summary. `attempts`/`right` are lifetime totals across every word. */
   function summarize(stats){
-    var attempts = 0, right = 0, words = 0, mastered = 0, struggling = 0, last = 0;
+    var attempts = 0, right = 0, words = 0, mastered = 0, struggling = 0, slow = 0, last = 0;
+    var kinds = {}, slowRight = 0;
     for(var word in stats){
       if(!has(stats, word)) continue;
       var s = sanitizeStat(stats[word]);
       if(!s.n) continue;
       words++; attempts += s.n; right += s.r;
       if(s.last > last) last = s.last;
-      if(isMastered(s)) mastered++;
+      // Right, but not at pace — counted over every word, not just the
+      // mastered ones, because "slow but right" is the phrase a teacher
+      // uses about a word the student always gets and never gets quickly.
+      if(isSlow(s) && s.r > 0) slowRight++;
+      for(var kk in s.k){
+        if(!has(s.k, kk)) continue;
+        kinds[kk] = (kinds[kk] || 0) + s.k[kk];
+      }
+      if(isMastered(s)){
+        mastered++;
+        // Counted INSIDE mastered, not beside it: the useful question is
+        // "how many of the words they own can they read at pace", so the
+        // dashboard prints "12 solid (4 slow)" and the ready-to-move-up
+        // rule uses mastered − slow. A word that is slow and not yet
+        // mastered is already counted as shaky.
+        if(isSlow(s)) slow++;
+      }
       else if(rawAccuracy(s) < 0.6) struggling++;
     }
     return {
@@ -231,6 +326,13 @@ window.Adaptive = (function(){
       accuracy: attempts ? right / attempts : null,
       mastered: mastered,
       struggling: struggling,
+      // Solid words that are still slow. Never printed on a student page
+      // — see isSlow(). The dashboard reads it; the tile does not.
+      slow: slow,
+      // Every word that comes back right and comes back slowly.
+      slowRight: slowRight,
+      // What kind of wrong, summed across every word.
+      kinds: kinds,
       lastSeen: last
     };
   }
@@ -247,6 +349,129 @@ window.Adaptive = (function(){
     if(i === -1) return { listId: null, word: String(key) };
     return { listId: key.slice(0, i), word: key.slice(i + 1) };
   }
+  /* ── what the mic heard ────────────────────────────────────────────
+     Not a stat — a short tail of the transcripts the recogniser returned
+     for a word the student missed, keyed the same way stats are. It lives
+     here beside sanitizeStats because this file owns the shape of
+     students/{uid}, and both the student's store and the teacher's
+     dashboard have to agree about it.
+
+     Why keep it at all: a word that comes back as "bread" every time is a
+     reading error, and a word that comes back as "crab, crabbe, crabb" is
+     the recogniser failing, and only the transcripts tell those apart.
+     Five is enough to see a pattern and short enough that a hundred words
+     of it is still a few kilobytes. */
+  var HEARD_CAP = 5;
+  var HEARD_MAX_LEN = 40;
+
+  // Whatever the recogniser said, reduced to something safe to store and
+  // print: lowercase, letters/digits/apostrophe/space, and short.
+  function cleanHeard(s){
+    if(typeof s !== "string") return "";   // "[object Object]" is not a transcript
+    return s.toLowerCase()
+      .replace(/[^a-z0-9' ]/g, " ").replace(/\s+/g, " ").trim().slice(0, HEARD_MAX_LEN).trim();
+  }
+
+  // Newest last, no repeats, capped. A student who says "bread" four
+  // times running should leave one entry, not fill the tail with it.
+  function pushHeard(list, text, cap){
+    var t = cleanHeard(text);
+    var out = (Array.isArray(list) ? list : []).map(cleanHeard).filter(Boolean);
+    if(!t) return out.slice(-(cap || HEARD_CAP));
+    out = out.filter(function(x){ return x !== t; });
+    out.push(t);
+    return out.slice(-(cap || HEARD_CAP));
+  }
+
+  function sanitizeHeard(raw){
+    var out = {};
+    if(!raw || typeof raw !== "object") return out;
+    for(var k in raw){
+      if(!has(raw, k) || typeof k !== "string" || !k) continue;
+      var v = Array.isArray(raw[k]) ? raw[k] : [];
+      var clean = [], i;
+      for(i=0;i<v.length;i++){
+        var t = cleanHeard(v[i]);
+        if(t && clean.indexOf(t) === -1) clean.push(t);
+      }
+      if(clean.length) out[k] = clean.slice(-HEARD_CAP);
+    }
+    return out;
+  }
+
+  /* ── fluency runs ──────────────────────────────────────────────────
+     One entry per finished timed read, oldest first, per list. Not a
+     stat: a rate belongs to a whole run, not to a word, and nothing in
+     the scheduler reads it. It is here for the same reason the heard map
+     is — this file owns the shape of students/{uid}, and the student's
+     store and the teacher's dashboard have to agree about it.
+
+     Thirty is a term's worth of weekly reads and a few kilobytes. The
+     tail is what makes a sparkline; a single latest number would say
+     nothing about whether anything is changing. */
+  var FLUENCY_CAP = 30;
+  var MAX_CWPM = 400;      // nobody reads faster; anything higher is a bug
+
+  function sanitizeRun(raw){
+    if(!raw || typeof raw !== "object") return null;
+    // A run with no rate on it is not a run — it is a half-written
+    // document, and averaging it in would drag a sparkline to the floor.
+    var raw_cwpm = num(raw.cwpm, NaN);
+    if(!isFinite(raw_cwpm)) return null;
+    var cwpm = clamp(Math.floor(raw_cwpm), 0, MAX_CWPM);
+    return {
+      at: Math.max(0, Math.floor(num(raw.at, 0))),
+      cwpm: cwpm,
+      errors: Math.max(0, Math.floor(num(raw.errors, 0))),
+      n: Math.max(0, Math.floor(num(raw.n, 0)))
+    };
+  }
+
+  function sanitizeFluency(raw){
+    var out = {};
+    if(!raw || typeof raw !== "object") return out;
+    for(var k in raw){
+      if(!has(raw, k) || typeof k !== "string" || !k) continue;
+      var list = Array.isArray(raw[k]) ? raw[k] : [];
+      var clean = [], i, r;
+      for(i=0;i<list.length;i++){
+        r = sanitizeRun(list[i]);
+        if(r) clean.push(r);
+      }
+      if(clean.length) out[k] = clean.slice(-FLUENCY_CAP);
+    }
+    return out;
+  }
+
+  function pushRun(list, run, cap){
+    var r = sanitizeRun(run);
+    var out = (Array.isArray(list) ? list : []).map(sanitizeRun).filter(Boolean);
+    if(r) out.push(r);
+    return out.slice(-(cap || FLUENCY_CAP));
+  }
+
+  // Latest and best of a list's runs — the two numbers a sparkline needs
+  // a caption for.
+  function fluencySummary(runs){
+    var list = (Array.isArray(runs) ? runs : []).map(sanitizeRun).filter(Boolean);
+    if(!list.length) return null;
+    var best = 0, i;
+    for(i=0;i<list.length;i++) if(list[i].cwpm > best) best = list[i].cwpm;
+    return { latest: list[list.length-1].cwpm, best: best, runs: list.length, last: list[list.length-1] };
+  }
+
+  /* The commonest kind of error in a tally, or null. Ties break by the
+     order in ERROR_KINDS — which is diagnose()'s own order of
+     specificity, so a tie goes to the more specific diagnosis. */
+  function topKind(kinds){
+    var best = null, bestN = 0;
+    ERROR_KINDS.forEach(function(k){
+      var v = (kinds && kinds[k]) || 0;
+      if(v > bestN){ best = k; bestN = v; }
+    });
+    return best ? { kind: best, n: bestN } : null;
+  }
+
   // The subset of a stat map belonging to one list, re-keyed by bare word
   // — which is the shape pickSession and rank want.
   function statsForList(stats, listId){
@@ -265,10 +490,22 @@ window.Adaptive = (function(){
     emptyStat: emptyStat,
     sanitizeStat: sanitizeStat,
     sanitizeStats: sanitizeStats,
+    heardCap: HEARD_CAP,
+    cleanHeard: cleanHeard,
+    pushHeard: pushHeard,
+    sanitizeHeard: sanitizeHeard,
+    fluencyCap: FLUENCY_CAP,
+    sanitizeFluency: sanitizeFluency,
+    pushRun: pushRun,
+    fluencySummary: fluencySummary,
     updateStat: updateStat,
     accuracy: accuracy,
     rawAccuracy: rawAccuracy,
     isMastered: isMastered,
+    isSlow: isSlow,
+    errorKinds: ERROR_KINDS.slice(),
+    sanitizeKinds: sanitizeKinds,
+    topKind: topKind,
     dueFactor: dueFactor,
     weight: weight,
     pickSession: pickSession,
@@ -277,7 +514,8 @@ window.Adaptive = (function(){
     _constants: {
       NEW_WEIGHT: NEW_WEIGHT, MAX_BOX: MAX_BOX, BOX_DAYS: BOX_DAYS,
       REST_FLOOR: REST_FLOOR, MASTERED_DAMP: MASTERED_DAMP,
-      MASTERED_ACC: MASTERED_ACC, DAY: DAY
+      MASTERED_ACC: MASTERED_ACC, DAY: DAY,
+      SLOW_MS: SLOW_MS, SLOW_BOOST: SLOW_BOOST, LAT_ALPHA: LAT_ALPHA, MAX_LAT_MS: MAX_LAT_MS
     }
   };
 })();

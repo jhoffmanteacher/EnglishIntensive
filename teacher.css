@@ -92,12 +92,22 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 }
 .backlink:hover{border-color:var(--accent);color:var(--ink)}
 
+/* ---- the fluency sparkline ----
+   currentColor, so the line inherits the row's colour and needs no
+   palette of its own. No axes and no labels: the question is "is this
+   going up", and the numbers next to it answer the rest. */
+.sparkcell{width:150px}
+.spark{display:block;color:var(--accent);overflow:visible}
+
 .wordchips{display:flex;flex-wrap:wrap;gap:8px}
 .wordchip{
   background:var(--panel2);border:1px solid var(--line);border-radius:10px;
   padding:7px 12px;font-size:15px;font-weight:700;
 }
 .wordchip small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
+/* What the mic heard, under the word — the evidence behind a miss. Set
+   apart from the counts above it because it is a quotation, not a number. */
+.wordchip small.heardline{color:var(--ink);opacity:.75;font-style:italic;margin-top:2px}
 .wordchip.bad{border-color:rgba(255,107,107,.45)}
 .wordchip.warn{border-color:rgba(255,201,77,.45)}
 

@@ -35,12 +35,16 @@ window.EIStore = (function(){
 
   var uid = null, user = null;
   var stats = {};               // "<listId>|<word>" → stat (adaptive.js shape)
+  var heard = {};               // same keys → the last few mishearings
+  var fluency = {};             // listId → [{at, cwpm, errors, n}] oldest first
   var totals = { n:0, r:0 };
   var recent = [];              // [{list, at, right, total}] newest last
   var assignment = null;        // { period, lists } or null
   var classCfg = null;          // { periodLists, defaultLists, periods }
   var loadFailed = false;
   var dirty = {};               // stat keys changed since the last write
+  var dirtyHeard = {};          // heard keys changed since the last write
+  var dirtyFluency = {};        // fluency lists changed since the last write
   var dirtyMeta = false;
   var saveTimer = null, inFlight = null;
 
@@ -104,6 +108,8 @@ window.EIStore = (function(){
         var d = snaps[0] && snaps[0].exists ? snaps[0].data() : null;
         if(d){
           stats  = Adaptive.sanitizeStats(d.words);
+          heard  = Adaptive.sanitizeHeard(d.heard);
+          fluency = Adaptive.sanitizeFluency(d.fluency);
           totals = { n: Math.max(0, d.totals && d.totals.n || 0), r: Math.max(0, d.totals && d.totals.r || 0) };
           recent = Array.isArray(d.recent) ? d.recent.slice(-RECENT_CAP) : [];
         }
@@ -136,8 +142,14 @@ window.EIStore = (function(){
   function payload(){
     var words = {}, any = false;
     for(var k in dirty){ if(has(dirty, k) && has(stats, k)){ words[k] = stats[k]; any = true; } }
+    var heardOut = {}, anyHeard = false;
+    for(k in dirtyHeard){ if(has(dirtyHeard, k) && has(heard, k)){ heardOut[k] = heard[k]; anyHeard = true; } }
+    var flOut = {}, anyFl = false;
+    for(k in dirtyFluency){ if(has(dirtyFluency, k) && has(fluency, k)){ flOut[k] = fluency[k]; anyFl = true; } }
     var p = {};
     if(any) p.words = words;
+    if(anyHeard) p.heard = heardOut;
+    if(anyFl) p.fluency = flOut;
     if(dirtyMeta){
       p.name  = (user && user.displayName) || null;
       p.email = (user && user.email) || null;
@@ -156,10 +168,11 @@ window.EIStore = (function(){
   function flush(){
     clearTimeout(saveTimer); saveTimer = null;
     if(loadFailed || !uid || (user && user._dev)) return Promise.resolve();
-    if(!Object.keys(dirty).length && !dirtyMeta) return inFlight || Promise.resolve();
-    var sending = dirty, sendingMeta = dirtyMeta;
+    if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length &&
+       !Object.keys(dirtyFluency).length && !dirtyMeta) return inFlight || Promise.resolve();
+    var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
     var body = payload();
-    dirty = {}; dirtyMeta = false;
+    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false;
     inFlight = EIAuth.db().then(function(db){
       if(!db) throw new Error("no db");
       return db.collection("students").doc(uid).set(body, { merge:true });
@@ -167,6 +180,8 @@ window.EIStore = (function(){
       // Put the unsent keys back so the next save retries them rather than
       // dropping a round of practice on one bad request.
       for(var k in sending){ if(has(sending, k)) dirty[k] = true; }
+      for(k in sendingHeard){ if(has(sendingHeard, k)) dirtyHeard[k] = true; }
+      for(k in sendingFluency){ if(has(sendingFluency, k)) dirtyFluency[k] = true; }
       if(sendingMeta) dirtyMeta = true;
     }).then(function(){ inFlight = null; });
     return inFlight;
@@ -175,15 +190,48 @@ window.EIStore = (function(){
   /* ── the two things a game calls ──────────────────────────────────── */
 
   /* One answer. `correct` means right on the FIRST try — the engines pass
-     tries===0, and adaptive.js explains why nothing else counts. */
-  function record(listId, word, correct){
+     tries===0, and adaptive.js explains why nothing else counts. `ms` is
+     how long it took, where the mode can tell (the flash cards time the
+     flip); everything else omits it and the timing stays 0. `kind` is
+     what sort of wrong it was, which only Say It can say. */
+  function record(listId, word, correct, ms, kind){
     if(!uid) return;
     var key = Adaptive.keyFor(listId, WordLists.plain(word));
-    stats[key] = Adaptive.updateStat(stats[key], !!correct, Date.now());
+    stats[key] = Adaptive.updateStat(stats[key], !!correct, Date.now(), ms, kind);
     totals.n += 1; if(correct) totals.r += 1;
     dirty[key] = true;
     writeLocal();
     scheduleSave();
+  }
+
+  /* What the recogniser thought it heard on a miss. Say It calls this
+     with the final transcript, once per wrong answer — never on a right
+     one, since there is nothing to learn from a transcript that matched.
+     Separate from record() because it is teacher-facing evidence, not a
+     score: nothing in the scheduler reads it. */
+  function recordHeard(listId, word, text){
+    if(!uid) return;
+    var key = Adaptive.keyFor(listId, WordLists.plain(word));
+    var next = Adaptive.pushHeard(heard[key], text, Adaptive.heardCap);
+    if(!next.length) return;
+    heard[key] = next;
+    dirtyHeard[key] = true;
+    scheduleSave();
+  }
+
+  /* One finished timed read. Kept per list, oldest first, capped — the
+     tail is what makes the dashboard's sparkline, and a single latest
+     number would say nothing about whether anything is changing. */
+  function recordFluency(listId, run){
+    if(!uid) return;
+    var key = String(listId);
+    var r = { at: Date.now(), cwpm: run && run.cwpm, errors: run && run.errors, n: run && run.n };
+    var next = Adaptive.pushRun(fluency[key], r, Adaptive.fluencyCap);
+    if(!next.length) return;
+    fluency[key] = next;
+    dirtyFluency[key] = true;
+    scheduleSave();
+    return flush();     // end of a run is a natural, cheap moment to commit
   }
 
   // One finished round, for the teacher's "last active" column and the
@@ -216,6 +264,11 @@ window.EIStore = (function(){
   return {
     ready: function(){ return readyPromise; },
     record: record,
+    recordHeard: recordHeard,
+    recordFluency: recordFluency,
+    fluencyFor: function(listId){
+      return Adaptive.fluencySummary(fluency[String(listId)]);
+    },
     finishRound: finishRound,
     flush: flush,
     statsFor: statsFor,
@@ -225,6 +278,19 @@ window.EIStore = (function(){
     myLists: myLists,
     period: function(){ return assignment ? assignment.period : null; },
     failed: function(){ return loadFailed; },
-    _internals: { effectiveLists: effectiveLists }
+    _internals: {
+      effectiveLists: effectiveLists,
+      // The write body, for a test that can assert its shape without a
+      // Firestore. Reads the module's live state, so a test drives it
+      // through the same recordHeard() a game calls.
+      payload: payload,
+      _feed: function(st){
+        uid = st.uid || "test"; user = { _dev:true };
+        stats = st.stats || {}; heard = st.heard || {}; fluency = st.fluency || {};
+        dirty = st.dirty || {}; dirtyHeard = st.dirtyHeard || {};
+        dirtyFluency = st.dirtyFluency || {}; dirtyMeta = !!st.dirtyMeta;
+        totals = st.totals || { n:0, r:0 }; recent = st.recent || [];
+      }
+    }
   };
 })();

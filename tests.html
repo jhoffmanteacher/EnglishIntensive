@@ -19,6 +19,7 @@
   frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://content.googleapis.com https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://docs.google.com https://drive.google.com https://www.google.com;
 ">
 <title>Game Engine Tests</title>
+<script src="view-boot.js"></script>
 <link rel="stylesheet" href="site.css">
 <style>
   body{padding:32px 20px 60px}
@@ -54,7 +55,10 @@
 <script src="game-core.js"></script>
 <script src="blend-game.js"></script>
 <script src="spell-game.js"></script>
+<script src="listen.js"></script>
 <script src="card-game.js"></script>
+<script src="fluency-game.js"></script>
+<script src="blend-it-game.js"></script>
 <script src="match-game.js"></script>
 <!-- The scheduler and the assignment resolver are pure too, so they're
      tested here alongside the engines. EI_REQUIRE_AUTH switches auth.js
@@ -63,6 +67,7 @@
      helpers reachable. -->
 <script>window.EI_REQUIRE_AUTH = false;</script>
 <script src="adaptive.js"></script>
+<script src="passages.js"></script>
 <script src="word-lists.js"></script>
 <script src="auth.js"></script>
 <script src="store.js"></script>
@@ -171,6 +176,151 @@
     ph("sled").split(" ")[1] === ph("slade").split(" ")[1] &&
     ph("sled").split(" ")[3] === ph("slade").split(" ")[3],
     true, ph("sled") + " / " + ph("slade"));
+
+  /* ---- the encoder is the core's, not this engine's ----
+     Say It aliases what game-core.js exports rather than keeping a second
+     copy. These assert the alias, not a lookalike: the cards page and the
+     phoneme clips depend on every caller encoding a word the same way. */
+  var GC = window.GameCore;
+  eq("phonemes is GameCore.phonemes", I.phonemes === GC.phonemes, true);
+  eq("normalize is GameCore.normalize", I.normalize === GC.normalize, true);
+  eq("phoneticDistance is GameCore.phoneticDistance", I.phoneticDistance === GC.phoneticDistance, true);
+  eq("isVowelPhone is GameCore.isVowelPhone", I.isVowelPhone === GC.isVowelPhone, true);
+  eq("findPhonemeSeq is GameCore.findPhonemeSeq", I.findPhonemeSeq === GC.findPhonemeSeq, true);
+  eq("phonemeSpans is GameCore.phonemeSpans", I.phonemeSpans === GC.phonemeSpans, true);
+
+  /* ---- pinned encoder output ----
+     One row per rule branch. The encoder moved files and gained spans; the
+     sounds it emits must not have moved with it, because a stat key, a
+     clip filename and a match all read them. */
+  var PINNED = {
+    crab:"K R AE B", ship:"SH IH P", sip:"S IH P", shoe:"SH AO", push:"P UH SH",
+    should:"SH AW L D", fish:"F IH SH", wash:"W AE SH", sled:"S L EH D", slade:"S L EY D",
+    plumb:"P L UH M", fantastic:"F AE N T AE S T IH K", said:"S EY D", eight:"EY T",
+    light:"L AY T", badge:"B AE J", watch:"W AE C", queen:"KW IY N", box:"B AO KS",
+    knee:"N IY", wrap:"R AE P", gnome:"N OW M", yellow:"Y EH L OW", happy:"H AE P IY",
+    city:"S IH T IY", gem:"J EH M", annoy:"AE N OY", coin:"K OY N", boyish:"B OY IH SH",
+    house:"H AW S", school:"S C UW L", the:"TH", one:"OW N", kite:"K AY T",
+    phone:"F OW N", white:"W AY T", sock:"S AO K", sing:"S IH NG", turn:"T ER N",
+    bird:"B ER D", her:"H ER", car:"K AR", "for":"F OR", tree:"T R IY", boat:"B OW T",
+    moon:"M UW N", rain:"R EY N", play:"P L EY", bread:"B R IY D"
+  };
+  Object.keys(PINNED).forEach(function(w){
+    eq("phonemes(\"" + w + "\")", ph(w), PINNED[w]);
+  });
+
+  /* ---- sh is its own sound ----
+     It used to encode as "S", which made ship and sip identical — the one
+     pair of real words the matcher could not tell apart. */
+  eq("phonemes: ship != sip", ph("ship") === ph("sip"), false, ph("ship") + " / " + ph("sip"));
+  eq("ship <- sip is never a match, Regular", match("sip","ship",1,NOBLEND), false);
+  eq("SH counts as a consonant", I.isVowelPhone("SH"), false);
+
+  /* ---- spans line up with the letters ----
+     Over every word on every list: the spans are contiguous, together
+     they cover the whole letters-only word, and mapping them gives
+     exactly what phonemes() returns. A hole here would let a diagnosis
+     highlight the wrong letters. */
+  (function(){
+    var bad = [], nWords = 0;
+    window.WordLists.ids.forEach(function(id){
+      window.WordLists.wordsOf(id).forEach(function(w){
+        nWords++;
+        var letters = String(w).toLowerCase().replace(/[^a-z]/g, "");
+        var spans = GC.phonemeSpans(w), at = 0, i;
+        for(i=0;i<spans.length;i++){
+          if(spans[i].start !== at || spans[i].end <= spans[i].start){ bad.push(w + " span " + i); return; }
+          at = spans[i].end;
+        }
+        if(at !== letters.length){ bad.push(w + " covers " + at + "/" + letters.length); return; }
+        if(spans.map(function(s){ return s.ph; }).join(" ") !== GC.phonemes(w).join(" ")) bad.push(w + " spans != phonemes");
+      });
+    });
+    eq("phonemeSpans: contiguous, complete and equal to phonemes() on every list word (" + nWords + " words)",
+      bad.length, 0, bad.slice(0,5).join(", ") || "0");
+  })();
+  eq("phonemeSpans: silent final e joins the sound before it",
+    JSON.stringify(GC.phonemeSpans("kite")),
+    JSON.stringify([{ph:"K",start:0,end:1},{ph:"AY",start:1,end:2},{ph:"T",start:2,end:4}]));
+  eq("phonemeSpans: x is one span, two sounds", GC.phonemeSpans("box").length, 3);
+  eq("phonemeSpans: qu is one span", JSON.stringify(GC.phonemeSpans("queen")[0]),
+    JSON.stringify({ph:"KW",start:0,end:2}));
+
+  /* ---- the edit script behind the distance ----
+     phoneticAlign has to be the same DP phoneticDistance already is, or a
+     diagnosis would point at a difference the matcher never saw. Its ops,
+     priced the same way, must add up to the same number — checked on
+     pairs drawn from the real lists so the words are the ones students
+     actually miss. */
+  (function(){
+    var pool = [];
+    window.WordLists.ids.forEach(function(id){
+      window.WordLists.wordsOf(id).forEach(function(w){ pool.push(w); });
+    });
+    var s = 20260904 >>> 0;
+    function rnd(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }
+    var bad = [], n;
+    for(n=0;n<50;n++){
+      var a = GC.phonemes(pool[Math.floor(rnd() * pool.length)]);
+      var b = GC.phonemes(pool[Math.floor(rnd() * pool.length)]);
+      var cost = 0;
+      GC.phoneticAlign(a, b).forEach(function(o){
+        if(o.op === "sub") cost += (GC.isVowelPhone(a[o.i]) && GC.isVowelPhone(b[o.j])) ? 0.5 : 1.5;
+        else if(o.op !== "match") cost += 1;
+      });
+      if(cost !== GC.phoneticDistance(a, b)) bad.push(a.join("") + "/" + b.join("") + " " + cost + " vs " + GC.phoneticDistance(a, b));
+    }
+    eq("phoneticAlign: ops cost the same as phoneticDistance (50 seeded pairs)", bad.length, 0, bad.slice(0,3).join(", ") || "0");
+  })();
+  eq("phoneticAlign: a word against itself is all matches",
+    GC.phoneticAlign(GC.phonemes("crab"), GC.phonemes("crab")).every(function(o){ return o.op === "match"; }), true);
+  eq("phoneticAlign: a dropped sound is a del",
+    GC.phoneticAlign(GC.phonemes("gas"), GC.phonemes("gasp")).filter(function(o){ return o.op === "del"; }).length, 1);
+  eq("phoneticAlign: an added sound is an ins",
+    GC.phoneticAlign(GC.phonemes("gasps"), GC.phonemes("gasp")).filter(function(o){ return o.op === "ins"; }).length, 1);
+
+  /* ---- diagnose: which part went wrong ----
+     One answer, never a list, and always the first rule that applies:
+     the blend being practised, then the target sound, then the vowel,
+     then whatever is left. */
+  var D_START = { atStart:true, blendLength:2 };
+  var D_END   = { atStart:false, blendLength:2 };
+  var D_NONE  = { atStart:true, blendLength:0 };
+  var D_OY    = { atStart:true, blendLength:0, soundSeq:["OY"], highlight:/oi|oy/i };
+  function dg(heard, target, opts){ return GC.diagnose(heard, target, opts); }
+
+  eq("diagnose: bled heard \"bred\" is a blend", dg("bred","bled",D_START).kind, "blend");
+  eq("diagnose: ...and points at bl", JSON.stringify(dg("bred","bled",D_START).span), "[0,2]");
+  eq("diagnose: ...and says so in eight words or fewer",
+    dg("bred","bled",D_START).message.split(" ").length <= 8, true, dg("bred","bled",D_START).message);
+  eq("diagnose: sled heard \"slide\" is a vowel", dg("slide","sled",D_START).kind, "vowel");
+  eq("diagnose: ...on the e", "sled".slice(dg("slide","sled",D_START).span[0], dg("slide","sled",D_START).span[1]), "e");
+  eq("diagnose: gasp heard \"gas\" drops a sound", dg("gas","gasp",D_NONE).kind, "missing");
+  eq("diagnose: ...the p", "gasp".slice(dg("gas","gasp",D_NONE).span[0], dg("gas","gasp",D_NONE).span[1]), "p");
+  eq("diagnose: on the end-blend list the same miss is the blend", dg("gas","gasp",D_END).kind, "blend");
+  eq("diagnose: coin heard \"cone\" is the target sound", dg("cone","coin",D_OY).kind, "sound");
+  eq("diagnose: ...highlighting oi", "coin".slice(dg("cone","coin",D_OY).span[0], dg("cone","coin",D_OY).span[1]), "oi");
+  eq("diagnose: nest heard \"vest\" is a consonant", dg("vest","nest",D_END).kind, "consonant");
+  eq("diagnose: crab heard \"crab\" is nothing at all", dg("crab","crab",D_START), null);
+  eq("diagnose: an empty transcript is nothing at all", dg("","crab",D_START), null);
+  eq("diagnose: crab heard \"kraab\" is one sound too many", dg("kraab","crab",D_START).kind, "extra");
+  eq("diagnose: crab heard \"krab\" is right sounds, wrong word", dg("krab","crab",D_START).kind, "other");
+  eq("diagnose: it reports what it heard, normalized", dg("BRED!","bled",D_START).heard, "bred");
+  eq("diagnose: it judges the closest word in a phrase", dg("um bred","bled",D_START).heard, "um bred");
+  eq("diagnose: ...and diagnoses that word, not the filler", dg("um bred","bled",D_START).kind, "blend");
+  (function(){
+    var seen = {};
+    [dg("bred","bled",D_START), dg("slide","sled",D_START), dg("gas","gasp",D_NONE),
+     dg("cone","coin",D_OY), dg("vest","nest",D_END), dg("kraab","crab",D_START),
+     dg("krab","crab",D_START)].forEach(function(d){ if(d) seen[d.kind] = true; });
+    eq("diagnose: every kind is reachable", Object.keys(seen).sort().join(","),
+      "blend,consonant,extra,missing,other,sound,vowel");
+  })();
+  // The apostrophe is not a letter, so the fifth SOUND of "they'd" is the
+  // sixth character. A span that forgot that would underline the wrong one.
+  eq("diagnose: spans index the word as written, apostrophes and all",
+    JSON.stringify(dg("theyt","they'd",D_NONE).span), "[5,6]");
+  eq("diagnose: ...which is the d", "they'd".slice(5,6), "d");
 
   // ---- Regular accepts sound-alikes, Challenge does not ----
   eq("crab <- krab, Regular", match("krab","crab",1,START), true);
@@ -555,6 +705,58 @@
   eq("top box with poor accuracy is not mastered", A.isMastered(stat({n:12,r:6,w:6,box:5,last:T0})), false);
   eq("high accuracy in a low box is not yet mastered", A.isMastered(stat({n:4,r:4,box:2,last:T0})), false);
 
+  /* ---- speed: right, but not yet a sight word ----
+     A word decoded in three seconds is not a sight word. The flash cards
+     time the flip; nothing else can. The rule that matters most here is
+     the one about what must NOT change: a student's "12 of 20 solid" is
+     not allowed to drop the day a stopwatch appears. */
+  eq("updateStat records a time on a correct answer", A.updateStat(A.emptyStat(), true, T0, 1200).lat, 1200);
+  eq("updateStat ignores the clock on a wrong answer", A.updateStat(A.emptyStat(), false, T0, 1200).lat, 0);
+  eq("updateStat with no time leaves lat alone", A.updateStat(stat({lat:900}), true, T0).lat, 900);
+  eq("the first timing is taken whole", A.updateStat(stat({lat:0}), true, T0, 2000).lat, 2000);
+  eq("later timings are a running average, not a replacement",
+     A.updateStat(stat({lat:1000}), true, T0, 2000).lat, 1400);
+  eq("one slow reading doesn't reclassify a fast word",
+     A.isSlow(A.updateStat(stat({lat:800}), true, T0, 4000)), false);
+  eq("...but a run of them does", (function(){
+     var st = stat({lat:800}), i;
+     for(i=0;i<5;i++) st = A.updateStat(st, true, T0, 4000);
+     return A.isSlow(st);
+  })(), true);
+  eq("updateStat clamps a runaway timing", A.updateStat(A.emptyStat(), true, T0, 999999).lat, A._constants.MAX_LAT_MS);
+
+  eq("isSlow is false with nothing timed", A.isSlow(A.emptyStat()), false);
+  eq("isSlow is false just under the threshold", A.isSlow(stat({lat:A._constants.SLOW_MS})), false);
+  eq("isSlow is true just over it", A.isSlow(stat({lat:A._constants.SLOW_MS + 1})), true);
+
+  eq("sanitizeStat rejects a NaN lat", A.sanitizeStat({lat:NaN}).lat, 0);
+  eq("sanitizeStat rejects a negative lat", A.sanitizeStat({lat:-5}).lat, 0);
+  eq("sanitizeStat clamps an absurd lat", A.sanitizeStat({lat:1e9}).lat, A._constants.MAX_LAT_MS);
+  eq("sanitizeStat keeps an ordinary lat", A.sanitizeStat({lat:1234}).lat, 1234);
+  eq("a stat written before timing existed still loads", A.sanitizeStat({n:3,r:3,box:5}).lat, 0);
+
+  // The rule that protects the student's own number.
+  eq("a slow word is still mastered", A.isMastered(stat({n:12,r:12,box:5,last:T0,lat:9000})), true);
+  eq("...and the count they see does not move",
+     A.summarize({ w: stat({n:12,r:12,box:5,last:T0}) }).mastered,
+     A.summarize({ w: stat({n:12,r:12,box:5,last:T0,lat:9000}) }).mastered);
+  eq("summarize counts the slow ones inside the solid ones",
+     A.summarize({ w: stat({n:12,r:12,box:5,last:T0,lat:9000}) }).slow, 1);
+  eq("a slow word that isn't solid is shaky, not slow",
+     A.summarize({ w: stat({n:10,r:3,w:7,box:0,last:T0,lat:9000}) }).slow, 0);
+
+  // The scheduler is where speed actually acts.
+  (function(){
+    var fast = stat({n:12,r:12,box:5,last:T0 - 40*DAY, lat:900});
+    var slow = stat({n:12,r:12,box:5,last:T0 - 40*DAY, lat:9000});
+    var wf = A.weight(fast, T0), ws = A.weight(slow, T0);
+    results.push({ pass: Math.abs(ws - wf * A._constants.SLOW_BOOST) < 1e-9,
+      desc:"a slow word is boosted back into rotation",
+      detail: ws.toFixed(3) + " vs " + wf.toFixed(3) + " x " + A._constants.SLOW_BOOST });
+    results.push({ pass: ws > wf,
+      desc:"…so it outweighs the same word read at pace", detail: ws.toFixed(3) + " > " + wf.toFixed(3) });
+  })();
+
   // ---- pickSession: shape ----
   (function(){
     var pool = ["a","b","c","d","e","f","g","h"];
@@ -670,6 +872,809 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     fluency-game.js — following a reader
+
+     The engine can't be played headlessly, so everything that decides
+     anything is pure and lives here: the tokeniser, the pointer walk, the
+     arithmetic. The pointer walk is where a bug would be invisible and
+     expensive — a reader who skips a word and is then scored against the
+     wrong word for the rest of a paragraph would look like a reader who
+     can't read.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var F = window.FluencyGame._internals;
+    var GC = window.GameCore;
+
+    eq("tokenize drops punctuation", F.tokenize("The tent, at dusk.").join(","), "the,tent,at,dusk");
+    eq("tokenize keeps an apostrophe", F.tokenize("they'd").join(","), "they'd");
+    eq("tokenize collapses whitespace", F.tokenize("  a   b  ").join(","), "a,b");
+    eq("tokenize of nothing is nothing", F.tokenize(null).length, 0);
+    eq("tokenize of pure punctuation is nothing", F.tokenize("— …!").length, 0);
+
+    // A plain exact matcher, so these tests are about the WALK and not
+    // about the phonetics (which have their own tests above).
+    function exact(tok, word){ return tok === word; }
+    var LIST = ["soft","golf","honk","cost","pond"];
+    function walk(tokens, lookahead, from){
+      return F.consume(from || 0, tokens, LIST, exact, lookahead);
+    }
+
+    // ---- the one-minute list: lookahead 0, nothing is ignored ----
+    (function(){
+      var r = walk(["soft","golf"], 0);
+      eq("a clean read advances", r.pointer, 2);
+      eq("…and marks both right", r.marks.map(function(m){ return m.ok ? "y" : "n"; }).join(""), "yy");
+      r = walk(["soft","wrong","honk"], 0);
+      eq("a wrong word costs the word it was said for", r.marks[1].ok, false);
+      eq("…and the pointer moves past it anyway", r.pointer, 3);
+      eq("…so the run never stalls", r.marks.length, 3);
+      // The reader is back in step immediately: the next thing said is
+      // judged against the next word, not against the one already lost.
+      eq("…and the next word is judged against the next word", r.marks[2].ok, true);
+      r = walk([], 0);
+      eq("silence decides nothing", r.marks.length, 0);
+      eq("…and moves nothing", r.pointer, 0);
+      r = F.consume(4, ["pond","extra","more"], LIST, exact, 0);
+      eq("tokens past the end of the list are dropped", r.pointer, 5);
+    })();
+
+    // ---- a passage: lookahead 3, noise is ignored ----
+    (function(){
+      var r = walk(["soft","golf"], 3);
+      eq("a clean read still advances", r.pointer, 2);
+      r = walk(["soft","honk"], 3);
+      eq("skipping a word jumps to the one actually read", r.pointer, 3);
+      eq("…marking the skipped one wrong", r.marks[1].index + ":" + r.marks[1].ok, "1:false");
+      eq("…and the one read right", r.marks[2].index + ":" + r.marks[2].ok, "2:true");
+      r = walk(["soft","er","um","golf"], 3);
+      eq("noise between words is ignored, not scored", r.pointer, 2);
+      eq("…so only the two real words are marked", r.marks.length, 2);
+      eq("…both right", r.marks.every(function(m){ return m.ok; }), true);
+      r = walk(["pond"], 3);
+      eq("a jump further than the lookahead is not taken", r.pointer, 0);
+      eq("…and nothing is marked", r.marks.length, 0);
+      r = walk(["cost"], 3);
+      eq("a jump of exactly the lookahead is taken", r.pointer, 4);
+      eq("…costing the three words stepped over", r.marks.filter(function(m){ return !m.ok; }).length, 3);
+    })();
+
+    // ---- the same walk, judged the way the game judges ----
+    (function(){
+      function spoken(opts){
+        return function(tok, word){ return GC.spokenMatch(tok, word, opts || {}); };
+      }
+      var r = F.consume(0, ["to","the"], ["two","the"], spoken({ homophones: [["to","two"]] }), 0);
+      eq("a homophone counts as the word", r.marks[0].ok, true);
+      r = F.consume(0, ["veb"], ["vab"], spoken({ phonetic: true }), 0);
+      eq("a made-up word is judged by sound", r.marks[0].ok, true);
+      r = F.consume(0, ["bread"], ["bred"], spoken({}), 0);
+      eq("a real word is not", r.marks[0].ok, false);
+    })();
+
+    // ---- the arithmetic ----
+    eq("sixty words in sixty seconds is sixty", F.wordsPerMinute(60, 60000), 60);
+    eq("thirty words in thirty seconds is sixty", F.wordsPerMinute(30, 30000), 60);
+    eq("…rounded, not truncated", F.wordsPerMinute(7, 10000), 42);
+    eq("no time at all is zero, not infinity", F.wordsPerMinute(10, 0), 0);
+    eq("negative time is zero too", F.wordsPerMinute(10, -5), 0);
+    eq("no words is zero", F.wordsPerMinute(0, 60000), 0);
+
+    eq("hitting the target is three stars", F.starsForRate(60, 60), 3);
+    eq("beating it is still three", F.starsForRate(200, 60), 3);
+    eq("seventy per cent of it is two", F.starsForRate(42, 60), 2);
+    eq("fifty per cent of it is one", F.starsForRate(30, 60), 1);
+    eq("below that is none", F.starsForRate(29, 60), 0);
+    eq("the nonsense target is lower, so the same rate scores higher",
+       F.starsForRate(40, 40) > F.starsForRate(40, 60), true);
+
+    /* ---- the fluency record ---- */
+    var A2 = window.Adaptive;
+    eq("a run round-trips", A2.sanitizeFluency({ x:[{at:1,cwpm:50,errors:2,n:52}] }).x[0].cwpm, 50);
+    eq("a run with no rate is dropped", (A2.sanitizeFluency({ x:[{at:1}] }).x || []).length, 0);
+    eq("an absurd rate is clamped", A2.sanitizeFluency({ x:[{cwpm:99999}] }).x[0].cwpm, 400);
+    eq("a negative rate is clamped", A2.sanitizeFluency({ x:[{cwpm:-5}] }).x[0].cwpm, 0);
+    eq("rubbish is dropped", Object.keys(A2.sanitizeFluency("nope")).length, 0);
+    eq("a non-array value is dropped",
+       Object.prototype.hasOwnProperty.call(A2.sanitizeFluency({ x:"nope" }), "x"), false);
+    (function(){
+      var runs = [], i;
+      for(i=0;i<40;i++) runs = A2.pushRun(runs, { at:i, cwpm:i, errors:0, n:i });
+      eq("the tail is capped at thirty", runs.length, 30);
+      eq("…keeping the newest", runs[runs.length-1].cwpm, 39);
+      eq("…and dropping the oldest", runs[0].cwpm, 10);
+    })();
+    eq("summary of nothing is null", A2.fluencySummary([]), null);
+    (function(){
+      var s = A2.fluencySummary([{cwpm:40},{cwpm:70},{cwpm:55}]);
+      eq("latest is the last run, not the best", s.latest, 55);
+      eq("best is the best", s.best, 70);
+      eq("…and it counts them", s.runs, 3);
+    })();
+
+    /* ---- the passages, and the rule that keeps them honest ----
+       Every word in every passage has to come off a list the student has
+       actually been taught, or a stall here means nothing. */
+    (function(){
+      var allowed = {}, bad = [], short = [], noTarget = [];
+      window.PASSAGE_FUNCTION_WORDS.forEach(function(w){ allowed[w] = true; });
+      window.WordLists.ids.forEach(function(id){
+        var l = window.WordLists.byId(id);
+        if(l.family === "nonsense" || l.family === "passages") return;
+        if(l.family === "red" && l.listNum > 3) return;
+        window.WordLists.wordsOf(id).forEach(function(w){
+          allowed[String(w).toLowerCase().replace(/[^a-z']/g, "")] = true;
+        });
+      });
+      window.PASSAGES.forEach(function(p){
+        var toks = window.passageTokens(p.text);
+        if(toks.length < 80 || toks.length > 120) short.push(p.n + ":" + toks.length);
+        toks.forEach(function(w){ if(!allowed[w]) bad.push(p.n + ":" + w); });
+        // targets must be the family's own words, and actually used.
+        var famWords = {};
+        window.WordLists.ids.forEach(function(id){
+          if(window.WordLists.byId(id).family !== p.family) return;
+          window.WordLists.wordsOf(id).forEach(function(w){ famWords[w.toLowerCase()] = true; });
+        });
+        var used = {};
+        toks.forEach(function(w){ if(famWords[w]) used[w] = true; });
+        var declared = p.targets.slice().sort().join(",");
+        if(declared !== Object.keys(used).sort().join(",")) noTarget.push(String(p.n));
+      });
+      eq("there are eight passages, two per decodable family", window.PASSAGES.length, 8);
+      eq("every passage word is on a list the student has been taught", bad.join(" "), "");
+      eq("every passage is 80–120 words", short.join(" "), "");
+      eq("every passage's targets are exactly its family words, used", noTarget.join(" "), "");
+    })();
+
+    eq("a passage list carries its text", !!window.WordLists.byId("passages-1-read").text, true);
+    eq("…and its words are its tokens",
+       window.WordLists.wordsOf("passages-1-read").length,
+       window.passageTokens(window.PASSAGES[0].text).length);
+    eq("…and one passage is one round", window.WordLists.byId("passages-1-read").sessionSize, 1);
+    eq("…and it names itself, not 'List 1'", window.WordLists.byId("passages-1-read").listTitle, "The sled and the glen");
+    eq("the three decodable families gained a one-minute run",
+       ["blends-start-1-fluency","blends-end-1-fluency","nonsense-1-fluency"]
+         .filter(function(id){ return window.WordLists.exists(id); }).length, 3);
+    eq("both fluency modes run the same engine",
+       window.WordLists.byId("nonsense-1-fluency").engine + "," + window.WordLists.byId("passages-1-read").engine,
+       "fluency,fluency");
+    eq("…on the same page",
+       window.WordLists.byId("nonsense-1-fluency").page, "fluency-game.html");
+  })();
+
+  /* ---- the dashboard's sparkline ---- */
+  (function(){
+    var S = window.EITeacher._internals.sparkline;
+    eq("no runs, no line", S([]), "");
+    eq("one run is a dot, not a flat line", S([{cwpm:50}]).indexOf("<circle") !== -1, true);
+    eq("…and not a polyline", S([{cwpm:50}]).indexOf("polyline"), -1);
+    eq("two runs make a line", S([{cwpm:40},{cwpm:60}]).indexOf("<polyline") !== -1, true);
+    eq("a flat run of equal values doesn't divide by zero",
+       S([{cwpm:50},{cwpm:50}]).indexOf("NaN"), -1);
+    eq("the line says what it is to a screen reader",
+       S([{cwpm:40},{cwpm:60}]).indexOf('aria-label="2 timed reads, latest 60 words per minute"') !== -1, true);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     game-core.js — phoneme clips and tap-to-hear
+
+     The audio itself can't be tested headlessly, and doesn't need to be:
+     what could actually be wrong is which SOUNDS a word asks for and
+     which LETTERS each pressable piece covers. Both are pure.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+
+    eq("x is two sounds, one token", C.expandPhonemes(["B","KS"]).join(","), "B,K,S");
+    eq("qu is two sounds, one token", C.expandPhonemes(["KW","IY","N"]).join(","), "K,W,IY,N");
+    eq("everything else passes through", C.expandPhonemes(["S","H"]).join(","), "S,H");
+    eq("sh is one sound, not two", C.expandPhonemes(["SH"]).join(","), "SH");
+    eq("nothing expands to nothing", C.expandPhonemes([]).length, 0);
+    eq("a hole in the list is dropped", C.expandPhonemes(["B", "", null]).join(","), "B");
+
+    /* Every sound the encoder can emit has to have a clip, or a word
+       will play with a hole in it. The manifest is the list of clips that
+       shipped; this walks every word on every list and checks. */
+    (function(){
+      var have = {};
+      // The tokens tools/make-phonemes.sh writes, kept here rather than
+      // fetched: a test that skips itself when a fetch fails is a test
+      // that never fails.
+      ("B D G K P T C J F H L M N NG R S SH TH V W Y Z AE EH IH AO UH EY IY AY OW UW AW OY AR OR ER")
+        .split(" ").forEach(function(t){ have[t] = true; });
+      var missing = {};
+      window.WordLists.ids.forEach(function(id){
+        window.WordLists.wordsOf(id).forEach(function(w){
+          C.expandPhonemes(C.phonemes(w)).forEach(function(t){ if(!have[t]) missing[t] = w; });
+        });
+      });
+      eq("every sound in the library has a clip", Object.keys(missing).join(","), "",
+         JSON.stringify(missing));
+    })();
+
+    // ---- the pressable pieces ----
+    (function(){
+      var p = C.tapPieces("crab", null);
+      eq("a one-syllable word breaks into its sounds", p.length, 4);
+      eq("…each piece is its letters", p.map(function(x){ return x.text; }).join("-"), "c-r-a-b");
+      eq("…and each carries its sound", p.map(function(x){ return x.tokens.join(""); }).join("-"), "K-R-AE-B");
+      eq("…and they cover the whole word",
+         p.map(function(x){ return x.text; }).join(""), "crab");
+
+      var d = C.tapPieces("fantastic", ["fan","tas","tic"]);
+      eq("a dotted word breaks into its syllables", d.length, 3);
+      eq("…as written", d.map(function(x){ return x.text; }).join("-"), "fan-tas-tic");
+      eq("…each with the sounds inside it", d[0].tokens.join(","), "F,AE,N");
+      eq("…and the last one too", d[2].tokens.join(","), "T,IH,K");
+
+      var e = C.tapPieces("kite", null);
+      eq("a silent letter travels with the sound before it",
+         e.map(function(x){ return x.text; }).join("-"), "k-i-te");
+      var x = C.tapPieces("box", null);
+      eq("x is one piece", x.length, 3);
+      eq("…that plays two sounds", C.expandPhonemes(x[2].tokens).join(","), "K,S");
+      eq("nothing to press in an empty word", C.tapPieces("", null).length, 0);
+    })();
+
+    // ---- the markup ----
+    (function(){
+      var p = C.tapPieces("said", null);
+      var m = C.tapMarkup(p, [[1,3]], "");
+      eq("every piece is a button", (m.match(/data-tap=/g) || []).length, p.length);
+      eq("the buttons are press-only, not tab stops",
+         (m.match(/tabindex="-1"/g) || []).length, p.length);
+      eq("heart letters survive being cut into pieces",
+         m.indexOf('<span class="heart">') !== -1, true);
+      eq("a syllable separator only appears between pieces",
+         (C.tapMarkup(C.tapPieces("fantastic", ["fan","tas","tic"]), null, "·")
+           .match(/tapsep/g) || []).length, 2);
+      eq("markup is escaped", C.tapMarkup([{text:"<b>", start:0, end:3, tokens:[]}], null, "")
+           .indexOf("&lt;b&gt;") !== -1, true);
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     spell-game.js — sound boxes
+
+     One box per SOUND. What could go wrong here is the split itself: a
+     box row that expects one letter where the word has two would mark a
+     correct spelling wrong, which is the worst thing a spelling game can
+     do.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var B = window.SpellGame._internals.boxGraphemes;
+    eq("a vowel team is one box, two letters", B("coin").join("|"), "c|oi|n");
+    eq("…and the boxes still spell the word", B("coin").join(""), "coin");
+    eq("three sounds, four letters — the whole lesson", B("coin").length, 3);
+    eq("a plain word is one box per letter", B("job").join("|"), "j|o|b");
+    eq("a doubled consonant is one box", B("spoil").join("|"), "s|p|oi|l");
+    eq("a silent e travels with the box before it", B("noise").join("|"), "n|oi|se");
+    eq("nothing spells nothing", B("").length, 0);
+    (function(){
+      var bad = [];
+      window.WordLists.wordsOf("oi-oy-spell").forEach(function(w){
+        if(B(w).join("") !== w.toLowerCase().replace(/[^a-z]/g, "")) bad.push(w);
+      });
+      eq("every word on the spelling list reassembles from its boxes", bad.join(","), "");
+    })();
+    eq("the oi/oy list is the one with boxes on",
+       window.WordLists.byId("oi-oy-spell").config.boxes, true);
+  })();
+
+  /* ---- Split it: where a long word comes apart ---- */
+  (function(){
+    var B = window.CardGame._internals.boundariesOf;
+    var S = window.CardGame._internals.sameSplit;
+    eq("three syllables, two splits", B(["fan","tas","tic"]).join(","), "3,6");
+    eq("two syllables, one split", B(["pub","lic"]).join(","), "3");
+    eq("one syllable, no splits at all", B(["soft"]).length, 0);
+    eq("no chunks, no splits", B(null).length, 0);
+    eq("uneven syllables count letters, not syllables", B(["dis","gust","ed"]).join(","), "3,7");
+
+    eq("the same split in the same order matches", S([3,6],[3,6]), true);
+    eq("…and in a different order", S([6,3],[3,6]), true);
+    eq("a missing split doesn't", S([3],[3,6]), false);
+    eq("an extra split doesn't", S([3,6,8],[3,6]), false);
+    eq("no splits matches no splits — a one-syllable word is answerable", S([],[]), true);
+    eq("…and no splits doesn't match a split", S([],[3]), false);
+
+    // The list is the answer key, so every dotted entry has to produce a
+    // split that lands between letters of the plain word.
+    (function(){
+      var bad = [];
+      window.WordLists.byId("multi-1-split").words.forEach(function(entry){
+        var p = window.GameCore.parseEntry(entry);
+        B(p.chunks || [p.word]).forEach(function(at){
+          if(at <= 0 || at >= p.word.length) bad.push(entry + "@" + at);
+        });
+      });
+      eq("every split on the list lands inside its word", bad.join(","), "");
+    })();
+    eq("Split it is a cards-engine mode", window.WordLists.byId("multi-1-split").engine, "card");
+    eq("…on the cards page", window.WordLists.byId("multi-1-split").page, "cards-game.html");
+    eq("…and it tells the engine so", window.WordLists.byId("multi-1-split").config.split, true);
+    eq("…and only the multisyllable family has it",
+       window.WordLists.all.filter(function(l){ return l.mode === "split"; }).length, 1);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     game-core.js — the Reading view
+
+     Four switches applied as classes on <html>. The parts worth pinning:
+     an unrecognised stored value is the default rather than an error
+     (localStorage is hand-editable), the settings survive being written
+     and read back, and a word carrying a capital is never lowercased.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+
+    var d = C.sanitizeView(null);
+    eq("an empty view is all defaults",
+       [d.font, d.spacing, d.wordCase, d.card].join(","), "default,normal,as-written,dark");
+    eq("…and adds no classes", C.viewClasses(d).length, 0);
+    eq("garbage is the default, not an error", C.sanitizeView("nope").font, "default");
+    eq("an unrecognised value is the default", C.sanitizeView({font:"comic"}).font, "default");
+    eq("an unrecognised value doesn't poison its neighbours",
+       C.sanitizeView({font:"comic", spacing:"wide"}).spacing, "wide");
+    eq("a value from a newer version is dropped", C.sanitizeView({card:"neon"}).card, "dark");
+    eq("sanitizeView stamps the version", C.sanitizeView({}).v, 1);
+
+    eq("lexend adds one class", C.viewClasses({font:"lexend"}).join(","), "view-lexend");
+    eq("atkinson adds the other", C.viewClasses({font:"atkinson"}).join(","), "view-atkinson");
+    eq("all four at once",
+       C.viewClasses({font:"lexend", spacing:"wide", wordCase:"lower", card:"cream"}).join(" "),
+       "view-lexend view-wide view-lower view-cream");
+    eq("classes come out in a stable order",
+       C.viewClasses({card:"cream", font:"lexend"}).join(" "),
+       C.viewClasses({font:"lexend", card:"cream"}).join(" "));
+
+    // Capitals are protected from the lowercase switch.
+    eq("a plain word may be lowercased", C.wordCaseClass("said"), "");
+    eq("Mrs. may not", C.wordCaseClass("Mrs."), "has-cap");
+    eq("Wednesday may not", C.wordCaseClass("Wednesday"), "has-cap");
+    eq("nothing at all is safe to lowercase", C.wordCaseClass(null), "");
+    (function(){
+      var caps = window.WordLists.ids.reduce(function(acc, id){
+        window.WordLists.wordsOf(id).forEach(function(w){ if(/[A-Z]/.test(w)) acc[w] = true; });
+        return acc;
+      }, {});
+      eq("the lists' capitalised words are exactly the ones we know about",
+         Object.keys(caps).sort().join(","), "Mr.,Mrs.,Tuesday,Wednesday");
+    })();
+
+    /* Round-trip. This IS the "survives a reload" property: the next page
+       load reads the same two keys back out of the same localStorage. */
+    (function(){
+      var saved = null;
+      try{ saved = localStorage.getItem("eiView"); }catch(e){}
+      C.writeView({ font:"lexend", spacing:"wide", wordCase:"lower", card:"cream" });
+      var back = C.readView();
+      eq("a written view reads back", [back.font, back.spacing, back.wordCase, back.card].join(","),
+         "lexend,wide,lower,cream");
+      eq("…and lands on <html>",
+         document.documentElement.classList.contains("view-lexend") &&
+         document.documentElement.classList.contains("view-cream"), true);
+      eq("…and is cached for the boot script",
+         (localStorage.getItem("eiViewClass") || "").indexOf("view-lexend") !== -1, true);
+      // The boot script's own guard: nothing but class characters survives.
+      eq("the boot cache can't inject anything",
+         '<img x>'.replace(/[^a-z\- ]/g, ""), "img x");
+      C.writeView(null);
+      eq("clearing it takes the classes off again",
+         document.documentElement.className.indexOf("view-") !== -1, false);
+      try{ if(saved === null) localStorage.removeItem("eiView"); else localStorage.setItem("eiView", saved); }catch(e){}
+      C.writeView(C.readView());
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     Say It for the red words: contractions and homophones
+
+     Two things stood between an irregular word and a microphone. A
+     contraction has no audible difference from its expansion — "they'd"
+     IS "they would" out loud — and a homophone has no audible difference
+     from its twin. Neither is a matching problem the phoneme encoder can
+     solve, and both are fixed by agreeing what counts as the same answer.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+    var RED_G = window.WordLists.familyOf("red").modeConfig.say.homophones;
+
+    eq("they would folds to they'd", C.normalize("They would."), "they'd");
+    eq("…and they'd stays itself", C.normalize("they'd"), "they'd");
+    eq("…so the two are the same answer", C.normalize("they would") === C.normalize("they'd"), true);
+    eq("we are folds to we're", C.normalize("we are"), "we're");
+    eq("are not folds to aren't", C.normalize("are not"), "aren't");
+    eq("were not folds to weren't", C.normalize("were not"), "weren't");
+    eq("have not folds to haven't", C.normalize("have not"), "haven't");
+    eq("they will folds to they'll", C.normalize("they will"), "they'll");
+    eq("they have folds to they've", C.normalize("they have"), "they've");
+    eq("you are folds to you're", C.normalize("you are"), "you're");
+    eq("you would folds to you'd", C.normalize("you'd"), "you'd");
+    eq("missus is Mrs.", C.normalize("Missus"), "mrs");
+    eq("mister is Mr.", C.normalize("mister"), "mr");
+    eq("…and Mrs. normalizes the same way", C.normalize("Mrs."), "mrs");
+
+    /* The fold is whole-transcript only, and this is why: "they have" is
+       the expansion of "they've" AND a student reading the word "have"
+       with a run-up. Folding inside a longer transcript would delete the
+       token the matcher needs. */
+    eq("a longer transcript keeps its words", C.normalize("um they have"), "um they have");
+    eq("…so the word inside it is still findable",
+       C.normalize("um they have").split(" ").indexOf("have") !== -1, true);
+    eq("an ordinary transcript is untouched", C.normalize("Said!"), "said");
+
+    // Homophones, through the matcher Say It actually calls.
+    var I2 = window.BlendGame._internals;
+    function sayMatch(heard, target){
+      return I2.isMatch(heard, target, 0, true, 0, [], null, RED_G);
+    }
+    function sayMatchNoGroups(heard, target){
+      return I2.isMatch(heard, target, 0, true, 0, [], null, null);
+    }
+    eq("the word itself passes", sayMatch("two", "two"), true);
+    eq("its homophone passes too", sayMatch("to", "two"), true);
+    eq("…and the other way round", sayMatch("two", "to"), true);
+    eq("a three-way group works in every direction", sayMatch("they're", "their"), true);
+    eq("…and again", sayMatch("there", "they're"), true);
+    eq("a homophone passes at Challenge, not just Regular", sayMatch("won", "one"), true);
+    eq("a word that merely looks similar does not", sayMatch("tow", "two"), false);
+    eq("with no groups, nothing is forgiven", sayMatchNoGroups("to", "two"), false);
+    eq("a contraction said as two words passes", sayMatch("they would", "they'd"), true);
+    eq("a wrong contraction still fails", sayMatch("they will", "they'd"), false);
+
+    // Every group member has to be a real red word, or the group forgives
+    // a word nobody is being asked to read.
+    (function(){
+      var words = {}, bad = [];
+      window.WordLists.ids.forEach(function(id){
+        if(id.indexOf("red-") !== 0 || id.indexOf("-say") === -1) return;
+        window.WordLists.wordsOf(id).forEach(function(w){ words[w] = true; });
+      });
+      RED_G.forEach(function(g){ g.forEach(function(x){ if(!words[x]) bad.push(x); }); });
+      eq("Say It's homophone groups only name words on the say lists", bad.join(","), "");
+    })();
+
+    // The mode itself.
+    eq("every red list has a say-it entry",
+       window.WordLists.listNumsOf("red").filter(function(n){
+         return !!window.WordLists.idFor("red", n, "say");
+       }).length, 10);
+    eq("red say-it runs the blend engine with no blend",
+       window.WordLists.byId("red-1-say").config.blendLength, 0);
+    eq("red say-it carries its homophone groups",
+       !!window.WordLists.byId("red-1-say").config.homophones, true);
+    eq("red say-it lands on the generic page",
+       window.WordLists.byId("red-1-say").page, "say-game.html");
+    eq("…with a ?list=", window.WordLists.hrefOf("red-1-say"), "say-game.html?list=red-1-say");
+    eq("the phonics families keep their own say pages",
+       window.WordLists.byId("initial-blends").page, "initial-blends-game.html");
+    eq("…and still need no ?list=", window.WordLists.hrefOf("initial-blends"), "initial-blends-game.html");
+    eq("red say-it words are the plain ones", window.WordLists.wordsOf("red-1-say")[3], "said");
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     game-core.js — heart letters
+
+     Braces mark the part of a red word the phonics rules get wrong:
+     "s{ai}d". Display only, exactly like the syllable dots, and the two
+     combine. The load-bearing property is the last one below: the plain
+     word every red list produces must be BYTE-IDENTICAL to what it
+     produced before the marks were added, because those strings are stat
+     keys with a term of practice behind them.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore, P = C.parseEntry;
+
+    eq("an unmarked word has no heart", P("carrot").heart, null);
+    eq("…and is unchanged", P("carrot").word, "carrot");
+    eq("braces come out of the word", P("s{ai}d").word, "said");
+    eq("…and become a range", JSON.stringify(P("s{ai}d").heart), "[[1,3]]");
+    eq("a word can have two hearts", JSON.stringify(P("{a}b{o}ve").heart), "[[0,1],[2,3]]");
+    eq("…with the word still intact", P("{a}b{o}ve").word, "above");
+    eq("a heart at the very start", JSON.stringify(P("{of}").heart), "[[0,2]]");
+    eq("a heart at the very end", JSON.stringify(P("cl{o}th{es}").heart), "[[2,3],[5,7]]");
+    eq("an apostrophe is a letter as far as the index goes", P("th{ey}'d").word, "they'd");
+    eq("…so the heart lands before it", JSON.stringify(P("th{ey}'d").heart), "[[2,4]]");
+    eq("a period survives", P("Mrs.").word, "Mrs.");
+    eq("an accent survives", P("res{u}m{é}").word, "resumé");
+    eq("…and is markable", JSON.stringify(P("res{u}m{é}").heart), "[[3,4],[5,6]]");
+    eq("an empty pair of braces marks nothing", P("s{}aid").heart, null);
+
+    // Dots and braces on the same entry.
+    eq("braces and dots combine: the word", P("al{th}·ough").word, "although");
+    eq("…the chunks are brace-free", P("al{th}·ough").chunks.join("|"), "alth|ough");
+    eq("…and the heart indexes the plain word", JSON.stringify(P("al{th}·ough").heart), "[[2,4]]");
+    eq("a dotted word with no braces is untouched", P("fan·tas·tic").chunks.join("|"), "fan|tas|tic");
+    eq("…and has no heart", P("fan·tas·tic").heart, null);
+
+    // Markup.
+    eq("heartMarkup wraps the marked letters",
+       C.heartMarkup("said", [[1,3]]), 's<span class="heart">ai</span>d');
+    eq("heartMarkup with no heart is just the word", C.heartMarkup("said", null), "said");
+    eq("heartMarkup escapes HTML",
+       C.heartMarkup("a<b>c", [[0,1]]), '<span class="heart">a</span>&lt;b&gt;c');
+    eq("chunkMarkup marks a heart inside a syllable",
+       C.chunkMarkup(["alth","ough"], [[2,4]]).indexOf('<span class="heart">th</span>') !== -1, true);
+    eq("chunkMarkup with no heart is unchanged",
+       C.chunkMarkup(["fan","tas","tic"]), C.chunkMarkup(["fan","tas","tic"], null));
+
+    eq("spellOut spells then says", C.spellOut("said"), "s. a. i. d. said");
+    eq("spellOut keeps an apostrophe", C.spellOut("they'd"), "t. h. e. y. '. d. they'd");
+    eq("spellOut drops a period", C.spellOut("Mrs."), "M. r. s. Mrs.");
+
+    /* The stat keys. Every red list is now written with braces; every red
+       list must still produce exactly the words it produced before, or a
+       term of practice comes back keyed to nothing. */
+    var RED_PLAIN = {
+      "red-1-cards": "you,should,could,said,they,have,of,are,what,put,would,to,your,was,the,once,do,from,into,two",
+      "red-2-cards": "give,were,many,whose,any,here,live,some,Mrs.,Mr.,where,other,one,whom,right,there,done,great,does,their",
+      "red-3-cards": "thought,who,come,very,again,aren't,weren't,mother,father,brother,watch,haven't,they'd,you'd,against,friend,they'll,we're,they're,you're",
+      "red-4-cards": "beautiful,been,blood,none,only,says,sure,both,bought,buy,prove,straight,worn,push,today,pull,most,change,child,clothes",
+      "red-5-cards": "flood,floor,often,door,gone,laugh,break,steak,above,they've,you,lose,tough,view,rough,front,love,among,anyone,answer",
+      "red-6-cards": "nothing,cousins,cover,courage,toward,enough,through,sugar,busy,almost,ninth,although,always,another,onion,though,people,build,piano,pint",
+      "red-7-cards": "shoved,butcher,post,pretty,canoe,promise,carrot,cough,roll,danger,debt,sew,shoe,heart,forward,son,four,spirit,swan,bouquet",
+      "red-8-cards": "honest,toll,honor,touch,hour,Tuesday,Wednesday,imagine,iron,wind,wolf,won,wore,move,minute,mirror,young,success,already,idea",
+      "red-9-cards": "music,sure,garage,system,figure,friend,national,ready,island,unique,ocean,radio,feature,continue,condition,caution,enough,guarantee,technique,anxious",
+      "red-10-cards": "cologne,resumé,resume,boutique,fair,pair,fought,eye,show,small,about,call,fall,mall,air,know,large,barge,house,mouse"
+    };
+    Object.keys(RED_PLAIN).forEach(function(id){
+      eq("wordsOf(\"" + id + "\") is unchanged by the marks",
+         window.WordLists.wordsOf(id).join(","), RED_PLAIN[id]);
+    });
+    eq("WordLists.plain strips braces", window.WordLists.plain("s{ai}d"), "said");
+    eq("WordLists.plain strips braces and dots together", window.WordLists.plain("al{th}·ough"), "although");
+
+    // The two lookup tables keyed by plain word have to keep resolving.
+    (function(){
+      var words = {};
+      window.WordLists.ids.forEach(function(id){
+        if(id.indexOf("red-") !== 0) return;
+        window.WordLists.wordsOf(id).forEach(function(w){ words[w] = true; });
+      });
+      var missingH = [], missingS = [], k;
+      window.LIST_FAMILIES.forEach(function(fam){
+        if(fam.key !== "red") return;
+        (fam.modeConfig.match.homophones || []).forEach(function(g){
+          g.forEach(function(x){ if(!words[x]) missingH.push(x); });
+        });
+        for(k in fam.modeConfig.match.sentences){
+          if(!Object.prototype.hasOwnProperty.call(fam.modeConfig.match.sentences, k)) continue;
+          if(!words[k]) missingS.push(k);
+        }
+      });
+      eq("every RED_HOMOPHONES member is still a real red word", missingH.join(","), "");
+      eq("every RED_SENTENCES key is still a real red word", missingS.join(","), "");
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     card-game.js — judging a spoken answer (the Listen toggle)
+
+     This decides which of the two rating buttons to PULSE. The student
+     still presses one, so a wrong answer here costs a pulse on the wrong
+     button and never a wrong stat — which is exactly why it is allowed to
+     be generous.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var J = window.CardGame._internals.judgeHeard;
+    var GROUPS = [["to","two"],["there","their","they're"],["one","won"]];
+
+    eq("the word itself", J("would", "would", GROUPS, false), true);
+    eq("…however it was punctuated", J("Would!", "would", GROUPS, false), true);
+    eq("…and inside a phrase", J("um would yeah", "would", GROUPS, false), true);
+    eq("a different word", J("wood", "would", GROUPS, false), false);
+    eq("nothing said at all", J("", "would", GROUPS, false), false);
+    eq("a transcript of pure noise", J("!!!", "would", GROUPS, false), false);
+
+    eq("a homophone counts: two for to", J("two", "to", GROUPS, false), true);
+    eq("…and the other way round", J("to", "two", GROUPS, false), true);
+    eq("…across a three-word group", J("they're", "their", GROUPS, false), true);
+    eq("a homophone of some OTHER word doesn't", J("won", "to", GROUPS, false), false);
+    eq("no groups given, no homophones accepted", J("two", "to", null, false), false);
+
+    eq("a known mishearing counts (ACCEPT)", J("gas", "gasp", null, false), true);
+    eq("…but only for the word it was recorded against", J("gas", "gasp", null, false) && !J("gas", "grasp", null, false), true);
+
+    eq("a made-up word is judged by sound", J("vab", "vab", null, true), true);
+    // Vowel drift is what a recogniser handed a non-word actually does,
+    // and it costs half a point; a swapped consonant costs one and a half
+    // and never fits, because that is a different made-up word.
+    eq("…and through a drifted vowel", J("veb", "vab", null, true), true);
+    eq("…but not through a swapped consonant", J("vap", "vab", null, true), false);
+    eq("…and not through a different word entirely", J("shrimp", "vab", null, true), false);
+    eq("a real word is NOT judged by sound: bread is not bred",
+       J("bread", "bred", null, false), false);
+    eq("…which is the whole error worth catching",
+       J("bread", "bred", null, true) && !J("bread", "bred", null, false), true);
+
+    eq("case and spacing don't matter", J("  TO  ", "to", GROUPS, false), true);
+    eq("a word with a period still matches", J("mrs", "Mrs.", null, false), true);
+  })();
+
+  /* ---- a word inside its sentence ----
+     Shown on the front of one card in three, once the word is solid. The
+     bold has to land on the word itself and nowhere else — highlighting
+     "one" inside "money" would teach a reader to look for letters rather
+     than words. */
+  (function(){
+    var M = window.CardGame._internals.contextMarkup;
+    function bolded(s, w){
+      var m = /<b class="ctxword">([^<]*)<\/b>/.exec(M(s, w));
+      return m ? m[1] : null;
+    }
+    eq("the word is the bold part", bolded("I only need one more.", "one"), "one");
+    eq("a word inside another word is not", bolded("He counted the money.", "one"), null);
+    eq("…and the sentence comes back plain", M("He counted the money.", "one"), "He counted the money.");
+    eq("a sentence-initial capital still matches", bolded("The team missed their bus.", "the"), "The");
+    eq("…keeping the case the sentence wrote", bolded("The team missed their bus.", "the"), "The");
+    eq("an apostrophe is part of the word",
+       bolded("I think you're right about that.", "you're"), "you're");
+    eq("…and doesn't match the bare stem", bolded("I think you're right about that.", "you"), null);
+    eq("a word at the very end", bolded("Pizza or tacos — it's your choice.", "choice"), "choice");
+    eq("markup is escaped", M("a <b>x</b> one", "one").indexOf("&lt;b&gt;") !== -1, true);
+    eq("no word, no bold", M("Just a sentence.", ""), "Just a sentence.");
+
+    // Every sentence a card can show has to contain its word, or the card
+    // shows a sentence with nothing highlighted in it.
+    (function(){
+      var bad = [];
+      window.LIST_FAMILIES.forEach(function(fam){
+        var s = fam.modeConfig && fam.modeConfig.cards && fam.modeConfig.cards.sentences;
+        if(!s) return;
+        for(var w in s){
+          if(!Object.prototype.hasOwnProperty.call(s, w)) continue;
+          if(bolded(s[w], w) === null) bad.push(fam.key + ":" + w);
+        }
+      });
+      eq("every cards sentence actually contains its word", bad.join(","), "");
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     adaptive.js + store.js — what the mic heard
+
+     A short tail of transcripts per missed word. It is evidence, not a
+     score: nothing in the scheduler reads it, and the only thing that
+     matters is that it stays small, stays clean, and reaches the write
+     body when — and only when — it changed.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A = window.Adaptive;
+    eq("cleanHeard lowercases and strips punctuation", A.cleanHeard("Bread!!"), "bread");
+    eq("cleanHeard keeps an apostrophe", A.cleanHeard("they'd"), "they'd");
+    eq("cleanHeard collapses whitespace", A.cleanHeard("  a   b  "), "a b");
+    eq("cleanHeard truncates a runaway transcript",
+       A.cleanHeard(new Array(200).join("x")).length, 40);
+    eq("cleanHeard on rubbish is empty", A.cleanHeard({}), "");
+
+    eq("pushHeard appends newest last", A.pushHeard(["a"], "b").join(","), "a,b");
+    eq("pushHeard doesn't repeat a transcript", A.pushHeard(["a","b"], "a").join(","), "b,a");
+    eq("pushHeard caps at five", A.pushHeard(["a","b","c","d","e"], "f").join(","), "b,c,d,e,f");
+    eq("pushHeard ignores an empty transcript", A.pushHeard(["a"], "   ").join(","), "a");
+    eq("pushHeard on a non-array starts one", A.pushHeard(null, "a").join(","), "a");
+
+    var dirty = A.sanitizeHeard({ "l|w": ["Bread", "bread", "", "b<b>"], "": ["x"], bad: "nope" });
+    eq("sanitizeHeard dedupes and cleans", (dirty["l|w"] || []).join(","), "bread,b b");
+    eq("sanitizeHeard drops a blank key", Object.prototype.hasOwnProperty.call(dirty, ""), false);
+    eq("sanitizeHeard drops a non-array value", Object.prototype.hasOwnProperty.call(dirty, "bad"), false);
+    eq("sanitizeHeard on rubbish is empty", Object.keys(A.sanitizeHeard("nope")).length, 0);
+    eq("sanitizeHeard caps a long stored tail",
+       A.sanitizeHeard({ k: ["a","b","c","d","e","f","g"] }).k.join(","), "c,d,e,f,g");
+
+    // The write body. Only what changed goes up, so a round that logged
+    // nothing new doesn't rewrite the whole map.
+    var S = window.EIStore._internals;
+    S._feed({ stats: { "l|w": A.emptyStat() }, heard: { "l|w": ["bread"], "l|x": ["gas"] },
+              dirty: {}, dirtyHeard: { "l|w": true } });
+    var body = S.payload();
+    eq("payload sends the heard keys that changed", Object.keys(body.heard).join(","), "l|w");
+    eq("…with their transcripts", body.heard["l|w"].join(","), "bread");
+    eq("payload omits words when none changed", Object.prototype.hasOwnProperty.call(body, "words"), false);
+    S._feed({ stats: {}, heard: {}, dirty: {}, dirtyHeard: {} });
+    eq("payload omits heard when nothing changed",
+       Object.prototype.hasOwnProperty.call(S.payload(), "heard"), false);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     Patterns: what kind of wrong, and how often
+
+     Say It is the only mode that can name an error, so it is the only one
+     that writes a kind onto the stat. The load-bearing rules: the key set
+     is closed (this goes from a game engine into a document a teacher
+     reads), and "shaky" in the pattern table counts PEOPLE rather than
+     words, because thirty words on one vowel team is one problem.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A2 = window.Adaptive;
+
+    eq("a miss with a kind is counted", A2.updateStat(A2.emptyStat(), false, T0, 0, "vowel").k.vowel, 1);
+    eq("…and counted again", A2.updateStat(A2.updateStat(A2.emptyStat(), false, T0, 0, "vowel"), false, T0, 0, "vowel").k.vowel, 2);
+    eq("a correct answer never carries a kind",
+       Object.keys(A2.updateStat(A2.emptyStat(), true, T0, 0, "vowel").k).length, 0);
+    eq("a miss with no kind counts nothing",
+       Object.keys(A2.updateStat(A2.emptyStat(), false, T0).k).length, 0);
+    eq("an invented kind is not counted",
+       Object.keys(A2.updateStat(A2.emptyStat(), false, T0, 0, "vibes").k).length, 0);
+    eq("the key set is closed", A2.errorKinds.join(","), "blend,sound,vowel,consonant,missing,extra,other");
+    eq("sanitizeKinds drops what isn't a kind",
+       Object.keys(A2.sanitizeKinds({ vowel:2, vibes:9 })).join(","), "vowel");
+    eq("sanitizeKinds drops a zero", Object.keys(A2.sanitizeKinds({ vowel:0 })).length, 0);
+    eq("sanitizeKinds clamps an absurd count", A2.sanitizeKinds({ vowel:1e9 }).vowel, 999);
+    eq("sanitizeKinds on rubbish is empty", Object.keys(A2.sanitizeKinds("nope")).length, 0);
+    eq("a stat written before kinds existed still loads",
+       Object.keys(A2.sanitizeStat({n:3,r:3}).k).length, 0);
+
+    eq("topKind picks the commonest", A2.topKind({ vowel:1, blend:4 }).kind, "blend");
+    eq("…and says how many", A2.topKind({ vowel:1, blend:4 }).n, 4);
+    eq("topKind of nothing is null", A2.topKind({}), null);
+    eq("a tie goes to the more specific diagnosis", A2.topKind({ other:2, blend:2 }).kind, "blend");
+
+    eq("summarize sums the kinds across words",
+       A2.summarize({ a: stat({n:2,w:2,k:{vowel:2}}), b: stat({n:1,w:1,k:{vowel:1,blend:1}}) }).kinds.vowel, 3);
+    eq("summarize counts slow-but-right over every word, not just the solid ones",
+       A2.summarize({ a: stat({n:10,r:6,w:4,box:1,lat:9000}) }).slowRight, 1);
+    eq("…and a slow word never answered right isn't one",
+       A2.summarize({ a: stat({n:4,r:0,w:4,lat:9000}) }).slowRight, 0);
+
+    // Every family says what it teaches, in a teacher's words.
+    (function(){
+      var missing = window.WordLists.ids.filter(function(id){ return !window.WordLists.patternOf(id); });
+      eq("every list has a pattern", missing.join(","), "");
+      eq("the blends are told apart",
+         window.WordLists.patternOf("initial-blends") + " / " + window.WordLists.patternOf("final-blends"),
+         "initial blend / final blend");
+      eq("the red words are irregular", window.WordLists.patternOf("red-3-cards"), "irregular");
+      eq("every mode of a list shares its pattern",
+         window.WordLists.patternOf("oi-oy-read") === window.WordLists.patternOf("oi-oy-spell"), true);
+    })();
+  })();
+
+  /* ---- the pattern table ---- */
+  (function(){
+    var T2 = window.EITeacher._internals;
+    function st(o){ return window.Adaptive.sanitizeStat(o); }
+    var pool = [
+      { uid:"a", stats: {
+        "final-blends|gasp": st({n:10,r:3,w:7,k:{blend:5}}),
+        "final-blends|wisp": st({n:10,r:4,w:6,k:{missing:2}}),
+        "initial-blends|crab": st({n:10,r:10})
+      }},
+      { uid:"b", stats: {
+        "final-blends|gasp": st({n:10,r:2,w:8,k:{blend:3}}),
+        "initial-blends|crab": st({n:10,r:2,w:8,k:{vowel:4}})
+      }}
+    ];
+    var rows = T2.patternRows(pool);
+    function row(p){ for(var i=0;i<rows.length;i++) if(rows[i].pattern === p) return rows[i]; return null; }
+
+    eq("one row per pattern, not per list", rows.length, 2);
+    eq("worst first", rows[0].pattern, "final blend");
+    eq("a student struggling with two words of one pattern counts once",
+       row("final blend").shaky, 2, JSON.stringify(rows));
+    eq("…out of the students who have touched it", row("final blend").students, 2);
+    eq("the words are counted too", row("final blend").words, 3);
+    eq("the commonest error rolls up across students", row("final blend").top.kind, "blend");
+    eq("…summed", row("final blend").top.n, 8);
+    eq("a pattern nobody struggles with still shows, with zero",
+       row("initial blend").shaky, 1);
+    eq("a pattern nobody has practised isn't invented", row("multisyllable"), null);
+    eq("no students, no rows", T2.patternRows([]).length, 0);
+
+    eq("the kinds read as a teacher would write them", T2.kindText("missing"), "dropped a sound");
+    eq("an unknown kind passes through rather than blanking a cell", T2.kindText("zzz"), "zzz");
+  })();
+
+  /* ---- the dashboard's mode across students ---- */
+  (function(){
+    var M = window.EITeacher._internals.modeHeard;
+    eq("modeHeard picks the commonest", M({ bread:3, bred:1 }).text, "bread");
+    eq("…and says how many said it", M({ bread:3, bred:1 }).n, 3);
+    eq("modeHeard breaks a tie alphabetically", M({ bred:2, bread:2 }).text, "bread");
+    eq("modeHeard on nothing is null", M({}), null);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — the start screen, read aloud
 
      All four engines used to build this text themselves, and all four
@@ -761,7 +1766,7 @@
     });
     eq("every list id is unique (they key stored stats)", dupes.length, 0, dupes.join(","));
     var missing = WordLists.all.filter(function(l){
-      return !l.title || !l.page || !l.words.length || ["blend","spell","card","match"].indexOf(l.engine) === -1;
+      return !l.title || !l.page || !l.words.length || ["blend","spell","card","match","fluency","blendit"].indexOf(l.engine) === -1;
     }).map(function(l){ return l.id; });
     eq("every list has a title, a page, an engine and words", missing.length, 0, missing.join(","));
     var badSection = WordLists.all.filter(function(l){ return ["decode","sight"].indexOf(l.section) === -1; });
@@ -825,7 +1830,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("35 entries: 5 one-list families plus ten red lists, times their modes", W.all.length, 35);
+    eq("60 entries: six word families and eight passages, times their modes", W.all.length, 60);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -854,25 +1859,25 @@
     });
     eq("every mode of a list plays exactly the same words", drift.length, 0, drift.join(","));
 
-    eq("six families", W.families().length, 6);
+    eq("seven families", W.families().length, 7);
     eq("the red family still has ten lists", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
     eq("every red list is still twenty words (the screener's page)",
        W.all.filter(function(l){ return l.family === "red" && l.words.length !== 20; }).length, 0);
-    eq("the red family declares cards then match",
-       W.modesOf("red").map(function(m){ return m.key; }).join(","), "cards,match");
+    eq("the red family declares say, cards then match",
+       W.modesOf("red").map(function(m){ return m.key; }).join(","), "say,cards,match");
     eq("oi/oy is the one list with all four modes",
        W.modesOf("oi-oy").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
     // A synthesiser can't say "vab", so there is nothing for Match It to
     // ask, and the flip has to stay silent.
-    eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards");
+    eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards,fluency,blendit");
     eq("nonsense cards run with the read-aloud off", W.byId("nonsense-1-cards").config.speak, false);
     eq("every other family's cards still speak", W.byId("red-1-cards").config.speak, undefined);
 
     eq("idFor() finds a real entry", W.idFor("red", 3, "match"), "red-3-match");
     eq("idFor() is null for a list that doesn't exist", W.idFor("red", 11, "cards"), null);
     eq("idFor() is null for a mode the family doesn't have", W.idFor("nonsense", 1, "match"), null);
-    eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-cards,red-3-match");
-    eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 20);
+    eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-say,red-3-cards,red-3-match");
+    eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 30);
 
     eq("a shared page needs a ?list=", W.hrefOf("red-3-match"), "match-game.html?list=red-3-match");
     eq("a page that serves one list doesn't", W.hrefOf("final-blends"), "blend-words-game.html");
@@ -1002,7 +2007,7 @@
       for(var i=0;i<cols.length;i++) if(cols[i].fam.key === fam && cols[i].n === n) return cols[i];
       return null;
     }
-    eq("one column per list, families side by side", cols.length, 15);
+    eq("one column per list, families side by side", cols.length, 23);
     eq("a cell shows the icons of the modes that are on",
        T.cellText("s:u1", colFor("red", 2)), "🃏🎯");
     eq("a cell with nothing on it is a dash", T.cellText("s:u1", colFor("red", 4)), "—");
@@ -1153,11 +2158,11 @@
     eq("a row for the default, each period, each student and the strays",
        grid.querySelectorAll("tbody tr").length, 8);
     eq("a cell for every scope row × every list column",
-       grid.querySelectorAll("[data-cell]").length, 7 * 15);
+       grid.querySelectorAll("[data-cell]").length, 7 * 23);
     eq("two header rows: families over their lists",
        grid.querySelectorAll("thead tr").length, 2);
-    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 6);
-    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 15);
+    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 7);
+    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 23);
     eq("a cell drawn from an inheriting row is marked inherited",
        grid.querySelector('[data-cell="s:u1|0"]').classList.contains("inherit"), true);
     eq("a cell drawn from a row with its own set is marked own",
@@ -1181,7 +2186,7 @@
     T.board.collapsed.red = true;
     T.renderAssign();
     grid = document.getElementById("abGrid");
-    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 6);
+    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 14);
     eq("…and the folded column summarises instead of ticking",
        grid.querySelector('[data-cell="s:u2|5"]').textContent, "1 🃏");
     T.board.collapsed.red = false;
@@ -1232,7 +2237,7 @@
     T.bindPickers(host);
     host.querySelector('[data-pk-row="probe|red|3"]').click();
     eq("a row toggle still toggles after three binds",
-       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 2);
+       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 3);
     host.querySelector('[data-pk-row="probe|red|3"]').click();
     eq("…and toggles back", 
        [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 0);
@@ -1299,7 +2304,7 @@
     var roster = T.rosterCsv().split("\r\n");
     eq("the roster has a header and a row per student", roster.length, 3, JSON.stringify(roster));
     eq("the header names the columns",
-       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Last active,Note");
+       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Note");
     eq("a name with a comma and an apostrophe survives whole",
        roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,3,'), 0);
     eq("the roster carries the same sentence the screen shows",
@@ -1315,10 +2320,10 @@
     eq("a word with no attempts is left out",
        T.wordsCsv().indexOf("never") , -1);
     eq("the header names the columns",
-       words[0], "Name,Email,Period,List,Mode,Word,Attempts,Correct,Accuracy %,Solid,Last practised");
+       words[0], "Name,Email,Period,List,Pattern,Mode,Word,Attempts,Correct,Accuracy %,Solid,Slow,Top error,Last practised");
     // Rows come out sorted by stat key, so "said" precedes "would".
-    eq("a row names the list and the mode in words",
-       words[1].indexOf("Red Words · List 1,Cards,said,4,3,75,no") !== -1, true, words[1]);
+    eq("a row names the list, its pattern and the mode in words",
+       words[1].indexOf("Red Words · List 1,irregular,Cards,said,4,3,75,no") !== -1, true, words[1]);
     eq("a solid word says so", words[2].indexOf(",would,9,9,100,yes,") !== -1, true, words[2]);
 
     eq("the filename is dated so a folder of them sorts",

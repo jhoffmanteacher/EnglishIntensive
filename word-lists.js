@@ -58,12 +58,14 @@
    pause.
    `engine` picks which engine plays it. `page` is where cards and Match
    It live — one page each, serving every family, told which list to play
-   by the address. Say-it and spell-it have no default: those pages carry
-   list-specific coaching (the oi/oy rule box, the mic setup), so each
-   family names its own in `pages`. */
+   by the address. Say-it now has a generic page too: the four phonics
+   families still name their own in `pages`, because those carry
+   list-specific coaching, but a family that doesn't need any (the red
+   words) gets say-game.html and no new file. Spell-it has no default —
+   the only list with a spelling mode carries the oi/oy rule box. */
 var MODES = {
   say: {
-    key: "say", engine: "blend", icon: "🎤", title: "Say it", needs: "mic",
+    key: "say", engine: "blend", icon: "🎤", title: "Say it", needs: "mic", page: "say-game.html",
     intro: "Say each word out loud. The computer listens and tells you if you're right.<br>Every 5 in a row earns bonus points."
   },
   spell: {
@@ -77,6 +79,33 @@ var MODES = {
   match: {
     key: "match", engine: "match", icon: "🎯", title: "Match It", needs: "headphones", page: "match-game.html",
     intro: "No mic — headphones only. The computer says a word and you find it.<br>The wrong answers look close on purpose. Every 5 right in a row is bonus points!"
+  },
+  /* The two fluency modes. Everything above asks whether a student knows
+     a word; these ask how fast, which is a different question and the
+     one that stops being answered by accuracy long before a student
+     reads comfortably. Same engine, two shapes: a minute against a word
+     list, and a paragraph of connected text. */
+  fluency: {
+    key: "fluency", engine: "fluency", icon: "⏱", title: "One minute", needs: "mic", page: "fluency-game.html",
+    intro: "Read as many words out loud as you can in one minute.<br>Don't rush a word you're not sure of — a word read wrong doesn't count."
+  },
+  read: {
+    key: "read", engine: "fluency", icon: "📖", title: "Read it", needs: "mic", page: "fluency-game.html",
+    intro: "Read the whole thing out loud, at a pace you can hear yourself at.<br>The words light up as you pass them. Keep going if you slip."
+  },
+  /* The one mode that starts from SOUND rather than from letters. It can
+     only exist because the phoneme clips do: a synthesiser asked for an
+     isolated /b/ says "buh", and "buh-a-tuh" does not blend into "bat". */
+  blendit: {
+    key: "blendit", engine: "blendit", icon: "🔊", title: "Blend it", needs: "mic", page: "blend-it-game.html",
+    intro: "Listen to the sounds one at a time, then run them together and say the word.<br>The word stays hidden until you've had your go."
+  },
+  /* A variant inside the cards engine rather than an engine of its own:
+     the screens, the scoring and the deck are the flash cards', and only
+     what happens on the card is different. */
+  split: {
+    key: "split", engine: "card", icon: "✂️", title: "Split it", needs: "", page: "cards-game.html",
+    intro: "Long words come apart. Click where the word splits into syllables, then press Enter.<br>Get the split right first time and it counts."
   }
 };
 
@@ -89,28 +118,38 @@ var MODES = {
 
    A red list is 20 words and a round is 18, so one round is nearly the
    whole list, weighted — over two or three rounds every word comes up,
-   the missed ones most. */
+   the missed ones most.
+
+   The braces mark the HEART of each word — the part the phonics rules get
+   wrong, and therefore the only part that has to be learned by heart.
+   "s{ai}d" is s + d with one impossible middle. They are display only
+   (GameCore.parseEntry strips them, WordLists.plain strips them), and the
+   flash cards show them on the BACK of the card, after the student has
+   already had their go at reading it cold. A word left unmarked is left
+   unmarked on purpose: "carrot", "spirit", "radio", "about" and the rest
+   are regular enough to sound out, and "Mrs.", "Mr." and "wind" are an
+   abbreviation and a heteronym, which is a different problem. */
 var RED_LISTS = [
-  ["you","should","could","said","they","have","of","are","what","put",
-   "would","to","your","was","the","once","do","from","into","two"],
-  ["give","were","many","whose","any","here","live","some","Mrs.","Mr.",
-   "where","other","one","whom","right","there","done","great","does","their"],
-  ["thought","who","come","very","again","aren't","weren't","mother","father","brother",
-   "watch","haven't","they'd","you'd","against","friend","they'll","we're","they're","you're"],
-  ["beautiful","been","blood","none","only","says","sure","both","bought","buy",
-   "prove","straight","worn","push","today","pull","most","change","child","clothes"],
-  ["flood","floor","often","door","gone","laugh","break","steak","above","they've",
-   "you","lose","tough","view","rough","front","love","among","anyone","answer"],
-  ["nothing","cousins","cover","courage","toward","enough","through","sugar","busy","almost",
-   "ninth","although","always","another","onion","though","people","build","piano","pint"],
-  ["shoved","butcher","post","pretty","canoe","promise","carrot","cough","roll","danger",
-   "debt","sew","shoe","heart","forward","son","four","spirit","swan","bouquet"],
-  ["honest","toll","honor","touch","hour","Tuesday","Wednesday","imagine","iron","wind",
-   "wolf","won","wore","move","minute","mirror","young","success","already","idea"],
-  ["music","sure","garage","system","figure","friend","national","ready","island","unique",
-   "ocean","radio","feature","continue","condition","caution","enough","guarantee","technique","anxious"],
-  ["cologne","resumé","resume","boutique","fair","pair","fought","eye","show","small",
-   "about","call","fall","mall","air","know","large","barge","house","mouse"]
+  ["y{ou}","sh{oul}d","c{oul}d","s{ai}d","th{ey}","ha{ve}","{of}","{are}","wh{a}t","p{u}t",
+   "w{oul}d","t{o}","y{our}","w{a}s","th{e}","{o}nce","d{o}","fr{o}m","int{o}","t{wo}"],
+  ["gi{ve}","w{ere}","m{a}ny","wh{ose}","{a}ny","h{ere}","li{ve}","s{o}me","Mrs.","Mr.",
+   "wh{ere}","{o}ther","{one}","wh{o}m","right","th{ere}","d{o}ne","gr{ea}t","d{oe}s","th{eir}"],
+  ["th{ough}t","wh{o}","c{o}me","very","ag{ai}n","aren't","w{ere}n't","m{o}ther","f{a}ther","br{o}ther",
+   "w{a}tch","ha{ve}n't","th{ey}'d","y{ou}'d","ag{ai}nst","fr{ie}nd","th{ey}'ll","we're","th{ey}'re","y{ou}'re"],
+  ["b{eau}tiful","b{ee}n","bl{oo}d","n{o}ne","{o}nly","s{ay}s","{su}re","b{o}th","b{ough}t","b{uy}",
+   "pr{o}ve","str{aigh}t","w{or}n","p{u}sh","t{o}day","p{u}ll","m{o}st","ch{a}nge","ch{i}ld","cl{o}th{es}"],
+  ["fl{oo}d","fl{oor}","of{te}n","d{oor}","g{o}ne","l{augh}","br{ea}k","st{ea}k","{a}b{o}ve","th{ey}'ve",
+   "y{ou}","l{o}se","t{ough}","v{iew}","r{ough}","fr{o}nt","l{o}ve","am{o}ng","{a}ny{one}","ans{w}er"],
+  ["n{o}thing","c{ou}sins","c{o}ver","c{ou}rage","t{owa}rd","en{ough}","thr{ough}","{su}gar","b{u}sy","{a}lmost",
+   "n{i}nth","{al}th{ough}","{al}ways","an{o}ther","{o}nion","th{ough}","pe{o}ple","b{ui}ld","pi{a}no","p{i}nt"],
+  ["sh{o}ved","b{u}tcher","p{o}st","pr{e}tty","can{oe}","promi{se}","carrot","c{ough}","r{o}ll","d{a}nger",
+   "de{b}t","s{ew}","sh{oe}","h{ear}t","forward","s{o}n","f{our}","spirit","sw{a}n","b{ou}qu{et}"],
+  ["{h}onest","t{o}ll","{h}on{or}","t{ou}ch","{hou}r","T{ue}sday","We{d}nesday","imagi{ne}","{iro}n","wind",
+   "w{o}lf","w{o}n","w{ore}","m{o}ve","min{u}te","mirror","y{ou}ng","su{cc}ess","{al}ready","idea"],
+  ["m{u}sic","{su}re","gara{ge}","s{y}stem","fig{u}re","fr{ie}nd","na{ti}onal","r{ea}dy","i{s}land","un{ique}",
+   "o{ce}an","radio","f{ea}t{u}re","contin{ue}","condi{ti}on","cau{ti}on","en{ough}","g{ua}rant{ee}","te{ch}n{ique}","an{xi}ous"],
+  ["col{ogne}","res{u}m{é}","resume","b{ou}t{ique}","f{air}","p{air}","f{ough}t","{eye}","show","sm{a}ll",
+   "about","c{a}ll","f{a}ll","m{a}ll","{air}","know","large","barge","house","mouse"]
 ];
 
 // Words that sound alike are never put on screen together in Match It —
@@ -155,6 +194,15 @@ var RED_NOTE_CARDS = `
     the way you know a friend's face.</p>
     <p>Be honest when you rate yourself. A word you mark <b>Not yet</b> comes
     back next time; a word you mark <b>Got it</b> leaves the list for good.</p>`;
+
+var RED_NOTE_SAY = `
+    <p><b>Red words</b> break the rules. Sounding out <b>said</b> gives you
+    "sayed"; sounding out <b>would</b> gives you "wold". There is nothing
+    to work out here — either you know the word or you don't, and saying it
+    out loud is how you find out which.</p>
+    <p>Some of these <b>sound exactly like another word</b> — to and two,
+    there and their, one and won. The computer can't tell those apart, and
+    neither can anyone listening, so any of them counts as right.</p>`;
 
 var RED_NOTE_MATCH = `
     <p><b>Red words</b> break the rules, so you can't sound them out — you
@@ -233,21 +281,37 @@ var OI_OY_RULE =
    because they are ten lists wide and would otherwise push everything
    else off the right of the board.
 
+   `pattern` is what the family is TEACHING, in the words a teacher would
+   use about it — the dashboard groups trouble spots by it, so that a
+   report reads "final blends: seven students shaky" rather than naming
+   thirty words one at a time. One family, one pattern; if a family ever
+   needs two, it is two families.
+
    `config` is what every mode of the family passes to its engine;
    `modeConfig[mode]` is what only that mode passes, and it wins on a
    clash. Everything the engine's start() takes except `words`, which
    lives on the list so the two can't drift.
    ══════════════════════════════════════════════════════════════════════ */
+/* A passage as a list of words. Punctuation goes, case goes, everything
+   else stays in order — the same tokenising the fluency engine does to a
+   transcript, so a passage's words and a student's reading of them are
+   comparable by construction. */
+window.passageTokens = function(text){
+  return String(text || "").toLowerCase()
+    .replace(/[^a-z' ]/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+};
+
 window.LIST_FAMILIES = [
 
   {
     key: "blends-start",
     title: "Starting Blends",
+    pattern: "initial blend",
     icon: "🗣️",
     section: "decode",
     note: "Words that begin with a consonant blend — bl, cr, sl, tr.",
     description: "Words that begin with a consonant blend — bl, cr, sl, tr.",
-    modes: ["say", "cards", "match"],
+    modes: ["say", "cards", "match", "fluency", "blendit"],
     pages: { say: "initial-blends-game.html" },
     modeConfig: {
       say: { blend: "start", theme: "maze" }
@@ -262,11 +326,12 @@ window.LIST_FAMILIES = [
   {
     key: "blends-end",
     title: "Blend Words",
+    pattern: "final blend",
     icon: "🎤",
     section: "decode",
     note: "Words that end with a consonant blend — the hard half of a blend, because the sounds run together on the way out.",
     description: "Words that end with a consonant blend — soft, pond, risk, milk.",
-    modes: ["say", "cards", "match"],
+    modes: ["say", "cards", "match", "fluency", "blendit"],
     pages: { say: "blend-words-game.html" },
     modeConfig: {
       say: { blend: "end", theme: "race" }
@@ -280,6 +345,7 @@ window.LIST_FAMILIES = [
   {
     key: "nonsense",
     title: "Nonsense Words",
+    pattern: "nonsense CVC",
     icon: "🤖",
     section: "decode",
     note: "Made-up CVC words with no meaning to lean on — pure sounding-out practice.",
@@ -289,13 +355,16 @@ window.LIST_FAMILIES = [
        not say "vab" — it guesses, and it guesses "verb" often enough that
        the answer key would be wrong. A list with no meanings can only be
        read, not heard. */
-    modes: ["say", "cards"],
+    modes: ["say", "cards", "fluency", "blendit"],
     pages: { say: "nonsense-words-game.html" },
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
         intro: "These are made-up words. Sound out the letters, then say the word out loud.<br>The computer listens and tells you if you're right."
       },
+      // Same reason again: the reveal plays the sounds, and then has
+      // nothing to say — a synthesiser handed "vab" guesses "verb".
+      blendit: { speak: false, phonetic: true, theme: "race" },
       // Same reason as above: the flip shows the word, it doesn't say it.
       cards: {
         speak: false,
@@ -320,6 +389,7 @@ window.LIST_FAMILIES = [
   {
     key: "oi-oy",
     title: "oi / oy",
+    pattern: "vowel team oi/oy",
     icon: "🪙",
     section: "decode",
     note: "One sound, two spellings. Read them, spell them, know them on sight, pick them out of a row.",
@@ -333,7 +403,14 @@ window.LIST_FAMILIES = [
     config: { highlight: /oi|oy/i },
     modeConfig: {
       say:   { blend: "sound", sound: "OY", theme: "maze" },
-      spell: { rule: OI_OY_RULE, sentences: OI_OY_SENTENCES },
+      // Sound boxes: one input per SOUND. This is the list they were
+      // invented for — a vowel team is exactly where the number of
+      // sounds and the number of letters come apart.
+      spell: { rule: OI_OY_RULE, sentences: OI_OY_SENTENCES, boxes: true },
+      // The cards use them for something different from Match It: once a
+      // word is solid, one card in three shows it inside its sentence
+      // instead of alone. See card-game.js.
+      cards: { sentences: OI_OY_SENTENCES },
       match: { choices: 6, sentences: OI_OY_SENTENCES }
     },
     lists: [{ n: 1, ids: { say: "oi-oy-read", spell: "oi-oy-spell" }, words: OI_OY_WORDS }]
@@ -342,16 +419,26 @@ window.LIST_FAMILIES = [
   {
     key: "multi",
     title: "Multisyllable",
+    pattern: "multisyllable",
     icon: "🏗️",
     section: "decode",
     note: "Two- and three-syllable words. The trick is taking them one chunk at a time.",
     description: "Two- and three-syllable words like napkin, picnic and fantastic.",
-    modes: ["say", "cards", "match"],
+    modes: ["say", "cards", "match", "split"],
     pages: { say: "multisyllable-words-game.html" },
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
         intro: "Break the word into syllables. Say each part, then say the whole word.<br>The computer listens and tells you if you're right."
+      },
+      split: {
+        split: true,
+        note: `
+    <p>A long word is short words in a row. <b>fan·tas·tic</b> is three of
+    them, and each one is easy — the length is the only hard part.</p>
+    <p>Click <b>between</b> the letters to put a split in, click a split
+    again to take it out, then press <kbd>Enter</kbd>. Get it right the
+    first time and it counts.</p>`
       },
       cards: {
         note: `
@@ -377,19 +464,64 @@ window.LIST_FAMILIES = [
   {
     key: "red",
     title: "Red Words",
+    pattern: "irregular",
     icon: "🃏",
     section: "sight",
     note: "Ten screener lists of twenty sight words. Each list can be assigned as flash cards, Match It, or both.",
     description: "Words that break the rules — said, would, Wednesday. You learn these by sight.",
-    /* No say-it mode: these are irregular by definition, so a phoneme
-       matcher has nothing to check them against. Sight and recognition
-       are the two things worth asking about, and they are what's here. */
-    modes: ["cards", "match"],
+    /* Say It was left off these for a long time, on the grounds that a
+       phoneme matcher has nothing to check an irregular word against.
+       That reason didn't hold: Say It takes an EXACT transcript first and
+       only falls back to phonemes, and a red word is an ordinary
+       dictionary word that Chrome returns reliably. The two things that
+       genuinely were problems — homophones and contractions — are fixed
+       where they belong (RED_HOMOPHONES below, and the contraction fold
+       in GameCore.normalize), not by leaving the mode out. */
+    modes: ["say", "cards", "match"],
     modeConfig: {
-      cards: { note: RED_NOTE_CARDS },
+      say: {
+        blend: "start", blendLength: 0, theme: "race",
+        note: RED_NOTE_SAY, homophones: RED_HOMOPHONES,
+        intro: "Read each word out loud. The computer listens and tells you if you're right.<br>No sounding out — you either know these or you don't."
+      },
+      // The homophone groups are here for the same reason Match It has
+      // them: with the Listen toggle on, the cards judge a spoken answer,
+      // and no recogniser separates "to" from "two".
+      cards: { note: RED_NOTE_CARDS, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES },
       match: { note: RED_NOTE_MATCH, choices: 6, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES }
     },
     lists: RED_LISTS.map(function(words, i){ return { n: i + 1, words: words }; })
+  },
+
+  {
+    key: "passages",
+    title: "Passages",
+    pattern: "connected text",
+    icon: "📖",
+    section: "decode",
+    note: "Short pieces of connected text. Every word comes off the lists above — the only new thing is that they are in sentences.",
+    description: "Read a whole paragraph out loud, not one word at a time.",
+    /* One mode, and it could not be any of the others: a passage isn't a
+       deck. A student who is solid on every word of a list can still read
+       a paragraph one halting word at a time, and that gap is the only
+       thing this family exists to find. passages.js explains the
+       vocabulary rule that keeps it honest. */
+    modes: ["read"],
+    // One passage IS the round — there is nothing to draw from.
+    lists: (window.PASSAGES || []).map(function(p){
+      return {
+        n: p.n,
+        title: p.title,
+        text: p.text,
+        targets: p.targets,
+        sessionSize: 1,
+        // wordsOf() has to return something for a passage or every
+        // downstream reader (the scheduler, the dashboard, the export)
+        // has to learn about a new shape. Its tokens are the honest
+        // answer: they are the words being read.
+        words: window.passageTokens(p.text)
+      };
+    })
   }
 
 ];
@@ -407,8 +539,10 @@ window.WORD_LISTS = (function(){
     fam.lists.forEach(function(list){
       // "Red Words · List 3" when a family has several lists; just
       // "Starting Blends" when it is the family's only one.
-      var listTitle = fam.title + (many ? " · List " + list.n : "");
-      var short = many ? "List " + list.n : fam.title;
+      // A list may name itself (the passages do — "List 3" tells a
+      // student nothing about a piece of prose).
+      var listTitle = list.title || (fam.title + (many ? " · List " + list.n : ""));
+      var short = list.title || (many ? "List " + list.n : fam.title);
 
       fam.modes.forEach(function(modeKey){
         var mode = MODES[modeKey];
@@ -425,10 +559,18 @@ window.WORD_LISTS = (function(){
         if(!cfg.title) cfg.title = listTitle + (fam.modes.length > 1 ? " · " + mode.title : "") + " " + mode.icon;
         if(!cfg.intro) cfg.intro = mode.intro;
 
+        /* Most lists are just words. A passage carries its text, the
+           family words it uses, and a round size of one — none of which
+           the generator can work out, so they ride along from the list.
+           A family that doesn't set them leaves them undefined and every
+           reader behaves exactly as it did. */
         out.push({
           id: id,
           family: fam.key,
           listNum: list.n,
+          text: list.text,
+          targets: list.targets,
+          sessionSize: list.sessionSize,
           mode: modeKey,
           engine: mode.engine,
           section: fam.section,
@@ -460,10 +602,13 @@ window.WordLists = (function(){
   all.forEach(function(l){ pageServes[l.page] = (pageServes[l.page] || 0) + 1; });
 
   var CHUNK_SEP = "·";
-  // The plain word, with any syllable dots removed — the form every stat
-  // key, every match and every bit of stored data uses. The dotted form
-  // never leaves the engine's display code.
-  function plain(entry){ return String(entry || "").split(CHUNK_SEP).join(""); }
+  // The plain word, with the two display marks removed — the syllable dots
+  // and the braces round a red word's heart letters ("s{ai}d"). This is the
+  // form every stat key, every match and every bit of stored data uses;
+  // the marked-up forms never leave the engine's display code.
+  function plain(entry){
+    return String(entry || "").split(CHUNK_SEP).join("").replace(/[{}]/g, "");
+  }
 
   function familyOf(key){
     for(var i=0;i<window.LIST_FAMILIES.length;i++) if(window.LIST_FAMILIES[i].key === key) return window.LIST_FAMILIES[i];
@@ -526,6 +671,14 @@ window.WordLists = (function(){
 
     /* ── families ───────────────────────────────────────────────────── */
     families: function(){ return window.LIST_FAMILIES.slice(); },
+    // What a list is teaching, in a teacher's words. Falls back to the
+    // family title so a family added without a tag still reads sensibly.
+    patternOf: function(listId){
+      var l = index[listId];
+      if(!l) return "";
+      var fam = familyOf(l.family);
+      return (fam && (fam.pattern || fam.title)) || "";
+    },
     familyOf: familyOf,
     // Every list number a family has, ascending.
     listNumsOf: function(familyKey){

@@ -303,6 +303,7 @@ window.MatchGame = (function(){
       ${cfg.hasPicker ? `
       <p class="decklbl" style="margin-top:22px">Pick a list:</p>
       <div class="decks" id="deckPicker"></div>` : ""}
+      ${window.GameCore.readingViewButton()}
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
@@ -408,6 +409,8 @@ window.MatchGame = (function(){
       hasPicker: PICKS.length > 1,
       progress: prog.markup()
     });
+    // The Reading view panel is markup the core supplied; the core wires it.
+    Core.mountReadingView();
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
@@ -546,7 +549,9 @@ window.MatchGame = (function(){
       options.forEach(function(word, i){
         var b = document.createElement("button");
         b.type = "button";
-        b.className = "tile";
+        // "Mrs." must not lowercase itself under the Reading view's
+        // lowercase switch — that would be a different word.
+        b.className = "tile" + (Core.wordCaseClass(word) ? " has-cap" : "");
         b.dataset.word = word;
         var k = document.createElement("span");
         k.className = "k";

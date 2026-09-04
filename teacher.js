@@ -137,6 +137,8 @@
           email: d.email || "",
           photo: d.photo || "",
           stats: Adaptive.sanitizeStats(d.words),
+          heard: Adaptive.sanitizeHeard(d.heard),
+          fluency: Adaptive.sanitizeFluency(d.fluency),
           totals: d.totals || { n:0, r:0 },
           recent: Array.isArray(d.recent) ? d.recent : [],
           lastSeen: d.lastSeen || 0
@@ -437,11 +439,27 @@
   /* A row per student: who they are, what they've been given and where it
      came from, and how they're doing overall. `lists` is the same sentence
      the roster shows, so a printed copy and the screen agree. */
+  /* Which fluency lists get a pair of columns in the roster export. Only
+     the ones somebody in the class has actually read — thirteen empty
+     column pairs would make the file harder to read, not more complete. */
+  function fluencyColumns(){
+    var seen = {};
+    students.forEach(function(s){
+      for(var k in (s.fluency || {})){
+        if(Object.prototype.hasOwnProperty.call(s.fluency, k)) seen[k] = true;
+      }
+    });
+    return WordLists.all.filter(function(l){ return l.engine === "fluency" && seen[l.id]; });
+  }
+
   function rosterCsv(){
+    var flCols = fluencyColumns();
     var rows = [[
       "Name","Email","Period","Lists","Lists from",
-      "Answers","Accuracy %","Words solid","Words shaky","Last active","Note"
-    ]];
+      "Answers","Accuracy %","Words solid","Words shaky","Slow but right","Top error","Last active","Note"
+    ].concat(flCols.reduce(function(acc, l){
+      return acc.concat([l.listTitle + " latest", l.listTitle + " best"]);
+    }, []))];
     students.forEach(function(s){
       var sum = Adaptive.summarize(s.stats);
       var eff = effectiveLists(s.uid);
@@ -449,8 +467,13 @@
         s.name, s.email, (assignments[s.uid] || {}).period || "",
         WordLists.describeAssignment(eff.ids), eff.from,
         sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
+        sum.slowRight,
+        (function(){ var k = Adaptive.topKind(sum.kinds); return k ? kindText(k.kind) : ""; })(),
         isoDay(sum.lastSeen || s.lastSeen), noteOf(s.uid)
-      ]);
+      ].concat(flCols.reduce(function(acc, l){
+        var f = Adaptive.fluencySummary((s.fluency || {})[l.id]);
+        return acc.concat(f ? [f.latest, f.best] : ["", ""]);
+      }, [])));
     });
     return csvRows(rows);
   }
@@ -460,7 +483,7 @@
      the only export that can answer a question nobody thought to build a
      screen for. Words are the plain form, matching the stat key. */
   function wordsCsv(){
-    var rows = [["Name","Email","Period","List","Mode","Word","Attempts","Correct","Accuracy %","Solid","Last practised"]];
+    var rows = [["Name","Email","Period","List","Pattern","Mode","Word","Attempts","Correct","Accuracy %","Solid","Slow","Top error","Last practised"]];
     students.forEach(function(s){
       var period = (assignments[s.uid] || {}).period || "";
       var keys = Object.keys(s.stats).sort();
@@ -470,12 +493,16 @@
         var parsed = Adaptive.parseKey(key);
         var l = WordLists.byId(parsed.listId);
         var mode = l && WordLists.modeOf(l.mode);
+        var top = Adaptive.topKind(st.k);
         rows.push([
           s.name, s.email, period,
           l ? l.listTitle : parsed.listId,
+          WordLists.patternOf(parsed.listId),
           mode ? mode.title : (l ? l.mode : ""),
           parsed.word, st.n, st.r, pct(st.r / st.n),
           Adaptive.isMastered(st) ? "yes" : "no",
+          Adaptive.isSlow(st) ? "yes" : "no",
+          top ? kindText(top.kind) : "",
           isoDay(st.last)
         ]);
       });
@@ -559,6 +586,46 @@
     $("tExportWords").addEventListener("click", function(){ download(exportName("words"), wordsCsv()); });
   }
 
+  /* ---------------- fluency sparkline ----------------
+     Inline SVG, no library, no axes, no labels. The question a teacher
+     asks of a reading rate is never "what number was week four" — it is
+     "is this going up", and a line answers that in less time than it
+     takes to read one number. The latest and best are printed beside it
+     for the times the number does matter.
+
+     A flat polyline for a single run would read as "no progress"; one
+     run is drawn as a dot, which reads as "one run", which is true. */
+  function sparkline(runs, w, h){
+    var pts = (runs || []).map(function(r){ return r.cwpm; });
+    if(!pts.length) return "";
+    w = w || 130; h = h || 30;
+    var max = Math.max.apply(null, pts), min = Math.min.apply(null, pts);
+    if(max === min){ max = min + 1; }
+    function x(i){ return pts.length === 1 ? w / 2 : (i / (pts.length - 1)) * (w - 4) + 2; }
+    function y(v){ return h - 2 - ((v - min) / (max - min)) * (h - 4); }
+    var body = pts.length === 1
+      ? '<circle cx="' + x(0).toFixed(1) + '" cy="' + y(pts[0]).toFixed(1) + '" r="3" fill="currentColor"/>'
+      : '<polyline points="' + pts.map(function(v, i){ return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ") +
+        '" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+        '<circle cx="' + x(pts.length-1).toFixed(1) + '" cy="' + y(pts[pts.length-1]).toFixed(1) + '" r="2.5" fill="currentColor"/>';
+    return '<svg class="spark" viewBox="0 0 ' + w + " " + h + '" width="' + w + '" height="' + h +
+           '" role="img" aria-label="' + pts.length + ' timed reads, latest ' + pts[pts.length-1] +
+           ' words per minute">' + body + "</svg>";
+  }
+
+  // Every list this student has timed reads for, in registry order.
+  function fluencyRows(s){
+    var out = [];
+    WordLists.all.forEach(function(l){
+      if(l.engine !== "fluency") return;
+      var runs = (s.fluency || {})[l.id];
+      var sum = Adaptive.fluencySummary(runs);
+      if(!sum) return;
+      out.push({ list: l, sum: sum, runs: runs });
+    });
+    return out;
+  }
+
   function studentByUid(uid){
     for(var i=0;i<students.length;i++) if(students[i].uid === uid) return students[i];
     return null;
@@ -583,18 +650,41 @@
       return "<tr><td>" + esc(l.icon + " " + l.title) + "</td>" +
         '<td class="num">' + ls.attempts + "</td>" +
         '<td class="num">' + accCell(ls.accuracy) + "</td>" +
-        '<td class="num">' + ls.mastered + " / " + total + "</td>" +
+        '<td class="num">' + ls.mastered + " / " + total +
+          (ls.slow ? ' <span class="muted tiny">(' + ls.slow + " slow)</span>" : "") + "</td>" +
         '<td class="num">' + (ls.struggling ? '<span class="pill bad">' + ls.struggling + "</span>" : '<span class="muted">0</span>') + "</td></tr>";
     }).filter(Boolean).join("");
 
+    /* The chips carry what the mic heard, where Say It logged any. A word
+       that keeps coming back as "bread" is a reading error worth teaching;
+       one that comes back as three spellings of itself is the recogniser
+       failing, and the fix for that is a line in ACCEPT, not a lesson. */
     var worst = Adaptive.rank(s.stats).slice(0, 30).map(function(r){
       var parsed = Adaptive.parseKey(r.word);
       var l = WordLists.byId(parsed.listId);
       var pct = Math.round(r.acc * 100);
       var cls = pct >= 80 ? "" : pct >= 60 ? "warn" : "bad";
+      var h = (s.heard || {})[r.word];
       return '<div class="wordchip ' + cls + '">' + esc(parsed.word) +
-        "<small>" + r.stat.r + "/" + r.stat.n + " · " + esc(l ? l.title : parsed.listId) + "</small></div>";
+        "<small>" + r.stat.r + "/" + r.stat.n + " · " + esc(l ? l.title : parsed.listId) + "</small>" +
+        (h && h.length ? '<small class="heardline">heard: ' + esc(h.slice(-3).join(", ")) + "</small>" : "") +
+        "</div>";
     }).join("");
+
+    var fluency = fluencyRows(s).map(function(r){
+      return "<tr><td>" + esc(r.list.icon + " " + r.list.listTitle) + "</td>" +
+        '<td class="sparkcell">' + sparkline(r.runs) + "</td>" +
+        '<td class="num"><b>' + r.sum.latest + "</b></td>" +
+        '<td class="num">' + r.sum.best + "</td>" +
+        '<td class="num">' + r.sum.runs + "</td></tr>";
+    }).join("");
+
+    /* A sentence, not a chart. Four numbers in a row is what this
+       actually is, and a bar chart of four numbers is decoration. */
+    var errorMix = Adaptive.errorKinds.map(function(k){
+      var n = sum.kinds[k] || 0;
+      return n ? "<b>" + n + "</b> " + esc(kindText(k)) : "";
+    }).filter(Boolean).join(" · ");
 
     var picker = pickerHtml("student", eff.ids, true);
 
@@ -610,6 +700,10 @@
           '<div class="stat"><div class="k">Accuracy</div><div class="v">' + (sum.accuracy == null ? "—" : Math.round(sum.accuracy*100) + "%") + "</div></div>" +
           '<div class="stat"><div class="k">Words solid</div><div class="v">' + sum.mastered + "</div></div>" +
           '<div class="stat"><div class="k">Words shaky</div><div class="v">' + sum.struggling + "</div></div>" +
+          /* Right, and slow. Never shown to the student — see isSlow() —
+             because "you are slow" makes the next word slower, not
+             faster. It is exactly the number a teacher wants. */
+          '<div class="stat"><div class="k">Slow but right</div><div class="v">' + sum.slowRight + "</div></div>" +
           '<div class="stat"><div class="k">Last active</div><div class="v" style="font-size:17px">' + esc(ago(sum.lastSeen || s.lastSeen)) + "</div></div>" +
         "</div>" +
       "</div>" +
@@ -632,6 +726,11 @@
         "</div>" +
       "</div>" +
 
+      (errorMix ? '<div class="panel"><h2>What goes wrong</h2>' +
+        '<p class="note">Counted on Say It only — it is the only mode that hears what the student actually said. ' +
+        "One count per word given up on, not per fumble.</p>" +
+        "<p>" + errorMix + "</p></div>" : "") +
+
       notePanelHtml(s.uid) +
 
       '<div class="panel"><h2>Hardest words</h2>' +
@@ -639,6 +738,14 @@
         "These are the words the site is already showing them most often.</p>" +
         (worst ? '<div class="wordchips">' + worst + "</div>" : '<div class="empty">No practice recorded yet.</div>') +
       "</div>" +
+
+      (fluency ? '<div class="panel"><h2>Reading rate</h2>' +
+        '<p class="note">Correct words per minute, one point per timed read, oldest on the left. ' +
+        "Accuracy stops moving long before this does — a student can be right about every word on a list " +
+        "and still be reading it one word at a time.</p>" +
+        '<div class="tableScroll"><table class="t"><thead><tr>' +
+        '<th>List</th><th>Progress</th><th class="num">Latest</th><th class="num">Best</th><th class="num">Reads</th>' +
+        "</tr></thead><tbody>" + fluency + "</tbody></table></div></div>" : "") +
 
       (perList ? '<div class="panel"><h2>By list</h2><div class="tableScroll"><table class="t"><thead><tr>' +
         '<th>List</th><th class="num">Answers</th><th class="num">Accuracy</th><th class="num">Solid</th><th class="num">Shaky</th>' +
@@ -1270,12 +1377,19 @@
   function listProgress(stats, listId){
     var sum = Adaptive.summarize(Adaptive.statsForList(stats, listId));
     var total = WordLists.wordsOf(listId).length;
+    /* Solid AND at pace. A word the student gets right after three
+       seconds of decoding is not a word they can move on from, and
+       suggesting the next list on the strength of thirty of them is how a
+       student ends up two lists ahead of their reading. */
+    var fluent = Math.max(0, sum.mastered - sum.slow);
     return {
       mastered: sum.mastered,
+      slow: sum.slow,
+      fluent: fluent,
       total: total,
       // No total means an id that isn't in the registry any more; treat
       // that as "no evidence" rather than as finished.
-      share: total ? sum.mastered / total : 0
+      share: total ? fluent / total : 0
     };
   }
 
@@ -1804,9 +1918,79 @@
     });
   }
 
+  /* diagnose()'s seven kinds, in the words a teacher would write in a
+     plan. Not the student's words — the student sees "Check the vowel"
+     mid-game; this is the row of a table somebody reads on a Sunday. */
+  var KIND_TEXT = {
+    blend:     "blend read wrong",
+    sound:     "target sound missed",
+    vowel:     "wrong vowel",
+    consonant: "wrong consonant",
+    missing:   "dropped a sound",
+    extra:     "added a sound",
+    other:     "read too fast to tell"
+  };
+  function kindText(k){ return KIND_TEXT[k] || k; }
+
   /* ---------------- trouble spots ---------------- */
   var troublePeriod = "";
+
+  /* The transcript the most students produced for one word, or null.
+     Ties break alphabetically so the table doesn't reshuffle itself
+     between renders on the same data. */
+  function modeHeard(counts){
+    var best = null, bestN = 0;
+    for(var k in counts){
+      if(!Object.prototype.hasOwnProperty.call(counts, k)) continue;
+      if(counts[k] > bestN || (counts[k] === bestN && best !== null && k < best)){ best = k; bestN = counts[k]; }
+    }
+    return best === null ? null : { text: best, n: bestN };
+  }
   var MIN_SAMPLE = 3;   // a word nobody has really attempted isn't a trouble spot
+
+  /* One row per PATTERN rather than per word. Thirty words all going
+     wrong on the same vowel team is one problem with one lesson behind
+     it, and a list of thirty words is the shape that hides that. Pure
+     over a set of students, so tests.html can pin the counting. */
+  function patternRows(pool){
+    var byPattern = {};
+    pool.forEach(function(s){
+      var shakyHere = {};
+      for(var key in s.stats){
+        if(!Object.prototype.hasOwnProperty.call(s.stats, key)) continue;
+        var st = s.stats[key];
+        if(!st.n) continue;
+        var parsed = Adaptive.parseKey(key);
+        var pat = WordLists.patternOf(parsed.listId);
+        if(!pat) continue;
+        var row = byPattern[pat] || (byPattern[pat] = { pattern: pat, words: 0, attempts: 0, right: 0, shaky: 0, students: {}, kinds: {} });
+        row.words++; row.attempts += st.n; row.right += st.r;
+        row.students[s.uid] = true;
+        // A student counts once per pattern however many of its words
+        // they are struggling with — the question is how many PEOPLE.
+        if(st.w > 0 && st.r / st.n < 0.7 && !shakyHere[pat]){ shakyHere[pat] = true; row.shaky++; }
+        for(var kk in st.k){
+          if(!Object.prototype.hasOwnProperty.call(st.k, kk)) continue;
+          row.kinds[kk] = (row.kinds[kk] || 0) + st.k[kk];
+        }
+      }
+    });
+    return Object.keys(byPattern).map(function(p){
+      var r = byPattern[p];
+      return {
+        pattern: r.pattern,
+        words: r.words,
+        attempts: r.attempts,
+        accuracy: r.attempts ? r.right / r.attempts : null,
+        shaky: r.shaky,
+        students: Object.keys(r.students).length,
+        top: Adaptive.topKind(r.kinds)
+      };
+    }).sort(function(a, b){
+      if(a.shaky !== b.shaky) return b.shaky - a.shaky;
+      return (a.accuracy || 0) - (b.accuracy || 0);
+    });
+  }
 
   function renderTrouble(){
     var periods = allPeriods();
@@ -1824,15 +2008,21 @@
         if(!Object.prototype.hasOwnProperty.call(s.stats, key)) continue;
         var st = s.stats[key];
         if(!st.n) continue;
-        var a = agg[key] || (agg[key] = { n:0, r:0, students:0, missers:0 });
+        var a = agg[key] || (agg[key] = { n:0, r:0, students:0, missers:0, heard:{} });
         a.n += st.n; a.r += st.r; a.students += 1;
         if(st.w > 0 && st.r / st.n < 0.7) a.missers += 1;
+        // One vote per student per transcript, not one per utterance: the
+        // question is "what does the ROOM say", and a single student who
+        // repeats themselves five times isn't the room.
+        var h = (s.heard || {})[key] || [];
+        for(var i=0;i<h.length;i++) a.heard[h[i]] = (a.heard[h[i]] || 0) + 1;
       }
     });
 
+
     var rows = Object.keys(agg).map(function(key){
       var a = agg[key], parsed = Adaptive.parseKey(key);
-      return { key:key, word:parsed.word, listId:parsed.listId, acc:a.r/a.n, n:a.n, students:a.students, missers:a.missers };
+      return { key:key, word:parsed.word, listId:parsed.listId, acc:a.r/a.n, n:a.n, students:a.students, missers:a.missers, heard:modeHeard(a.heard) };
     }).filter(function(r){
       // Enough attempts to mean anything, and at least one student
       // actually struggling — a word the class has nailed is not a
@@ -1851,7 +2041,18 @@
       var pct = Math.round(r.acc * 100);
       var cls = pct >= 80 ? "" : pct >= 60 ? "warn" : "bad";
       return '<div class="wordchip ' + cls + '">' + esc(r.word) +
-        "<small>" + pct + "% · " + r.missers + " of " + r.students + " struggling · " + esc(l ? l.title : r.listId) + "</small></div>";
+        "<small>" + pct + "% · " + r.missers + " of " + r.students + " struggling · " + esc(l ? l.title : r.listId) + "</small>" +
+        (r.heard ? '<small class="heardline">most often heard as: ' + esc(r.heard.text) + "</small>" : "") +
+        "</div>";
+    }).join("");
+
+    var patterns = patternRows(pool).map(function(r){
+      return "<tr><td><b>" + esc(r.pattern) + '</b> <span class="muted tiny">' + r.words + " words</span></td>" +
+        '<td class="num">' + r.students + "</td>" +
+        '<td class="num">' + (r.shaky ? '<span class="pill bad">' + r.shaky + "</span>" : '<span class="muted">0</span>') + "</td>" +
+        '<td class="num">' + accCell(r.accuracy) + "</td>" +
+        "<td>" + (r.top ? esc(kindText(r.top.kind)) + ' <span class="muted tiny">(' + r.top.n + ")</span>"
+                        : '<span class="muted">—</span>') + "</td></tr>";
     }).join("");
 
     var opts = ['<option value="">All periods</option>'].concat(periods.map(function(p){
@@ -1862,11 +2063,22 @@
       '<div class="panel"><h2>Trouble spots</h2>' +
         '<p class="note">Words the class is getting wrong, hardest first — sorted by how many students are struggling with each, ' +
         "not by raw accuracy, so one student's bad day doesn't top the list. " +
-        "Words with fewer than " + MIN_SAMPLE + " attempts across the group are left out.</p>" +
+        "Words with fewer than " + MIN_SAMPLE + " attempts across the group are left out. " +
+        "Where Say It logged what the mic heard, the most common mishearing is under the word.</p>" +
         '<div class="rowActions" style="margin-bottom:18px"><select class="sel" id="tTroublePeriod">' + opts + "</select></div>" +
         (chips ? '<div class="wordchips">' + chips + "</div>"
                : '<div class="empty">Nothing to show yet — students need a few rounds of practice first.</div>') +
-      "</div>";
+      "</div>" +
+
+      (patterns ? '<div class="panel"><h2>By pattern</h2>' +
+        '<p class="note">The same practice, grouped by what each list is teaching. Thirty words going wrong on ' +
+        "one vowel team is one problem with one lesson behind it, and a list of thirty words is the shape that " +
+        'hides that. “Shaky” counts <b>students</b>, not words. The commonest error comes from Say It, which is ' +
+        "the only mode that hears what was actually said.</p>" +
+        '<div class="tableScroll"><table class="t"><thead><tr>' +
+        '<th>Pattern</th><th class="num">Students</th><th class="num">Shaky</th>' +
+        '<th class="num">Accuracy</th><th>Most common error</th>' +
+        "</tr></thead><tbody>" + patterns + "</tbody></table></div></div>" : "");
 
     $("tTroublePeriod").addEventListener("change", function(){
       troublePeriod = this.value;
@@ -1884,6 +2096,9 @@
      one thing here that needs Firestore. */
   window.EITeacher = {
     _internals: {
+      modeHeard: modeHeard,
+      patternRows: patternRows,
+      kindText: kindText,
       feed: function(st){
         st = st || {};
         students = st.students || [];
@@ -1921,6 +2136,7 @@
       noteOf: noteOf,
       csvCell: csvCell,
       csvRows: csvRows,
+      sparkline: sparkline,
       rosterCsv: rosterCsv,
       wordsCsv: wordsCsv,
       exportName: exportName,

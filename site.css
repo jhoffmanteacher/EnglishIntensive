@@ -2,7 +2,37 @@
    Page layout and page-specific components stay in the page's own
    stylesheet — this file is only the things that must not drift. */
 
+/* ---- self-hosted reading fonts ----
+   Two faces the Reading view can switch to, both chosen for the same
+   reason: letters that can't be mistaken for each other. Lexend was
+   designed against reading-speed research; Atkinson Hyperlegible was
+   designed by the Braille Institute for low vision, and its b/d/p/q and
+   I/l/1 are drawn to be told apart at a glance. Both OFL — see the
+   licences in fonts/.
+
+   Self-hosted, not linked from Google: a Chromebook cart on a school
+   network that blocks fonts.gstatic.com would otherwise silently fall
+   back to the default face, which is exactly the student this setting
+   exists for. Latin subset, 400 and 700 only. */
+@font-face{
+  font-family:"Lexend";font-style:normal;font-weight:400;font-display:swap;
+  src:url(fonts/lexend-latin.woff2) format("woff2");
+}
+@font-face{
+  font-family:"Lexend";font-style:normal;font-weight:700;font-display:swap;
+  src:url(fonts/lexend-latin.woff2) format("woff2");
+}
+@font-face{
+  font-family:"Atkinson Hyperlegible";font-style:normal;font-weight:400;font-display:swap;
+  src:url(fonts/atkinson-hyperlegible-400-latin.woff2) format("woff2");
+}
+@font-face{
+  font-family:"Atkinson Hyperlegible";font-style:normal;font-weight:700;font-display:swap;
+  src:url(fonts/atkinson-hyperlegible-700-latin.woff2) format("woff2");
+}
+
 :root{
+  --font:"Verdana","Trebuchet MS","Segoe UI",system-ui,sans-serif;
   --bg:#111827;
   --panel:#1b2437;
   --panel2:#232f46;
@@ -20,9 +50,77 @@ body{
   margin:0;
   background:radial-gradient(1200px 700px at 50% -10%, #1e2a44 0%, var(--bg) 60%);
   color:var(--ink);
-  font-family:"Verdana","Trebuchet MS","Segoe UI",system-ui,sans-serif;
+  font-family:var(--font);
   -webkit-font-smoothing:antialiased;
 }
+
+/* ---- Reading view ----
+   Four switches a student sets once and keeps, applied as classes on
+   <html> so they reach every page and every engine without any of them
+   knowing. See GameCore's reading-view panel and view-boot.js.
+
+   Word case is the only one that isn't blanket: lowercasing "Mrs." or
+   "Wednesday" would teach the wrong word, so the engines mark a word
+   that carries a capital and it is left alone. */
+html.view-lexend{--font:"Lexend","Verdana","Trebuchet MS",system-ui,sans-serif}
+html.view-atkinson{--font:"Atkinson Hyperlegible","Verdana","Trebuchet MS",system-ui,sans-serif}
+html.view-wide body{letter-spacing:.06em;word-spacing:.16em}
+html.view-wide .word{letter-spacing:.10em}
+html.view-lower .word:not(.has-cap),
+html.view-lower .tile:not(.has-cap),
+html.view-lower .chip:not(.has-cap){text-transform:lowercase}
+/* Cream reaches the card faces and the word, and nothing else — a
+   student who wants paper-coloured words is not asking for a beige
+   dashboard. */
+html.view-cream .wordcard,
+html.view-cream .flipface,
+html.view-cream .boxrow{
+  background:#fbf6e9;
+  border-color:#d8cfb4;
+  color:#1f1a12;
+}
+html.view-cream .wordcard .word,
+html.view-cream .flipface .word{color:#1f1a12}
+html.view-cream .wordcard .hint,
+html.view-cream .flipface .hint,
+html.view-cream .flipface .facehint,
+html.view-cream .miclabel{color:#6b6350}
+
+/* ---- tap-to-hear (GameCore) ----
+   The pieces of a revealed word, each one pressable. They have to look
+   like part of the word, not like a row of buttons: no borders until the
+   pointer is on one, and the sizing inherited from whatever is showing
+   the word. */
+.tapword{display:inline-flex;align-items:baseline;flex-wrap:wrap;justify-content:center}
+.tapbit{
+  font:inherit;color:inherit;background:transparent;border:none;
+  padding:0 .04em;border-radius:10px;cursor:pointer;line-height:inherit;
+  transition:background .12s ease, color .12s ease;
+}
+.tapbit:hover{background:rgba(255,201,77,.16);color:var(--accent)}
+.tapbit.playing{background:var(--accent);color:#1a1206}
+.tapsep{color:var(--muted);font-weight:400;margin:0 .02em}
+.taphint{color:var(--muted);font-size:14px;margin-top:8px}
+
+/* ---- the Reading view panel (GameCore) ---- */
+.rvwrap{margin:14px 0 0}
+.rvpanel{
+  background:var(--panel2);border:1px solid var(--line);border-radius:16px;
+  padding:16px 18px;margin-top:12px;text-align:left;
+}
+.rvpanel[hidden]{display:none}
+.rvpanel h3{font-size:15px;margin:0 0 4px;letter-spacing:.02em}
+.rvpanel .rvnote{color:var(--muted);font-size:13.5px;line-height:1.55;margin:0 0 14px}
+.rvrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.rvrow:last-child{margin-bottom:0}
+.rvrow > b{font-size:13.5px;font-weight:700;min-width:104px;color:var(--muted)}
+.rvopt{
+  background:var(--panel);color:var(--ink);border:1px solid var(--line);
+  font-family:inherit;font-size:14.5px;font-weight:700;
+  padding:7px 14px;border-radius:10px;
+}
+.rvopt:hover{border-color:var(--accent)}
+.rvopt[aria-pressed="true"]{background:var(--accent);color:#1a1206;border-color:var(--accent)}
 /* Each page sets its own body layout (display, padding) — the games centre
    a single card, the home page scrolls a grid. */
 

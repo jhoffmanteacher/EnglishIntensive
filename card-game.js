@@ -21,11 +21,23 @@
  * special handling, since nothing is ever matched against what a student
  * typed or said.
  *
+ * With cfg.split the same engine runs "Split it" instead: the word shows
+ * with clickable gaps and the student marks where it comes apart, which
+ * is the one thing about a long word that can be checked without a mic
+ * and without typing. Same deck, same scoring, same screens.
+ *
+ * The optional "Listen" toggle (listen.js) does not change that. With it on
+ * the mic keeps whatever the student said while the card was face up and
+ * shows it on the back — the game SUGGESTS a rating and the student still
+ * presses it. Off by default, and off is the state everything above
+ * describes.
+ *
  *   CardGame.start({
  *     title: "Red Words 🃏",
  *     intro: "…",                       // HTML ok
  *     note:  "<p>What a red word is…</p>",       // optional micro-lesson
- *     decks: [{ name:"List 1", words:["you","should", …] }, …]
+ *     decks: [{ name:"List 1", words:["you","should", …] }, …],
+ *     mastered: ["you","said"]           // optional; unlocks the speed round
  *   });
  *
  * With more than one deck the start screen grows a picker, and the engine
@@ -50,6 +62,97 @@ window.CardGame = (function(){
 
   var NORMAL_RATE = 0.95, SLOW_RATE = 0.75;
   var MIX_SIZE = 20;        // cards in the engine's "Mixed" deck
+
+  /* ---- speed ----
+     FAST_MS is the "⚡ fast" pill: read without hesitation. It is a lower
+     bar than adaptive.js's SLOW_MS threshold on purpose — there is a wide
+     middle where a student is neither quick nor working it out, and
+     saying nothing is the right thing to say about it.
+     SPEED_MIN is how many mastered words a list needs before the speed
+     round is worth offering; below that it is a four-card round.
+     SPEED_FLIP_MS is how long a card waits before flipping itself. */
+  var FAST_MS = 1500;
+  var SPEED_MIN = 8;
+  var SPEED_FLIP_MS = 2000;
+
+  /* ---- words in context ----
+     Once a word is solid on its own, the next thing worth asking is
+     whether it survives a sentence — which is where a word actually gets
+     read, and where a student who has memorised a shape rather than a
+     word comes unstuck. One card in three, and only for words the
+     scheduler already counts as solid, so it reads as a step up rather
+     than as the game getting harder. */
+  var CONTEXT_EVERY = 3;
+
+  /* The target word inside its sentence, bold, with the rest muted. A
+     word-boundary match so "one" doesn't light up inside "money", and
+     case-insensitive so a sentence-initial "The" still matches "the". */
+  function contextMarkup(sentence, word){
+    var text = String(sentence == null ? "" : sentence);
+    var w = String(word == null ? "" : word);
+    if(!w) return escapeHtmlLocal(text);
+    var re = new RegExp("(^|[^A-Za-z'])(" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")(?![A-Za-z'])", "i");
+    var m = re.exec(text);
+    if(!m) return escapeHtmlLocal(text);
+    var at = m.index + m[1].length;
+    return '<span class="ctxrest">' + escapeHtmlLocal(text.slice(0, at)) + "</span>" +
+           '<b class="ctxword">' + escapeHtmlLocal(text.slice(at, at + m[2].length)) + "</b>" +
+           '<span class="ctxrest">' + escapeHtmlLocal(text.slice(at + m[2].length)) + "</span>";
+  }
+  function escapeHtmlLocal(x){ return Core.escapeHtml(x); }
+
+  /* ---- Split it (pure) ----
+     A split is a set of positions in the word: "fan·tas·tic" splits after
+     3 and after 6. Comparing sets rather than strings is what lets the
+     answer be checked without caring how the student got there, and lets
+     a one-syllable word have the perfectly good answer "no splits". */
+  function boundariesOf(chunks){
+    var out = [], at = 0;
+    (chunks || []).forEach(function(c, i){
+      at += c.length;
+      if(i < chunks.length - 1) out.push(at);
+    });
+    return out;
+  }
+
+  function sameSplit(a, b){
+    var x = (a || []).slice().sort(function(p,q){ return p-q; });
+    var y = (b || []).slice().sort(function(p,q){ return p-q; });
+    return x.length === y.length && x.every(function(v, i){ return v === y[i]; });
+  }
+
+  var SPEECH_SETTLE_MS = 400;   // let the speakers stop before listening again
+
+  /* ---------------- judging a spoken answer (pure, testable) ----------------
+     Deliberately generous, and deliberately not the score. This decides
+     which of the two rating buttons to point at, and the student still
+     presses one — so a false "Got it" costs a pulse on the wrong button,
+     not a wrong stat.
+
+     Core.spokenMatch does the judging (the fluency engine judges the same
+     way, so the rule lives in one place); this is the part that is only
+     the cards': try the whole transcript before its words, because
+     normalize folds "they would" into "they'd" and splitting undoes it. */
+  function judgeHeard(heardText, word, groups, allowPhonetic){
+    var said = Core.normalize(heardText);
+    if(!said) return false;
+    var target = Core.normalize(word);
+    if(!target) return false;
+    var opts = { homophones: groups, phonetic: !!allowPhonetic };
+    // The whole transcript first: normalize folds "they would" into
+    // "they'd", and that fold is undone the moment it is split on spaces.
+    var parts = [said].concat(said.indexOf(" ") === -1 ? [] : said.split(" "));
+    for(var i=0;i<parts.length;i++){
+      if(parts[i] && Core.spokenMatch(parts[i], target, opts)) return true;
+    }
+    return false;
+  }
+
+  // performance.now() where it exists; it is monotonic, so a card doesn't
+  // read as instant because the clock moved under it.
+  var now = (window.performance && window.performance.now)
+    ? function(){ return window.performance.now(); }
+    : function(){ return Date.now(); };
 
   /* ---------------- styles ----------------
      Everything beyond blend-game.css: the card itself, the deck picker and
@@ -142,6 +245,75 @@ window.CardGame = (function(){
   .btn.no{background:var(--bad);color:#2a0a0a}
   .rate .key{opacity:.7;font-weight:700;font-size:14px;margin-left:8px}
 
+  /* ---- the fast pill ----
+     Only ever shown for a fast answer, never for a slow one. "You were
+     quick" is worth saying out loud; "you were slow" is a thing the
+     scheduler acts on quietly and the student never gets told, because
+     being told would make the next card slower, not faster. */
+  .fastpill{
+    display:inline-block;margin-top:10px;padding:4px 12px;border-radius:99px;
+    background:rgba(255,201,77,.16);border:1px solid rgba(255,201,77,.42);
+    color:var(--accent);font-size:14px;font-weight:800;letter-spacing:.4px;
+  }
+  .fastpill[hidden]{display:none}
+
+  /* ---- what the mic heard, and the rating it points at ----
+     A pulse, not a pre-press: the student's own judgement is the score in
+     this game, and a suggestion that looked like an answer would quietly
+     take it over. */
+  .heardline{
+    display:inline-block;margin-top:8px;padding:5px 14px;border-radius:99px;
+    background:var(--panel2);border:1px solid var(--line);
+    font-size:15px;color:var(--ink);font-weight:600;
+  }
+  .heardline[hidden]{display:none}
+  .heardline i{font-style:italic;opacity:.85}
+
+  /* ---- heart letters ----
+     Red, and underlined so the mark survives a colour-blind reader and a
+     black-and-white printout of a screenshot. Back of the card only: the
+     front has to be read cold. */
+  .heart{color:var(--bad);text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:6px}
+
+  /* ---- a word inside its sentence ----
+     Smaller than a lone word, because it is a line of text now and not a
+     flash card's headline; the word itself keeps the card's weight so the
+     eye still lands on it first. */
+  .word.sentence{font-size:clamp(24px,4.6vw,42px);letter-spacing:0;line-height:1.35;font-weight:600}
+  .word.sentence .ctxrest{color:var(--muted);font-weight:500}
+  .word.sentence .ctxword{color:var(--ink);font-weight:800}
+
+  /* ---- Split it ----
+     The gaps are the interactive part, so they get the affordance and the
+     letters stay letters. A placed divider is a solid gold bar; an empty
+     gap is invisible until the pointer finds it, because a word pre-drawn
+     with six faint bars in it is a word nobody can read. */
+  .splitword{display:inline-flex;align-items:center;flex-wrap:wrap;justify-content:center}
+  .splitword .ltr{font-size:inherit}
+  .gap{
+    width:16px;height:.86em;margin:0 -2px;padding:0;border:none;border-radius:3px;
+    background:transparent;cursor:pointer;vertical-align:middle;
+    transition:background .12s ease;
+  }
+  .gap:hover{background:rgba(255,201,77,.28)}
+  .gap.on{background:var(--accent);width:7px;margin:0 3px}
+  .gap:disabled{cursor:default}
+  .gap.miss{background:rgba(255,107,107,.5)}
+  .gap.want{background:var(--accent);width:7px;margin:0 3px;animation:gapIn .3s ease}
+  @keyframes gapIn{ from{transform:scaleY(.1);opacity:0} to{transform:scaleY(1);opacity:1} }
+  @media (prefers-reduced-motion: reduce){ .gap.want{animation:none} }
+  .chunkword .heart{text-underline-offset:4px}
+  .btn.suggest{animation:suggestPulse 1.1s ease-in-out infinite}
+  @keyframes suggestPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}
+    50%{box-shadow:0 0 0 6px rgba(255,255,255,.18)}
+  }
+  .listennote{color:var(--muted);font-size:14px;line-height:1.5;margin:10px 0 0}
+  .listennote.bad{color:var(--bad)}
+  @media (prefers-reduced-motion: reduce){
+    .btn.suggest{animation:none;outline:2px solid rgba(255,255,255,.35)}
+  }
+
   @media (prefers-reduced-motion: reduce){
     .flipinner{transition:none}
   }
@@ -166,11 +338,15 @@ window.CardGame = (function(){
       ${cfg.hasPicker ? `
       <p class="decklbl" style="margin-top:22px">Pick a list:</p>
       <div class="decks" id="deckPicker"></div>` : ""}
+      ${window.GameCore.readingViewButton()}
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
+        <button class="btn ghost" id="btnListen" style="display:none">🎤 Listen: <span id="lisLbl">Off</span></button>
         <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
+        <button class="btn ghost" id="btnSpeed" style="display:none">⚡ Speed round (<span id="spCount">0</span>)</button>
       </div>
+      <p class="listennote" id="listenNote" hidden></p>
     </div>
   </section>
 
@@ -187,7 +363,7 @@ window.CardGame = (function(){
       <div class="flip" id="flipCard">
         <div class="flipinner" id="flipInner">
           <div class="flipface front">
-            <div class="hint">Read it out loud</div>
+            <div class="hint" id="uiFrontHint">Read it out loud</div>
             <div class="word" id="uiWord"></div>
             <div class="facehint">Then flip the card to check yourself.</div>
           </div>
@@ -195,6 +371,8 @@ window.CardGame = (function(){
             <div class="hint">The word is</div>
             <div class="word" id="uiWordBack"></div>
             <div class="facehint" id="uiBackHint">Did you read it right?</div>
+            <div class="fastpill" id="uiFast" hidden>⚡ fast</div>
+            <div class="heardline" id="uiHeard" hidden></div>
           </div>
         </div>
       </div>
@@ -209,6 +387,7 @@ window.CardGame = (function(){
 
     <div class="toolbar">
       <button class="btn ghost" id="btnHear" type="button" style="display:none">🔊 Hear it again</button>
+      <button class="btn ghost" id="btnSelf" type="button" style="display:none">🎙 Hear yourself</button>
       <button class="btn ghost" id="btnSkip" type="button">Skip ▸</button>
       <button class="btn ghost" id="btnQuit" type="button">End game</button>
     </div>
@@ -223,6 +402,7 @@ window.CardGame = (function(){
         <div class="stat"><div class="lbl">Score</div><div class="val" id="uiFScore">0</div></div>
         <div class="stat"><div class="lbl">Got it</div><div class="val" id="uiFRight">0</div></div>
         <div class="stat"><div class="lbl">Best streak</div><div class="val flame" id="uiFStreak">0</div></div>
+        <div class="stat"><div class="lbl">Fast</div><div class="val" id="uiFFast">0</div></div>
       </div>
       <div id="missBlock" style="display:none">
         <h3>Words to practice again</h3>
@@ -253,13 +433,54 @@ window.CardGame = (function(){
        every stat key stored and every spoken read matches the rest of the
        site; the dotted form is kept aside here and shown on the card's
        BACK — after the student has read it cold off the front. */
-    var CHUNKS = {};
+    var CHUNKS = {}, HEART = {};
     function plainList(list){
       return dedupeWords((list || []).map(function(e){
         var p = Core.parseEntry(e);
         if(p.chunks) CHUNKS[p.word] = p.chunks;
+        // The red lists mark the part the phonics rules get wrong —
+        // "s{ai}d". Same deal as the dots: display only, back of the card
+        // only, and the plain word is what everything else ever sees.
+        if(p.heart) HEART[p.word] = p.heart;
         return p.word;
       }));
+    }
+    function heartOf(w){ return Object.prototype.hasOwnProperty.call(HEART, w) ? HEART[w] : null; }
+
+    // The word with a clickable gap between every pair of letters.
+    function splitMarkup(word){
+      var out = '<span class="splitword">';
+      for(var i=0;i<word.length;i++){
+        if(i > 0) out += '<button type="button" class="gap' + (splitAt.indexOf(i) !== -1 ? " on" : "") +
+                         '" data-gap="' + i + '" aria-label="Split after letter ' + i + '"></button>';
+        out += '<span class="ltr">' + Core.escapeHtml(word.charAt(i)) + "</span>";
+      }
+      return out + "</span>";
+    }
+
+    function renderSplit(){
+      var w = queue[idx];
+      $("uiWord").innerHTML = splitMarkup(w);
+      $("uiWord").className = "word";
+      Core.markWordCase($("uiWord"), w);
+    }
+
+    // What the back face's tap buttons currently stand for. The listener
+    // itself is bound once, further down, after the shell exists.
+    var tapList = [], tapWord = "";
+
+    /* The sentence to put on the front of this card, or null. Three gates,
+       all of them deliberate: the list has to carry sentences at all, the
+       student has to already own the word (this is a step up, not extra
+       difficulty on a word they are still learning), and the speed round
+       is exempt — that round is about reading one word fast, and a
+       sentence in it would just be a slower card. */
+    function contextFor(word){
+      if(speedRound || !SENTENCES) return null;
+      if(!Object.prototype.hasOwnProperty.call(SENTENCES, word)) return null;
+      if(!MASTERED[word]) return null;
+      ctxTick++;
+      return (ctxTick % CONTEXT_EVERY === 1) ? SENTENCES[word] : null;
     }
 
     // A game page may pass a single `words` list instead of decks; the picker
@@ -289,6 +510,19 @@ window.CardGame = (function(){
                      build: function(){ return ALL.slice(); } });
     }
 
+    /* Which of these words the student already owns, from the scheduler.
+       Only the speed round reads it: a round of words you can already
+       read is pointless as practice and exactly right as a fluency drill,
+       so it is offered separately rather than mixed in. */
+    var MASTERED = {};
+    (cfg.mastered || []).forEach(function(w){ MASTERED[Core.parseEntry(w).word] = true; });
+    // ALL holds the list's ENTRIES, which may carry syllable dots; the
+    // scheduler speaks in plain words. parseEntry is the bridge, same as
+    // everywhere else in this engine.
+    function masteredDeck(){
+      return ALL.filter(function(e){ return MASTERED[Core.parseEntry(e).word]; });
+    }
+
     // A car running a dashed track toward the checkered flag.
     var prog = Core.progress("race");
 
@@ -303,26 +537,98 @@ window.CardGame = (function(){
       hasPicker: CHOICES.length > 1,
       progress: prog.markup()
     });
+    // The Reading view panel is markup the core supplied; the core wires it.
+    Core.mountReadingView();
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], mastered = [], flipped = false, busy = false;
+    /* Time to flip. shownAt is set when a card lands on screen; flipMs is
+       what that came to, and it rides along with the rating rather than
+       being reported on its own — one answer, one report. */
+    var shownAt = 0, flipMs = 0, fastCount = 0;
+    var speedRound = false, speedTimer = null;
+    // The mic, if the student turned it on. heardText is whatever was said
+    // while the card was face up; it is cleared with every new card.
+    var listenOn = false, heardText = "";
+    var HOMOPHONES = cfg.homophones || null;
+    var SENTENCES = cfg.sentences || null;
+    /* Split it: the same deck and the same scoring, but the card asks
+       where the word comes apart instead of whether it was read. The
+       rating is automatic here — there is a right answer — so the two
+       rating buttons never appear. */
+    var SPLIT = !!cfg.split;
+    var splitAt = [];        // the dividers the student has placed
+    var splitDone = false;   // checked, showing the answer
+    // The phoneme clips, if they are on the server. Everything built on
+    // them checks for null and simply doesn't appear — a missing folder
+    // must never mean a card that plays silence at a student.
+    var phAudio = null;
+    Core.phonemeAudio().then(function(p){ phAudio = p; });
+
+    /* Recording the student while the card is face up, in memory only.
+       Enabled with the Listen toggle and nowhere else: that is where the
+       microphone prompt happens, and a game that asked for the mic on its
+       own would be asking for it from a student who chose not to use it. */
+    var selfRec = Core.selfRecorder();
+    var haveSelf = false;
+    // Counts only the cards that COULD have shown a sentence, so "one in
+    // three" means one in three of those and not one in three of the round.
+    var ctxTick = 0;
     var pending = null;    // the timer that moves on to the next card
     var pendingList = null;   // a one-off list (comeback / missed words) to run instead of the deck
     var deckIdx = 0;
 
     var $ = function(id){ return document.getElementById(id); };
 
+    /* Two listeners bound ONCE to elements that keep their contents
+       rewritten — the front face on every card in Split it, the back face
+       on every card with tap-to-hear. Both have to come after the shell
+       is in the DOM, which is why they sit here rather than beside the
+       code that renders what they listen to. */
+    $("uiWord").addEventListener("click", function(ev){
+      if(!SPLIT || splitDone || busy) return;
+      var t = ev.target;
+      if(!t || !t.getAttribute || t.getAttribute("data-gap") === null) return;
+      var at = parseInt(t.getAttribute("data-gap"), 10);
+      if(!isFinite(at)) return;
+      var i = splitAt.indexOf(at);
+      if(i === -1) splitAt.push(at); else splitAt.splice(i, 1);
+      t.classList.toggle("on", i === -1);
+      snd.click();
+    });
+
+    Core.wireTaps($("uiWordBack"), function(){ return tapList; }, function(piece, i, el){
+      if(!phAudio) return;
+      el.classList.add("playing");
+      // The piece, then the whole word — the part on its own is only
+      // useful next to the thing it is part of.
+      phAudio.play(piece.tokens, 220).then(function(ok){
+        el.classList.remove("playing");
+        if(ok && SPEAK && tapWord) setTimeout(function(){ say(tapWord, SLOW_RATE); }, 200);
+      });
+    });
+
     /* Outcome reporting — the same optional contract as the other three
        engines, so one scheduler (practice.js) can drive all four. Here
        "correct" is the student's own rating: Got it on the flip. Reported
        once per card, when it's rated or skipped. */
     var onResult  = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onHeard   = typeof cfg.onHeard === "function" ? cfg.onHeard : null;
     var onFinish  = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
     var nextRound = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
-    function report(word, correct){
+    /* The 4th argument is this engine's alone: the other three can't time
+       an answer (a mic answer's clock includes the recogniser, a typed
+       one includes the typing) and simply don't pass it. */
+    function report(word, correct, ms){
       if(!onResult) return;
-      try{ onResult(word, !!correct, 0); }catch(e){}
+      try{ onResult(word, !!correct, 0, { ms: ms || 0 }); }catch(e){}
+    }
+    // Same contract as Say It's: what the mic returned on a card the
+    // student rated "Not yet". Nothing scores it; the teacher reads it.
+    function reportHeard(word, text){
+      if(!onHeard || !text) return;
+      try{ onHeard(word, text); }catch(e){}
     }
 
     var shuffleOn = true;
@@ -369,7 +675,7 @@ window.CardGame = (function(){
     /* ---------------- screens ---------------- */
     function show(id){
       ["s-start","s-play","s-end"].forEach(function(s){ $(s).classList.toggle("on", s===id); });
-      if(id === "s-start") renderComeback();
+      if(id === "s-start"){ renderComeback(); renderSpeed(); }
     }
     function playing(){ return $("s-play").classList.contains("on"); }
 
@@ -411,6 +717,19 @@ window.CardGame = (function(){
     function renderFace(){
       $("flipCard").className = "flip" + (flipped ? " flipped" : "");
       $("flipBack").setAttribute("aria-hidden", flipped ? "false" : "true");
+      if(SPLIT){
+        // No self-rating: the split is either right or it isn't, so the
+        // only button is the one that checks it.
+        $("btnFlip").style.display = flipped ? "none" : "";
+        $("btnFlip").textContent = "✂️ Check the split";
+        $("btnGot").style.display  = "none";
+        $("btnMiss").style.display = "none";
+        $("btnHear").style.display = (flipped && SPEAK) ? "" : "none";
+        $("uiKeyhint").innerHTML = flipped
+          ? "Say it out loud, then press <kbd>Enter</kbd> for the next word."
+          : "Click between the letters, then press <kbd>Enter</kbd>.";
+        return;
+      }
       $("btnFlip").style.display = flipped ? "none" : "";
       $("btnGot").style.display  = flipped ? "" : "none";
       $("btnMiss").style.display = flipped ? "" : "none";
@@ -420,34 +739,119 @@ window.CardGame = (function(){
         : "Press <kbd>Space</kbd> to flip the card.";
     }
 
+    /* What the mic caught, and which button it points at. No transcript
+       means no line and no suggestion — an empty mic must look like the
+       game has always looked, not like a broken feature. */
+    function showHeard(){
+      if(!listenOn || !heardText){ $("uiHeard").hidden = true; return; }
+      var word = queue[idx];
+      var said = Core.normalize(heardText);
+      if(!said){ $("uiHeard").hidden = true; return; }
+      $("uiHeard").innerHTML = "I heard: <i>" + Core.escapeHtml(said) + "</i>";
+      $("uiHeard").hidden = false;
+      // Nonsense words have no dictionary entry to come back as, so the
+      // recogniser returns the nearest real word and only a phonetic
+      // comparison is fair. Real words are judged on the word.
+      var ok = judgeHeard(heardText, word, HOMOPHONES, !SPEAK);
+      $(ok ? "btnGot" : "btnMiss").classList.add("suggest");
+    }
+
     function render(){
       var w = queue[idx];
       flipped = false;
       // textContent, not innerHTML — these lists carry apostrophes and
       // periods (they'd, Mrs.) and nothing here needs markup.
-      $("uiWord").textContent = w;
+      if(SPLIT){
+        splitAt = [];
+        splitDone = false;
+        renderSplit();
+        $("uiFrontHint").textContent = "Where does it split?";
+      } else {
+      var sentence = contextFor(w);
+      if(sentence){
+        $("uiWord").innerHTML = contextMarkup(sentence, w);
+        $("uiWord").className = "word sentence";
+        $("uiFrontHint").textContent = "Read the sentence out loud";
+      } else {
+        $("uiWord").textContent = w;
+        $("uiWord").className = "word";
+        $("uiFrontHint").textContent = "Read it out loud";
+      }
+      }
+      // The back is always the word alone — the sentence was the question.
+      Core.markWordCase($("uiWord"), w);
+      Core.markWordCase($("uiWordBack"), w);
       // The front is the plain word — the student has to read it cold.
       // The back is where the syllable split earns its keep, showing HOW
       // the word came apart once they've already had their go at it.
       var chunks = Object.prototype.hasOwnProperty.call(CHUNKS, w) ? CHUNKS[w] : null;
-      if(chunks) $("uiWordBack").innerHTML = Core.chunkMarkup(chunks);
+      var heart = heartOf(w);
+      /* With the clips available the back of the card is pressable: each
+         syllable, or each sound on a one-syllable word, plays itself and
+         then the whole word. A student who has been told a word twice and
+         still can't read it usually can't hear which part they are
+         getting wrong, and this is the cheapest way to find out. */
+      if(phAudio){
+        tapWord = w;
+        tapList = Core.tapPieces(w, chunks);
+        $("uiWordBack").innerHTML = Core.tapMarkup(tapList, heart, chunks ? Core.chunkSep : "");
+      }
+      else if(chunks) $("uiWordBack").innerHTML = Core.chunkMarkup(chunks, heart);
+      else if(heart) $("uiWordBack").innerHTML = Core.heartMarkup(w, heart);
       else $("uiWordBack").textContent = w;
-      $("uiBackHint").textContent = "Did you read it right?";
+      $("uiBackHint").textContent = heart && !chunks
+        ? "In red: the part to remember by heart."
+        : phAudio ? "Tap a part of the word to hear it."
+        : "Did you read it right?";
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       renderCombo();
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
       prog.update(idx/queue.length*100);
+      $("uiFast").hidden = true;
+      $("uiHeard").hidden = true;
+      $("btnGot").classList.remove("suggest");
+      $("btnMiss").classList.remove("suggest");
       renderFace();
       $("btnFlip").focus();
+      // Last, so the clock starts when the card is actually on screen and
+      // not while the rest of the HUD is still being written.
+      shownAt = now();
+      flipMs = 0;
+      /* A new card, a new answer: whatever was said about the last one is
+         forgotten before the mic comes back. hold() rather than a plain
+         start() so the previous card's read-aloud has stopped coming out
+         of the speakers before the mic is open to hear it. */
+      heardText = "";
+      haveSelf = false;
+      $("btnSelf").style.display = "none";
+      if(selfRec && selfRec.available()){ selfRec.drop(); selfRec.start(); }
+      if(listenOn && window.EIListen){
+        window.EIListen.clear();
+        window.EIListen.start();
+        window.EIListen.hold(SPEECH_SETTLE_MS);
+      }
+      armSpeedFlip();
+    }
+
+    /* In a speed round the card flips itself. The point of that round is
+       recognition at pace, and a card that waits forever lets a student
+       work the word out — which is the thing being timed. */
+    function armSpeedFlip(){
+      if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
+      if(!speedRound) return;
+      speedTimer = setTimeout(function(){ speedTimer = null; flip(); }, SPEED_FLIP_MS);
     }
 
     /* ---------------- game flow ---------------- */
-    function startGame(list){
+    function startGame(list, isSpeed){
+      speedRound = !!isSpeed;
       list = plainList(list);
       queue = shuffleOn ? shuffled(list) : list.slice();
       idx = 0; score = 0; streak = 0; best = 0; right = 0;
       missed = []; mastered = []; busy = false;
+      fastCount = 0;
+      ctxTick = 0;
       prog.reset();
       show("s-play");
       render();
@@ -466,20 +870,130 @@ window.CardGame = (function(){
 
     function flip(){
       if(busy || flipped) return;
+      if(SPLIT){ checkSplit(); return; }
+      if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
+      flipMs = shownAt ? Math.max(0, Math.round(now() - shownAt)) : 0;
       flipped = true;
       renderFace();
+      if(flipMs && flipMs < FAST_MS){ fastCount++; $("uiFast").hidden = false; }
       sndFlip();
+      /* Stop listening BEFORE the card speaks. The recogniser would
+         happily transcribe the computer's own read of the word and hand
+         it back as the student's answer, which would mark every card
+         correct. */
+      if(listenOn && window.EIListen) window.EIListen.stop();
+      if(selfRec && selfRec.available()){
+        selfRec.stop().then(function(ok){
+          haveSelf = !!ok;
+          if(ok && flipped) $("btnSelf").style.display = "";
+        });
+      }
+      showHeard();
       // The word is spoken only now, on the way over — before the flip it
       // would be the answer, after it it's the check.
       sayWord(queue[idx], NORMAL_RATE);
       $("btnGot").focus();
     }
 
+    /* Checking a split. The answer is the entry's own syllable marks, so
+       the list is the answer key and nothing here has to know anything
+       about syllables. A word with no dots has the perfectly good answer
+       "no splits", which is why this compares SETS of positions rather
+       than strings. */
+    function checkSplit(){
+      if(busy || splitDone) return;
+      var word = queue[idx];
+      var chunks = Object.prototype.hasOwnProperty.call(CHUNKS, word) ? CHUNKS[word] : null;
+      var want = boundariesOf(chunks || [word]);
+      var ok = sameSplit(splitAt, want);
+      splitDone = true;
+      busy = true;
+      flipped = true;
+      renderFace();
+
+      right += ok ? 1 : 0;
+      report(word, ok, flipMs);
+      if(ok){
+        streak++;
+        if(streak > best) best = streak;
+        var pts = pointsFor(streak);
+        var mult = comboMultiplier(streak);
+        var milestone = streak % 5 === 0;
+        score += pts;
+        if(mastered.indexOf(word) === -1) mastered.push(word);
+        $("flipCard").className = "flip flipped rated-yes";
+        $("uiBackHint").innerHTML = "<b>+" + pts + " points</b>" + (mult > 1 ? " (×" + mult + " combo)" : "") +
+          " — now say it out loud.";
+        $("uiScore").textContent = score;
+        $("uiStreak").textContent = streak;
+        renderCombo();
+        if(milestone){
+          prog.celebrate();
+          Core.popup($("popup"), "🔥 " + streak + " in a row!", "#ffc94d", true);
+          Core.confettiBurst($("cardStage"), 18);
+          snd.combo();
+        } else {
+          Core.popup($("popup"), "✓ +" + pts, "#3ddc97");
+          snd.good();
+        }
+      } else {
+        streak = 0;
+        $("uiStreak").textContent = 0;
+        renderCombo();
+        if(missed.indexOf(word) === -1) missed.push(word);
+        $("flipCard").className = "flip flipped rated-no";
+        // The gaps the student marked and didn't need go red where they
+        // are; the ones they missed slide in gold. Both stay on the front
+        // face, next to the letters they belong between.
+        markSplitAnswer(want);
+        $("uiBackHint").textContent = "Here's where it comes apart. Say it out loud.";
+        Core.popup($("popup"), "✗", "#ff6b6b");
+        snd.bad();
+      }
+      // The back shows the dotted word either way — that IS the answer.
+      if(SPEAK){
+        if(chunks) sayChunks(chunks, word);
+        else sayWord(word, SLOW_RATE);
+      }
+      scheduleNext(ok ? 1800 : 2600);
+    }
+
+    // Marks the correct split on the front face, over the student's own.
+    function markSplitAnswer(want){
+      Array.prototype.forEach.call($("uiWord").querySelectorAll("[data-gap]"), function(g){
+        var at = parseInt(g.getAttribute("data-gap"), 10);
+        g.disabled = true;
+        g.classList.remove("on");
+        if(want.indexOf(at) !== -1) g.classList.add("want");
+        else if(splitAt.indexOf(at) !== -1) g.classList.add("miss");
+      });
+    }
+
+    /* "fan, tas, tic" and then the whole word — two utterances queued
+       rather than two say() calls, since say() cancels whatever is
+       already talking. */
+    function sayChunks(chunks, word){
+      if(!SPEAK || !window.speechSynthesis) return;
+      try{
+        window.speechSynthesis.cancel();
+        var v = Core.voice();
+        var u1 = new SpeechSynthesisUtterance(chunks.join(", "));
+        var u2 = new SpeechSynthesisUtterance(word);
+        u1.lang = u2.lang = "en-US";
+        u1.rate = 0.7; u2.rate = NORMAL_RATE;
+        if(v){ u1.voice = v; u2.voice = v; }
+        window.speechSynthesis.speak(u1);
+        window.speechSynthesis.speak(u2);
+      }catch(e){}
+    }
+
     function rate(gotIt){
       if(busy || !flipped) return;
       busy = true;
       var word = queue[idx];
-      report(word, gotIt);
+      // Only a "Got it" carries a time. adaptive.js ignores the clock on a
+      // wrong answer anyway; not sending it keeps that decision in one place.
+      report(word, gotIt, gotIt ? flipMs : 0);
       if(gotIt){
         right++;
         streak++;
@@ -508,13 +1022,19 @@ window.CardGame = (function(){
         $("uiStreak").textContent = 0;
         renderCombo();
         if(missed.indexOf(word) === -1) missed.push(word);
+        // Only on a miss: a transcript that matched teaches nobody anything.
+        reportHeard(word, heardText);
         $("flipCard").className = "flip flipped rated-no";
         // No scolding, and no "wrong" — a card you didn't know yet is the
         // entire reason to be here, and it's coming back either way.
         $("uiBackHint").textContent = "That one comes back. Say it once more.";
         Core.popup($("popup"), "✗", "#ff6b6b");
         snd.bad();
-        sayWord(word, SLOW_RATE);
+        /* For a word with heart letters the slow read isn't the lesson —
+           the spelling is. "s. a. i. d. said", one utterance, because four
+           utterances come out as four separate thoughts. */
+        if(heartOf(word)) sayWord(Core.spellOut(word), SLOW_RATE);
+        else sayWord(word, SLOW_RATE);
       }
       // Long enough for the slow read on a miss to finish; the same beat
       // either way so the game's rhythm doesn't tell on the student.
@@ -523,6 +1043,10 @@ window.CardGame = (function(){
 
     function finish(){
       if(pending){ clearTimeout(pending); pending = null; }
+      if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
+      // The round is over; the mic has no business staying open on the
+      // end screen. It comes back with the next card.
+      if(window.EIListen) window.EIListen.stop();
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();
@@ -531,6 +1055,7 @@ window.CardGame = (function(){
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
       $("uiFStreak").textContent = best;
+      $("uiFFast").textContent = fastCount + " of " + queue.length;
       var pct = queue.length ? Math.round(right/queue.length*100) : 0;
       var perfect = queue.length > 0 && right === queue.length;
       $("uiTitle").textContent = perfect ? "Perfect round! 🏆"
@@ -622,6 +1147,68 @@ window.CardGame = (function(){
     function renderShuffle(){
       $("shufLbl").textContent = shuffleOn ? "On" : "Off";
     }
+
+    /* ---------------- the Listen toggle ----------------
+       Off by default and remembered per device, like Shuffle and Voice.
+       Off is not a degraded mode: it is what this game has always been,
+       and everything about the flip works the same without a mic. */
+    function listenAvailable(){ return !!(window.EIListen && window.EIListen.available()); }
+
+    function listenNote(text, bad){
+      var el = $("listenNote");
+      el.hidden = !text;
+      el.className = "listennote" + (bad ? " bad" : "");
+      el.innerHTML = text || "";
+    }
+
+    function renderListen(){
+      $("btnListen").style.display = listenAvailable() ? "" : "none";
+      $("lisLbl").textContent = listenOn ? "On" : "Off";
+    }
+
+    // Chrome asks for the microphone the first time recognition starts, so
+    // the toggle is where the prompt happens — not in the middle of a card.
+    function setListen(on){
+      listenOn = !!on && listenAvailable();
+      try{ localStorage.setItem("cardListen", listenOn ? "1" : "0"); }catch(e){}
+      if(listenOn){
+        window.EIListen.start();
+        // The mic prompt is happening right here anyway.
+        if(selfRec) selfRec.enable();
+        listenNote("Click <b>Allow</b> if Chrome asks for the microphone. " +
+                   "The card still waits for you — the mic only suggests which button to press.");
+      } else {
+        if(window.EIListen) window.EIListen.stop();
+        if(selfRec) selfRec.release();
+        listenNote("");
+      }
+      renderListen();
+    }
+
+    if(listenAvailable()){
+      try{ listenOn = localStorage.getItem("cardListen") === "1"; }catch(e){ listenOn = false; }
+      window.EIListen.onTranscript(function(text){
+        // Only while the front is up: after the flip the page is about to
+        // say the word itself, and that is not the student's answer.
+        if(!flipped) heardText = text;
+      });
+      window.EIListen.onError(function(name){
+        if(name === "not-allowed" || name === "service-not-allowed"){
+          listenOn = false;
+          try{ localStorage.setItem("cardListen", "0"); }catch(e){}
+          renderListen();
+          listenNote("<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar, " +
+                     "choose Allow, then reload this page. The cards work fine without it.", true);
+        } else if(name === "network"){
+          listenOn = false;
+          renderListen();
+          listenNote("<b>No connection.</b> Listening needs the internet. The cards work fine without it.", true);
+        }
+      });
+      if(listenOn) window.EIListen.start();
+    }
+    renderListen();
+    $("btnListen").addEventListener("click", function(){ snd.click(); setListen(!listenOn); });
     $("btnShuffle").addEventListener("click", function(){
       shuffleOn = !shuffleOn;
       try{ localStorage.setItem("cardShuffle", shuffleOn ? "1" : "0"); }catch(e){}
@@ -659,6 +1246,25 @@ window.CardGame = (function(){
     });
     renderComeback();
 
+    /* ---- speed round ----
+       A deck of nothing but words this student already owns. As practice
+       it would be pointless; as a fluency drill it is the only thing on
+       the site that asks "can you read this without thinking about it",
+       and the answer changes long after accuracy has stopped moving. The
+       cards flip themselves, so there is no waiting the clock out. */
+    function renderSpeed(){
+      var deck = masteredDeck();
+      $("btnSpeed").style.display = deck.length >= SPEED_MIN ? "" : "none";
+      $("spCount").textContent = deck.length;
+    }
+    $("btnSpeed").addEventListener("click", function(){
+      var deck = masteredDeck();
+      if(deck.length < SPEED_MIN) return;
+      snd.click();
+      startGame(shuffleOn ? shuffled(deck) : deck, true);
+    });
+    renderSpeed();
+
     $("btnFlip").addEventListener("click", flip);
     // The card itself is the biggest target on the screen, so it flips too —
     // but only on the way over. Once it's face-up, clicking it must not
@@ -670,6 +1276,18 @@ window.CardGame = (function(){
     $("btnHear").addEventListener("click", function(){
       if(!flipped) return;
       sayWord(queue[idx], SLOW_RATE);
+    });
+
+    /* Plays the student back, then reads the word properly. A student who
+       marked themselves "Got it" and hears something else has learned
+       more in four seconds than any message could tell them. */
+    $("btnSelf").addEventListener("click", function(){
+      if(!haveSelf || !selfRec) return;
+      $("btnSelf").disabled = true;
+      selfRec.play().then(function(){
+        $("btnSelf").disabled = false;
+        sayWord(queue[idx], SLOW_RATE);
+      });
     });
     // A skipped card counts as missed: the student didn't know it, whatever
     // the reason, so it belongs in the comeback deck.
@@ -707,6 +1325,7 @@ window.CardGame = (function(){
       if(e.target && e.target.tagName === "BUTTON") return;
       if(e.key === " " || e.key === "Enter"){
         e.preventDefault();
+        if(SPLIT && flipped){ if(pending){ clearTimeout(pending); pending = null; busy = false; next(); } return; }
         if(!flipped) flip();
         return;
       }
@@ -717,6 +1336,8 @@ window.CardGame = (function(){
     });
 
     window.addEventListener("beforeunload", function(){
+      if(window.EIListen) window.EIListen.stop();
+      if(selfRec) selfRec.release();
       // speechSynthesis is window-global — a word mid-utterance would
       // otherwise keep talking over the next page for a beat.
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
@@ -730,6 +1351,10 @@ window.CardGame = (function(){
   return {
     start: start,
     _internals: {
+      judgeHeard: judgeHeard,
+      contextMarkup: contextMarkup,
+      boundariesOf: boundariesOf,
+      sameSplit: sameSplit,
       dedupeWords: Core.dedupeWords,
       sampleWords: Core.sampleWords,
       comboMultiplier: Core.comboMultiplier,
