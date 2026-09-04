@@ -456,7 +456,7 @@
     var flCols = fluencyColumns();
     var rows = [[
       "Name","Email","Period","Lists","Lists from",
-      "Answers","Accuracy %","Words solid","Words shaky","Last active","Note"
+      "Answers","Accuracy %","Words solid","Words shaky","Slow but right","Top error","Last active","Note"
     ].concat(flCols.reduce(function(acc, l){
       return acc.concat([l.listTitle + " latest", l.listTitle + " best"]);
     }, []))];
@@ -467,6 +467,8 @@
         s.name, s.email, (assignments[s.uid] || {}).period || "",
         WordLists.describeAssignment(eff.ids), eff.from,
         sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
+        sum.slowRight,
+        (function(){ var k = Adaptive.topKind(sum.kinds); return k ? kindText(k.kind) : ""; })(),
         isoDay(sum.lastSeen || s.lastSeen), noteOf(s.uid)
       ].concat(flCols.reduce(function(acc, l){
         var f = Adaptive.fluencySummary((s.fluency || {})[l.id]);
@@ -481,7 +483,7 @@
      the only export that can answer a question nobody thought to build a
      screen for. Words are the plain form, matching the stat key. */
   function wordsCsv(){
-    var rows = [["Name","Email","Period","List","Mode","Word","Attempts","Correct","Accuracy %","Solid","Last practised"]];
+    var rows = [["Name","Email","Period","List","Pattern","Mode","Word","Attempts","Correct","Accuracy %","Solid","Slow","Top error","Last practised"]];
     students.forEach(function(s){
       var period = (assignments[s.uid] || {}).period || "";
       var keys = Object.keys(s.stats).sort();
@@ -491,12 +493,16 @@
         var parsed = Adaptive.parseKey(key);
         var l = WordLists.byId(parsed.listId);
         var mode = l && WordLists.modeOf(l.mode);
+        var top = Adaptive.topKind(st.k);
         rows.push([
           s.name, s.email, period,
           l ? l.listTitle : parsed.listId,
+          WordLists.patternOf(parsed.listId),
           mode ? mode.title : (l ? l.mode : ""),
           parsed.word, st.n, st.r, pct(st.r / st.n),
           Adaptive.isMastered(st) ? "yes" : "no",
+          Adaptive.isSlow(st) ? "yes" : "no",
+          top ? kindText(top.kind) : "",
           isoDay(st.last)
         ]);
       });
@@ -673,6 +679,13 @@
         '<td class="num">' + r.sum.runs + "</td></tr>";
     }).join("");
 
+    /* A sentence, not a chart. Four numbers in a row is what this
+       actually is, and a bar chart of four numbers is decoration. */
+    var errorMix = Adaptive.errorKinds.map(function(k){
+      var n = sum.kinds[k] || 0;
+      return n ? "<b>" + n + "</b> " + esc(kindText(k)) : "";
+    }).filter(Boolean).join(" · ");
+
     var picker = pickerHtml("student", eff.ids, true);
 
     var periodOpts = ['<option value="">— not set —</option>'].concat(allPeriods().map(function(p){
@@ -687,6 +700,10 @@
           '<div class="stat"><div class="k">Accuracy</div><div class="v">' + (sum.accuracy == null ? "—" : Math.round(sum.accuracy*100) + "%") + "</div></div>" +
           '<div class="stat"><div class="k">Words solid</div><div class="v">' + sum.mastered + "</div></div>" +
           '<div class="stat"><div class="k">Words shaky</div><div class="v">' + sum.struggling + "</div></div>" +
+          /* Right, and slow. Never shown to the student — see isSlow() —
+             because "you are slow" makes the next word slower, not
+             faster. It is exactly the number a teacher wants. */
+          '<div class="stat"><div class="k">Slow but right</div><div class="v">' + sum.slowRight + "</div></div>" +
           '<div class="stat"><div class="k">Last active</div><div class="v" style="font-size:17px">' + esc(ago(sum.lastSeen || s.lastSeen)) + "</div></div>" +
         "</div>" +
       "</div>" +
@@ -708,6 +725,11 @@
           '<span class="saveNote" id="tANote"></span>' +
         "</div>" +
       "</div>" +
+
+      (errorMix ? '<div class="panel"><h2>What goes wrong</h2>' +
+        '<p class="note">Counted on Say It only — it is the only mode that hears what the student actually said. ' +
+        "One count per word given up on, not per fumble.</p>" +
+        "<p>" + errorMix + "</p></div>" : "") +
 
       notePanelHtml(s.uid) +
 
@@ -1896,6 +1918,20 @@
     });
   }
 
+  /* diagnose()'s seven kinds, in the words a teacher would write in a
+     plan. Not the student's words — the student sees "Check the vowel"
+     mid-game; this is the row of a table somebody reads on a Sunday. */
+  var KIND_TEXT = {
+    blend:     "blend read wrong",
+    sound:     "target sound missed",
+    vowel:     "wrong vowel",
+    consonant: "wrong consonant",
+    missing:   "dropped a sound",
+    extra:     "added a sound",
+    other:     "read too fast to tell"
+  };
+  function kindText(k){ return KIND_TEXT[k] || k; }
+
   /* ---------------- trouble spots ---------------- */
   var troublePeriod = "";
 
@@ -1911,6 +1947,50 @@
     return best === null ? null : { text: best, n: bestN };
   }
   var MIN_SAMPLE = 3;   // a word nobody has really attempted isn't a trouble spot
+
+  /* One row per PATTERN rather than per word. Thirty words all going
+     wrong on the same vowel team is one problem with one lesson behind
+     it, and a list of thirty words is the shape that hides that. Pure
+     over a set of students, so tests.html can pin the counting. */
+  function patternRows(pool){
+    var byPattern = {};
+    pool.forEach(function(s){
+      var shakyHere = {};
+      for(var key in s.stats){
+        if(!Object.prototype.hasOwnProperty.call(s.stats, key)) continue;
+        var st = s.stats[key];
+        if(!st.n) continue;
+        var parsed = Adaptive.parseKey(key);
+        var pat = WordLists.patternOf(parsed.listId);
+        if(!pat) continue;
+        var row = byPattern[pat] || (byPattern[pat] = { pattern: pat, words: 0, attempts: 0, right: 0, shaky: 0, students: {}, kinds: {} });
+        row.words++; row.attempts += st.n; row.right += st.r;
+        row.students[s.uid] = true;
+        // A student counts once per pattern however many of its words
+        // they are struggling with — the question is how many PEOPLE.
+        if(st.w > 0 && st.r / st.n < 0.7 && !shakyHere[pat]){ shakyHere[pat] = true; row.shaky++; }
+        for(var kk in st.k){
+          if(!Object.prototype.hasOwnProperty.call(st.k, kk)) continue;
+          row.kinds[kk] = (row.kinds[kk] || 0) + st.k[kk];
+        }
+      }
+    });
+    return Object.keys(byPattern).map(function(p){
+      var r = byPattern[p];
+      return {
+        pattern: r.pattern,
+        words: r.words,
+        attempts: r.attempts,
+        accuracy: r.attempts ? r.right / r.attempts : null,
+        shaky: r.shaky,
+        students: Object.keys(r.students).length,
+        top: Adaptive.topKind(r.kinds)
+      };
+    }).sort(function(a, b){
+      if(a.shaky !== b.shaky) return b.shaky - a.shaky;
+      return (a.accuracy || 0) - (b.accuracy || 0);
+    });
+  }
 
   function renderTrouble(){
     var periods = allPeriods();
@@ -1966,6 +2046,15 @@
         "</div>";
     }).join("");
 
+    var patterns = patternRows(pool).map(function(r){
+      return "<tr><td><b>" + esc(r.pattern) + '</b> <span class="muted tiny">' + r.words + " words</span></td>" +
+        '<td class="num">' + r.students + "</td>" +
+        '<td class="num">' + (r.shaky ? '<span class="pill bad">' + r.shaky + "</span>" : '<span class="muted">0</span>') + "</td>" +
+        '<td class="num">' + accCell(r.accuracy) + "</td>" +
+        "<td>" + (r.top ? esc(kindText(r.top.kind)) + ' <span class="muted tiny">(' + r.top.n + ")</span>"
+                        : '<span class="muted">—</span>') + "</td></tr>";
+    }).join("");
+
     var opts = ['<option value="">All periods</option>'].concat(periods.map(function(p){
       return '<option value="' + esc(p) + '"' + (troublePeriod === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
     })).join("");
@@ -1979,7 +2068,17 @@
         '<div class="rowActions" style="margin-bottom:18px"><select class="sel" id="tTroublePeriod">' + opts + "</select></div>" +
         (chips ? '<div class="wordchips">' + chips + "</div>"
                : '<div class="empty">Nothing to show yet — students need a few rounds of practice first.</div>') +
-      "</div>";
+      "</div>" +
+
+      (patterns ? '<div class="panel"><h2>By pattern</h2>' +
+        '<p class="note">The same practice, grouped by what each list is teaching. Thirty words going wrong on ' +
+        "one vowel team is one problem with one lesson behind it, and a list of thirty words is the shape that " +
+        'hides that. “Shaky” counts <b>students</b>, not words. The commonest error comes from Say It, which is ' +
+        "the only mode that hears what was actually said.</p>" +
+        '<div class="tableScroll"><table class="t"><thead><tr>' +
+        '<th>Pattern</th><th class="num">Students</th><th class="num">Shaky</th>' +
+        '<th class="num">Accuracy</th><th>Most common error</th>' +
+        "</tr></thead><tbody>" + patterns + "</tbody></table></div></div>" : "");
 
     $("tTroublePeriod").addEventListener("change", function(){
       troublePeriod = this.value;
@@ -1998,6 +2097,8 @@
   window.EITeacher = {
     _internals: {
       modeHeard: modeHeard,
+      patternRows: patternRows,
+      kindText: kindText,
       feed: function(st){
         st = st || {};
         students = st.students || [];

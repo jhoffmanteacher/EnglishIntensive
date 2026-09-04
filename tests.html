@@ -1576,6 +1576,95 @@
        Object.prototype.hasOwnProperty.call(S.payload(), "heard"), false);
   })();
 
+  /* ══════════════════════════════════════════════════════════════════
+     Patterns: what kind of wrong, and how often
+
+     Say It is the only mode that can name an error, so it is the only one
+     that writes a kind onto the stat. The load-bearing rules: the key set
+     is closed (this goes from a game engine into a document a teacher
+     reads), and "shaky" in the pattern table counts PEOPLE rather than
+     words, because thirty words on one vowel team is one problem.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A2 = window.Adaptive;
+
+    eq("a miss with a kind is counted", A2.updateStat(A2.emptyStat(), false, T0, 0, "vowel").k.vowel, 1);
+    eq("…and counted again", A2.updateStat(A2.updateStat(A2.emptyStat(), false, T0, 0, "vowel"), false, T0, 0, "vowel").k.vowel, 2);
+    eq("a correct answer never carries a kind",
+       Object.keys(A2.updateStat(A2.emptyStat(), true, T0, 0, "vowel").k).length, 0);
+    eq("a miss with no kind counts nothing",
+       Object.keys(A2.updateStat(A2.emptyStat(), false, T0).k).length, 0);
+    eq("an invented kind is not counted",
+       Object.keys(A2.updateStat(A2.emptyStat(), false, T0, 0, "vibes").k).length, 0);
+    eq("the key set is closed", A2.errorKinds.join(","), "blend,sound,vowel,consonant,missing,extra,other");
+    eq("sanitizeKinds drops what isn't a kind",
+       Object.keys(A2.sanitizeKinds({ vowel:2, vibes:9 })).join(","), "vowel");
+    eq("sanitizeKinds drops a zero", Object.keys(A2.sanitizeKinds({ vowel:0 })).length, 0);
+    eq("sanitizeKinds clamps an absurd count", A2.sanitizeKinds({ vowel:1e9 }).vowel, 999);
+    eq("sanitizeKinds on rubbish is empty", Object.keys(A2.sanitizeKinds("nope")).length, 0);
+    eq("a stat written before kinds existed still loads",
+       Object.keys(A2.sanitizeStat({n:3,r:3}).k).length, 0);
+
+    eq("topKind picks the commonest", A2.topKind({ vowel:1, blend:4 }).kind, "blend");
+    eq("…and says how many", A2.topKind({ vowel:1, blend:4 }).n, 4);
+    eq("topKind of nothing is null", A2.topKind({}), null);
+    eq("a tie goes to the more specific diagnosis", A2.topKind({ other:2, blend:2 }).kind, "blend");
+
+    eq("summarize sums the kinds across words",
+       A2.summarize({ a: stat({n:2,w:2,k:{vowel:2}}), b: stat({n:1,w:1,k:{vowel:1,blend:1}}) }).kinds.vowel, 3);
+    eq("summarize counts slow-but-right over every word, not just the solid ones",
+       A2.summarize({ a: stat({n:10,r:6,w:4,box:1,lat:9000}) }).slowRight, 1);
+    eq("…and a slow word never answered right isn't one",
+       A2.summarize({ a: stat({n:4,r:0,w:4,lat:9000}) }).slowRight, 0);
+
+    // Every family says what it teaches, in a teacher's words.
+    (function(){
+      var missing = window.WordLists.ids.filter(function(id){ return !window.WordLists.patternOf(id); });
+      eq("every list has a pattern", missing.join(","), "");
+      eq("the blends are told apart",
+         window.WordLists.patternOf("initial-blends") + " / " + window.WordLists.patternOf("final-blends"),
+         "initial blend / final blend");
+      eq("the red words are irregular", window.WordLists.patternOf("red-3-cards"), "irregular");
+      eq("every mode of a list shares its pattern",
+         window.WordLists.patternOf("oi-oy-read") === window.WordLists.patternOf("oi-oy-spell"), true);
+    })();
+  })();
+
+  /* ---- the pattern table ---- */
+  (function(){
+    var T2 = window.EITeacher._internals;
+    function st(o){ return window.Adaptive.sanitizeStat(o); }
+    var pool = [
+      { uid:"a", stats: {
+        "final-blends|gasp": st({n:10,r:3,w:7,k:{blend:5}}),
+        "final-blends|wisp": st({n:10,r:4,w:6,k:{missing:2}}),
+        "initial-blends|crab": st({n:10,r:10})
+      }},
+      { uid:"b", stats: {
+        "final-blends|gasp": st({n:10,r:2,w:8,k:{blend:3}}),
+        "initial-blends|crab": st({n:10,r:2,w:8,k:{vowel:4}})
+      }}
+    ];
+    var rows = T2.patternRows(pool);
+    function row(p){ for(var i=0;i<rows.length;i++) if(rows[i].pattern === p) return rows[i]; return null; }
+
+    eq("one row per pattern, not per list", rows.length, 2);
+    eq("worst first", rows[0].pattern, "final blend");
+    eq("a student struggling with two words of one pattern counts once",
+       row("final blend").shaky, 2, JSON.stringify(rows));
+    eq("…out of the students who have touched it", row("final blend").students, 2);
+    eq("the words are counted too", row("final blend").words, 3);
+    eq("the commonest error rolls up across students", row("final blend").top.kind, "blend");
+    eq("…summed", row("final blend").top.n, 8);
+    eq("a pattern nobody struggles with still shows, with zero",
+       row("initial blend").shaky, 1);
+    eq("a pattern nobody has practised isn't invented", row("multisyllable"), null);
+    eq("no students, no rows", T2.patternRows([]).length, 0);
+
+    eq("the kinds read as a teacher would write them", T2.kindText("missing"), "dropped a sound");
+    eq("an unknown kind passes through rather than blanking a cell", T2.kindText("zzz"), "zzz");
+  })();
+
   /* ---- the dashboard's mode across students ---- */
   (function(){
     var M = window.EITeacher._internals.modeHeard;
@@ -2215,7 +2304,7 @@
     var roster = T.rosterCsv().split("\r\n");
     eq("the roster has a header and a row per student", roster.length, 3, JSON.stringify(roster));
     eq("the header names the columns",
-       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Last active,Note");
+       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Note");
     eq("a name with a comma and an apostrophe survives whole",
        roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,3,'), 0);
     eq("the roster carries the same sentence the screen shows",
@@ -2231,10 +2320,10 @@
     eq("a word with no attempts is left out",
        T.wordsCsv().indexOf("never") , -1);
     eq("the header names the columns",
-       words[0], "Name,Email,Period,List,Mode,Word,Attempts,Correct,Accuracy %,Solid,Last practised");
+       words[0], "Name,Email,Period,List,Pattern,Mode,Word,Attempts,Correct,Accuracy %,Solid,Slow,Top error,Last practised");
     // Rows come out sorted by stat key, so "said" precedes "would".
-    eq("a row names the list and the mode in words",
-       words[1].indexOf("Red Words · List 1,Cards,said,4,3,75,no") !== -1, true, words[1]);
+    eq("a row names the list, its pattern and the mode in words",
+       words[1].indexOf("Red Words · List 1,irregular,Cards,said,4,3,75,no") !== -1, true, words[1]);
     eq("a solid word says so", words[2].indexOf(",would,9,9,100,yes,") !== -1, true, words[2]);
 
     eq("the filename is dated so a folder of them sorts",

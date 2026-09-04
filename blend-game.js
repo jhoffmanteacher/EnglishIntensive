@@ -308,9 +308,9 @@ window.BlendGame = (function(){
     var onHeard    = typeof cfg.onHeard === "function" ? cfg.onHeard : null;
     var onFinish   = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
     var nextRound  = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
-    function report(word, correct, tryCount){
+    function report(word, correct, tryCount, opts){
       if(!onResult) return;
-      try{ onResult(word, !!correct, tryCount|0); }catch(e){}
+      try{ onResult(word, !!correct, tryCount|0, opts || {}); }catch(e){}
     }
     // Every miss, not just the reveal: the first wrong transcript is often
     // the honest one, and the retry is where the student has already been
@@ -805,7 +805,9 @@ window.BlendGame = (function(){
         }
         if(missed.indexOf(target) === -1) missed.push(target);
         if(dx) missKind[target] = dx.kind;
-        report(target, false, tries);
+        // The diagnosis rides along with the result: the dashboard counts
+        // these per word, and Say It is the only mode that can name one.
+        report(target, false, tries, dx ? { kind: dx.kind } : null);
         // Never on the first miss — that stays fast so the retry isn't slowed down.
         if(voiceOn){
           if(targetChunks) sayChunked(targetChunks, target, dx ? spokenHint(dx.message) : null);

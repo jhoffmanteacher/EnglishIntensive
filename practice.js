@@ -141,10 +141,11 @@ window.EIPractice = (function(){
       var note = assignmentNote(list);
       if(note) cfg.intro = (cfg.intro || engineIntro(list)) + "<br>" + note;
 
-      // The 4th argument is an options bag only the flash cards pass —
-      // the other engines call onResult with three and never know.
+      /* The 4th argument is an options bag: the flash cards put a time in
+         it, Say It puts the kind of error in it, and the engines that
+         have neither call onResult with three arguments and never know. */
       cfg.onResult = function(word, firstTryCorrect, tries, opts){
-        EIStore.record(list.id, word, firstTryCorrect, opts && opts.ms);
+        EIStore.record(list.id, word, firstTryCorrect, opts && opts.ms, opts && opts.kind);
       };
       cfg.onHeard = function(word, text){
         EIStore.recordHeard(list.id, word, text);

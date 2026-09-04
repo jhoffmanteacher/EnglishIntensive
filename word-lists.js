@@ -281,6 +281,12 @@ var OI_OY_RULE =
    because they are ten lists wide and would otherwise push everything
    else off the right of the board.
 
+   `pattern` is what the family is TEACHING, in the words a teacher would
+   use about it — the dashboard groups trouble spots by it, so that a
+   report reads "final blends: seven students shaky" rather than naming
+   thirty words one at a time. One family, one pattern; if a family ever
+   needs two, it is two families.
+
    `config` is what every mode of the family passes to its engine;
    `modeConfig[mode]` is what only that mode passes, and it wins on a
    clash. Everything the engine's start() takes except `words`, which
@@ -300,6 +306,7 @@ window.LIST_FAMILIES = [
   {
     key: "blends-start",
     title: "Starting Blends",
+    pattern: "initial blend",
     icon: "🗣️",
     section: "decode",
     note: "Words that begin with a consonant blend — bl, cr, sl, tr.",
@@ -319,6 +326,7 @@ window.LIST_FAMILIES = [
   {
     key: "blends-end",
     title: "Blend Words",
+    pattern: "final blend",
     icon: "🎤",
     section: "decode",
     note: "Words that end with a consonant blend — the hard half of a blend, because the sounds run together on the way out.",
@@ -337,6 +345,7 @@ window.LIST_FAMILIES = [
   {
     key: "nonsense",
     title: "Nonsense Words",
+    pattern: "nonsense CVC",
     icon: "🤖",
     section: "decode",
     note: "Made-up CVC words with no meaning to lean on — pure sounding-out practice.",
@@ -380,6 +389,7 @@ window.LIST_FAMILIES = [
   {
     key: "oi-oy",
     title: "oi / oy",
+    pattern: "vowel team oi/oy",
     icon: "🪙",
     section: "decode",
     note: "One sound, two spellings. Read them, spell them, know them on sight, pick them out of a row.",
@@ -409,6 +419,7 @@ window.LIST_FAMILIES = [
   {
     key: "multi",
     title: "Multisyllable",
+    pattern: "multisyllable",
     icon: "🏗️",
     section: "decode",
     note: "Two- and three-syllable words. The trick is taking them one chunk at a time.",
@@ -453,6 +464,7 @@ window.LIST_FAMILIES = [
   {
     key: "red",
     title: "Red Words",
+    pattern: "irregular",
     icon: "🃏",
     section: "sight",
     note: "Ten screener lists of twenty sight words. Each list can be assigned as flash cards, Match It, or both.",
@@ -484,6 +496,7 @@ window.LIST_FAMILIES = [
   {
     key: "passages",
     title: "Passages",
+    pattern: "connected text",
     icon: "📖",
     section: "decode",
     note: "Short pieces of connected text. Every word comes off the lists above — the only new thing is that they are in sentences.",
@@ -658,6 +671,14 @@ window.WordLists = (function(){
 
     /* ── families ───────────────────────────────────────────────────── */
     families: function(){ return window.LIST_FAMILIES.slice(); },
+    // What a list is teaching, in a teacher's words. Falls back to the
+    // family title so a family added without a tag still reads sensibly.
+    patternOf: function(listId){
+      var l = index[listId];
+      if(!l) return "";
+      var fam = familyOf(l.family);
+      return (fam && (fam.pattern || fam.title)) || "";
+    },
     familyOf: familyOf,
     // Every list number a family has, ascending.
     listNumsOf: function(familyKey){

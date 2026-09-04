@@ -75,6 +75,13 @@ window.Adaptive = (function(){
      word is pulled back into rotation harder than its accuracy alone
      would ask for — being right about a word you had to decode is not the
      same as knowing it. */
+  /* The seven things diagnose() can blame, and the only keys the stat's
+     error tally will hold. A closed set on purpose: this is written from
+     a game engine into a document the teacher reads, and an open map
+     would let one bad build put anything in front of a class. */
+  var ERROR_KINDS = ["blend","sound","vowel","consonant","missing","extra","other"];
+  var MAX_KIND = 999;
+
   var SLOW_MS     = 2500;
   var SLOW_BOOST  = 1.5;
   var LAT_ALPHA   = 0.4;    // weight of the newest time in the running average
@@ -84,7 +91,7 @@ window.Adaptive = (function(){
   function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
   function num(v, dflt){ return (typeof v === "number" && isFinite(v)) ? v : dflt; }
 
-  function emptyStat(){ return { n:0, r:0, w:0, s:0, box:0, last:0, lat:0 }; }
+  function emptyStat(){ return { n:0, r:0, w:0, s:0, box:0, last:0, lat:0, k:{} }; }
 
   /* localStorage and Firestore are both hand-editable and outlive any
      change to this file, so nothing read back is trusted: a record is
@@ -103,8 +110,22 @@ window.Adaptive = (function(){
       // Time to answer, in ms — 0 means "never timed", which is every
       // stat written before the flash cards started measuring and every
       // stat from a mode that can't measure.
-      lat: clamp(Math.floor(num(raw.lat, 0)), 0, MAX_LAT_MS)
+      lat: clamp(Math.floor(num(raw.lat, 0)), 0, MAX_LAT_MS),
+      // What kind of wrong, counted. Only Say It can say, and only on the
+      // reveal; everything else leaves this empty.
+      k: sanitizeKinds(raw.k)
     };
+  }
+
+  function sanitizeKinds(raw){
+    var out = {};
+    if(!raw || typeof raw !== "object") return out;
+    for(var i=0;i<ERROR_KINDS.length;i++){
+      var k = ERROR_KINDS[i];
+      var v = clamp(Math.floor(num(raw[k], 0)), 0, MAX_KIND);
+      if(v > 0) out[k] = v;
+    }
+    return out;
   }
 
   function sanitizeStats(raw){
@@ -125,9 +146,17 @@ window.Adaptive = (function(){
      fumbles one word in the middle of a good run then sees it every single
      session for a week, which is how a practice deck turns into a
      punishment. One box back means it comes around soon, not constantly. */
-  function updateStat(stat, correct, now, ms){
+  function updateStat(stat, correct, now, ms, kind){
     var s = sanitizeStat(stat);
     s.n += 1;
+    /* One vote per miss for what kind of wrong it was. Only Say It knows
+       — it is the only mode that hears what the student actually said —
+       and only on the reveal, so this counts words given up on rather
+       than words fumbled once. A kind that isn't one of the seven is
+       simply not counted. */
+    if(!correct && kind && ERROR_KINDS.indexOf(kind) !== -1){
+      s.k[kind] = Math.min(MAX_KIND, (s.k[kind] || 0) + 1);
+    }
     s.last = Math.max(0, Math.floor(num(now, 0)));
     if(correct){
       s.r += 1;
@@ -264,12 +293,21 @@ window.Adaptive = (function(){
      summary. `attempts`/`right` are lifetime totals across every word. */
   function summarize(stats){
     var attempts = 0, right = 0, words = 0, mastered = 0, struggling = 0, slow = 0, last = 0;
+    var kinds = {}, slowRight = 0;
     for(var word in stats){
       if(!has(stats, word)) continue;
       var s = sanitizeStat(stats[word]);
       if(!s.n) continue;
       words++; attempts += s.n; right += s.r;
       if(s.last > last) last = s.last;
+      // Right, but not at pace — counted over every word, not just the
+      // mastered ones, because "slow but right" is the phrase a teacher
+      // uses about a word the student always gets and never gets quickly.
+      if(isSlow(s) && s.r > 0) slowRight++;
+      for(var kk in s.k){
+        if(!has(s.k, kk)) continue;
+        kinds[kk] = (kinds[kk] || 0) + s.k[kk];
+      }
       if(isMastered(s)){
         mastered++;
         // Counted INSIDE mastered, not beside it: the useful question is
@@ -291,6 +329,10 @@ window.Adaptive = (function(){
       // Solid words that are still slow. Never printed on a student page
       // — see isSlow(). The dashboard reads it; the tile does not.
       slow: slow,
+      // Every word that comes back right and comes back slowly.
+      slowRight: slowRight,
+      // What kind of wrong, summed across every word.
+      kinds: kinds,
       lastSeen: last
     };
   }
@@ -418,6 +460,18 @@ window.Adaptive = (function(){
     return { latest: list[list.length-1].cwpm, best: best, runs: list.length, last: list[list.length-1] };
   }
 
+  /* The commonest kind of error in a tally, or null. Ties break by the
+     order in ERROR_KINDS — which is diagnose()'s own order of
+     specificity, so a tie goes to the more specific diagnosis. */
+  function topKind(kinds){
+    var best = null, bestN = 0;
+    ERROR_KINDS.forEach(function(k){
+      var v = (kinds && kinds[k]) || 0;
+      if(v > bestN){ best = k; bestN = v; }
+    });
+    return best ? { kind: best, n: bestN } : null;
+  }
+
   // The subset of a stat map belonging to one list, re-keyed by bare word
   // — which is the shape pickSession and rank want.
   function statsForList(stats, listId){
@@ -449,6 +503,9 @@ window.Adaptive = (function(){
     rawAccuracy: rawAccuracy,
     isMastered: isMastered,
     isSlow: isSlow,
+    errorKinds: ERROR_KINDS.slice(),
+    sanitizeKinds: sanitizeKinds,
+    topKind: topKind,
     dueFactor: dueFactor,
     weight: weight,
     pickSession: pickSession,

@@ -14,8 +14,18 @@ with the reasoning, so they don't get re-proposed every few months.
 *(The three items that were here — progression rules, per-student notes and
 export — are all done. See the Teacher dashboard section of the README.)*
 
-Nothing outstanding. The next thing worth building is whatever the class
-turns out to need after a term of using it.
+Nothing outstanding from the assignment-board work. The reading-feedback
+build (sound-level feedback, fluency, phoneme clips, sound boxes, patterns)
+is done and described in the README; what it wants now is a term of use.
+
+Two things worth watching once it has had one:
+
+- **The Assign board is 23 columns wide.** The passages added eight. The
+  family fold (▾) is the escape hatch and it works, but if the board
+  becomes unusable the passages are the family to fold by default.
+- **`ACCEPT` is still hand-edited.** The dashboard's "most often heard as"
+  column now shows which mishearings are common across the class, which is
+  the signal for adding one. Nobody has added one yet.
 
 ## Smaller
 

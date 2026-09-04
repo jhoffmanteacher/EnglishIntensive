@@ -1212,6 +1212,32 @@ take the finished list away, since each list is its own tile with its own
 adaptive deck, so keeping List 3 alongside List 4 costs nothing and keeps
 those words in rotation. Dropping one stays a judgement call.
 
+### Patterns
+
+Thirty words all going wrong on the same vowel team is **one** problem with
+one lesson behind it, and a list of thirty words is exactly the shape that
+hides that. So every family carries a `pattern` — *initial blend*, *final
+blend*, *vowel team oi/oy*, *multisyllable*, *irregular*, *nonsense CVC*,
+*connected text* — in the words a teacher would use in a plan, and **Trouble
+spots** has a second table grouped by it, filterable by period like the
+first.
+
+"Shaky" in that table counts **students**, not words: a student struggling
+with six words of one pattern counts once, because the question the table
+answers is how many people to reteach.
+
+The **Most common error** column comes from the seven kinds `diagnose()` can
+name, counted per miss on the stat as `k: {blend:3, vowel:1}`. Only Say It
+writes them — it is the only mode that hears what the student actually said
+— and only on the reveal, so it counts words given up on rather than words
+fumbled once. The key set is closed and sanitized on the way in: this goes
+from a game engine into a document a teacher reads.
+
+The student page gains a **Slow but right** count (from `lat` — see Speed;
+still never shown to the student) and a one-line error mix. Both exports
+grow columns: *Slow but right* and *Top error* on the roster; *Pattern*,
+*Slow* and *Top error* per word.
+
 ### Notes
 
 A short note per student, on their detail page, for the things the
