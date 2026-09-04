@@ -226,6 +226,7 @@ window.BlendGame = (function(){
 
     <div class="toolbar">
       <button class="btn ghost" id="btnHear">🔊 Hear it</button>
+      <button class="btn ghost" id="btnSelf" style="display:none">🎙 Hear yourself</button>
       <button class="btn ghost" id="btnSkip">Skip ▸</button>
       <button class="btn ghost" id="btnQuit">End game</button>
     </div>
@@ -447,6 +448,12 @@ window.BlendGame = (function(){
     Core.phonemeAudio().then(function(p){ phAudio = p; });
     var revealPieces = [], revealWord = "";
 
+    /* Recording the student, in memory, for as long as one word is on
+       screen. Enabled only after the mic check — the permission prompt
+       has already happened by then, so this never causes a second one. */
+    var selfRec = Core.selfRecorder();
+    var haveSelf = false;
+
     /* Homophone groups, where the list carries them. Only the red words do
        — and only they need to: their near-misses are words that sound
        identical ("to"/"two"), while the phonics lists' near-misses are
@@ -610,6 +617,11 @@ window.BlendGame = (function(){
       $("uiWord").innerHTML = markup(w);
       Core.markWordCase($("uiWord"), w);
       revealPieces = []; revealWord = "";
+      // A new word, a new recording. The old one is dropped rather than
+      // kept: nothing here is worth keeping past the card it belongs to.
+      haveSelf = false;
+      $("btnSelf").style.display = "none";
+      if(selfRec && selfRec.available()){ selfRec.drop(); selfRec.start(); }
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       renderCombo();
@@ -689,8 +701,20 @@ window.BlendGame = (function(){
 
     // A one-shot burst of falling confetti pieces on a good finish — pure CSS
     // animation, each piece removes itself once its fall finishes.
+    // The word is finished with, so the recording of it is too. Offered
+    // rather than played: a student who got it right does not need to
+    // hear themselves, and one who didn't may not want to in a full room.
+    function keepRecording(){
+      if(!selfRec || !selfRec.available()) return;
+      selfRec.stop().then(function(ok){
+        haveSelf = !!ok;
+        if(ok && playing()) $("btnSelf").style.display = "";
+      });
+    }
+
     function handleCorrect(){
       busy = true;
+      keepRecording();
       right++;
       streak++;
       // First try, no stumble: the word has earned its way out of the
@@ -730,6 +754,7 @@ window.BlendGame = (function(){
 
     function handleWrong(heard){
       busy = true;
+      keepRecording();
       streak = 0;
       $("uiStreak").textContent = 0;
       renderCombo();
@@ -1076,6 +1101,23 @@ window.BlendGame = (function(){
     }
 
     /* ---------------- events ---------------- */
+    /* "Hear yourself" plays the student back and then reads the word
+       properly, which is the comparison the button exists to make. A
+       student who has just been marked wrong twice usually believes they
+       said it right — they heard it right in their head the whole time —
+       and there is no argument with the recording. */
+    $("btnSelf").addEventListener("click", function(){
+      if(!haveSelf || !selfRec) return;
+      $("btnSelf").disabled = true;
+      holdMic(4000);
+      selfRec.play().then(function(){
+        $("btnSelf").disabled = false;
+        // Always, whatever the Voice setting says: the point of the
+        // button is the comparison, and half of it is the correct read.
+        say(queue[idx], 0.85);
+      });
+    });
+
     // Greyed out rather than silently dead on a browser that can't speak.
     if(!window.speechSynthesis) $("btnDirections").disabled = true;
     else $("btnDirections").addEventListener("click", readDirections);
@@ -1084,7 +1126,14 @@ window.BlendGame = (function(){
       snd.click(); startMicCheck();
     });
 
-    $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(pendingList); });
+    $("btnPlay").addEventListener("click", function(){
+      stopMicCheck();
+      // The permission prompt has just been answered, so asking for a
+      // second stream costs nothing and prompts nobody. If it fails, the
+      // button simply never appears.
+      if(selfRec) selfRec.enable();
+      startGame(pendingList);
+    });
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
 
     // The count has to be right at the moment the student looks at it, so
@@ -1166,6 +1215,7 @@ window.BlendGame = (function(){
 
     window.addEventListener("beforeunload", function(){
       micOn = false; stopMicLoop(); stopListening(); stopMicCheck();
+      if(selfRec) selfRec.release();
       // A coach utterance mid-sentence would otherwise keep talking over
       // the next page for a beat — speechSynthesis is window-global.
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }

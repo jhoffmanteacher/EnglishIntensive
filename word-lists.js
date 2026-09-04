@@ -99,6 +99,13 @@ var MODES = {
   blendit: {
     key: "blendit", engine: "blendit", icon: "🔊", title: "Blend it", needs: "mic", page: "blend-it-game.html",
     intro: "Listen to the sounds one at a time, then run them together and say the word.<br>The word stays hidden until you've had your go."
+  },
+  /* A variant inside the cards engine rather than an engine of its own:
+     the screens, the scoring and the deck are the flash cards', and only
+     what happens on the card is different. */
+  split: {
+    key: "split", engine: "card", icon: "✂️", title: "Split it", needs: "", page: "cards-game.html",
+    intro: "Long words come apart. Click where the word splits into syllables, then press Enter.<br>Get the split right first time and it counts."
   }
 };
 
@@ -386,7 +393,10 @@ window.LIST_FAMILIES = [
     config: { highlight: /oi|oy/i },
     modeConfig: {
       say:   { blend: "sound", sound: "OY", theme: "maze" },
-      spell: { rule: OI_OY_RULE, sentences: OI_OY_SENTENCES },
+      // Sound boxes: one input per SOUND. This is the list they were
+      // invented for — a vowel team is exactly where the number of
+      // sounds and the number of letters come apart.
+      spell: { rule: OI_OY_RULE, sentences: OI_OY_SENTENCES, boxes: true },
       // The cards use them for something different from Match It: once a
       // word is solid, one card in three shows it inside its sentence
       // instead of alone. See card-game.js.
@@ -403,12 +413,21 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Two- and three-syllable words. The trick is taking them one chunk at a time.",
     description: "Two- and three-syllable words like napkin, picnic and fantastic.",
-    modes: ["say", "cards", "match"],
+    modes: ["say", "cards", "match", "split"],
     pages: { say: "multisyllable-words-game.html" },
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
         intro: "Break the word into syllables. Say each part, then say the whole word.<br>The computer listens and tells you if you're right."
+      },
+      split: {
+        split: true,
+        note: `
+    <p>A long word is short words in a row. <b>fan·tas·tic</b> is three of
+    them, and each one is easy — the length is the only hard part.</p>
+    <p>Click <b>between</b> the letters to put a split in, click a split
+    again to take it out, then press <kbd>Enter</kbd>. Get it right the
+    first time and it counts.</p>`
       },
       cards: {
         note: `

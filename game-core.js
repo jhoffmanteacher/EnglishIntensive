@@ -890,6 +890,105 @@ window.GameCore = (function(){
   // loads, so a cleared or stale cache costs one frame and nothing else.
   applyView(readView());
 
+  /* ---------------- hear yourself ----------------
+     A student who has just read a word wrong twice has no idea what they
+     actually said. They heard the word in their head, correctly, the
+     whole time. Playing the last few seconds back is the shortest route
+     from "the computer is broken" to "oh — I said *bred*", and it is the
+     one piece of feedback on this site that needs no interpreting at all.
+
+     In MEMORY ONLY. The clip lives as a blob URL for exactly as long as
+     the card is on screen and is revoked when the next one arrives.
+     Nothing is stored and nothing is uploaded: a recording of a
+     fifteen-year-old struggling to read is not a thing to keep, and the
+     moment it is kept somebody has to decide who may hear it.
+
+     Returns null where MediaRecorder isn't available, and stays inert
+     until enable() is called — which the engines only do once the mic
+     permission prompt has already been answered, so this never causes one
+     of its own. */
+  function selfRecorder(){
+    if(!window.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+
+    var stream = null, rec = null, parts = [], url = null, armed = false;
+    var audio = null;
+
+    function drop(){
+      if(url){ try{ URL.revokeObjectURL(url); }catch(e){} url = null; }
+      parts = [];
+    }
+
+    return {
+      // Asks for the microphone. Only call this where permission has
+      // already been granted for something else, or it is a second prompt
+      // in the middle of a game.
+      enable: function(){
+        if(armed) return Promise.resolve(true);
+        return navigator.mediaDevices.getUserMedia({ audio: true }).then(function(s){
+          stream = s;
+          armed = true;
+          return true;
+        }).catch(function(){ armed = false; return false; });
+      },
+      available: function(){ return armed; },
+
+      start: function(){
+        if(!armed || !stream || rec) return;
+        drop();
+        try{
+          rec = new MediaRecorder(stream);
+          rec.ondataavailable = function(e){ if(e.data && e.data.size) parts.push(e.data); };
+          rec.start();
+        }catch(e){ rec = null; }
+      },
+
+      // Resolves to true if there is now something to play back.
+      stop: function(){
+        if(!rec) return Promise.resolve(false);
+        var r = rec;
+        rec = null;
+        return new Promise(function(resolve){
+          r.onstop = function(){
+            if(!parts.length){ resolve(false); return; }
+            try{
+              url = URL.createObjectURL(new Blob(parts, { type: parts[0].type || "audio/webm" }));
+              resolve(true);
+            }catch(e){ resolve(false); }
+          };
+          try{ r.stop(); }catch(e){ resolve(false); }
+        });
+      },
+
+      has: function(){ return !!url; },
+
+      // Resolves when the playback finishes, so a caller can follow it
+      // with the correct read of the word — which is the comparison the
+      // whole feature exists to make.
+      play: function(){
+        if(!url) return Promise.resolve(false);
+        return new Promise(function(resolve){
+          try{
+            if(!audio) audio = new Audio();
+            audio.src = url;
+            audio.onended = function(){ resolve(true); };
+            audio.onerror = function(){ resolve(false); };
+            var p = audio.play();
+            if(p && p.catch) p.catch(function(){ resolve(false); });
+          }catch(e){ resolve(false); }
+        });
+      },
+
+      drop: drop,
+
+      release: function(){
+        drop();
+        if(rec){ try{ rec.stop(); }catch(e){} rec = null; }
+        if(stream){ try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} stream = null; }
+        armed = false;
+      }
+    };
+  }
+
   /* ---------------- tap-to-hear ----------------
      A revealed word broken into pieces you can press. Syllables where the
      entry marks them ("fan·tas·tic"); otherwise one piece per sound, from
@@ -1440,6 +1539,7 @@ window.GameCore = (function(){
     spokenMatch: spokenMatch,
     expandPhonemes: expandPhonemes,
     phonemeAudio: phonemeAudio,
+    selfRecorder: selfRecorder,
     tapPieces: tapPieces,
     tapMarkup: tapMarkup,
     wireTaps: wireTaps,

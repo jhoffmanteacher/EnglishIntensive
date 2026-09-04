@@ -1134,6 +1134,70 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     spell-game.js — sound boxes
+
+     One box per SOUND. What could go wrong here is the split itself: a
+     box row that expects one letter where the word has two would mark a
+     correct spelling wrong, which is the worst thing a spelling game can
+     do.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var B = window.SpellGame._internals.boxGraphemes;
+    eq("a vowel team is one box, two letters", B("coin").join("|"), "c|oi|n");
+    eq("…and the boxes still spell the word", B("coin").join(""), "coin");
+    eq("three sounds, four letters — the whole lesson", B("coin").length, 3);
+    eq("a plain word is one box per letter", B("job").join("|"), "j|o|b");
+    eq("a doubled consonant is one box", B("spoil").join("|"), "s|p|oi|l");
+    eq("a silent e travels with the box before it", B("noise").join("|"), "n|oi|se");
+    eq("nothing spells nothing", B("").length, 0);
+    (function(){
+      var bad = [];
+      window.WordLists.wordsOf("oi-oy-spell").forEach(function(w){
+        if(B(w).join("") !== w.toLowerCase().replace(/[^a-z]/g, "")) bad.push(w);
+      });
+      eq("every word on the spelling list reassembles from its boxes", bad.join(","), "");
+    })();
+    eq("the oi/oy list is the one with boxes on",
+       window.WordLists.byId("oi-oy-spell").config.boxes, true);
+  })();
+
+  /* ---- Split it: where a long word comes apart ---- */
+  (function(){
+    var B = window.CardGame._internals.boundariesOf;
+    var S = window.CardGame._internals.sameSplit;
+    eq("three syllables, two splits", B(["fan","tas","tic"]).join(","), "3,6");
+    eq("two syllables, one split", B(["pub","lic"]).join(","), "3");
+    eq("one syllable, no splits at all", B(["soft"]).length, 0);
+    eq("no chunks, no splits", B(null).length, 0);
+    eq("uneven syllables count letters, not syllables", B(["dis","gust","ed"]).join(","), "3,7");
+
+    eq("the same split in the same order matches", S([3,6],[3,6]), true);
+    eq("…and in a different order", S([6,3],[3,6]), true);
+    eq("a missing split doesn't", S([3],[3,6]), false);
+    eq("an extra split doesn't", S([3,6,8],[3,6]), false);
+    eq("no splits matches no splits — a one-syllable word is answerable", S([],[]), true);
+    eq("…and no splits doesn't match a split", S([],[3]), false);
+
+    // The list is the answer key, so every dotted entry has to produce a
+    // split that lands between letters of the plain word.
+    (function(){
+      var bad = [];
+      window.WordLists.byId("multi-1-split").words.forEach(function(entry){
+        var p = window.GameCore.parseEntry(entry);
+        B(p.chunks || [p.word]).forEach(function(at){
+          if(at <= 0 || at >= p.word.length) bad.push(entry + "@" + at);
+        });
+      });
+      eq("every split on the list lands inside its word", bad.join(","), "");
+    })();
+    eq("Split it is a cards-engine mode", window.WordLists.byId("multi-1-split").engine, "card");
+    eq("…on the cards page", window.WordLists.byId("multi-1-split").page, "cards-game.html");
+    eq("…and it tells the engine so", window.WordLists.byId("multi-1-split").config.split, true);
+    eq("…and only the multisyllable family has it",
+       window.WordLists.all.filter(function(l){ return l.mode === "split"; }).length, 1);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — the Reading view
 
      Four switches applied as classes on <html>. The parts worth pinning:
@@ -1677,7 +1741,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("59 entries: six word families and eight passages, times their modes", W.all.length, 59);
+    eq("60 entries: six word families and eight passages, times their modes", W.all.length, 60);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){

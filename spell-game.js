@@ -45,6 +45,19 @@ window.SpellGame = (function(){
      strict about LETTERS and forgiving about everything else: case, stray
      spaces, a trailing period, and the curly apostrophe a Chromebook
      substitutes are all typing noise rather than spelling errors. */
+  /* The letters that go in each sound box, in order. One entry per sound;
+     an entry may be one letter ("c"), two ("oi"), or four ("eigh"), and
+     that mismatch is the entire lesson — a student who writes one letter
+     per box has already found the thing they were about to get wrong.
+
+     Pure and module-level so tests.html can pin it: the boxes decide what
+     counts as right, and a wrong split would mark a correct spelling
+     wrong. */
+  function boxGraphemes(word){
+    var w = String(word == null ? "" : word).toLowerCase().replace(/[^a-z]/g, "");
+    return window.GameCore.phonemeSpans(w).map(function(sp){ return w.slice(sp.start, sp.end); });
+  }
+
   function normalizeAnswer(s){
     return String(s === null || s === undefined ? "" : s)
       .toLowerCase()
@@ -137,6 +150,31 @@ window.SpellGame = (function(){
   .spellinput:disabled{opacity:.55}
   .wordcard.wrong .spellinput{border-color:var(--bad)}
   .wordcard.correct .spellinput{border-color:var(--good)}
+
+  /* ---- sound boxes ----
+     One box per SOUND, not per letter — which is the whole teaching
+     point: "coin" is three sounds and four letters, and a student who
+     writes one letter per box has already gone wrong. The boxes say how
+     many sounds; how many letters go in each is the thing being learned. */
+  .boxrow{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:0}
+  .boxrow[hidden]{display:none}
+  .sbox{
+    font-family:inherit;font-size:30px;font-weight:800;letter-spacing:2px;text-align:center;
+    width:74px;padding:12px 4px;border-radius:14px;
+    background:var(--bg);color:var(--ink);border:2px solid var(--line);outline:none;
+    transition:border-color .15s ease, background .15s ease, color .15s ease;
+  }
+  .sbox:focus{border-color:var(--accent)}
+  .sbox:disabled{opacity:.75}
+  .sbox.ok{border-color:var(--good);color:var(--good)}
+  .sbox.no{border-color:var(--bad);color:var(--bad);animation:sboxShake .34s}
+  .sbox.fix{border-color:var(--accent);background:rgba(255,201,77,.13);color:var(--accent)}
+  @keyframes sboxShake{
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-7px)}40%{transform:translateX(7px)}
+    60%{transform:translateX(-4px)}80%{transform:translateX(4px)}
+  }
+  @media (prefers-reduced-motion: reduce){ .sbox.no{animation:none} }
   `;
   // One template literal rather than a hundred lines of string concatenation —
   // this is markup, and it should still read like markup.
@@ -181,6 +219,10 @@ window.SpellGame = (function(){
       <div class="hint" id="uiHint">Type the word you hear</div>
       <div class="word typed" id="uiWord"><span class="ghost">🔊</span></div>
       <form class="spellform" id="spellForm" autocomplete="off">
+        <!-- One of these two is used, never both: cfg.boxes swaps the
+             single box for a row of sound boxes. The <form> and its
+             Check button are shared, so Enter behaves the same either way. -->
+        <div class="boxrow" id="uiBoxes" hidden aria-label="One box per sound"></div>
         <input class="spellinput" id="uiInput" type="text" inputmode="text"
                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                aria-label="Type the word you hear">
@@ -223,6 +265,13 @@ window.SpellGame = (function(){
   function start(cfg){
     var WORDS = cfg.words;
     var highlightRe = cfg.highlight || null;
+    /* Sound boxes: one input per SOUND rather than one for the whole
+       word. The teaching point is the mismatch — "coin" is three sounds
+       and four letters, and a student who puts one letter in each box has
+       already found the thing they were going to get wrong. Off by
+       default; the oi/oy list turns it on, because a vowel team is
+       exactly the case where sounds and letters come apart. */
+    var BOXES = !!cfg.boxes;
     // Optional word -> context sentence map for the spelling-bee read.
     // Words without an entry just get the plain word — no error, less help.
     var SENTENCES = cfg.sentences || {};
@@ -360,13 +409,117 @@ window.SpellGame = (function(){
     // readable from across the room — and so the reveal has somewhere to
     // land that isn't the box they are about to type in again.
     function renderTyped(){
-      var v = $("uiInput").value;
+      var v = readAnswer();
       $("uiWord").innerHTML = v ? escapeHtml(v) : '<span class="ghost">🔊</span>';
+    }
+
+    /* ---------------- sound boxes ----------------
+       Everything below is inert unless cfg.boxes is on; with it off,
+       readAnswer() is the single input and nothing else here ever runs. */
+    var boxSpans = [];        // the target's phoneme spans, one per box
+
+    function boxEls(){
+      return Array.prototype.slice.call($("uiBoxes").querySelectorAll(".sbox"));
+    }
+
+    // What the student has written, boxes joined or the single input.
+    function readAnswer(){
+      if(!BOXES) return $("uiInput").value;
+      return boxEls().map(function(b){ return b.value; }).join("");
+    }
+
+    function buildBoxes(word){
+      boxSpans = Core.phonemeSpans(word);
+      var row = $("uiBoxes");
+      row.innerHTML = "";
+      boxSpans.forEach(function(sp, i){
+        var b = document.createElement("input");
+        b.type = "text";
+        b.className = "sbox";
+        b.id = "sbox" + i;
+        b.setAttribute("inputmode", "text");
+        b.setAttribute("autocomplete", "off");
+        b.setAttribute("autocorrect", "off");
+        b.setAttribute("autocapitalize", "off");
+        b.setAttribute("spellcheck", "false");
+        // Four is room for "eigh" and no room for a whole word — a box
+        // that accepted the answer would stop being a sound box.
+        b.maxLength = 4;
+        b.setAttribute("aria-label", "Sound " + (i+1) + " of " + boxSpans.length);
+        row.appendChild(b);
+      });
+      row.hidden = false;
+      $("uiInput").hidden = true;
+    }
+
+    // The letters this box is supposed to hold.
+    function graphemeAt(word, i){
+      var g = boxGraphemes(word);
+      return g[i] || "";
+    }
+
+    /* Auto-advance when a box is as long as the sound it holds. That
+       length IS the scaffold — a paper sound-box grid tells a student the
+       same thing by how wide the box is drawn — and it is what stops a
+       student typing the whole word into box one. Backspace out of an
+       empty box goes back, the way every code-entry field works. */
+    function wireBoxes(word){
+      boxEls().forEach(function(b, i){
+        b.addEventListener("input", function(){
+          renderTyped();
+          b.classList.remove("no", "ok", "fix");
+          var want = graphemeAt(word, i).length;
+          if(want && b.value.length >= want){
+            var nextBox = $("sbox" + (i+1));
+            if(nextBox) nextBox.focus();
+          }
+        });
+        b.addEventListener("keydown", function(e){
+          if(e.key === "Backspace" && !b.value){
+            var prev = $("sbox" + (i-1));
+            if(prev){ e.preventDefault(); prev.focus(); prev.value = prev.value.slice(0, -1); renderTyped(); }
+          }
+        });
+      });
+    }
+
+    // Which boxes are wrong. Pure enough to be worth its own name: the
+    // shake, the gold fill and the spoken hint all ask the same question.
+    function wrongBoxes(word){
+      var out = [];
+      boxEls().forEach(function(b, i){
+        if(normalizeAnswer(b.value) !== graphemeAt(word, i)) out.push(i);
+      });
+      return out;
+    }
+
+    function markBoxes(word, reveal){
+      var bad = wrongBoxes(word);
+      boxEls().forEach(function(b, i){
+        b.classList.remove("ok", "no", "fix");
+        if(bad.indexOf(i) === -1){ b.classList.add("ok"); return; }
+        if(reveal){
+          b.value = graphemeAt(word, i);
+          b.classList.add("fix");
+        } else {
+          b.classList.add("no");
+        }
+      });
+      return bad;
+    }
+
+    function focusFirstBox(){
+      var b = $("sbox0");
+      if(b){ try{ b.focus(); }catch(e){} }
     }
     function render(){
       var input = $("uiInput");
       input.value = "";
       input.disabled = false;
+      if(BOXES){
+        buildBoxes(queue[idx]);
+        wireBoxes(queue[idx]);
+      }
       $("uiWord").innerHTML = '<span class="ghost">🔊</span>';
       $("uiHint").textContent = "Type the word you hear";
       $("uiScore").textContent = score;
@@ -375,9 +528,11 @@ window.SpellGame = (function(){
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
       prog.update(idx/queue.length*100);
       $("wordCard").className = "wordcard";
-      $("uiMsg").innerHTML = "Listen, then type it.";
+      $("uiMsg").innerHTML = BOXES
+        ? "One box for each <b>sound</b> — not each letter."
+        : "Listen, then type it.";
       repeats = 0;
-      focusInput();
+      if(BOXES) focusFirstBox(); else focusInput();
       speakWord(false, true);
     }
     /* ---------------- game flow ---------------- */
@@ -459,6 +614,7 @@ window.SpellGame = (function(){
       var milestone = streak > 0 && streak % 5 === 0;
       score += pts;
       $("uiInput").disabled = true;
+      if(BOXES){ markBoxes(queue[idx], false); boxEls().forEach(function(b){ b.disabled = true; }); }
       $("wordCard").className = "wordcard correct";
       $("uiHint").textContent = "Spelled it";
       $("uiMsg").innerHTML = "<b>Correct!</b> +" + pts + " points" +
@@ -492,16 +648,28 @@ window.SpellGame = (function(){
         // Nothing is revealed yet — the point of the retry is to listen
         // harder, so the word comes back slower and their attempt stays in
         // the box, selected, ready to be typed over or edited.
-        $("uiMsg").innerHTML = "Not quite — listen again.";
+        /* With boxes, the first miss says WHICH box — that is the whole
+           advantage of splitting the word up, and it costs nothing: the
+           letters are still the student's own, only the wrong ones are
+           marked, and they type over them. */
+        var bad = BOXES ? markBoxes(target, false) : [];
+        $("uiMsg").innerHTML = BOXES
+          ? (bad.length === 1 ? "One sound is wrong — the red box." : "Some sounds are wrong — the red boxes.")
+          : "Not quite — listen again.";
         repeats = 2;                // every replay from here on is the slow one
         // A beat of silence first, so the replay doesn't collide with the
         // wrong-answer beep the student is still hearing.
         // The sentence comes back too — a student who misheard the word
         // needs the context again more than anyone.
         setTimeout(function(){ speakWord(true, true); }, 420);
-        var input = $("uiInput");
-        input.focus();
-        input.select();
+        if(BOXES){
+          var firstBad = $("sbox" + (bad.length ? bad[0] : 0));
+          if(firstBad){ firstBad.focus(); firstBad.select(); }
+        } else {
+          var input = $("uiInput");
+          input.focus();
+          input.select();
+        }
         setTimeout(function(){
           if($("wordCard").className === "wordcard wrong") $("wordCard").className = "wordcard";
         }, 900);
@@ -515,6 +683,11 @@ window.SpellGame = (function(){
       $("uiInput").disabled = true;
       if(missed.indexOf(target) === -1) missed.push(target);
       report(target, false, tries);
+      /* The reveal fills the wrong boxes in gold and leaves the right ones
+         alone, so what the student sees is their own spelling with the
+         missing piece dropped in — not the answer handed over whole. */
+      var badBoxes = BOXES ? markBoxes(target, true) : [];
+      if(BOXES) boxEls().forEach(function(b){ b.disabled = true; });
       var diff = diffLetters(typedRaw, target), gilded = false;
       var parts = diff.map(function(p){
         if(p.ok) return escapeHtml(p.ch);
@@ -528,16 +701,32 @@ window.SpellGame = (function(){
       // Nothing gets gilded when every correct letter is present in order and
       // the only error was an extra letter ("coinn") — pointing at gold
       // letters that aren't there would just be confusing.
-      $("uiMsg").innerHTML = (gilded ? "Watch the gold letters." : "So close — count the letters again.") +
-        (typed ? '<br><span class="heard">You typed: ' + escapeHtml(typed) + "</span>" : "");
-      say(target, SLOW_RATE);
-      scheduleNext(2800);
+      /* One wrong box is a diagnosable error: the student got every other
+         sound and missed one, and diagnose() can say which. Two or more
+         and there is no single thing to point at, so it says nothing
+         rather than guessing. */
+      var boxHint = "";
+      if(BOXES && badBoxes.length === 1){
+        var dx = Core.diagnose(typedRaw, target, {
+          atStart: true, blendLength: 0, soundSeq: null, highlight: highlightRe
+        });
+        if(dx) boxHint = dx.message;
+      }
+      $("uiMsg").innerHTML =
+        (BOXES ? (badBoxes.length === 1 ? "One sound — the gold box." : "Watch the gold boxes.")
+               : (gilded ? "Watch the gold letters." : "So close — count the letters again.")) +
+        (typed ? '<br><span class="heard">You typed: ' + escapeHtml(typed) + "</span>" : "") +
+        (boxHint ? '<br><span class="dxmsg">' + escapeHtml(boxHint) + "</span>" : "");
+      // The word slowly, and then the one thing that went wrong.
+      if(boxHint) sayParts([[target, SLOW_RATE], [boxHint.replace(/:\s*/, ", ") + ".", 0.95]]);
+      else say(target, SLOW_RATE);
+      scheduleNext(boxHint ? 3500 : 2800);
     }
 
     function submit(){
       // Mid-feedback, Enter means "get on with it" rather than "check this".
       if(busy){ flushNext(); return; }
-      var raw = $("uiInput").value;
+      var raw = readAnswer();
       if(!normalizeAnswer(raw)){
         // An empty box is never a wrong answer — it's a student asking to
         // hear the word one more time.
@@ -648,6 +837,7 @@ window.SpellGame = (function(){
   return {
     start: start,
     _internals: {
+      boxGraphemes: boxGraphemes,
       normalizeAnswer: normalizeAnswer,
       isCorrect: isCorrect,
       diffLetters: diffLetters,

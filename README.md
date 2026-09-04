@@ -938,6 +938,59 @@ Press-only on purpose (`tabindex="-1"`): these sit inside games where 1 and
 2 are the answer keys, and a tab stop on every syllable would put a dozen
 new stops between the student and the button they need.
 
+## Sound boxes, splitting and hearing yourself
+
+Three smaller things, each aimed at a sub-skill the other modes step over.
+
+### Sound boxes (oi/oy spelling)
+
+One input per **sound**, not one for the word. "coin" is three sounds and
+four letters, and a student who puts one letter in each box has already
+found the thing they were going to get wrong. Typing auto-advances when a
+box is as long as the sound it holds — that length is the scaffold, exactly
+as the width of a drawn box is on paper — and Backspace out of an empty box
+goes back.
+
+The first miss marks the wrong boxes red and says how many; the student
+types over them. The second fills those boxes in gold and leaves the right
+ones alone, so what they see is their own spelling with the missing piece
+dropped in rather than the answer handed over whole. When exactly **one**
+box is wrong there is a single thing to point at, so `diagnose()` says what
+it is and the voice reads it after the word; two or more and it says nothing
+rather than guessing.
+
+Stats are unchanged: correct means every box right first try.
+
+### Split it (multisyllable)
+
+A variant inside the flash-card engine — same deck, same scoring, same
+screens — where the word shows with a clickable gap between every pair of
+letters. The student marks where it comes apart and presses Enter. Their
+extra splits go red where they put them; the ones they missed slide in gold.
+
+The answer key is the list itself: the entry's own syllable dots. Splits are
+compared as **sets of positions**, which is what lets a one-syllable word
+have the perfectly good answer "no splits at all".
+
+### Hear yourself
+
+A student who has just read a word wrong twice usually has no idea what they
+actually said — they heard the word correctly in their own head the whole
+time. "🎙 Hear yourself" plays the last few seconds back and then reads the
+word properly, which is the comparison the button exists for. There is no
+arguing with the recording.
+
+**In memory only.** The clip lives as a blob URL for exactly as long as its
+card is on screen and is revoked when the next one arrives. Nothing is
+stored and nothing is uploaded: a recording of a fifteen-year-old struggling
+to read is not a thing to keep, and the moment it is kept somebody has to
+decide who may hear it.
+
+Feature-detected (`MediaRecorder`), and only ever enabled where the
+microphone prompt has already been answered — after Say It's mic check, or
+when the cards' Listen toggle is switched on. It never causes a prompt of
+its own, and where there is no permission the button simply never appears.
+
 ## Adaptive practice
 
 A round is no longer the whole word list. `EIPractice.play()` draws

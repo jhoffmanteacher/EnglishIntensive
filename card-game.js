@@ -21,6 +21,11 @@
  * special handling, since nothing is ever matched against what a student
  * typed or said.
  *
+ * With cfg.split the same engine runs "Split it" instead: the word shows
+ * with clickable gaps and the student marks where it comes apart, which
+ * is the one thing about a long word that can be checked without a mic
+ * and without typing. Same deck, same scoring, same screens.
+ *
  * The optional "Listen" toggle (listen.js) does not change that. With it on
  * the mic keeps whatever the student said while the card was face up and
  * shows it on the back — the game SUGGESTS a rating and the student still
@@ -95,6 +100,26 @@ window.CardGame = (function(){
            '<span class="ctxrest">' + escapeHtmlLocal(text.slice(at + m[2].length)) + "</span>";
   }
   function escapeHtmlLocal(x){ return Core.escapeHtml(x); }
+
+  /* ---- Split it (pure) ----
+     A split is a set of positions in the word: "fan·tas·tic" splits after
+     3 and after 6. Comparing sets rather than strings is what lets the
+     answer be checked without caring how the student got there, and lets
+     a one-syllable word have the perfectly good answer "no splits". */
+  function boundariesOf(chunks){
+    var out = [], at = 0;
+    (chunks || []).forEach(function(c, i){
+      at += c.length;
+      if(i < chunks.length - 1) out.push(at);
+    });
+    return out;
+  }
+
+  function sameSplit(a, b){
+    var x = (a || []).slice().sort(function(p,q){ return p-q; });
+    var y = (b || []).slice().sort(function(p,q){ return p-q; });
+    return x.length === y.length && x.every(function(v, i){ return v === y[i]; });
+  }
 
   var SPEECH_SETTLE_MS = 400;   // let the speakers stop before listening again
 
@@ -257,6 +282,26 @@ window.CardGame = (function(){
   .word.sentence{font-size:clamp(24px,4.6vw,42px);letter-spacing:0;line-height:1.35;font-weight:600}
   .word.sentence .ctxrest{color:var(--muted);font-weight:500}
   .word.sentence .ctxword{color:var(--ink);font-weight:800}
+
+  /* ---- Split it ----
+     The gaps are the interactive part, so they get the affordance and the
+     letters stay letters. A placed divider is a solid gold bar; an empty
+     gap is invisible until the pointer finds it, because a word pre-drawn
+     with six faint bars in it is a word nobody can read. */
+  .splitword{display:inline-flex;align-items:center;flex-wrap:wrap;justify-content:center}
+  .splitword .ltr{font-size:inherit}
+  .gap{
+    width:16px;height:.86em;margin:0 -2px;padding:0;border:none;border-radius:3px;
+    background:transparent;cursor:pointer;vertical-align:middle;
+    transition:background .12s ease;
+  }
+  .gap:hover{background:rgba(255,201,77,.28)}
+  .gap.on{background:var(--accent);width:7px;margin:0 3px}
+  .gap:disabled{cursor:default}
+  .gap.miss{background:rgba(255,107,107,.5)}
+  .gap.want{background:var(--accent);width:7px;margin:0 3px;animation:gapIn .3s ease}
+  @keyframes gapIn{ from{transform:scaleY(.1);opacity:0} to{transform:scaleY(1);opacity:1} }
+  @media (prefers-reduced-motion: reduce){ .gap.want{animation:none} }
   .chunkword .heart{text-underline-offset:4px}
   .btn.suggest{animation:suggestPulse 1.1s ease-in-out infinite}
   @keyframes suggestPulse{
@@ -342,6 +387,7 @@ window.CardGame = (function(){
 
     <div class="toolbar">
       <button class="btn ghost" id="btnHear" type="button" style="display:none">🔊 Hear it again</button>
+      <button class="btn ghost" id="btnSelf" type="button" style="display:none">🎙 Hear yourself</button>
       <button class="btn ghost" id="btnSkip" type="button">Skip ▸</button>
       <button class="btn ghost" id="btnQuit" type="button">End game</button>
     </div>
@@ -401,10 +447,42 @@ window.CardGame = (function(){
     }
     function heartOf(w){ return Object.prototype.hasOwnProperty.call(HEART, w) ? HEART[w] : null; }
 
+    // The word with a clickable gap between every pair of letters.
+    function splitMarkup(word){
+      var out = '<span class="splitword">';
+      for(var i=0;i<word.length;i++){
+        if(i > 0) out += '<button type="button" class="gap' + (splitAt.indexOf(i) !== -1 ? " on" : "") +
+                         '" data-gap="' + i + '" aria-label="Split after letter ' + i + '"></button>';
+        out += '<span class="ltr">' + Core.escapeHtml(word.charAt(i)) + "</span>";
+      }
+      return out + "</span>";
+    }
+
+    function renderSplit(){
+      var w = queue[idx];
+      $("uiWord").innerHTML = splitMarkup(w);
+      $("uiWord").className = "word";
+      Core.markWordCase($("uiWord"), w);
+    }
+
     /* Tap-to-hear on the back face. Bound once to the face rather than to
        each button, so re-rendering the word on every card costs nothing;
        tapList is whatever the current card put there. */
     var tapList = [], tapWord = "";
+    // Placing and removing dividers. Bound once to the word, like the
+    // taps, because the front face is rewritten on every card.
+    $("uiWord").addEventListener("click", function(ev){
+      if(!SPLIT || splitDone || busy) return;
+      var t = ev.target;
+      if(!t || !t.getAttribute || t.getAttribute("data-gap") === null) return;
+      var at = parseInt(t.getAttribute("data-gap"), 10);
+      if(!isFinite(at)) return;
+      var i = splitAt.indexOf(at);
+      if(i === -1) splitAt.push(at); else splitAt.splice(i, 1);
+      t.classList.toggle("on", i === -1);
+      snd.click();
+    });
+
     Core.wireTaps($("uiWordBack"), function(){ return tapList; }, function(piece, i, el){
       if(!phAudio) return;
       el.classList.add("playing");
@@ -500,11 +578,25 @@ window.CardGame = (function(){
     var listenOn = false, heardText = "";
     var HOMOPHONES = cfg.homophones || null;
     var SENTENCES = cfg.sentences || null;
+    /* Split it: the same deck and the same scoring, but the card asks
+       where the word comes apart instead of whether it was read. The
+       rating is automatic here — there is a right answer — so the two
+       rating buttons never appear. */
+    var SPLIT = !!cfg.split;
+    var splitAt = [];        // the dividers the student has placed
+    var splitDone = false;   // checked, showing the answer
     // The phoneme clips, if they are on the server. Everything built on
     // them checks for null and simply doesn't appear — a missing folder
     // must never mean a card that plays silence at a student.
     var phAudio = null;
     Core.phonemeAudio().then(function(p){ phAudio = p; });
+
+    /* Recording the student while the card is face up, in memory only.
+       Enabled with the Listen toggle and nowhere else: that is where the
+       microphone prompt happens, and a game that asked for the mic on its
+       own would be asking for it from a student who chose not to use it. */
+    var selfRec = Core.selfRecorder();
+    var haveSelf = false;
     // Counts only the cards that COULD have shown a sentence, so "one in
     // three" means one in three of those and not one in three of the round.
     var ctxTick = 0;
@@ -622,6 +714,19 @@ window.CardGame = (function(){
     function renderFace(){
       $("flipCard").className = "flip" + (flipped ? " flipped" : "");
       $("flipBack").setAttribute("aria-hidden", flipped ? "false" : "true");
+      if(SPLIT){
+        // No self-rating: the split is either right or it isn't, so the
+        // only button is the one that checks it.
+        $("btnFlip").style.display = flipped ? "none" : "";
+        $("btnFlip").textContent = "✂️ Check the split";
+        $("btnGot").style.display  = "none";
+        $("btnMiss").style.display = "none";
+        $("btnHear").style.display = (flipped && SPEAK) ? "" : "none";
+        $("uiKeyhint").innerHTML = flipped
+          ? "Say it out loud, then press <kbd>Enter</kbd> for the next word."
+          : "Click between the letters, then press <kbd>Enter</kbd>.";
+        return;
+      }
       $("btnFlip").style.display = flipped ? "none" : "";
       $("btnGot").style.display  = flipped ? "" : "none";
       $("btnMiss").style.display = flipped ? "" : "none";
@@ -653,6 +758,12 @@ window.CardGame = (function(){
       flipped = false;
       // textContent, not innerHTML — these lists carry apostrophes and
       // periods (they'd, Mrs.) and nothing here needs markup.
+      if(SPLIT){
+        splitAt = [];
+        splitDone = false;
+        renderSplit();
+        $("uiFrontHint").textContent = "Where does it split?";
+      } else {
       var sentence = contextFor(w);
       if(sentence){
         $("uiWord").innerHTML = contextMarkup(sentence, w);
@@ -662,6 +773,7 @@ window.CardGame = (function(){
         $("uiWord").textContent = w;
         $("uiWord").className = "word";
         $("uiFrontHint").textContent = "Read it out loud";
+      }
       }
       // The back is always the word alone — the sentence was the question.
       Core.markWordCase($("uiWord"), w);
@@ -708,6 +820,9 @@ window.CardGame = (function(){
          start() so the previous card's read-aloud has stopped coming out
          of the speakers before the mic is open to hear it. */
       heardText = "";
+      haveSelf = false;
+      $("btnSelf").style.display = "none";
+      if(selfRec && selfRec.available()){ selfRec.drop(); selfRec.start(); }
       if(listenOn && window.EIListen){
         window.EIListen.clear();
         window.EIListen.start();
@@ -752,6 +867,7 @@ window.CardGame = (function(){
 
     function flip(){
       if(busy || flipped) return;
+      if(SPLIT){ checkSplit(); return; }
       if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
       flipMs = shownAt ? Math.max(0, Math.round(now() - shownAt)) : 0;
       flipped = true;
@@ -763,11 +879,109 @@ window.CardGame = (function(){
          it back as the student's answer, which would mark every card
          correct. */
       if(listenOn && window.EIListen) window.EIListen.stop();
+      if(selfRec && selfRec.available()){
+        selfRec.stop().then(function(ok){
+          haveSelf = !!ok;
+          if(ok && flipped) $("btnSelf").style.display = "";
+        });
+      }
       showHeard();
       // The word is spoken only now, on the way over — before the flip it
       // would be the answer, after it it's the check.
       sayWord(queue[idx], NORMAL_RATE);
       $("btnGot").focus();
+    }
+
+    /* Checking a split. The answer is the entry's own syllable marks, so
+       the list is the answer key and nothing here has to know anything
+       about syllables. A word with no dots has the perfectly good answer
+       "no splits", which is why this compares SETS of positions rather
+       than strings. */
+    function checkSplit(){
+      if(busy || splitDone) return;
+      var word = queue[idx];
+      var chunks = Object.prototype.hasOwnProperty.call(CHUNKS, word) ? CHUNKS[word] : null;
+      var want = boundariesOf(chunks || [word]);
+      var ok = sameSplit(splitAt, want);
+      splitDone = true;
+      busy = true;
+      flipped = true;
+      renderFace();
+
+      right += ok ? 1 : 0;
+      report(word, ok, flipMs);
+      if(ok){
+        streak++;
+        if(streak > best) best = streak;
+        var pts = pointsFor(streak);
+        var mult = comboMultiplier(streak);
+        var milestone = streak % 5 === 0;
+        score += pts;
+        if(mastered.indexOf(word) === -1) mastered.push(word);
+        $("flipCard").className = "flip flipped rated-yes";
+        $("uiBackHint").innerHTML = "<b>+" + pts + " points</b>" + (mult > 1 ? " (×" + mult + " combo)" : "") +
+          " — now say it out loud.";
+        $("uiScore").textContent = score;
+        $("uiStreak").textContent = streak;
+        renderCombo();
+        if(milestone){
+          prog.celebrate();
+          Core.popup($("popup"), "🔥 " + streak + " in a row!", "#ffc94d", true);
+          Core.confettiBurst($("cardStage"), 18);
+          snd.combo();
+        } else {
+          Core.popup($("popup"), "✓ +" + pts, "#3ddc97");
+          snd.good();
+        }
+      } else {
+        streak = 0;
+        $("uiStreak").textContent = 0;
+        renderCombo();
+        if(missed.indexOf(word) === -1) missed.push(word);
+        $("flipCard").className = "flip flipped rated-no";
+        // The gaps the student marked and didn't need go red where they
+        // are; the ones they missed slide in gold. Both stay on the front
+        // face, next to the letters they belong between.
+        markSplitAnswer(want);
+        $("uiBackHint").textContent = "Here's where it comes apart. Say it out loud.";
+        Core.popup($("popup"), "✗", "#ff6b6b");
+        snd.bad();
+      }
+      // The back shows the dotted word either way — that IS the answer.
+      if(SPEAK){
+        if(chunks) sayChunks(chunks, word);
+        else sayWord(word, SLOW_RATE);
+      }
+      scheduleNext(ok ? 1800 : 2600);
+    }
+
+    // Marks the correct split on the front face, over the student's own.
+    function markSplitAnswer(want){
+      Array.prototype.forEach.call($("uiWord").querySelectorAll("[data-gap]"), function(g){
+        var at = parseInt(g.getAttribute("data-gap"), 10);
+        g.disabled = true;
+        g.classList.remove("on");
+        if(want.indexOf(at) !== -1) g.classList.add("want");
+        else if(splitAt.indexOf(at) !== -1) g.classList.add("miss");
+      });
+    }
+
+    /* "fan, tas, tic" and then the whole word — two utterances queued
+       rather than two say() calls, since say() cancels whatever is
+       already talking. */
+    function sayChunks(chunks, word){
+      if(!SPEAK || !window.speechSynthesis) return;
+      try{
+        window.speechSynthesis.cancel();
+        var v = Core.voice();
+        var u1 = new SpeechSynthesisUtterance(chunks.join(", "));
+        var u2 = new SpeechSynthesisUtterance(word);
+        u1.lang = u2.lang = "en-US";
+        u1.rate = 0.7; u2.rate = NORMAL_RATE;
+        if(v){ u1.voice = v; u2.voice = v; }
+        window.speechSynthesis.speak(u1);
+        window.speechSynthesis.speak(u2);
+      }catch(e){}
     }
 
     function rate(gotIt){
@@ -956,10 +1170,13 @@ window.CardGame = (function(){
       try{ localStorage.setItem("cardListen", listenOn ? "1" : "0"); }catch(e){}
       if(listenOn){
         window.EIListen.start();
+        // The mic prompt is happening right here anyway.
+        if(selfRec) selfRec.enable();
         listenNote("Click <b>Allow</b> if Chrome asks for the microphone. " +
                    "The card still waits for you — the mic only suggests which button to press.");
       } else {
         if(window.EIListen) window.EIListen.stop();
+        if(selfRec) selfRec.release();
         listenNote("");
       }
       renderListen();
@@ -1057,6 +1274,18 @@ window.CardGame = (function(){
       if(!flipped) return;
       sayWord(queue[idx], SLOW_RATE);
     });
+
+    /* Plays the student back, then reads the word properly. A student who
+       marked themselves "Got it" and hears something else has learned
+       more in four seconds than any message could tell them. */
+    $("btnSelf").addEventListener("click", function(){
+      if(!haveSelf || !selfRec) return;
+      $("btnSelf").disabled = true;
+      selfRec.play().then(function(){
+        $("btnSelf").disabled = false;
+        sayWord(queue[idx], SLOW_RATE);
+      });
+    });
     // A skipped card counts as missed: the student didn't know it, whatever
     // the reason, so it belongs in the comeback deck.
     $("btnSkip").addEventListener("click", function(){
@@ -1093,6 +1322,7 @@ window.CardGame = (function(){
       if(e.target && e.target.tagName === "BUTTON") return;
       if(e.key === " " || e.key === "Enter"){
         e.preventDefault();
+        if(SPLIT && flipped){ if(pending){ clearTimeout(pending); pending = null; busy = false; next(); } return; }
         if(!flipped) flip();
         return;
       }
@@ -1104,6 +1334,7 @@ window.CardGame = (function(){
 
     window.addEventListener("beforeunload", function(){
       if(window.EIListen) window.EIListen.stop();
+      if(selfRec) selfRec.release();
       // speechSynthesis is window-global — a word mid-utterance would
       // otherwise keep talking over the next page for a beat.
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
@@ -1119,6 +1350,8 @@ window.CardGame = (function(){
     _internals: {
       judgeHeard: judgeHeard,
       contextMarkup: contextMarkup,
+      boundariesOf: boundariesOf,
+      sameSplit: sameSplit,
       dedupeWords: Core.dedupeWords,
       sampleWords: Core.sampleWords,
       comboMultiplier: Core.comboMultiplier,
