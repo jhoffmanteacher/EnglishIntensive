@@ -617,8 +617,8 @@ page for that account. Four tabs:
   activity, and a **Lists** column that says in words what each student
   currently gets and where it comes from — *"Red Words: 1–3 🃏 (period
   3)"*. Click through for a student's hardest words (worst first, with
-  which list each came from), their per-list breakdown, and their
-  assignment picker.
+  which list each came from), their per-list breakdown, their assignment
+  picker and their **note**. Two CSV exports live here too.
 - **Assign** — every assignment in the class as one grid. This is the
   section below.
 - **Periods & Lists** — the same picker for the class default and for
@@ -696,6 +696,84 @@ The board's rules — the precedence walk, copy-on-write, how far a column
 toggle reaches, and the shape of the two documents Save writes — are pure
 functions of a class's state and are pinned in `tests.html`, along with a
 check that the grid itself renders the rows and cells it claims to.
+
+### Ready to move up
+
+A student who has finished Red List 3 should be on List 4, and the only
+thing between those two facts is somebody noticing. For a class moving
+together that's fine; for the three students who are ahead it is exactly
+the kind of thing that doesn't get done, and they spend a fortnight
+re-practising words they already know.
+
+So the board works it out. Above the grid, when there is anything to say:
+*"Marcos · Red Words 🃏 · finished List 2 (18 of 20 solid) → add List 3"*,
+with a button that drops it into the same draft as every other edit and
+waits for the same Save.
+
+It does not act on its own, on two counts. Auto-advancing would move a
+student on the strength of a scoring heuristic with nobody who has met
+them in the loop — and "solid" here means solid on a screen, which is not
+always solid on paper. And the arithmetic runs on the **teacher's** page,
+which is where the decision belongs; `firestore.rules` is what actually
+holds that line (a student can read `assignments/{uid}` and never write
+it), but there is no reason to ship the policy to their browser either.
+
+The bar is **four words in five solid** (`SOLID_ENOUGH`), not all of them:
+one stubborn word — a name, a word whose synthesised reading is poor —
+should not hold a student on a list for a term. Each mode advances on its
+own, because a student can be solid on List 3 as flash cards and still be
+finding it in Match It. And the suggestion is **additive**: it doesn't
+take the finished list away, since each list is its own tile with its own
+adaptive deck, so keeping List 3 alongside List 4 costs nothing and keeps
+those words in rotation. Dropping one stays a judgement call.
+
+### Notes
+
+A short note per student, on their detail page, for the things the
+numbers can't say — *"reads well, freezes when timed"*, *"sounds it out
+under his breath and gets there"*. The first line shows under their name
+on the roster and as a ✎ on the board, because a note you have to open a
+student to discover is a note nobody reads.
+
+It lives in its own `notes/{uid}` collection, and that is the whole design
+decision. A student can read their own `assignments/{uid}` row, so a note
+stored there would be a note its subject can read — and a teacher writing
+for that audience will either write nothing useful or keep the real notes
+somewhere else. `notes/{uid}` is **teacher read and teacher write, with no
+student clause at all**. It is the one path on the site a student may not
+read about themselves.
+
+### Export
+
+Two CSVs from the Students tab, built from what the dashboard already has
+in memory — no new reads, no backend:
+
+- **Roster** — a row per student: period, the same list sentence the
+  screen shows, where it came from, accuracy, words solid and shaky, last
+  active, and their note.
+- **Every word** — a row per (student, list, word) they have attempted:
+  attempts, correct, accuracy, whether it's solid, when it was last
+  practised. The long file, and the only export that can answer a
+  question nobody thought to build a screen for.
+
+The builders are pure functions and the escaping is tested, which matters
+more than it looks: a student called O'Brien, a note with a comma, a list
+title with a quotation mark — a naive join breaks on any of them, and it
+breaks silently, in a file somebody has already emailed to a meeting.
+Cells beginning `=`, `+`, `-` or `@` are prefixed with an apostrophe so a
+spreadsheet doesn't read a name as a formula, and the file carries a BOM
+so Excel doesn't mangle accented names.
+
+### Keyboard and screen readers
+
+Board cells are focusable: **arrows** move between them, **Home**/**End**
+jump to the ends of a row, **Enter** or **Space** opens a cell's modes and
+**Esc** closes it. Fifteen columns is further than anyone wants to press
+Tab.
+
+Every cell also carries its answer in words — *"Ana, Red Words List 2:
+Cards, Match It (inherited)"* — because two emoji and an em dash are not
+something to hand a screen reader.
 
 ### What actually gets stored
 

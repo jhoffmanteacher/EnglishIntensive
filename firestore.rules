@@ -16,7 +16,7 @@ rules_version = '2';
    Keep this file and the console in sync; if they drift, the console wins
    and this file becomes a lie.
 
-   The site only ever touches three paths (verified against store.js and
+   The site only ever touches four paths (verified against store.js and
    teacher.js):
      students/{uid}      one doc per student: words (per-word stats),
                          totals, recent rounds, name/email/photo
@@ -24,6 +24,8 @@ rules_version = '2';
                          (student reads their own)
      config/class        one shared doc: periodLists, defaultLists,
                          periods (teacher writes, everyone reads)
+     notes/{uid}         teacher-written and TEACHER-READ: the teacher's
+                         private note about a student
 
    Anything not matched below is denied by default. Do not add a catch-all.
    ══════════════════════════════════════════════════════════════════════ */
@@ -94,6 +96,25 @@ service cloud.firestore {
        been put on. */
     match /assignments/{userId} {
       allow read:  if isSchool() && request.auth.uid == userId;
+      allow read, write: if isTeacher();
+    }
+
+    /* The teacher's private note about a student — "reads well, freezes
+       when timed", the kind of observation that currently lives in
+       somebody's head or a separate document.
+
+       This is the ONE path a student may not read about themselves, and
+       that is the entire reason it is its own collection rather than a
+       field on assignments/{uid}: a student can read their own assignment
+       row, so a note stored there would be a note its subject can read.
+       Notes are written to be useful, not to be read by the student they
+       are about — a teacher who has to write for that audience will
+       either write nothing useful or keep the real notes somewhere else.
+
+       So: teacher only, both directions, and no student-read clause. If
+       you ever find yourself adding one, you are turning this back into
+       assignments/{uid} and should just use that instead. */
+    match /notes/{userId} {
       allow read, write: if isTeacher();
     }
 

@@ -59,6 +59,7 @@
   var db = null;
   var students = [];          // [{uid, name, email, photo, words, totals, recent, lastSeen}]
   var assignments = {};       // uid → { period, lists }
+  var notes = {};             // uid → { text, updatedAt } — teacher-only
   var classCfg = { periodLists:{}, defaultLists:null, periods:[] };
   var view = "roster";
   var detailUid = null;
@@ -120,7 +121,11 @@
       return Promise.all([
         db.collection("students").get(),
         db.collection("assignments").get(),
-        db.collection("config").doc("class").get()
+        db.collection("config").doc("class").get(),
+        // Teacher-only, by firestore.rules. A student reading this
+        // collection gets nothing, which is the point of it existing
+        // separately from assignments/{uid} — see the rules file.
+        db.collection("notes").get()
       ]);
     }).then(function(snaps){
       students = [];
@@ -139,6 +144,8 @@
       });
       assignments = {};
       snaps[1].forEach(function(doc){ assignments[doc.id] = doc.data() || {}; });
+      notes = {};
+      snaps[3].forEach(function(doc){ notes[doc.id] = doc.data() || {}; });
       var c = snaps[2].exists ? (snaps[2].data() || {}) : {};
       classCfg = {
         periodLists: c.periodLists || {},
@@ -321,9 +328,16 @@
     var av = s.photo
       ? '<img src="' + esc(s.photo) + '" alt="" referrerpolicy="no-referrer">'
       : '<span class="init">' + esc((s.name || s.email || "?")[0].toUpperCase()) + "</span>";
+    // A note is worth nothing if you have to open a student to find out
+    // it exists, so the roster carries the first line of it under the
+    // name and the whole thing on hover.
+    var n = noteSummary(s.uid);
     return '<div class="who">' + av + "<div style=\"min-width:0\">" +
-      '<div class="nm">' + esc(s.name || s.email || s.uid) + "</div>" +
-      '<div class="em">' + esc(s.email) + "</div></div></div>";
+      '<div class="nm">' + esc(s.name || s.email || s.uid) +
+        (n ? ' <span class="noteDot" title="' + esc(noteOf(s.uid)) + '">✎</span>' : "") + "</div>" +
+      '<div class="em">' + esc(s.email) + "</div>" +
+      (n ? '<div class="noteLine" title="' + esc(noteOf(s.uid)) + '">' + esc(n) + "</div>" : "") +
+      "</div></div>";
   }
 
   function accCell(acc){
@@ -380,6 +394,124 @@
     return renderTrouble();
   }
 
+  /* ---------------- export ----------------
+     Everything on this dashboard is already in memory; these two builders
+     turn it into the shape somebody can open in a spreadsheet, take to an
+     IEP meeting, or paste into a report card. No new reads, no backend.
+
+     Two files rather than one, because they answer different questions:
+     the roster is a row per student (where are they, what have they got,
+     how are they doing), and the words file is a row per attempted word
+     (which is the shape you want when the dashboard doesn't answer your
+     question and you'd rather sort it yourself).
+
+     Both builders are pure — a class in, a string out — so the escaping
+     below is testable, which matters more here than it looks. A student
+     called O'Brien, a note with a comma in it, a word list whose title
+     has quotation marks: any of those will break a naive join, and it
+     breaks silently, in a file somebody has already emailed on. */
+
+  // RFC 4180: wrap in quotes if the value could confuse a parser, and
+  // double any quote inside it. A leading = + - @ is prefixed with a
+  // quote as well — Excel and Sheets read those as formulas, and a name
+  // that starts with one would otherwise execute on open.
+  function csvCell(v){
+    var t = (v == null) ? "" : String(v);
+    if(/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return /[",\n\r]/.test(t) ? '"' + t.split('"').join('""') + '"' : t;
+  }
+  function csvRows(rows){
+    // \r\n, because that is what Excel expects and every other reader
+    // tolerates.
+    return rows.map(function(r){ return r.map(csvCell).join(","); }).join("\r\n") + "\r\n";
+  }
+
+  function pct(x){ return x == null ? "" : Math.round(x * 100); }
+  function isoDay(ms){
+    if(!ms) return "";
+    var d = new Date(ms);
+    function two(n){ return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate());
+  }
+
+  /* A row per student: who they are, what they've been given and where it
+     came from, and how they're doing overall. `lists` is the same sentence
+     the roster shows, so a printed copy and the screen agree. */
+  function rosterCsv(){
+    var rows = [[
+      "Name","Email","Period","Lists","Lists from",
+      "Answers","Accuracy %","Words solid","Words shaky","Last active","Note"
+    ]];
+    students.forEach(function(s){
+      var sum = Adaptive.summarize(s.stats);
+      var eff = effectiveLists(s.uid);
+      rows.push([
+        s.name, s.email, (assignments[s.uid] || {}).period || "",
+        WordLists.describeAssignment(eff.ids), eff.from,
+        sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
+        isoDay(sum.lastSeen || s.lastSeen), noteOf(s.uid)
+      ]);
+    });
+    return csvRows(rows);
+  }
+
+  /* A row per (student, list, word) they have actually attempted. This is
+     the long file — 30 students × 18 words a round adds up — but it is
+     the only export that can answer a question nobody thought to build a
+     screen for. Words are the plain form, matching the stat key. */
+  function wordsCsv(){
+    var rows = [["Name","Email","Period","List","Mode","Word","Attempts","Correct","Accuracy %","Solid","Last practised"]];
+    students.forEach(function(s){
+      var period = (assignments[s.uid] || {}).period || "";
+      var keys = Object.keys(s.stats).sort();
+      keys.forEach(function(key){
+        var st = s.stats[key];
+        if(!st || !st.n) return;
+        var parsed = Adaptive.parseKey(key);
+        var l = WordLists.byId(parsed.listId);
+        var mode = l && WordLists.modeOf(l.mode);
+        rows.push([
+          s.name, s.email, period,
+          l ? l.listTitle : parsed.listId,
+          mode ? mode.title : (l ? l.mode : ""),
+          parsed.word, st.n, st.r, pct(st.r / st.n),
+          Adaptive.isMastered(st) ? "yes" : "no",
+          isoDay(st.last)
+        ]);
+      });
+    });
+    return csvRows(rows);
+  }
+
+  /* Hands the browser a file. A Blob and an object URL rather than a
+     data: URI — a words export for a full class runs to hundreds of
+     kilobytes, which is past what some browsers will accept in an href. */
+  function download(name, text){
+    try{
+      // U+FEFF: without a byte-order mark Excel reads the file as the
+      // system's legacy encoding, and every accented name in the class
+      // comes out mangled. Every other reader ignores it.
+      var blob = new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoked on a timer, not immediately: Safari has been known to
+      // cancel the download if the URL dies in the same tick as the click.
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+      return true;
+    }catch(e){ return false; }
+  }
+
+  // "english-intensive-roster-2026-09-04.csv" — dated, because these get
+  // saved in a folder and compared to last month's.
+  function exportName(kind){
+    return "english-intensive-" + kind + "-" + isoDay(Date.now()) + ".csv";
+  }
+
   /* ---------------- students ---------------- */
   function renderRoster(){
     if(!students.length){
@@ -409,6 +541,12 @@
       '<p class="note">Click a student for their worst words and their list assignment. ' +
       '“Solid” is a word answered right, first try, enough times in a row to have earned a long rest; ' +
       '“shaky” is one under 60&nbsp;% accuracy.</p>' +
+      '<div class="rowActions" style="margin-bottom:16px">' +
+        '<button class="btn ghost sm" id="tExportRoster">⬇ Roster CSV</button>' +
+        '<button class="btn ghost sm" id="tExportWords">⬇ Every word CSV</button>' +
+        '<span class="muted tiny">One row per student, and one row per word they\'ve attempted. ' +
+        "Opens in Excel, Sheets or Numbers.</span>" +
+      "</div>" +
       '<div class="tableScroll"><table class="t"><thead><tr>' +
       "<th>Student</th><th>Period</th><th>Lists</th>" +
       '<th class="num">Answers</th><th class="num">Accuracy</th><th class="num">Solid</th><th class="num">Shaky</th><th>Last active</th>' +
@@ -417,6 +555,8 @@
     Array.prototype.forEach.call(document.querySelectorAll("#tBody tr.clickable"), function(tr){
       tr.addEventListener("click", function(){ detailUid = tr.dataset.uid; render(); });
     });
+    $("tExportRoster").addEventListener("click", function(){ download(exportName("roster"), rosterCsv()); });
+    $("tExportWords").addEventListener("click", function(){ download(exportName("words"), wordsCsv()); });
   }
 
   function studentByUid(uid){
@@ -492,6 +632,8 @@
         "</div>" +
       "</div>" +
 
+      notePanelHtml(s.uid) +
+
       '<div class="panel"><h2>Hardest words</h2>' +
         '<p class="note">Worst first — right answers out of attempts, counting only first-try answers. ' +
         "These are the words the site is already showing them most often.</p>" +
@@ -505,10 +647,68 @@
     $("tBack").addEventListener("click", function(){ detailUid = null; render(); });
     $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
     $("tClearA").addEventListener("click", function(){ saveStudentAssignment(s.uid, true); });
+    $("tNoteSave").addEventListener("click", function(){ saveNote(s.uid, $("tNote").value); });
     bindPickers();
   }
 
   function checkedLists(){ return scopeSelection("student"); }
+
+  /* ---------------- the teacher's notes ----------------
+     One short paragraph per student, for the things the numbers on this
+     page can't say: "reads well, freezes when timed", "sounds it out
+     under his breath and gets there", "was out three weeks in March".
+
+     It lives in its own collection because it is the one thing here a
+     student may not read about themselves — see firestore.rules. A note
+     a student can read is a note written for the student, and that is a
+     different document with a different use. */
+  var NOTE_MAX = 1000;
+
+  function noteOf(uid){
+    var n = notes[uid];
+    return (n && typeof n.text === "string") ? n.text : "";
+  }
+  // First line only, clipped — what the board and the roster show when
+  // there's no room for the whole thing.
+  function noteSummary(uid, max){
+    var t = noteOf(uid).replace(/\s+/g, " ").trim();
+    if(!t) return "";
+    max = max || 70;
+    return t.length > max ? t.slice(0, max - 1) + "…" : t;
+  }
+
+  function saveNote(uid, text){
+    var note = $("tNoteNote");
+    var before = notes[uid] ? JSON.parse(JSON.stringify(notes[uid])) : null;
+    text = String(text || "").slice(0, NOTE_MAX);
+    var body = { text: text, updatedAt: Date.now() };
+    notes[uid] = body;
+    if(note){ note.className = "saveNote"; note.textContent = "Saving…"; }
+    db.collection("notes").doc(uid).set(body, { merge:true })
+      .then(function(){
+        if(note){ note.className = "saveNote ok"; note.textContent = text ? "Saved." : "Cleared."; }
+      })
+      .catch(function(){
+        if(before) notes[uid] = before; else delete notes[uid];
+        if(note){ note.className = "saveNote err"; note.textContent = "Didn't save — check the network and try again."; }
+      });
+  }
+
+  function notePanelHtml(uid){
+    var n = notes[uid] || {};
+    return '<div class="panel"><h2>Notes</h2>' +
+      '<p class="note">For the things the numbers don\'t say. <b>Only you can read this</b> — ' +
+      "it's the one thing on this page the student can't see about themselves, which is what makes it " +
+      "worth writing honestly.</p>" +
+      '<textarea class="txt noteBox" id="tNote" rows="4" maxlength="' + NOTE_MAX +
+        '" placeholder="e.g. Reads well, freezes when timed. Sounds words out under his breath — let him.">' +
+        esc(noteOf(uid)) + "</textarea>" +
+      '<div class="rowActions">' +
+        '<button class="btn sm" id="tNoteSave">Save note</button>' +
+        '<span class="saveNote" id="tNoteNote">' +
+          (n.updatedAt ? "Last edited " + esc(ago(n.updatedAt)) : "") + "</span>" +
+      "</div></div>";
+  }
 
   /* Writes are optimistic — the local copy updates first so the UI never
      stalls on school Wi-Fi — and roll back on failure, because a silent
@@ -835,19 +1035,32 @@
   }
 
   /* ── one cell ─────────────────────────────────────────────────────
-     What a scope has for one list, as the icons of the modes that are
-     on. A collapsed family's cell borrows describeFamily instead, so a
-     folded column still says something true. */
-  function cellText(scope, col){
+     What a scope has for one list. Read twice, from the same answer: as
+     icons for the eye, and as words for a screen reader, which would
+     otherwise be handed "🃏🎯" or a bare em dash and have to guess. */
+  function cellModes(scope, col){
     var set = scopeView(scope);
-    if(col.summary){
-      return WordLists.describeFamily(col.fam.key, set) || "—";
-    }
-    var icons = WordLists.modesOf(col.fam.key).filter(function(m){
+    return WordLists.modesOf(col.fam.key).filter(function(m){
       var id = WordLists.idFor(col.fam.key, col.n, m.key);
       return id && set.indexOf(id) !== -1;
-    }).map(function(m){ return m.icon; }).join("");
+    });
+  }
+  function cellText(scope, col){
+    // A collapsed family borrows describeFamily, so a folded column still
+    // says something true rather than going blank.
+    if(col.summary) return WordLists.describeFamily(col.fam.key, scopeView(scope)) || "—";
+    var icons = cellModes(scope, col).map(function(m){ return m.icon; }).join("");
     return icons || "—";
+  }
+  function cellSpoken(scope, col){
+    if(col.summary) return WordLists.describeFamily(col.fam.key, scopeView(scope)) || "nothing";
+    var names = cellModes(scope, col).map(function(m){ return m.title; });
+    return names.length ? names.join(", ") : "nothing";
+  }
+  // "Red Words List 3" / "Starting Blends" / "Red Words, all 10 lists"
+  function colLabel(col){
+    if(col.summary) return col.fam.title + ", all " + WordLists.listNumsOf(col.fam.key).length + " lists";
+    return col.fam.title + (col.fam.lists.length > 1 ? " List " + col.n : "");
   }
 
   /* Rewrite every cell, pill and counter from the live state. Cheaper
@@ -856,16 +1069,33 @@
      15 lists is 600 short string writes. */
   function paintCells(){
     var cols = boardColumns();
+    // The two halves of a cell's label that don't change as it's edited,
+    // resolved once rather than per cell: the row's name (read out of the
+    // row it was rendered into) and the column's.
+    var rowName = {};
+    Array.prototype.forEach.call(document.querySelectorAll("#abGrid tr[data-row]"), function(tr){
+      var el = tr.querySelector(".abLabel");
+      rowName[tr.dataset.row] = el ? el.textContent.trim() : tr.dataset.row;
+    });
+    var colName = cols.map(colLabel);
+
     Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-cell]"), function(td){
       var parts = td.dataset.cell.split("|");
       var scope = parts[0];
-      var col = cols[Number(parts[1])];
+      var i = Number(parts[1]);
+      var col = cols[i];
       if(!col) return;
       var txt = cellText(scope, col);
       td.textContent = txt;
       td.classList.toggle("empty", txt === "—");
-      td.classList.toggle("own", scopeIsOwn(scope));
-      td.classList.toggle("inherit", !scopeIsOwn(scope));
+      var own = scopeIsOwn(scope);
+      td.classList.toggle("own", own);
+      td.classList.toggle("inherit", !own);
+      // "Ana, Red Words List 2: Cards, Match It (inherited)" — an em dash
+      // and two emoji are not something to hand a screen reader.
+      td.setAttribute("aria-label",
+        (rowName[scope] || scope) + ", " + colName[i] + ": " + cellSpoken(scope, col) +
+        (own ? "" : " (inherited)"));
     });
     Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-ownpill]"), function(el){
       el.hidden = !scopeIsOwn(el.dataset.ownpill);
@@ -1007,6 +1237,131 @@
     paintCells();
   }
 
+  /* ── ready to move up ─────────────────────────────────────────────
+     A student who has finished Red List 3 should be on List 4, and the
+     only thing standing between those two facts is somebody noticing.
+     For a class moving together that's fine; for the three students who
+     are ahead it is exactly the kind of thing that doesn't get done, and
+     they spend a fortnight re-practising words they already know.
+
+     So the board works it out and says so. It does NOT act on it: a
+     suggestion goes into the same draft every other edit does and waits
+     for the same Save. That is deliberate on two counts. Auto-advancing
+     would move a student on the strength of a scoring heuristic with
+     nobody who has met them in the loop — and "solid" here means solid on
+     a screen, which is not always solid on paper. And the arithmetic runs
+     on the TEACHER's page, which is where the decision belongs;
+     firestore.rules is what actually holds that line (a student can read
+     assignments/{uid} and never write it), but there is no reason to ship
+     the policy to their browser either.
+
+     The suggestion is additive. It does not take the finished list away:
+     each list is its own tile with its own adaptive deck, so keeping List
+     3 alongside List 4 costs a student nothing and keeps the old words in
+     rotation. Dropping one is a judgement call, and it stays the
+     teacher's. */
+
+  // The share of a list's words that have to be solid before the next one
+  // is worth putting on. Not 100%: one stubborn word — a name, a word
+  // whose recording is poor — should not be able to hold a student on a
+  // list for a term. Four in five, and the fifth keeps coming round.
+  var SOLID_ENOUGH = 0.8;
+
+  function listProgress(stats, listId){
+    var sum = Adaptive.summarize(Adaptive.statsForList(stats, listId));
+    var total = WordLists.wordsOf(listId).length;
+    return {
+      mastered: sum.mastered,
+      total: total,
+      // No total means an id that isn't in the registry any more; treat
+      // that as "no evidence" rather than as finished.
+      share: total ? sum.mastered / total : 0
+    };
+  }
+
+  /* Pure. Given one student's stats and the lists they actually have,
+     which families are they ready to move up in? Only families with more
+     than one list can advance — there is nowhere for "Blend Words" to go
+     — and each mode advances on its own, because a student can be solid
+     on List 3 as flash cards and still be finding it in Match It. */
+  function readyToAdvance(stats, ids){
+    var have = {};
+    (ids || []).forEach(function(id){ have[id] = true; });
+    var out = [];
+    WordLists.families().forEach(function(fam){
+      if(fam.lists.length < 2) return;
+      WordLists.modesOf(fam.key).forEach(function(m){
+        // The furthest list they have in this mode. Anything below it is
+        // already assigned, so advancing from there would suggest a list
+        // they have; anything above it doesn't exist yet.
+        var mine = WordLists.listNumsOf(fam.key).filter(function(n){
+          var id = WordLists.idFor(fam.key, n, m.key);
+          return id && have[id];
+        });
+        if(!mine.length) return;
+        var from = mine[mine.length - 1];
+        var fromId = WordLists.idFor(fam.key, from, m.key);
+        var toId = WordLists.idFor(fam.key, from + 1, m.key);
+        if(!toId || have[toId]) return;
+        var p = listProgress(stats, fromId);
+        if(p.share < SOLID_ENOUGH) return;
+        out.push({
+          family: fam.key, famTitle: fam.title,
+          mode: m.key, modeIcon: m.icon, modeTitle: m.title,
+          from: from, to: from + 1, fromId: fromId, toId: toId,
+          mastered: p.mastered, total: p.total
+        });
+      });
+    });
+    return out;
+  }
+
+  // Every suggestion on the board right now, for the students the filter
+  // leaves visible — the same bound the column toggles work inside.
+  function boardSuggestions(){
+    var out = [];
+    visibleStudents().forEach(function(s){
+      readyToAdvance(s.stats, liveStudent(s.uid)).forEach(function(sug){
+        sug.uid = s.uid;
+        sug.name = s.name || s.email || s.uid;
+        out.push(sug);
+      });
+    });
+    return out;
+  }
+
+  function applySuggestion(sug){
+    var set = liveStudent(sug.uid).slice();
+    if(set.indexOf(sug.toId) === -1) set.push(sug.toId);
+    setScope("s:" + sug.uid, set);
+  }
+
+  function suggestionsHtml(sugs){
+    if(!sugs.length) return "";
+    var rows = sugs.map(function(g, i){
+      return '<li class="abSug">' +
+        '<span class="abSugWho">' + esc(g.name) + "</span>" +
+        '<span class="abSugWhat">' + esc(g.famTitle + " " + g.modeIcon) +
+          " · finished <b>List " + g.from + "</b> " +
+          '<span class="muted tiny">(' + g.mastered + " of " + g.total + " solid)</span></span>" +
+        '<span class="abSugTo">add <b>List ' + g.to + "</b></span>" +
+        '<button type="button" class="btn ghost sm" data-sug="' + i + '">Add it</button>' +
+        "</li>";
+    }).join("");
+    // Suggestions and students are different counts — one student solid
+    // on both the cards and the Match It of a list makes two rows — and
+    // the sentence is about the students.
+    var who = {}, n = 0;
+    sugs.forEach(function(g){ if(!who[g.uid]){ who[g.uid] = true; n++; } });
+    return '<div class="panel abReady"><h2>Ready to move up</h2>' +
+      '<p class="note">' + n + (n === 1 ? " student has" : " students have") +
+      " finished a list and have nothing after it. Adding one puts it in the board below with everything else — " +
+      "it isn't written until you Save, and it leaves the finished list on them so those words keep coming round.</p>" +
+      '<ul class="abSugs">' + rows + "</ul>" +
+      (sugs.length > 1 ? '<div class="rowActions"><button class="btn sm" id="abSugAll">Add all ' + sugs.length + "</button></div>" : "") +
+      "</div>";
+  }
+
   /* ── the board ──────────────────────────────────────────────────── */
   function renderAssign(){
     if(!students.length){
@@ -1088,7 +1443,9 @@
     }
     function studentRow(s){
       var scope = "s:" + s.uid;
-      var name = esc(s.name || s.email || s.uid);
+      var n = noteOf(s.uid);
+      var name = esc(s.name || s.email || s.uid) +
+        (n ? ' <span class="noteDot" title="' + esc(n) + '">✎</span>' : "");
       var label = '<label class="abPick"><input type="checkbox" data-pick="' + esc(s.uid) + '"' +
         (board.sel[s.uid] ? " checked" : "") + "><span>" + name + "</span></label>";
       return scopeRow(scope, "abStudent", label, '<span class="abFrom" data-from="' + esc(scope) + '"></span>', true);
@@ -1119,8 +1476,10 @@
     }
 
     var nSel = Object.keys(board.sel).filter(function(u){ return board.sel[u] && visUid[u]; }).length;
+    var sugs = boardSuggestions();
 
     $("tBody").innerHTML =
+      suggestionsHtml(sugs) +
       '<div class="panel abPanel"><h2>Assign</h2>' +
         '<p class="note">Every assignment in the class at once. A <b>dashed grey</b> cell is inherited — the student is following ' +
         'their period, or the period is following the class default. A <b>gold</b> cell is a set of their own. ' +
@@ -1152,6 +1511,23 @@
 
     paintCells();
     bindAssign(cols);
+    bindSuggestions(sugs);
+  }
+
+  function bindSuggestions(sugs){
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-sug]"), function(b){
+      b.addEventListener("click", function(){
+        applySuggestion(sugs[Number(b.dataset.sug)]);
+        // A full re-render, not a repaint: the suggestion this came from
+        // has just stopped being true and its row has to go.
+        renderAssign();
+      });
+    });
+    var all = $("abSugAll");
+    if(all) all.addEventListener("click", function(){
+      sugs.forEach(applySuggestion);
+      renderAssign();
+    });
   }
 
   function bindAssign(cols){
@@ -1188,14 +1564,53 @@
       openPop(cell, parts[0], col);
     });
 
-    // A cell is focusable, so Enter and Space open its modes — the board
-    // is navigable by keyboard even without arrow-key movement.
+    /* Keyboard: Enter and Space open a cell's modes, the arrows walk the
+       grid, Home and End jump to the ends of a row. Fifteen columns is
+       further than anybody wants to press Tab, and a teacher setting up a
+       period should not have to reach for the mouse between every cell. */
+    var STEP = {
+      ArrowLeft:  [0, -1], ArrowRight: [0, 1],
+      ArrowUp:    [-1, 0], ArrowDown:  [1, 0]
+    };
     grid.addEventListener("keydown", function(e){
-      if(e.key !== "Enter" && e.key !== " ") return;
       var cell = e.target.closest ? e.target.closest("[data-cell]") : null;
       if(!cell) return;
+      if(e.key === "Enter" || e.key === " "){
+        e.preventDefault();
+        cell.click();
+        return;
+      }
+      // Rows that actually hold cells: the "No period yet" heading is a
+      // row too, and arrowing down should skip straight over it.
+      var rows = Array.prototype.filter.call(grid.querySelectorAll("tbody tr"), function(tr){
+        return !!tr.querySelector("[data-cell]");
+      });
+      var here = rows.indexOf(cell.parentNode);
+      var cells = Array.prototype.slice.call(cell.parentNode.querySelectorAll("[data-cell]"));
+      var col = cells.indexOf(cell);
+      var target = null;
+
+      if(e.key === "Home") target = cells[0];
+      else if(e.key === "End") target = cells[cells.length - 1];
+      else if(STEP[e.key]){
+        var d = STEP[e.key];
+        if(d[0]){
+          var row = rows[here + d[0]];
+          if(row){
+            var into = row.querySelectorAll("[data-cell]");
+            target = into[Math.min(col, into.length - 1)];
+          }
+        } else {
+          target = cells[col + d[1]];
+        }
+      }
+      if(!target) return;
       e.preventDefault();
-      cell.click();
+      closePop();
+      target.focus();
+      // "nearest" so a keypress nudges the grid rather than jumping it,
+      // and so the page itself doesn't scroll out from under the board.
+      if(target.scrollIntoView) target.scrollIntoView({ block:"nearest", inline:"nearest" });
     });
 
     grid.addEventListener("change", function(e){
@@ -1478,6 +1893,7 @@
           defaultLists: (st.classCfg && Array.isArray(st.classCfg.defaultLists)) ? st.classCfg.defaultLists : null,
           periods: (st.classCfg && st.classCfg.periods) || []
         };
+        notes = st.notes || {};
         board.draft = {}; board.sel = {}; board.collapsed = {};
         board.period = st.period || "";      // set directly: no localStorage in tests
         board.q = st.q || "";
@@ -1498,7 +1914,21 @@
       visibleStudents: visibleStudents,
       boardColumns: boardColumns,
       cellText: cellText,
+      cellSpoken: cellSpoken,
+      colLabel: colLabel,
       columnToggle: columnToggle,
+      readyToAdvance: readyToAdvance,
+      noteOf: noteOf,
+      csvCell: csvCell,
+      csvRows: csvRows,
+      rosterCsv: rosterCsv,
+      wordsCsv: wordsCsv,
+      exportName: exportName,
+      noteSummary: noteSummary,
+      NOTE_MAX: NOTE_MAX,
+      listProgress: listProgress,
+      boardSuggestions: boardSuggestions,
+      SOLID_ENOUGH: SOLID_ENOUGH,
       saveBody: saveBody,
       NO_PERIOD: NO_PERIOD,
       // Not pure, and here for one reason: 200 lines of string-built

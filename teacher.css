@@ -283,3 +283,31 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
   .abGrid{--abName:160px}
   .abScroll{max-height:60vh}
 }
+
+/* ---------------- "ready to move up" ----------------
+   Sits above the board, and only when it has something to say. Styled as
+   a suggestion rather than an alert: nothing here is wrong, and a teacher
+   who ignores it for a week has lost nothing. */
+.abReady{border-color:rgba(255,199,89,.35)}
+.abSugs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.abSug{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:10px 14px;border:1px solid var(--line);border-radius:12px;
+  background:var(--panel2);font-size:14px;
+}
+.abSugWho{font-weight:700;min-width:120px}
+.abSugWhat{flex:1;min-width:220px;color:var(--muted)}
+.abSugWhat b{color:var(--ink)}
+.abSugTo{color:var(--accent);font-weight:700;white-space:nowrap}
+.abSug .btn{flex:none}
+.abReady .rowActions{margin-top:14px}
+
+/* ---------------- the teacher's notes ----------------
+   Teacher-only by firestore.rules, and shown wherever a name is: a note
+   you have to open a student to discover is a note nobody reads. */
+.noteBox{width:100%;resize:vertical;line-height:1.55;font-family:inherit;margin-bottom:12px}
+.noteDot{color:var(--accent);font-size:12px;cursor:help;vertical-align:1px}
+.noteLine{
+  color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;
+}

@@ -1105,6 +1105,29 @@
        grid.querySelector('[data-cell="s:u2|5"]').textContent, "1 🃏");
     T.board.collapsed.red = false;
 
+    /* ---- what a cell says out loud ----
+       On screen a cell is two emoji or an em dash. That is fine for the
+       eye and useless to a screen reader, so every cell also carries the
+       same answer in words. */
+    T.feed(aClass());
+    T.renderAssign();
+    grid = document.getElementById("abGrid");
+    eq("a cell names the student, the list and the modes",
+       grid.querySelector('[data-cell="s:u1|6"]').getAttribute("aria-label"),
+       "Ana, Red Words List 2: Cards, Match It (inherited)");
+    eq("an empty cell says 'nothing', not an em dash",
+       grid.querySelector('[data-cell="s:u1|0"]').getAttribute("aria-label"),
+       "Ana, Starting Blends: nothing (inherited)");
+    eq("a row with its own set is not called inherited",
+       grid.querySelector('[data-cell="s:u2|5"]').getAttribute("aria-label"),
+       "Marcos, Red Words List 1: Cards");
+    eq("a one-list family doesn't invent a list number", T.colLabel({ fam: WordLists.familyOf("nonsense") }),
+       "Nonsense Words");
+    eq("a folded family says how many lists it stands for",
+       T.colLabel({ fam: WordLists.familyOf("red"), summary: true }), "Red Words, all 10 lists");
+    eq("the spoken form and the icons come from the same answer",
+       T.cellSpoken("s:u1", { fam: WordLists.familyOf("red"), n: 2 }), "Cards, Match It");
+
     /* ---- the filter can outlive the period it names ----
        It is remembered in localStorage, so a new roster or a renamed
        section would otherwise leave a board with nobody on it under a
@@ -1136,6 +1159,248 @@
        host.querySelector('[data-pk-summary="probe"]').textContent, "nothing");
 
     host.innerHTML = "";
+  })();
+
+
+  /* ══════════════════════════════════════════════════════════════════
+     teacher.js — CSV export
+
+     The escaping is the whole test. A student called O'Brien, a note with
+     a comma in it, a word list whose title has a quotation mark: a naive
+     join breaks on any of them, and it breaks SILENTLY, in a file
+     somebody has already emailed to a meeting.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals;
+    var C = T.csvCell;
+
+    eq("a plain value is left alone", C("Ana"), "Ana");
+    eq("null is an empty cell", C(null), "");
+    eq("a number survives as text", C(0), "0");
+    eq("a comma forces quotes", C("Reads well, freezes when timed"), '"Reads well, freezes when timed"');
+    eq("a quote is doubled and wrapped", C('she said "no"'), '"she said ""no"""');
+    eq("a newline forces quotes", C("line one\nline two"), '"line one\nline two"');
+    eq("a carriage return forces quotes too", C("a\rb"), '"a\rb"');
+    eq("an apostrophe needs nothing — it isn't the quote character", C("O'Brien"), "O'Brien");
+    // The one that isn't about parsing: a spreadsheet reads a leading
+    // = + - @ as a formula, so a cell starting with one is neutralised.
+    eq("a leading = can't become a formula", C("=SUM(A1:A9)"), "'=SUM(A1:A9)");
+    eq("…nor a leading +", C("+1"), "'+1");
+    eq("…nor a leading -", C("-5"), "'-5");
+    eq("…nor a leading @", C("@here"), "'@here");
+    eq("a minus in the middle is just a minus", C("re-read"), "re-read");
+    eq("an en dash is not a formula", C("–5"), "–5");
+    eq("a neutralised cell still gets quoted if it needs it", C("=a,b"), '"\'=a,b"');
+
+    eq("rows are CRLF-terminated, including the last",
+       T.csvRows([["a","b"],["c","d"]]), "a,b\r\nc,d\r\n");
+    eq("one row still ends with a newline", T.csvRows([["a"]]), "a\r\n");
+
+    /* ---- the two files ---- */
+    var A = window.Adaptive;
+    T.feed({
+      students: [{
+        uid:"u1", name:"Ana O'Brien, Jr.", email:"ana@seq.org",
+        stats: (function(){
+          var st = {};
+          st[A.keyFor("red-1-cards", "said")]  = { n:4, r:3, w:1, box:1, last: 1757000000000 };
+          st[A.keyFor("red-1-cards", "would")] = { n:9, r:9, w:0, box:A._constants.MAX_BOX, last: 1757000000000 };
+          st[A.keyFor("red-1-cards", "never")] = { n:0, r:0, w:0, box:0, last:0 };
+          return st;
+        })(),
+        totals:{n:13,r:12}, recent:[], lastSeen: 1757000000000
+      }],
+      assignments: { u1: { period:"3", lists:["red-1-cards"] } },
+      classCfg: { periods:["3"], periodLists:{}, defaultLists:[] },
+      notes: { u1: { text:"Reads well, freezes when timed", updatedAt:1 } }
+    });
+
+    var roster = T.rosterCsv().split("\r\n");
+    eq("the roster has a header and a row per student", roster.length, 3, JSON.stringify(roster));
+    eq("the header names the columns",
+       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Last active,Note");
+    eq("a name with a comma and an apostrophe survives whole",
+       roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,3,'), 0);
+    eq("the roster carries the same sentence the screen shows",
+       roster[1].indexOf("Red Words: 1 🃏") !== -1, true);
+    eq("…and where it came from", roster[1].indexOf("student") !== -1, true);
+    eq("…and the note, quoted for its comma",
+       roster[1].indexOf('"Reads well, freezes when timed"') !== -1, true);
+    eq("…and a date a spreadsheet will sort", roster[1].indexOf("2025-09-04") !== -1, true,
+       roster[1]);
+
+    var words = T.wordsCsv().split("\r\n");
+    eq("the words file has a header and a row per attempted word", words.length, 4, JSON.stringify(words));
+    eq("a word with no attempts is left out",
+       T.wordsCsv().indexOf("never") , -1);
+    eq("the header names the columns",
+       words[0], "Name,Email,Period,List,Mode,Word,Attempts,Correct,Accuracy %,Solid,Last practised");
+    // Rows come out sorted by stat key, so "said" precedes "would".
+    eq("a row names the list and the mode in words",
+       words[1].indexOf("Red Words · List 1,Cards,said,4,3,75,no") !== -1, true, words[1]);
+    eq("a solid word says so", words[2].indexOf(",would,9,9,100,yes,") !== -1, true, words[2]);
+
+    eq("the filename is dated so a folder of them sorts",
+       /^english-intensive-roster-\d{4}-\d{2}-\d{2}\.csv$/.test(T.exportName("roster")), true,
+       T.exportName("roster"));
+
+    // A class nobody has signed into yet still produces a valid file.
+    T.feed({ students: [], assignments: {}, classCfg: {} });
+    eq("an empty class exports a header and nothing else", T.rosterCsv().split("\r\n").length, 2);
+    eq("…and so does the words file", T.wordsCsv().split("\r\n").length, 2);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     teacher.js — the teacher's notes
+
+     The note itself is a string in a box; what's worth pinning is the
+     summarising, which runs on every roster row and every board row, and
+     the fact that notes live in their own collection at all. That last
+     one is a rules question and can't be tested from here — see the
+     comment on notes/{userId} in firestore.rules.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals;
+    T.feed({
+      students: [{ uid:"u1", name:"Ana", email:"ana@seq.org", stats:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 }],
+      assignments: { u1:{} },
+      classCfg: {},
+      notes: {
+        u1: { text:"Reads well, freezes when timed.\nSounds words out under his breath — let him.", updatedAt: 1 },
+        u2: { text:"   " }
+      }
+    });
+    eq("a note comes back whole", T.noteOf("u1").indexOf("freezes when timed") !== -1, true);
+    eq("a student with no note has an empty one, not undefined", T.noteOf("nobody"), "");
+    eq("the summary flattens the line breaks",
+       T.noteSummary("u1").indexOf("\n"), -1);
+    eq("…and reads as one sentence",
+       T.noteSummary("u1", 30), "Reads well, freezes when time…");
+    eq("…clipped to the length asked for, ellipsis included",
+       T.noteSummary("u1", 30).length, 30);
+    eq("a short note isn't clipped", T.noteSummary("u1", 200).length,
+       "Reads well, freezes when timed. Sounds words out under his breath — let him.".length);
+    eq("whitespace is not a note", T.noteSummary("u2"), "");
+    eq("no note is no marker", T.noteSummary("nobody"), "");
+    eq("there is a length cap, so one paste can't fill a document", T.NOTE_MAX > 0, true);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     teacher.js — ready to move up
+
+     The board works out who has finished a list and has nothing after
+     it. Getting the threshold wrong in either direction is a real cost:
+     too eager and a teacher is dismissing suggestions for students who
+     aren't ready, too strict and one stubborn word parks somebody for a
+     term. So the boundary is pinned from both sides.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals;
+    var W = WordLists;
+    var A = window.Adaptive;
+
+    // A stat map where `n` of a list's words are solid. "Solid" is the
+    // scheduler's own bar — top box AND high accuracy — so this builds
+    // real stats rather than asserting a shape isMastered might not agree
+    // with.
+    function solidStats(listId, n){
+      var stats = {};
+      W.wordsOf(listId).slice(0, n).forEach(function(w){
+        stats[A.keyFor(listId, w)] = { n: 9, r: 9, w: 0, box: A._constants.MAX_BOX, last: Date.now() };
+      });
+      return stats;
+    }
+    eq("the fixture really does produce words the scheduler calls solid",
+       A.summarize(A.statsForList(solidStats("red-1-cards", 5), "red-1-cards")).mastered, 5);
+
+    var TWENTY = W.wordsOf("red-1-cards").length;
+    eq("a red list is twenty words, which is what the shares below assume", TWENTY, 20);
+
+    // ---- the threshold, from both sides ----
+    var justUnder = Math.ceil(TWENTY * T.SOLID_ENOUGH) - 1;   // 15 of 20
+    var justOver  = Math.ceil(TWENTY * T.SOLID_ENOUGH);       // 16 of 20
+    eq("just under the bar suggests nothing",
+       T.readyToAdvance(solidStats("red-1-cards", justUnder), ["red-1-cards"]).length, 0);
+    eq("just over it suggests the next list",
+       T.readyToAdvance(solidStats("red-1-cards", justOver), ["red-1-cards"]).length, 1);
+    eq("a list nobody has touched suggests nothing",
+       T.readyToAdvance({}, ["red-1-cards"]).length, 0);
+    eq("…and one stubborn word does not park them for a term",
+       T.readyToAdvance(solidStats("red-1-cards", TWENTY - 1), ["red-1-cards"]).length, 1);
+
+    // ---- what the suggestion says ----
+    var one = T.readyToAdvance(solidStats("red-3-cards", TWENTY), ["red-3-cards"])[0];
+    eq("it names the family", one.famTitle, "Red Words");
+    eq("…the mode", one.mode, "cards");
+    eq("…where they are", one.from, 3);
+    eq("…and where to", one.toId, "red-4-cards");
+    eq("…with the evidence", one.mastered + " of " + one.total, "20 of 20");
+
+    // ---- it advances from the FURTHEST list they hold ----
+    var stats = {};
+    [1,2,3].forEach(function(n){
+      var s = solidStats("red-" + n + "-cards", TWENTY);
+      for(var k in s) stats[k] = s[k];
+    });
+    var many = T.readyToAdvance(stats, ["red-1-cards","red-2-cards","red-3-cards"]);
+    eq("three finished lists is still one suggestion, not three", many.length, 1);
+    eq("…and it advances from the furthest one", many[0].toId, "red-4-cards");
+
+    // Finishing an early list while still working on a later one is not
+    // progress to act on — they are already where they should be.
+    var early = solidStats("red-1-cards", TWENTY);
+    eq("solid on List 1 but still working List 3 suggests nothing",
+       T.readyToAdvance(early, ["red-1-cards","red-3-cards"]).length, 0);
+
+    // ---- modes advance independently ----
+    var cardsOnly = solidStats("red-1-cards", TWENTY);
+    var both = T.readyToAdvance(cardsOnly, ["red-1-cards","red-1-match"]);
+    eq("finishing the cards doesn't move the Match It along", both.length, 1);
+    eq("…it moves the cards along", both[0].mode, "cards");
+
+    // ---- nothing to advance to ----
+    eq("a family with one list has nowhere to go",
+       T.readyToAdvance(solidStats("initial-blends", 28), ["initial-blends"]).length, 0);
+    eq("the last list in a family has nothing after it",
+       T.readyToAdvance(solidStats("red-10-cards", TWENTY), ["red-10-cards"]).length, 0);
+    eq("a list they already have next is not suggested again",
+       T.readyToAdvance(solidStats("red-1-cards", TWENTY), ["red-1-cards","red-2-cards"]).length, 0);
+    eq("no lists at all, no suggestions", T.readyToAdvance(solidStats("red-1-cards", TWENTY), []).length, 0);
+    eq("null lists are tolerated", T.readyToAdvance({}, null).length, 0);
+
+    // ---- listProgress on an id the registry has forgotten ----
+    eq("a stale id counts as no evidence, not as finished",
+       T.listProgress({}, "gone-away").share, 0);
+
+    /* ---- on the board ----
+       The panel reads through the same draft everything else does, so
+       adding a suggestion makes it stop being true. */
+    function classWith(uid, stats, lists){
+      var st = { students: [], assignments: {}, classCfg: { periods:["3"], periodLists:{}, defaultLists:[] } };
+      st.students.push({ uid:uid, name:"Ana", email:"ana@seq.org", stats:stats,
+                         totals:{n:0,r:0}, recent:[], lastSeen:0 });
+      st.assignments[uid] = { period:"3", lists: lists };
+      return st;
+    }
+    T.feed(classWith("u1", solidStats("red-1-cards", TWENTY), ["red-1-cards"]));
+    eq("the board finds the student who is ready", T.boardSuggestions().length, 1);
+    eq("…and says who", T.boardSuggestions()[0].name, "Ana");
+    T.setScope("s:u1", ["red-1-cards","red-2-cards"]);
+    eq("giving them the next list retires the suggestion", T.boardSuggestions().length, 0);
+    eq("…as an unsaved change like any other", T.dirtyScopes().join(","), "s:u1");
+
+    // The period filter bounds it, the same as the column toggles.
+    var two = classWith("u1", solidStats("red-1-cards", TWENTY), ["red-1-cards"]);
+    two.students.push({ uid:"u2", name:"Bo", email:"bo@seq.org",
+                        stats: solidStats("red-1-match", TWENTY), totals:{n:0,r:0}, recent:[], lastSeen:0 });
+    two.assignments.u2 = { period:"5", lists:["red-1-match"] };
+    two.classCfg.periods = ["3","5"];
+    T.feed(two);
+    eq("both students show when nothing is filtered", T.boardSuggestions().length, 2);
+    two.period = "3";
+    T.feed(two);
+    eq("a period filter bounds the suggestions too", T.boardSuggestions().length, 1);
+    eq("…to the students on screen", T.boardSuggestions()[0].name, "Ana");
   })();
 
   /* ══════════════════════════════════════════════════════════════════

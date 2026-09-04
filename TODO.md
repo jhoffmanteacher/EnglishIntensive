@@ -11,64 +11,23 @@ with the reasoning, so they don't get re-proposed every few months.
 
 ## Next
 
-### Progression rules
+*(The three items that were here — progression rules, per-student notes and
+export — are all done. See the Teacher dashboard section of the README.)*
 
-Auto-advance a student when they've finished something: when Red List *n*
-is solid, put List *n+1* on them. Today every move is a manual tick, which
-is fine for a class of 30 moving together and tedious for the three
-students who are ahead.
-
-The pieces already exist — `Adaptive.summarize(statsFor(id))` gives
-`mastered` / `total` per list, and the board already knows how to write an
-assignment. What's missing is the policy and, more importantly, where it
-runs. A rule that fires in the student's browser would let a student
-advance themselves; it belongs on the teacher's side, either as a
-"3 students are ready to move up" prompt on the board (cheap, honest,
-keeps the teacher in the loop) or as a real scheduled job (needs a
-backend this site doesn't have). **Start with the prompt.**
-
-### Per-student notes
-
-A free-text field on `assignments/{uid}` for "reads well, freezes when
-timed" — the kind of thing that currently lives in a teacher's head or a
-separate doc. Shows on the student detail page and as a hover on the
-board's name column.
-
-Rules-wise this is the one field on `assignments/{uid}` a student should
-*not* be able to read about themselves, and right now they can read their
-whole row (`allow read: if isSchool() && request.auth.uid == userId`). So
-this needs either a separate `notes/{uid}` collection that only the
-teacher can read, or a rules change. **Separate collection is simpler and
-harder to get wrong.**
-
-### Export
-
-CSV of the roster — name, period, effective lists, accuracy, words solid,
-words shaky — for report cards, IEP meetings and anyone who wants the data
-in a spreadsheet. All of it is already in memory on the dashboard; this is
-a string builder and a `Blob` download, an afternoon at most.
-
-Worth adding a second export of the per-word stats (student × list × word ×
-attempts × correct), which is the shape you'd want for looking at a
-question the dashboard doesn't answer.
-
----
+Nothing outstanding. The next thing worth building is whatever the class
+turns out to need after a term of using it.
 
 ## Smaller
 
-- **Arrow-key navigation on the board.** Cells are already
-  `tabindex="0"` and Enter/Space opens a cell's modes, so the board is
-  usable from the keyboard; arrow keys between cells would make it fast.
-  Was explicitly a nice-to-have, not phase 1.
-- **Screen-reader labels on board cells.** A cell currently reads as its
-  emoji, or as an em dash. It wants an `aria-label` along the lines of
-  "Ana, Red Words List 2: Cards, Match It". Cheap, but `paintCells` runs
-  over every cell on every edit, so build the label from parts rather
-  than re-deriving it.
 - **`red-words-game.html` / `red-words-match-game.html` redirects.** Six
   lines each, kept so bookmarks and anything written on paper keep
   working. Delete them once a school year has gone by and nothing links
   there.
+- **Publish `firestore.rules` after the notes change.** The file now has
+  a `notes/{uid}` block, and editing the file deploys nothing — GitHub
+  Pages doesn't ship Firestore rules. Until it's pasted into the Firebase
+  console, the notes box will save into a collection with no rule and the
+  write will be refused. Everything else on the site is unaffected.
 - **The board on a phone.** It works — the name column is narrowed at
   640px and the grid scrolls — but 15 columns on a handset is a lot of
   scrolling. The family fold (▾) is the existing escape hatch. Only worth
