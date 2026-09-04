@@ -213,6 +213,53 @@ a chooser of every list that has that mode, the student's own first and
 the rest under "More", so a bookmarked or hand-typed address still lands
 somewhere useful. A list id belonging to a different page redirects there.
 
+## Reading view
+
+Four switches on every game's start screen, under **👁 Reading view**:
+
+| | |
+|---|---|
+| **Font** | Site default · **Lexend** · **Atkinson Hyperlegible** |
+| **Letter spacing** | Normal · Wide |
+| **Word case** | As written · lowercase |
+| **Card colour** | Dark · Cream |
+
+None of these is decoration. A reader who loses their place between b and d,
+or who can't hold a word together when the letters sit tight, is describing
+the thing that is actually hard. Lexend was drawn against reading-speed
+research; Atkinson Hyperlegible was drawn by the Braille Institute for low
+vision, and its b/d/p/q and I/l/1 are made to be told apart at a glance.
+
+Both fonts are **self-hosted** (`fonts/`, latin subset, 400 and 700, OFL
+licences included). Linking them from Google would mean a school network
+that blocks `fonts.gstatic.com` silently falls back to the default face —
+for exactly the student the setting exists for.
+
+The settings live in `localStorage` under `eiView`, per device, like Shuffle
+and Voice: a shared Chromebook cart means the setting belongs to the seat.
+They are applied as classes on `<html>` (`view-lexend`, `view-wide`,
+`view-lower`, `view-cream`), so a setting reaches every page and every
+engine without any of them knowing about it. `game-core.js` owns the object,
+the panel and the sanitizer — an unrecognised stored value is the default,
+not an error.
+
+`view-boot.js` runs in each page's `<head>`, before any stylesheet, and does
+one thing: copy a cached class string out of `localStorage` onto `<html>`.
+Without it a student with Lexend on watches every page render in the default
+face and then jump. It reads only the derived cache and scrubs it to
+`[a-z- ]` before it touches `className`, because localStorage is
+hand-editable; the cache is disposable, and `game-core.js` re-derives it from
+the real object as soon as it loads.
+
+**lowercase** is the one switch that isn't blanket. Lowercasing "Mrs." makes
+a different word and lowercasing "Wednesday" makes a spelling error, so the
+engines mark any word carrying a capital and CSS leaves those alone. The
+four such words in the whole library — *Mr.*, *Mrs.*, *Tuesday*,
+*Wednesday* — are pinned by a test, so a new one can't slip in unnoticed.
+
+**Cream** reaches the card faces and the word and nothing else. A student who
+wants paper-coloured words is not asking for a beige teacher dashboard.
+
 ## Shared core
 
 `game-core.js` holds the parts that **must** agree between games, and every

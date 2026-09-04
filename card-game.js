@@ -279,6 +279,7 @@ window.CardGame = (function(){
       ${cfg.hasPicker ? `
       <p class="decklbl" style="margin-top:22px">Pick a list:</p>
       <div class="decks" id="deckPicker"></div>` : ""}
+      ${window.GameCore.readingViewButton()}
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
@@ -440,6 +441,8 @@ window.CardGame = (function(){
       hasPicker: CHOICES.length > 1,
       progress: prog.markup()
     });
+    // The Reading view panel is markup the core supplied; the core wires it.
+    Core.mountReadingView();
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
@@ -599,6 +602,8 @@ window.CardGame = (function(){
       // textContent, not innerHTML — these lists carry apostrophes and
       // periods (they'd, Mrs.) and nothing here needs markup.
       $("uiWord").textContent = w;
+      Core.markWordCase($("uiWord"), w);
+      Core.markWordCase($("uiWordBack"), w);
       // The front is the plain word — the student has to read it cold.
       // The back is where the syllable split earns its keep, showing HOW
       // the word came apart once they've already had their go at it.

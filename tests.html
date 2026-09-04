@@ -19,6 +19,7 @@
   frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://content.googleapis.com https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://docs.google.com https://drive.google.com https://www.google.com;
 ">
 <title>Game Engine Tests</title>
+<script src="view-boot.js"></script>
 <link rel="stylesheet" href="site.css">
 <style>
   body{padding:32px 20px 60px}
@@ -865,6 +866,76 @@
        E({}, {periodLists:{"3":["b"]}}, ALL).join(","), "a,b,c,d");
     eq("the returned array is a copy, not the stored one",
        (function(){ var cfg = {defaultLists:["a"]}; E(null,cfg,ALL).push("x"); return cfg.defaultLists.length; })(), 1);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     game-core.js — the Reading view
+
+     Four switches applied as classes on <html>. The parts worth pinning:
+     an unrecognised stored value is the default rather than an error
+     (localStorage is hand-editable), the settings survive being written
+     and read back, and a word carrying a capital is never lowercased.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+
+    var d = C.sanitizeView(null);
+    eq("an empty view is all defaults",
+       [d.font, d.spacing, d.wordCase, d.card].join(","), "default,normal,as-written,dark");
+    eq("…and adds no classes", C.viewClasses(d).length, 0);
+    eq("garbage is the default, not an error", C.sanitizeView("nope").font, "default");
+    eq("an unrecognised value is the default", C.sanitizeView({font:"comic"}).font, "default");
+    eq("an unrecognised value doesn't poison its neighbours",
+       C.sanitizeView({font:"comic", spacing:"wide"}).spacing, "wide");
+    eq("a value from a newer version is dropped", C.sanitizeView({card:"neon"}).card, "dark");
+    eq("sanitizeView stamps the version", C.sanitizeView({}).v, 1);
+
+    eq("lexend adds one class", C.viewClasses({font:"lexend"}).join(","), "view-lexend");
+    eq("atkinson adds the other", C.viewClasses({font:"atkinson"}).join(","), "view-atkinson");
+    eq("all four at once",
+       C.viewClasses({font:"lexend", spacing:"wide", wordCase:"lower", card:"cream"}).join(" "),
+       "view-lexend view-wide view-lower view-cream");
+    eq("classes come out in a stable order",
+       C.viewClasses({card:"cream", font:"lexend"}).join(" "),
+       C.viewClasses({font:"lexend", card:"cream"}).join(" "));
+
+    // Capitals are protected from the lowercase switch.
+    eq("a plain word may be lowercased", C.wordCaseClass("said"), "");
+    eq("Mrs. may not", C.wordCaseClass("Mrs."), "has-cap");
+    eq("Wednesday may not", C.wordCaseClass("Wednesday"), "has-cap");
+    eq("nothing at all is safe to lowercase", C.wordCaseClass(null), "");
+    (function(){
+      var caps = window.WordLists.ids.reduce(function(acc, id){
+        window.WordLists.wordsOf(id).forEach(function(w){ if(/[A-Z]/.test(w)) acc[w] = true; });
+        return acc;
+      }, {});
+      eq("the lists' capitalised words are exactly the ones we know about",
+         Object.keys(caps).sort().join(","), "Mr.,Mrs.,Tuesday,Wednesday");
+    })();
+
+    /* Round-trip. This IS the "survives a reload" property: the next page
+       load reads the same two keys back out of the same localStorage. */
+    (function(){
+      var saved = null;
+      try{ saved = localStorage.getItem("eiView"); }catch(e){}
+      C.writeView({ font:"lexend", spacing:"wide", wordCase:"lower", card:"cream" });
+      var back = C.readView();
+      eq("a written view reads back", [back.font, back.spacing, back.wordCase, back.card].join(","),
+         "lexend,wide,lower,cream");
+      eq("…and lands on <html>",
+         document.documentElement.classList.contains("view-lexend") &&
+         document.documentElement.classList.contains("view-cream"), true);
+      eq("…and is cached for the boot script",
+         (localStorage.getItem("eiViewClass") || "").indexOf("view-lexend") !== -1, true);
+      // The boot script's own guard: nothing but class characters survives.
+      eq("the boot cache can't inject anything",
+         '<img x>'.replace(/[^a-z\- ]/g, ""), "img x");
+      C.writeView(null);
+      eq("clearing it takes the classes off again",
+         document.documentElement.className.indexOf("view-") !== -1, false);
+      try{ if(saved === null) localStorage.removeItem("eiView"); else localStorage.setItem("eiView", saved); }catch(e){}
+      C.writeView(C.readView());
+    })();
   })();
 
   /* ══════════════════════════════════════════════════════════════════

@@ -635,6 +635,176 @@ window.GameCore = (function(){
 
   function has(o, k){ return Object.prototype.hasOwnProperty.call(o, k); }
 
+
+  /* ---------------- Reading view (pure parts testable) ----------------
+     Four switches a student sets once and keeps: which typeface, how far
+     apart the letters sit, whether words are lowercased, and whether the
+     card is dark or cream. None of them is a preference in the decorative
+     sense. A reader who loses their place between b and d, or who can't
+     hold a word together when the letters are tight, is not being fussy —
+     they are describing the thing that is actually hard.
+
+     Applied as classes on <html>, so a setting reaches every page and
+     every engine without any of them knowing about it. Stored in
+     localStorage, per device, like Shuffle and Voice: a shared Chromebook
+     cart means the setting belongs to the seat, and a student who moves
+     seats would rather re-tick four boxes than have the site follow them
+     around in a form nobody can find.
+
+     The classes are also cached as a plain string under `eiViewClass`, so
+     each page's <head> can apply them in one line before first paint —
+     without that line the page renders in the default face and then jumps.
+     The cache is derived and disposable: readView() rebuilds it from the
+     real object on load, so a missing or stale cache costs one frame. */
+  var VIEW_KEY = "eiView";
+  var VIEW_CLASS_KEY = "eiViewClass";
+  var VIEW_VERSION = 1;
+
+  /* One table, in the order the panel shows them. `cls` is what a value
+     puts on <html>; a value with no class is the default and adds none. */
+  var VIEW_FIELDS = [
+    { key:"font", label:"Font", dflt:"default", options:[
+      { value:"default",  label:"Site default" },
+      { value:"lexend",   label:"Lexend",   cls:"view-lexend" },
+      { value:"atkinson", label:"Atkinson", cls:"view-atkinson" }
+    ]},
+    { key:"spacing", label:"Letter spacing", dflt:"normal", options:[
+      { value:"normal", label:"Normal" },
+      { value:"wide",   label:"Wide", cls:"view-wide" }
+    ]},
+    { key:"wordCase", label:"Word case", dflt:"as-written", options:[
+      { value:"as-written", label:"As written" },
+      { value:"lower",      label:"lowercase", cls:"view-lower" }
+    ]},
+    { key:"card", label:"Card colour", dflt:"dark", options:[
+      { value:"dark",  label:"Dark" },
+      { value:"cream", label:"Cream", cls:"view-cream" }
+    ]}
+  ];
+
+  function viewFieldFor(key){
+    for(var i=0;i<VIEW_FIELDS.length;i++) if(VIEW_FIELDS[i].key === key) return VIEW_FIELDS[i];
+    return null;
+  }
+
+  // localStorage is hand-editable and outlives any change to this file, so
+  // an unrecognised value is not an error — it is simply the default.
+  function sanitizeView(raw){
+    var out = { v: VIEW_VERSION };
+    var src = (raw && typeof raw === "object") ? raw : {};
+    VIEW_FIELDS.forEach(function(f){
+      var want = src[f.key], ok = f.dflt, i;
+      for(i=0;i<f.options.length;i++) if(f.options[i].value === want) ok = want;
+      out[f.key] = ok;
+    });
+    return out;
+  }
+
+  function viewClasses(view){
+    var v = sanitizeView(view), out = [];
+    VIEW_FIELDS.forEach(function(f){
+      f.options.forEach(function(o){ if(o.value === v[f.key] && o.cls) out.push(o.cls); });
+    });
+    return out;
+  }
+
+  function readView(){
+    var raw = null;
+    try{ raw = JSON.parse(localStorage.getItem(VIEW_KEY)); }catch(e){ raw = null; }
+    return sanitizeView(raw);
+  }
+
+  function applyView(view){
+    var el = document.documentElement;
+    var keep = (el.className || "").split(/\s+/).filter(function(c){
+      return c && c.indexOf("view-") !== 0;
+    });
+    el.className = keep.concat(viewClasses(view)).join(" ").trim();
+  }
+
+  function writeView(view){
+    var v = sanitizeView(view);
+    try{
+      localStorage.setItem(VIEW_KEY, JSON.stringify(v));
+      localStorage.setItem(VIEW_CLASS_KEY, viewClasses(v).join(" "));
+    }catch(e){}
+    applyView(v);
+    return v;
+  }
+
+  /* A word carrying a capital is left in the case the list wrote it in.
+     "Mrs." lowercased is a different word, and "Wednesday" lowercased is
+     a spelling error — so the lowercase switch is deliberately not a
+     blanket text-transform. The engines put this class on the element
+     holding the word. */
+  function wordCaseClass(word){
+    return /[A-Z]/.test(String(word == null ? "" : word)) ? "has-cap" : "";
+  }
+  // Convenience for the engines: set it on an element they just wrote.
+  function markWordCase(el, word){
+    if(!el) return;
+    if(wordCaseClass(word)) el.classList.add("has-cap");
+    else el.classList.remove("has-cap");
+  }
+
+  /* The button and its panel, as markup an engine drops into its start
+     screen. One helper rather than four copies, because four copies of a
+     settings panel is four places for the option list to drift. */
+  function readingViewButton(){
+    var v = readView();
+    var rows = VIEW_FIELDS.map(function(f){
+      return '<div class="rvrow"><b>' + escapeHtml(f.label) + "</b>" +
+        f.options.map(function(o){
+          return '<button type="button" class="rvopt" data-rv="' + f.key + '" data-rvval="' + o.value +
+                 '" aria-pressed="' + (v[f.key] === o.value ? "true" : "false") + '">' +
+                 escapeHtml(o.label) + "</button>";
+        }).join("") + "</div>";
+    }).join("");
+    return '<div class="rvwrap">' +
+      readingViewToggle() +
+      '<div class="rvpanel" id="rvPanel" hidden>' +
+        "<h3>Reading view</h3>" +
+        '<p class="rvnote">Change how the words look. This sticks on this computer, ' +
+        "in every game — so set it once and forget it.</p>" + rows +
+      "</div></div>";
+  }
+  function readingViewToggle(){
+    return '<button class="btn ghost" id="btnReadingView" type="button" aria-expanded="false" ' +
+           'aria-controls="rvPanel">👁 Reading view</button>';
+  }
+
+  // Wires whatever readingViewButton() rendered. Safe to call on a page
+  // that didn't render it.
+  function mountReadingView(){
+    var btn = document.getElementById("btnReadingView");
+    var panel = document.getElementById("rvPanel");
+    if(!btn || !panel) return;
+    btn.addEventListener("click", function(){
+      var open = panel.hidden;
+      panel.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    panel.addEventListener("click", function(ev){
+      var t = ev.target;
+      if(!t || !t.getAttribute || !t.getAttribute("data-rv")) return;
+      var key = t.getAttribute("data-rv"), val = t.getAttribute("data-rvval");
+      if(!viewFieldFor(key)) return;
+      var v = readView();
+      v[key] = val;
+      v = writeView(v);
+      // Re-press the row this click belonged to, and nothing else.
+      var row = t.parentNode;
+      Array.prototype.forEach.call(row.querySelectorAll("[data-rv]"), function(b){
+        b.setAttribute("aria-pressed", b.getAttribute("data-rvval") === v[key] ? "true" : "false");
+      });
+    });
+  }
+
+  // Belt and braces: view-boot.js applies the cached class string before
+  // first paint, and this re-derives it from the real object once the core
+  // loads, so a cleared or stale cache costs one frame and nothing else.
+  applyView(readView());
+
   /* ---------------- comeback deck (pure, testable) ----------------
      Missed words don't vanish when the round ends — they're kept per game
      page so the next session can start with the words that are actually
@@ -998,6 +1168,15 @@ window.GameCore = (function(){
 
     spokenText: spokenText,
     directionParts: directionParts,
+
+    sanitizeView: sanitizeView,
+    viewClasses: viewClasses,
+    readView: readView,
+    writeView: writeView,
+    wordCaseClass: wordCaseClass,
+    markWordCase: markWordCase,
+    readingViewButton: readingViewButton,
+    mountReadingView: mountReadingView,
 
     comebackCap: COMEBACK_CAP,
     sanitizeComeback: sanitizeComeback,

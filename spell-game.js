@@ -160,6 +160,7 @@ window.SpellGame = (function(){
         <li><b>Type</b> the word, then press <kbd>Enter</kbd>.</li>
         <li>Every 5 right in a row is bonus points.</li>
       </ol>
+      ${window.GameCore.readingViewButton()}
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
@@ -252,6 +253,8 @@ window.SpellGame = (function(){
       hasSentences: Object.keys(SENTENCES).length > 0,
       progress: prog.markup()
     });
+    // The Reading view panel is markup the core supplied; the core wires it.
+    Core.mountReadingView();
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
@@ -520,6 +523,7 @@ window.SpellGame = (function(){
       });
       $("uiHint").textContent = "The word was";
       $("uiWord").innerHTML = parts.join("");
+      Core.markWordCase($("uiWord"), target);
       var typed = normalizeAnswer(typedRaw);
       // Nothing gets gilded when every correct letter is present in order and
       // the only error was an extra letter ("coinn") — pointing at gold

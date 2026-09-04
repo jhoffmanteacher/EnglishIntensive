@@ -168,6 +168,7 @@ window.BlendGame = (function(){
         <li>Check the <b>mic meter</b>, then start.</li>
         <li>Say each word clearly. The mic <b>stays on</b> the whole time.</li>
       </ol>
+      ${window.GameCore.readingViewButton()}
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <!-- Only rendered once there's actually a deck to practise — see
@@ -318,6 +319,8 @@ window.BlendGame = (function(){
       theme: theme,
       progress: prog.markup()
     });
+    // The Reading view panel is markup the core supplied; the core wires it.
+    Core.mountReadingView();
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
@@ -554,6 +557,7 @@ window.BlendGame = (function(){
     function render(){
       var w = queue[idx];
       $("uiWord").innerHTML = markup(w);
+      Core.markWordCase($("uiWord"), w);
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       renderCombo();
