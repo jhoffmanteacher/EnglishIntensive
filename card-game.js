@@ -465,34 +465,9 @@ window.CardGame = (function(){
       Core.markWordCase($("uiWord"), w);
     }
 
-    /* Tap-to-hear on the back face. Bound once to the face rather than to
-       each button, so re-rendering the word on every card costs nothing;
-       tapList is whatever the current card put there. */
+    // What the back face's tap buttons currently stand for. The listener
+    // itself is bound once, further down, after the shell exists.
     var tapList = [], tapWord = "";
-    // Placing and removing dividers. Bound once to the word, like the
-    // taps, because the front face is rewritten on every card.
-    $("uiWord").addEventListener("click", function(ev){
-      if(!SPLIT || splitDone || busy) return;
-      var t = ev.target;
-      if(!t || !t.getAttribute || t.getAttribute("data-gap") === null) return;
-      var at = parseInt(t.getAttribute("data-gap"), 10);
-      if(!isFinite(at)) return;
-      var i = splitAt.indexOf(at);
-      if(i === -1) splitAt.push(at); else splitAt.splice(i, 1);
-      t.classList.toggle("on", i === -1);
-      snd.click();
-    });
-
-    Core.wireTaps($("uiWordBack"), function(){ return tapList; }, function(piece, i, el){
-      if(!phAudio) return;
-      el.classList.add("playing");
-      // The piece, then the whole word — the part on its own is only
-      // useful next to the thing it is part of.
-      phAudio.play(piece.tokens, 220).then(function(ok){
-        el.classList.remove("playing");
-        if(ok && SPEAK && tapWord) setTimeout(function(){ say(tapWord, SLOW_RATE); }, 200);
-      });
-    });
 
     /* The sentence to put on the front of this card, or null. Three gates,
        all of them deliberate: the list has to carry sentences at all, the
@@ -605,6 +580,34 @@ window.CardGame = (function(){
     var deckIdx = 0;
 
     var $ = function(id){ return document.getElementById(id); };
+
+    /* Two listeners bound ONCE to elements that keep their contents
+       rewritten — the front face on every card in Split it, the back face
+       on every card with tap-to-hear. Both have to come after the shell
+       is in the DOM, which is why they sit here rather than beside the
+       code that renders what they listen to. */
+    $("uiWord").addEventListener("click", function(ev){
+      if(!SPLIT || splitDone || busy) return;
+      var t = ev.target;
+      if(!t || !t.getAttribute || t.getAttribute("data-gap") === null) return;
+      var at = parseInt(t.getAttribute("data-gap"), 10);
+      if(!isFinite(at)) return;
+      var i = splitAt.indexOf(at);
+      if(i === -1) splitAt.push(at); else splitAt.splice(i, 1);
+      t.classList.toggle("on", i === -1);
+      snd.click();
+    });
+
+    Core.wireTaps($("uiWordBack"), function(){ return tapList; }, function(piece, i, el){
+      if(!phAudio) return;
+      el.classList.add("playing");
+      // The piece, then the whole word — the part on its own is only
+      // useful next to the thing it is part of.
+      phAudio.play(piece.tokens, 220).then(function(ok){
+        el.classList.remove("playing");
+        if(ok && SPEAK && tapWord) setTimeout(function(){ say(tapWord, SLOW_RATE); }, 200);
+      });
+    });
 
     /* Outcome reporting — the same optional contract as the other three
        engines, so one scheduler (practice.js) can drive all four. Here

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Build-time check, not part of the site. Served from tools/ so it can
+     never be linked from a game page by accident; the scripts load with
+     ../ paths.
+
+     tests.html covers the pure logic. This covers the thing tests.html
+     structurally cannot: that each engine's start() actually builds its
+     screens against the real word lists, and that a few clicks through
+     one don't throw. Every bug this has caught so far was the same shape
+     — a listener bound to an element before the shell existed — which no
+     amount of pure-function testing would have found.
+
+     Run: tools/boot-check.sh -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self'; base-uri 'self'; object-src 'none';
+  img-src 'self' data: https:; media-src 'self' blob:; font-src 'self' data:;
+  style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self';">
+<title>engine boot check</title>
+<link rel="stylesheet" href="../site.css">
+<link rel="stylesheet" href="../blend-game.css">
+</head>
+<body>
+<div id="app"></div>
+<pre id="out" style="padding:20px;font-size:14px;line-height:1.7"></pre>
+
+<!-- EI_REQUIRE_AUTH switches auth.js into its no-wall mode, the same way
+     tests.html does — this page has no account and needs none. -->
+<script>window.EI_REQUIRE_AUTH = false;</script>
+<script src="../adaptive.js"></script>
+<script src="../passages.js"></script>
+<script src="../word-lists.js"></script>
+<script src="../auth.js"></script>
+<script src="../store.js"></script>
+<script src="../game-core.js"></script>
+<script src="../listen.js"></script>
+<script src="../blend-game.js"></script>
+<script src="../spell-game.js"></script>
+<script src="../card-game.js"></script>
+<script src="../match-game.js"></script>
+<script src="../fluency-game.js"></script>
+<script src="../blend-it-game.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* ONE engine per page load, named by ?g=. The engines all use the same
+     element ids (s-start, s-play…) because each one owns its page, and
+     they leave timers running — so two in one document would drive each
+     other's screens, and tearing one down would leave its timers firing
+     at elements that are gone. A page load each is the only honest
+     isolation, and tools/check-pages.sh runs them in a loop. */
+  var GAMES = {
+    "say":        { engine: "BlendGame",   list: "initial-blends" },
+    "say-red":    { engine: "BlendGame",   list: "red-1-say" },
+    "spell":      { engine: "SpellGame",   list: "oi-oy-spell", drive: function(q, click){
+                      click(q("#btnStart"));
+                      // Two wrong answers, to reach the sound-box reveal.
+                      q("#sbox0").value = "z";
+                      click(q("#btnCheck"));
+                      q("#sbox0").value = "z";
+                      click(q("#btnCheck"));
+                    } },
+    "cards":      { engine: "CardGame",    list: "red-1-cards", drive: function(q, click){
+                      click(q("#btnStart"));
+                      click(q("#btnFlip"));
+                      click(q("#btnGot"));
+                    } },
+    "cards-nonsense": { engine: "CardGame", list: "nonsense-1-cards", drive: function(q, click){
+                      click(q("#btnStart"));
+                      click(q("#btnFlip"));
+                      click(q("#btnMiss"));
+                    } },
+    "split":      { engine: "CardGame",    list: "multi-1-split", drive: function(q, click){
+                      click(q("#btnStart"));
+                      click(q("#uiWord .gap"));   // place a divider
+                      click(q("#btnFlip"));       // check it
+                    } },
+    "match":      { engine: "MatchGame",   list: "oi-oy-1-match", drive: function(q, click){
+                      click(q("#btnStart"));
+                      click(q(".tile"));
+                    } },
+    "fluency":    { engine: "FluencyGame", list: "blends-end-1-fluency" },
+    "read":       { engine: "FluencyGame", list: "passages-1-read" },
+    "blendit":    { engine: "BlendItGame", list: "nonsense-1-blendit" }
+  };
+
+  function param(){
+    var m = /[?&]g=([^&#]+)/.exec(location.search || "");
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
+  function say(text){
+    document.title = text;
+    document.getElementById("out").textContent = text + "\n\n" + Object.keys(GAMES).join("\n");
+  }
+
+  var name = param();
+  if(!name){ say("pick one: " + Object.keys(GAMES).join(", ")); return; }
+  var g = GAMES[name];
+  if(!g){ say("FAILED: no game called " + name); return; }
+  var engine = window[g.engine];
+  if(!engine){ say("FAILED: " + g.engine + " did not load"); return; }
+
+  // The cfg practice.js would build, minus the scheduler.
+  var l = window.WordLists.byId(g.list);
+  if(!l){ say("FAILED: no list called " + g.list); return; }
+  var cfg = { mount: "app", title: l.title, intro: l.config.intro || "x" };
+  for(var k in l.config){ if(Object.prototype.hasOwnProperty.call(l.config, k)) cfg[k] = l.config[k]; }
+  cfg.words = l.words.slice(0, 8);
+  cfg.mastered = window.WordLists.wordsOf(g.list).slice(0, 8);
+  if(l.text) cfg.text = l.text;
+  if(l.targets) cfg.targets = l.targets;
+
+  try{ engine.start(cfg); }
+  catch(e){ say("FAILED: " + name + " start — " + e.message); return; }
+
+  if(!g.drive){ say("ok: " + name); return; }
+  function q(sel){
+    var el = document.querySelector(sel);
+    if(!el) throw new Error("no " + sel);
+    return el;
+  }
+  function click(el){ el.click(); }
+  try{ g.drive(q, click); }
+  catch(e){ say("FAILED: " + name + " drive — " + e.message); return; }
+  say("ok: " + name + " (driven)");
+})();
+</script>
+</body>
+</html>
