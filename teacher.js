@@ -12,9 +12,13 @@
      shows a friendly "wrong account" panel so the real teacher knows
      they're signed in as the wrong Google account; it is not security.
 
-   ── The three things it does ──────────────────────────────────────────
+   ── The four things it does ───────────────────────────────────────────
    Students   roster with accuracy and activity → per-student detail:
               their worst words, list by list, and their assignment.
+   Assign     every assignment in the class as one grid: students down
+              the side, lists across the top, inherited-versus-own
+              visible in the cell, and one batched Save at the bottom.
+              The picker below is for one student; this is for the class.
    Periods    which lists each period gets, and which period each student
               is in. A student's own assignment overrides their period's,
               which overrides the class default — see
@@ -24,21 +28,22 @@
               tomorrow, rather than who to talk to.
 
    ── The picker ────────────────────────────────────────────────────────
-   Every place a set of lists is chosen — a student's own, a period's,
-   the class default — uses one component, pickerHtml(). It has two
-   parts because the registry has two kinds of entry:
-     Games       the standalone lists, one checkbox each.
-     Red Words   a family: ten lists × two games. Shown as a grid — one
-                 row per list with a few of its words as a reminder, one
-                 column per game — with row ("both") and column ("all")
-                 toggles, because "lists 1–4 as flash cards" should be
-                 four clicks, not eight.
+   Every place a set of lists is chosen one scope at a time — a student's
+   own, a period's, the class default, the board's bulk dialog — uses one
+   component, pickerHtml(). It is one section per family, because that is
+   the only kind of entry the registry has:
+     one list      a line of mode checkboxes — "Blend Words: 🎤 Say it ·
+                   🃏 Cards · 🎯 Match It".
+     many lists    a grid: one row per list with a few of its words as a
+                   reminder, one column per mode, with row and column
+                   "all" toggles, because "lists 1–4 as flash cards"
+                   should be four clicks, not eight.
    A live summary under the picker (WordLists.describeAssignment) says
    in words what the ticks add up to, and the roster shows that same
    line, so what a student HAS and what you're SETTING read the same way.
-   What gets saved is still a flat array of list ids — the picker is
-   presentation only; store.js, the rules and the precedence never see
-   the grid.
+   What gets saved is still a flat array of list ids — the picker and the
+   board are presentation only; store.js, the rules and the precedence
+   never see the grid.
 
    ── Why assignments live in their own collection ──────────────────────
    The teacher has READ on students/{uid} and no write, deliberately: the
@@ -101,7 +106,10 @@
     });
   }).catch(function(){
     EIAuth.unlock();
-    $("tBody").innerHTML = '<div class="panel"><h2>Couldn\'t load the class</h2>' +
+    // Guarded because tests.html loads this file for its pure helpers and
+    // has none of the dashboard's markup to write into.
+    var body = $("tBody");
+    if(body) body.innerHTML = '<div class="panel"><h2>Couldn\'t load the class</h2>' +
       '<p class="note">The database didn\'t answer. Check the network, then reload.</p></div>';
   });
 
@@ -178,8 +186,17 @@
   }
 
   /* ---------------- the picker ----------------
-     scopeId  "student" | "default" | "p:<period>" — stamped on every input
-              so scopeSelection() can read one picker on a page with several
+     One section per family, because that is now the only kind of entry
+     there is. A family with several lists (the red words) gets the grid
+     it always had — a row per list, a column per mode, with row and
+     column toggles, so "lists 1-4 as flash cards" is four clicks rather
+     than eight. A family with ONE list has nothing to put in the rows,
+     so it collapses to a line of mode checkboxes: "Blend Words:
+     🎤 Say it · 🃏 Cards · 🎯 Match It".
+
+     scopeId  "student" | "default" | "p:<period>" | "bulk" — stamped on
+              every input so scopeSelection() can read one picker on a
+              page carrying several
      selected the ids currently on (array), or null with allOn deciding
      allOn    what "nothing set" means here: true for the class default
               (open site), false for a period following a default */
@@ -187,60 +204,75 @@
     var on = function(id){ return selected ? selected.indexOf(id) !== -1 : !!allOn; };
     var sc = esc(scopeId);
 
-    var games = WordLists.standalone().map(function(l){
-      return '<label class="check"><input type="checkbox" data-scope="' + sc + '" data-list="' + esc(l.id) + '"' +
-        (on(l.id) ? " checked" : "") + "><span>" + esc(l.icon + " " + l.title) +
-        '<span class="sub2">' + WordLists.wordsOf(l.id).length + " words</span></span></label>";
-    }).join("");
+    function box(id){
+      return '<input type="checkbox" data-scope="' + sc + '" data-list="' + esc(id) + '"' + (on(id) ? " checked" : "") + ">";
+    }
+    function famTools(fam){
+      return '<span class="pkTools">' +
+        '<button type="button" class="pkMini" data-pk-fam="' + sc + "|" + esc(fam.key) + '|all">all</button>' +
+        '<button type="button" class="pkMini" data-pk-fam="' + sc + "|" + esc(fam.key) + '|none">none</button></span>';
+    }
 
     var fams = WordLists.families().map(function(fam){
-      var nums = WordLists.listNumsOf(fam.key);
-      var head = fam.games.map(function(g){
-        return "<th>" + esc(g.icon + " " + g.title) +
-          '<button type="button" class="pkMini" data-pk-col="' + sc + "|" + esc(fam.key) + "|" + esc(g.key) + '" title="Tick or untick every list for ' + esc(g.title) + '">all</button></th>';
-      }).join("");
-      var rows = nums.map(function(n){
-        var cells = fam.games.map(function(g){
-          var id = WordLists.idFor(fam.key, n, g.key);
-          return "<td>" + (id ? '<input type="checkbox" data-scope="' + sc + '" data-list="' + esc(id) + '"' + (on(id) ? " checked" : "") + ">" : "") + "</td>";
+      var modes = WordLists.modesOf(fam.key);
+      var body;
+
+      if(fam.lists.length > 1){
+        var head = modes.map(function(m){
+          return "<th>" + esc(m.icon + " " + m.title) +
+            '<button type="button" class="pkMini" data-pk-col="' + sc + "|" + esc(fam.key) + "|" + esc(m.key) +
+            '" title="Tick or untick every list for ' + esc(m.title) + '">all</button></th>';
         }).join("");
-        var anyId = WordLists.idFor(fam.key, n, fam.games[0].key);
-        var preview = anyId ? WordLists.wordsOf(anyId).slice(0, 4).join(", ") + "…" : "";
-        return '<tr><td class="pkList"><b>List ' + n + '</b><span class="preview">' + esc(preview) + "</span></td>" + cells +
-          '<td><button type="button" class="pkMini" data-pk-row="' + sc + "|" + esc(fam.key) + "|" + n + '" title="Tick or untick both games for this list">both</button></td></tr>';
-      }).join("");
+        var rows = WordLists.listNumsOf(fam.key).map(function(n){
+          var cells = modes.map(function(m){
+            var id = WordLists.idFor(fam.key, n, m.key);
+            return "<td>" + (id ? box(id) : "") + "</td>";
+          }).join("");
+          var anyId = WordLists.idsOfList(fam.key, n)[0];
+          var preview = anyId ? WordLists.wordsOf(anyId).slice(0, 4).join(", ") + "…" : "";
+          return '<tr><td class="pkList"><b>List ' + n + '</b><span class="preview">' + esc(preview) + "</span></td>" + cells +
+            '<td><button type="button" class="pkMini" data-pk-row="' + sc + "|" + esc(fam.key) + "|" + n +
+            '" title="Tick or untick every mode for this list">all</button></td></tr>';
+        }).join("");
+        body = '<div class="tableScroll"><table class="redGrid"><thead><tr><th>List</th>' + head + "<th></th></tr></thead>" +
+          "<tbody>" + rows + "</tbody></table></div>";
+      } else {
+        body = '<div class="listGrid">' + modes.map(function(m){
+          var id = WordLists.idFor(fam.key, fam.lists[0].n, m.key);
+          if(!id) return "";
+          return '<label class="check">' + box(id) + "<span>" + esc(m.icon + " " + m.title) +
+            '<span class="sub2">' + WordLists.wordsOf(id).length + " words" +
+            (m.needs ? " · " + esc(m.needs) : "") + "</span></span></label>";
+        }).join("") + "</div>";
+      }
+
       return '<div class="pkSection"><div class="pkHead"><h3>' + esc(fam.icon + " " + fam.title) + "</h3>" +
-        '<span class="muted tiny">' + esc(fam.note) + "</span></div>" +
-        '<div class="tableScroll"><table class="redGrid"><thead><tr><th>List</th>' + head + "<th></th></tr></thead>" +
-        "<tbody>" + rows + "</tbody></table></div></div>";
+        '<span class="muted tiny">' + esc(fam.note) + "</span>" + famTools(fam) + "</div>" + body + "</div>";
     }).join("");
 
-    return '<div class="picker" data-picker="' + sc + '">' +
-      '<div class="pkSection"><div class="pkHead"><h3>Games</h3>' +
-        '<span class="pkTools"><button type="button" class="pkMini" data-pk-games="' + sc + '|all">all</button>' +
-        '<button type="button" class="pkMini" data-pk-games="' + sc + '|none">none</button></span></div>' +
-        '<div class="listGrid">' + games + "</div></div>" +
-      fams +
+    return '<div class="picker" data-picker="' + sc + '">' + fams +
       '<div class="pkSummary">This gives them: <b data-pk-summary="' + sc + '"></b></div>' +
     "</div>";
   }
 
-  // The ids ticked in one picker. Works for every scope on the page.
+  /* The ids ticked in one picker. Queries the whole document rather than
+     #tBody because the bulk picker lives in a modal outside it; the scope
+     stamp is what keeps two pickers on one screen apart. */
   function scopeSelection(scopeId){
     var ids = [];
-    Array.prototype.forEach.call(document.querySelectorAll('#tBody input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
+    Array.prototype.forEach.call(document.querySelectorAll('input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
       if(cb.checked) ids.push(cb.dataset.list);
     });
     return ids;
   }
   function pickerInputs(scopeId, filter){
-    return Array.prototype.filter.call(document.querySelectorAll('#tBody input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
+    return Array.prototype.filter.call(document.querySelectorAll('input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
       var l = WordLists.byId(cb.dataset.list);
       return l && (!filter || filter(l));
     });
   }
   function refreshSummary(scopeId){
-    var el = document.querySelector('#tBody [data-pk-summary="' + scopeId.replace(/"/g,'') + '"]');
+    var el = document.querySelector('[data-pk-summary="' + scopeId.replace(/"/g,'') + '"]');
     if(el) el.textContent = WordLists.describeAssignment(scopeSelection(scopeId));
   }
   // Tick every input in a group, or untick them all if they're already all on.
@@ -250,28 +282,36 @@
   }
   /* One delegated handler for every picker on the page: the mini toggles,
      and a live summary on any change. Bound once per render. */
-  function bindPickers(){
-    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-picker]"), function(pk){
+  function bindPickers(root){
+    root = root || $("tBody");
+    Array.prototype.forEach.call(root.querySelectorAll("[data-picker]"), function(pk){
       refreshSummary(pk.dataset.picker);
     });
-    var body = $("tBody");
-    body.addEventListener("click", function(e){
-      var b = e.target.closest ? e.target.closest("[data-pk-games],[data-pk-col],[data-pk-row]") : null;
+    /* #tBody survives every render — only its contents are replaced — so
+       binding on each one stacked another pair of handlers on it. The
+       all/none buttons set an absolute state and survived that; the row
+       and column toggles FLIP, so two handlers made them a no-op and
+       three made them work again. Bind once per element. */
+    if(root._eiPickersBound) return;
+    root._eiPickersBound = true;
+    root.addEventListener("click", function(e){
+      var b = e.target.closest ? e.target.closest("[data-pk-fam],[data-pk-col],[data-pk-row]") : null;
       if(!b) return;
       var parts, scope;
-      if(b.dataset.pkGames){
-        parts = b.dataset.pkGames.split("|"); scope = parts[0];
-        pickerInputs(scope, function(l){ return !l.family; }).forEach(function(cb){ cb.checked = parts[1] === "all"; });
+      if(b.dataset.pkFam){
+        parts = b.dataset.pkFam.split("|"); scope = parts[0];
+        pickerInputs(scope, function(l){ return l.family === parts[1]; })
+          .forEach(function(cb){ cb.checked = parts[2] === "all"; });
       } else if(b.dataset.pkCol){
         parts = b.dataset.pkCol.split("|"); scope = parts[0];
-        toggleGroup(pickerInputs(scope, function(l){ return l.family === parts[1] && l.game === parts[2]; }));
+        toggleGroup(pickerInputs(scope, function(l){ return l.family === parts[1] && l.mode === parts[2]; }));
       } else {
         parts = b.dataset.pkRow.split("|"); scope = parts[0];
         toggleGroup(pickerInputs(scope, function(l){ return l.family === parts[1] && String(l.listNum) === parts[2]; }));
       }
       refreshSummary(scope);
     });
-    body.addEventListener("change", function(e){
+    root.addEventListener("change", function(e){
       var cb = e.target;
       if(cb && cb.matches && cb.matches("input[data-scope]")) refreshSummary(cb.dataset.scope);
     });
@@ -313,6 +353,14 @@
   function bindTabs(){
     Array.prototype.forEach.call(document.querySelectorAll("#tTabs .tab"), function(b){
       b.addEventListener("click", function(){
+        // The Assign board holds its edits in memory until Save, so
+        // walking away from it silently would throw them out.
+        if(view === "assign" && b.dataset.view !== "assign"){
+          var n = dirtyScopes().length;
+          if(n && !window.confirm(n + (n === 1 ? " change hasn't" : " changes haven't") +
+                                  " been saved yet. Leave the board and lose them?")) return;
+          board.draft = {};
+        }
         view = b.dataset.view;
         detailUid = null;
         Array.prototype.forEach.call(document.querySelectorAll("#tTabs .tab"), function(x){
@@ -324,7 +372,10 @@
   }
 
   function render(){
+    closePop();
+    closeBulk();
     if(view === "roster") return detailUid ? renderDetail() : renderRoster();
+    if(view === "assign") return renderAssign();
     if(view === "groups") return renderGroups();
     return renderTrouble();
   }
@@ -424,7 +475,7 @@
       "</div>" +
 
       '<div class="panel"><h2>Assignment</h2>' +
-        '<p class="note">What this student sees on their home page. Tick the games they should have, and for Red Words tick each list under the game(s) they should play it as. ' +
+        '<p class="note">What this student sees on their home page. Every list can be played several ways — tick each way they should get it. ' +
         'Saving here sets this student\'s OWN set, which overrides their period. ' +
         'Currently coming from: <b>' + esc(eff.from) + "</b>. " +
         '“Use my period’s lists” hands them back to the group.</p>' +
@@ -610,6 +661,703 @@
       });
   }
 
+  /* ════════════════════════════════════════════════════════════════
+     the Assign board
+
+     The picker answers "what should THIS student get?" one scope at a
+     time, which is the right shape for a conversation about one student
+     and the wrong shape for the ten minutes at the start of a unit when
+     a teacher is moving a whole class onto List 4. That is what this is:
+     one grid, students down the side and lists across the top, every
+     assignment in the class visible at once and editable in place.
+
+     Three things make it work rather than just look busy:
+
+     · Inheritance is visible. A student who follows their period is
+       drawn dashed and grey; a student with their own set is gold. You
+       can see at a glance who has been pulled out of the group, which is
+       the question a differentiated roster actually raises.
+     · Editing is copy-on-write, and says so. Touching a cell on an
+       inheriting student copies their effective set onto them as their
+       own — the same thing the picker has always done on Save — and the
+       row grows a ↺ to hand them back to the group.
+     · Nothing is written until Save. Every edit lands in `draft`, the
+       bar at the bottom counts what's pending, and Save commits the lot
+       in ONE db.batch(). A teacher reassigning six students should not
+       be able to get halfway.
+     ════════════════════════════════════════════════════════════════ */
+
+  var board = {
+    draft: {},        // scope → ids array, or null meaning "follow the parent"
+    sel: {},          // uid → true, for the bulk picker
+    collapsed: {},    // family key → true
+    period: null,     // filter; null until read from localStorage
+    q: ""             // name search
+  };
+
+  var FILTER_KEY = "ei.assign.period";
+  function boardPeriod(){
+    if(board.period === null){
+      try{ board.period = window.localStorage.getItem(FILTER_KEY) || ""; }
+      catch(e){ board.period = ""; }
+    }
+    return board.period;
+  }
+  function setBoardPeriod(p){
+    board.period = p;
+    try{ window.localStorage.setItem(FILTER_KEY, p); }catch(e){}
+  }
+
+  function hasDraft(scope){ return Object.prototype.hasOwnProperty.call(board.draft, scope); }
+  function sameIds(a, b){
+    if(!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    var x = a.slice().sort(), y = b.slice().sort();
+    for(var i=0;i<x.length;i++) if(x[i] !== y[i]) return false;
+    return true;
+  }
+
+  /* ── live values ──────────────────────────────────────────────────
+     The same precedence effectiveLists walks, but reading through the
+     unsaved draft: edit a period and the students following it must
+     redraw immediately, or the board would be lying about what Save is
+     going to do. "own" is the distinction the colours draw — an array
+     of its own, versus null and inheriting. */
+  function liveDefault(){
+    if(hasDraft("default")) return board.draft["default"] || [];
+    return Array.isArray(classCfg.defaultLists) ? classCfg.defaultLists : WordLists.ids;
+  }
+  function liveOwnPeriod(p){
+    var k = "p:" + p;
+    if(hasDraft(k)) return board.draft[k];
+    return Array.isArray(classCfg.periodLists[p]) ? classCfg.periodLists[p] : null;
+  }
+  function livePeriod(p){
+    var own = liveOwnPeriod(p);
+    return own === null ? liveDefault() : own;
+  }
+  function liveOwnStudent(uid){
+    var k = "s:" + uid;
+    if(hasDraft(k)) return board.draft[k];
+    var a = assignments[uid];
+    return (a && Array.isArray(a.lists)) ? a.lists : null;
+  }
+  function liveStudent(uid){
+    var own = liveOwnStudent(uid);
+    if(own !== null) return own;
+    var p = (assignments[uid] || {}).period;
+    return p != null ? livePeriod(p) : liveDefault();
+  }
+
+  function scopeView(scope){
+    if(scope === "default") return liveDefault();
+    if(scope.slice(0,2) === "p:") return livePeriod(scope.slice(2));
+    return liveStudent(scope.slice(2));
+  }
+  // The class default is the bottom of the chain: it has nothing to
+  // inherit from, so it always counts as its own.
+  function scopeIsOwn(scope){
+    if(scope === "default") return true;
+    if(scope.slice(0,2) === "p:") return liveOwnPeriod(scope.slice(2)) !== null;
+    return liveOwnStudent(scope.slice(2)) !== null;
+  }
+  function scopeStored(scope){
+    if(scope === "default") return Array.isArray(classCfg.defaultLists) ? classCfg.defaultLists : null;
+    if(scope.slice(0,2) === "p:"){
+      var v = classCfg.periodLists[scope.slice(2)];
+      return Array.isArray(v) ? v : null;
+    }
+    var a = assignments[scope.slice(2)];
+    return (a && Array.isArray(a.lists)) ? a.lists : null;
+  }
+
+  // Copy-on-write: the set you start editing is the set they already
+  // had, whether they owned it or inherited it.
+  function setScope(scope, ids){ board.draft[scope] = ids; }
+  function releaseScope(scope){ board.draft[scope] = null; }
+
+  function scopeDirty(scope){
+    if(!hasDraft(scope)) return false;
+    var d = board.draft[scope], stored = scopeStored(scope);
+    if(d === null || stored === null) return d !== stored;
+    return !sameIds(d, stored);
+  }
+  function dirtyScopes(){ return Object.keys(board.draft).filter(scopeDirty); }
+
+  /* ── who's on the board ─────────────────────────────────────────── */
+  var NO_PERIOD = " none";     // a filter value no real period can collide with
+
+  function studentPeriod(uid){
+    var p = (assignments[uid] || {}).period;
+    return p == null || p === "" ? null : p;
+  }
+  function matchesQuery(s){
+    var q = board.q.trim().toLowerCase();
+    if(!q) return true;
+    return (s.name || "").toLowerCase().indexOf(q) !== -1 ||
+           (s.email || "").toLowerCase().indexOf(q) !== -1;
+  }
+  // Every student a column toggle would reach: the period filter and the
+  // name box both narrow it, which is the whole safety story for "all".
+  function visibleStudents(){
+    var f = boardPeriod();
+    return students.filter(function(s){
+      if(!matchesQuery(s)) return false;
+      var p = studentPeriod(s.uid);
+      if(f === "") return true;
+      if(f === NO_PERIOD) return p === null;
+      return p === f;
+    });
+  }
+  // The columns actually drawn: one per list, unless its family is folded
+  // up, in which case the family gets one summary column instead.
+  function boardColumns(){
+    var cols = [];
+    WordLists.families().forEach(function(fam){
+      if(board.collapsed[fam.key]){
+        cols.push({ fam: fam, summary: true });
+        return;
+      }
+      WordLists.listNumsOf(fam.key).forEach(function(n){
+        cols.push({ fam: fam, n: n });
+      });
+    });
+    return cols;
+  }
+
+  /* ── one cell ─────────────────────────────────────────────────────
+     What a scope has for one list, as the icons of the modes that are
+     on. A collapsed family's cell borrows describeFamily instead, so a
+     folded column still says something true. */
+  function cellText(scope, col){
+    var set = scopeView(scope);
+    if(col.summary){
+      return WordLists.describeFamily(col.fam.key, set) || "—";
+    }
+    var icons = WordLists.modesOf(col.fam.key).filter(function(m){
+      var id = WordLists.idFor(col.fam.key, col.n, m.key);
+      return id && set.indexOf(id) !== -1;
+    }).map(function(m){ return m.icon; }).join("");
+    return icons || "—";
+  }
+
+  /* Rewrite every cell, pill and counter from the live state. Cheaper
+     and far less disruptive than re-rendering the table: the popover
+     stays open, the scroll position holds, and a board of 40 students by
+     15 lists is 600 short string writes. */
+  function paintCells(){
+    var cols = boardColumns();
+    Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-cell]"), function(td){
+      var parts = td.dataset.cell.split("|");
+      var scope = parts[0];
+      var col = cols[Number(parts[1])];
+      if(!col) return;
+      var txt = cellText(scope, col);
+      td.textContent = txt;
+      td.classList.toggle("empty", txt === "—");
+      td.classList.toggle("own", scopeIsOwn(scope));
+      td.classList.toggle("inherit", !scopeIsOwn(scope));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-ownpill]"), function(el){
+      el.hidden = !scopeIsOwn(el.dataset.ownpill);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-from]"), function(el){
+      el.textContent = scopeIsOwn(el.dataset.from) ? "own set" : "follows " + inheritLabel(el.dataset.from);
+    });
+    paintSaveBar();
+  }
+  function inheritLabel(scope){
+    if(scope.slice(0,2) === "p:") return "class default";
+    var p = studentPeriod(scope.slice(2));
+    return p ? "period " + p : "class default";
+  }
+  function paintSaveBar(){
+    var n = dirtyScopes().length;
+    var bar = $("abBar");
+    if(!bar) return;
+    bar.hidden = n === 0;
+    var c = $("abCount");
+    if(c) c.textContent = n + (n === 1 ? " change" : " changes");
+  }
+
+  /* ── the popover ──────────────────────────────────────────────────
+     A cell holds up to four modes, which is one checkbox too many to
+     cycle through by clicking. So a click opens this: the modes for that
+     one list, ticked live. It lives on <body> rather than inside the
+     cell so that repainting the grid can't tear it out from under a
+     half-finished click. */
+  var pop = null;
+  function closePop(){
+    if(pop && pop.parentNode) pop.parentNode.removeChild(pop);
+    pop = null;
+  }
+  function openPop(td, scope, col){
+    closePop();
+    var fam = col.fam;
+    var modes = WordLists.modesOf(fam.key);
+    var label = fam.title + (fam.lists.length > 1 ? " · List " + col.n : "");
+
+    pop = document.createElement("div");
+    pop.className = "abPop";
+    pop.innerHTML =
+      '<div class="abPopHead">' + esc(label) + "</div>" +
+      '<div class="abPopBody">' + modes.map(function(m){
+        var id = WordLists.idFor(fam.key, col.n, m.key);
+        if(!id) return "";
+        var on = scopeView(scope).indexOf(id) !== -1;
+        return '<label class="check"><input type="checkbox" data-mode-id="' + esc(id) + '"' + (on ? " checked" : "") +
+          "><span>" + esc(m.icon + " " + m.title) + "</span></label>";
+      }).join("") + "</div>" +
+      '<div class="abPopFoot">' +
+        '<button type="button" class="pkMini" data-pop="all">all</button>' +
+        '<button type="button" class="pkMini" data-pop="none">none</button>' +
+        '<button type="button" class="btn ghost sm" data-pop="done">Done</button>' +
+      "</div>";
+    document.body.appendChild(pop);
+
+    // Anchored to the cell, then nudged back inside the viewport — the
+    // right-hand columns of a wide board are otherwise off-screen.
+    var r = td.getBoundingClientRect();
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+    var top = r.bottom + 6;
+    if(top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+
+    function apply(ids){
+      setScope(scope, ids);
+      paintCells();
+    }
+    pop.addEventListener("change", function(e){
+      var cb = e.target;
+      if(!cb || !cb.dataset || !cb.dataset.modeId) return;
+      var ids = scopeView(scope).slice();
+      var i = ids.indexOf(cb.dataset.modeId);
+      if(cb.checked){ if(i === -1) ids.push(cb.dataset.modeId); }
+      else if(i !== -1) ids.splice(i, 1);
+      apply(ids);
+    });
+    pop.addEventListener("click", function(e){
+      var b = e.target.closest ? e.target.closest("[data-pop]") : null;
+      if(!b) return;
+      if(b.dataset.pop === "done") return closePop();
+      var wanted = b.dataset.pop === "all";
+      var ids = scopeView(scope).slice();
+      WordLists.idsOfList(fam.key, col.n).forEach(function(id){
+        var i = ids.indexOf(id);
+        if(wanted){ if(i === -1) ids.push(id); }
+        else if(i !== -1) ids.splice(i, 1);
+      });
+      Array.prototype.forEach.call(pop.querySelectorAll("input[data-mode-id]"), function(cb){ cb.checked = wanted; });
+      apply(ids);
+    });
+    var first = pop.querySelector("input");
+    if(first) first.focus();
+  }
+
+  /* ── column toggles ───────────────────────────────────────────────
+     "all" on a column sets every mode of that list for every VISIBLE
+     student — not every student in the school. The period filter and the
+     search box are what bound it, and that is the only thing standing
+     between a mis-click and a class's worth of undone assignment. */
+  function columnToggle(col){
+    var ids = col.summary ? WordLists.idsOfFamily(col.fam.key) : WordLists.idsOfList(col.fam.key, col.n);
+    var rows = visibleStudents();
+    if(!rows.length) return;
+    var allOn = rows.every(function(s){
+      var set = liveStudent(s.uid);
+      return ids.every(function(id){ return set.indexOf(id) !== -1; });
+    });
+    rows.forEach(function(s){
+      var set = liveStudent(s.uid).slice();
+      ids.forEach(function(id){
+        var i = set.indexOf(id);
+        if(allOn){ if(i !== -1) set.splice(i, 1); }
+        else if(i === -1) set.push(id);
+      });
+      setScope("s:" + s.uid, set);
+    });
+    paintCells();
+  }
+
+  /* ── the board ──────────────────────────────────────────────────── */
+  function renderAssign(){
+    if(!students.length){
+      $("tBody").innerHTML = '<div class="panel"><h2>Nobody yet</h2>' +
+        '<p class="note">A student appears here the first time they sign in. Until then there is nothing to assign to.</p></div>';
+      return;
+    }
+
+    var periods = allPeriods();
+    // The filter is remembered in localStorage, so it can outlive the
+    // period it names — a new roster, a renamed section. Left alone it
+    // would show an empty board under a select box reading "All periods".
+    if(boardPeriod() !== "" && boardPeriod() !== NO_PERIOD && periods.indexOf(boardPeriod()) === -1){
+      setBoardPeriod("");
+    }
+    var cols = boardColumns();
+    var vis = visibleStudents();
+    var visUid = {}; vis.forEach(function(s){ visUid[s.uid] = true; });
+
+    var filterOpts = ['<option value="">All periods</option>']
+      .concat(periods.map(function(p){
+        return '<option value="' + esc(p) + '"' + (boardPeriod() === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
+      }))
+      .concat(['<option value="' + NO_PERIOD + '"' + (boardPeriod() === NO_PERIOD ? " selected" : "") + ">No period yet</option>"])
+      .join("");
+
+    // ---- header: a family row above a list row ----
+    var famHead = "", listHead = "";
+    WordLists.families().forEach(function(fam){
+      var mine = [];
+      cols.forEach(function(c, i){ if(c.fam.key === fam.key) mine.push(i); });
+      if(!mine.length) return;
+      var folded = !!board.collapsed[fam.key];
+      // The label is stuck to the left edge of its own span of columns, so
+      // scrolling into the middle of the red words still says "Red Words"
+      // rather than leaving the header blank.
+      famHead += '<th colspan="' + mine.length + '" class="abFam">' +
+        '<span class="abFamIn">' +
+          '<button type="button" class="abFold" data-fold="' + esc(fam.key) + '" title="' +
+            (folded ? "Show every list in this family" : "Fold this family into one column") + '">' +
+            (folded ? "▸" : "▾") + "</button>" +
+          esc(fam.icon + " " + fam.title) +
+        "</span></th>";
+      mine.forEach(function(i){
+        var c = cols[i];
+        var anyId = c.summary ? WordLists.idsOfFamily(fam.key)[0] : WordLists.idsOfList(fam.key, c.n)[0];
+        var preview = anyId ? WordLists.wordsOf(anyId).slice(0, 4).join(", ") + "…" : "";
+        // A family with one list has already been named in the row above,
+        // so its column says nothing but its words; a family with ten has
+        // to number them.
+        var name = c.summary ? WordLists.listNumsOf(fam.key).length + " lists"
+                 : fam.lists.length > 1 ? "List " + c.n
+                 : "";
+        listHead += '<th class="abCol">' +
+          (name ? '<span class="abColName">' + esc(name) + "</span>" : "") +
+          (c.summary ? "" : '<span class="abColWords">' + esc(preview) + "</span>") +
+          '<button type="button" class="pkMini" data-col="' + i + '" title="Tick or untick ' +
+            (c.summary ? "every list in this family" : "this list") + ' for every student shown">all</button>' +
+          "</th>";
+      });
+    });
+
+    // ---- rows ----
+    function cellsFor(scope){
+      return cols.map(function(c, i){
+        return '<td class="abCell" data-cell="' + esc(scope) + "|" + i + '" tabindex="0"></td>';
+      }).join("");
+    }
+    function scopeRow(scope, cls, label, meta, canRelease){
+      return '<tr class="' + cls + '" data-row="' + esc(scope) + '">' +
+        '<th class="abName"><div class="abNameIn">' +
+          '<div class="abLabel">' + label + "</div>" +
+          (meta ? '<div class="abMeta">' + meta + "</div>" : "") +
+          (canRelease
+            ? '<button type="button" class="abPill" data-release="' + esc(scope) + '" data-ownpill="' + esc(scope) +
+              '" title="Hand this back to ' + esc(inheritLabel(scope)) + '" hidden>own ↺</button>'
+            : "") +
+        "</div></th>" + cellsFor(scope) + "</tr>";
+    }
+    function studentRow(s){
+      var scope = "s:" + s.uid;
+      var name = esc(s.name || s.email || s.uid);
+      var label = '<label class="abPick"><input type="checkbox" data-pick="' + esc(s.uid) + '"' +
+        (board.sel[s.uid] ? " checked" : "") + "><span>" + name + "</span></label>";
+      return scopeRow(scope, "abStudent", label, '<span class="abFrom" data-from="' + esc(scope) + '"></span>', true);
+    }
+
+    var rows = scopeRow("default", "abDefault", "Class default",
+      '<span class="abFrom">what everyone gets unless something below overrides it</span>', false);
+
+    periods.filter(function(p){
+      return boardPeriod() === "" || boardPeriod() === p;
+    }).forEach(function(p){
+      var kids = vis.filter(function(s){ return studentPeriod(s.uid) === p; });
+      // An empty period is worth a row only if it has a set of its own to
+      // show; otherwise it's a label with nothing under it.
+      if(!kids.length && !Array.isArray(classCfg.periodLists[p]) && boardPeriod() === "") return;
+      rows += scopeRow("p:" + p, "abPeriod", "Period " + esc(p),
+        kids.length + (kids.length === 1 ? " student" : " students"), true);
+      rows += kids.map(studentRow).join("");
+    });
+
+    var loose = vis.filter(function(s){ return studentPeriod(s.uid) === null; });
+    if(loose.length && (boardPeriod() === "" || boardPeriod() === NO_PERIOD)){
+      rows += '<tr class="abGroup"><th class="abName"><div class="abNameIn">' +
+        '<div class="abLabel">No period yet</div>' +
+        '<div class="abMeta">following the class default</div></div></th>' +
+        '<td colspan="' + cols.length + '"></td></tr>';
+      rows += loose.map(studentRow).join("");
+    }
+
+    var nSel = Object.keys(board.sel).filter(function(u){ return board.sel[u] && visUid[u]; }).length;
+
+    $("tBody").innerHTML =
+      '<div class="panel abPanel"><h2>Assign</h2>' +
+        '<p class="note">Every assignment in the class at once. A <b>dashed grey</b> cell is inherited — the student is following ' +
+        'their period, or the period is following the class default. A <b>gold</b> cell is a set of their own. ' +
+        'Change any cell on someone who is inheriting and they get their own copy of what they already had, ' +
+        'which is exactly what saving the picker on their page has always done; the <b>own ↺</b> button hands them back. ' +
+        "Nothing is written until you press Save.</p>" +
+
+        '<div class="abTools">' +
+          '<select class="sel" id="abPeriod">' + filterOpts + "</select>" +
+          '<input class="txt" id="abQ" placeholder="Find a student" value="' + esc(board.q) + '" style="width:190px">' +
+          '<button class="btn ghost sm" id="abBulk"' + (nSel ? "" : " disabled") + ">Set lists for " + nSel + " selected…</button>" +
+          '<label class="check abAll"><input type="checkbox" id="abSelAll">' +
+            "<span>Select all " + vis.length + " shown</span></label>" +
+        "</div>" +
+
+        '<div class="abScroll"><table class="abGrid" id="abGrid">' +
+          '<thead><tr><th class="abName abCorner" rowspan="2">Student</th>' + famHead + "</tr>" +
+          "<tr>" + listHead + "</tr></thead>" +
+          "<tbody>" + rows + "</tbody>" +
+        "</table></div>" +
+      "</div>" +
+
+      '<div class="abBar" id="abBar" hidden>' +
+        '<span class="abCount" id="abCount"></span>' +
+        '<span class="saveNote" id="abNote"></span>' +
+        '<button class="btn ghost sm" id="abDiscard">Discard</button>' +
+        '<button class="btn sm" id="abSave">Save</button>' +
+      "</div>";
+
+    paintCells();
+    bindAssign(cols);
+  }
+
+  function bindAssign(cols){
+    var grid = $("abGrid");
+
+    grid.addEventListener("click", function(e){
+      var t = e.target;
+      var fold = t.closest ? t.closest("[data-fold]") : null;
+      if(fold){
+        var k = fold.dataset.fold;
+        board.collapsed[k] = !board.collapsed[k];
+        closePop();
+        return renderAssign();
+      }
+      var colBtn = t.closest ? t.closest("[data-col]") : null;
+      if(colBtn) return columnToggle(cols[Number(colBtn.dataset.col)]);
+      var rel = t.closest ? t.closest("[data-release]") : null;
+      if(rel){
+        releaseScope(rel.dataset.release);
+        closePop();
+        return paintCells();
+      }
+      if(t.dataset && t.dataset.pick !== undefined) return;   // the row's own checkbox
+      var cell = t.closest ? t.closest("[data-cell]") : null;
+      if(!cell) return;
+      var parts = cell.dataset.cell.split("|");
+      var col = cols[Number(parts[1])];
+      // A folded family has no single list to tick, so a click opens it
+      // back up rather than guessing which of its ten was meant.
+      if(col.summary){
+        board.collapsed[col.fam.key] = false;
+        return renderAssign();
+      }
+      openPop(cell, parts[0], col);
+    });
+
+    // A cell is focusable, so Enter and Space open its modes — the board
+    // is navigable by keyboard even without arrow-key movement.
+    grid.addEventListener("keydown", function(e){
+      if(e.key !== "Enter" && e.key !== " ") return;
+      var cell = e.target.closest ? e.target.closest("[data-cell]") : null;
+      if(!cell) return;
+      e.preventDefault();
+      cell.click();
+    });
+
+    grid.addEventListener("change", function(e){
+      var cb = e.target;
+      if(!cb.dataset || cb.dataset.pick === undefined) return;
+      board.sel[cb.dataset.pick] = cb.checked;
+      renderAssign();
+    });
+
+    $("abPeriod").addEventListener("change", function(){ setBoardPeriod(this.value); closePop(); renderAssign(); });
+
+    // Re-rendering on every keystroke would throw focus out of the box,
+    // so the board is filtered once the teacher stops typing.
+    var qTimer = null;
+    $("abQ").addEventListener("input", function(){
+      clearTimeout(qTimer);
+      var v = this.value;
+      qTimer = setTimeout(function(){
+        board.q = v;
+        closePop();
+        renderAssign();
+        var box = $("abQ");
+        if(box){ box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+      }, 300);
+    });
+
+    $("abSelAll").addEventListener("change", function(){
+      var on = this.checked;
+      visibleStudents().forEach(function(s){ board.sel[s.uid] = on; });
+      renderAssign();
+    });
+    $("abBulk").addEventListener("click", openBulk);
+    $("abDiscard").addEventListener("click", function(){
+      board.draft = {};
+      closePop();
+      renderAssign();
+    });
+    $("abSave").addEventListener("click", saveBoard);
+  }
+
+  /* Bound once, on <body>, rather than per render: the popover and the
+     modal both outlive any single repaint of the grid. */
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){ closePop(); closeBulk(); }
+  });
+  document.addEventListener("click", function(e){
+    if(!pop || pop.contains(e.target)) return;
+    if(e.target.closest && e.target.closest("[data-cell]")) return;
+    closePop();
+  }, true);
+
+  /* ── the bulk picker ──────────────────────────────────────────────
+     Tick a few students, press the button, and set all of them at once
+     with the same picker every other scope uses. Seeded from the first
+     selected student's effective set, because "these four should have
+     what she has" is the request this exists to answer. */
+  var bulkWrap = null;
+  function closeBulk(){
+    if(bulkWrap && bulkWrap.parentNode) bulkWrap.parentNode.removeChild(bulkWrap);
+    bulkWrap = null;
+  }
+  function openBulk(){
+    var uids = visibleStudents().map(function(s){ return s.uid; }).filter(function(u){ return board.sel[u]; });
+    if(!uids.length) return;
+    closeBulk();
+    var seed = liveStudent(uids[0]);
+    var names = uids.map(function(u){
+      var s = studentByUid(u);
+      return s ? (s.name || s.email) : u;
+    });
+
+    bulkWrap = document.createElement("div");
+    bulkWrap.className = "abModal";
+    bulkWrap.innerHTML =
+      '<div class="abModalBox" role="dialog" aria-modal="true">' +
+        "<h2>Set lists for " + uids.length + (uids.length === 1 ? " student" : " students") + "</h2>" +
+        '<p class="note">' + esc(names.slice(0, 6).join(", ")) + (names.length > 6 ? " and " + (names.length - 6) + " more" : "") +
+        ". Starting from what <b>" + esc(names[0]) + "</b> has now. Applying makes this each of their own set; " +
+        "it still isn't written until you Save the board.</p>" +
+        pickerHtml("bulk", seed, true) +
+        '<div class="rowActions">' +
+          '<button class="btn sm" id="abApply">Apply to ' + uids.length + "</button>" +
+          '<button class="btn ghost sm" id="abCancel">Cancel</button>' +
+        "</div>" +
+      "</div>";
+    document.body.appendChild(bulkWrap);
+    bindPickers(bulkWrap);
+    bulkWrap.addEventListener("click", function(e){
+      if(e.target === bulkWrap) closeBulk();
+    });
+    document.getElementById("abCancel").addEventListener("click", closeBulk);
+    document.getElementById("abApply").addEventListener("click", function(){
+      var ids = scopeSelection("bulk");
+      uids.forEach(function(u){ setScope("s:" + u, ids.slice()); });
+      closeBulk();
+      paintCells();
+    });
+  }
+
+  /* ── saving ───────────────────────────────────────────────────────
+     One batch. A teacher moving six students onto List 4 should not be
+     able to end up with three of them moved: either the whole board
+     lands or none of it does, and a failure puts every local copy back
+     exactly as it was, with the draft intact so they can retry without
+     re-ticking anything. */
+  /* What the pending edits amount to on the wire, as data rather than as
+     calls: one `assignments/{uid}` merge per changed student, and at most
+     ONE `config/class` merge however many periods and the default were
+     touched. Pure, and separate from saveBoard, because the shape of
+     these two writes is the part that has to be right — a stray field in
+     the student body would overwrite a period, and a second config write
+     would defeat the batch. `now` is a parameter so a test can pin it. */
+  function saveBody(scopes, now){
+    var out = { students: {}, config: null };
+    var periodPatch = {}, touchedCfg = false;
+    scopes.forEach(function(scope){
+      var val = board.draft[scope];
+      if(scope === "default"){
+        out.config = out.config || {};
+        out.config.defaultLists = val;
+        touchedCfg = true;
+      } else if(scope.slice(0,2) === "p:"){
+        periodPatch[scope.slice(2)] = val;
+        touchedCfg = true;
+      } else {
+        // These two fields and no others: the student's period lives in
+        // the same document and must survive the write.
+        out.students[scope.slice(2)] = { lists: val, updatedAt: now };
+      }
+    });
+    if(touchedCfg){
+      out.config = out.config || {};
+      if(Object.keys(periodPatch).length) out.config.periodLists = periodPatch;
+    }
+    return out;
+  }
+
+  function saveBoard(){
+    var scopes = dirtyScopes();
+    if(!scopes.length) return;
+    var note = $("abNote");
+    var undo = { def: classCfg.defaultLists, periods: {}, students: {} };
+    var body = saveBody(scopes, Date.now());
+    var batch = db.batch();
+
+    // Local state moves first, so the board redraws without waiting on
+    // school Wi-Fi; `undo` is what puts it all back if the batch fails.
+    scopes.forEach(function(scope){
+      var val = board.draft[scope];
+      if(scope === "default"){
+        classCfg.defaultLists = val;
+      } else if(scope.slice(0,2) === "p:"){
+        var p = scope.slice(2);
+        undo.periods[p] = classCfg.periodLists[p];
+        classCfg.periodLists[p] = val;
+      } else {
+        var uid = scope.slice(2);
+        undo.students[uid] = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
+        var a = assignments[uid] || (assignments[uid] = {});
+        a.lists = val;
+        a.updatedAt = body.students[uid].updatedAt;
+      }
+    });
+    Object.keys(body.students).forEach(function(uid){
+      batch.set(db.collection("assignments").doc(uid), body.students[uid], { merge:true });
+    });
+    if(body.config) batch.set(db.collection("config").doc("class"), body.config, { merge:true });
+
+    if(note){ note.className = "saveNote"; note.textContent = "Saving…"; }
+    batch.commit().then(function(){
+      board.draft = {};
+      closePop();
+      renderAssign();
+      // renderAssign rebuilt the bar, so the "Saved." goes on the new one
+      // and holds it open long enough to be read.
+      var bar = $("abBar"), n2 = $("abNote");
+      if(n2){ n2.className = "saveNote ok"; n2.textContent = "Saved."; }
+      if(bar) bar.hidden = false;
+      setTimeout(paintSaveBar, 2500);
+    }).catch(function(){
+      classCfg.defaultLists = undo.def;
+      for(var p in undo.periods) classCfg.periodLists[p] = undo.periods[p];
+      for(var u in undo.students){
+        if(undo.students[u]) assignments[u] = undo.students[u]; else delete assignments[u];
+      }
+      if(note){ note.className = "saveNote err"; note.textContent = "Nothing saved — check the network and try again."; }
+    });
+  }
+
   /* ---------------- trouble spots ---------------- */
   var troublePeriod = "";
   var MIN_SAMPLE = 3;   // a word nobody has really attempted isn't a trouble spot
@@ -679,5 +1427,55 @@
       render();
     });
   }
+
+  /* ── the testing seam ─────────────────────────────────────────────
+     The board's rules — the precedence walk, copy-on-write, what an
+     "all" toggle reaches, the shape of the two writes — are pure
+     functions of a class's state, and they are the parts that would
+     quietly ruin a roster if they were wrong. So they're reachable from
+     tests.html, the same way each engine exposes its pure helpers.
+     `feed` is the only way in: it stands in for loadAll(), which is the
+     one thing here that needs Firestore. */
+  window.EITeacher = {
+    _internals: {
+      feed: function(st){
+        st = st || {};
+        students = st.students || [];
+        assignments = st.assignments || {};
+        classCfg = {
+          periodLists: (st.classCfg && st.classCfg.periodLists) || {},
+          defaultLists: (st.classCfg && Array.isArray(st.classCfg.defaultLists)) ? st.classCfg.defaultLists : null,
+          periods: (st.classCfg && st.classCfg.periods) || []
+        };
+        board.draft = {}; board.sel = {}; board.collapsed = {};
+        board.period = st.period || "";      // set directly: no localStorage in tests
+        board.q = st.q || "";
+      },
+      board: board,
+      effectiveLists: effectiveLists,
+      liveDefault: liveDefault,
+      livePeriod: livePeriod,
+      liveStudent: liveStudent,
+      scopeView: scopeView,
+      scopeIsOwn: scopeIsOwn,
+      scopeDirty: scopeDirty,
+      dirtyScopes: dirtyScopes,
+      setScope: setScope,
+      releaseScope: releaseScope,
+      visibleStudents: visibleStudents,
+      boardColumns: boardColumns,
+      cellText: cellText,
+      columnToggle: columnToggle,
+      saveBody: saveBody,
+      NO_PERIOD: NO_PERIOD,
+      // Not pure, and here for one reason: 200 lines of string-built
+      // markup deserve a test that they parse into the table they claim
+      // to. tests.html gives it a #tBody to draw into.
+      renderAssign: renderAssign,
+      paintCells: paintCells,
+      pickerHtml: pickerHtml,
+      bindPickers: bindPickers
+    }
+  };
 
 })();

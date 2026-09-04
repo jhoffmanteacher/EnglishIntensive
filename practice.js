@@ -57,12 +57,13 @@ window.EIPractice = (function(){
   }
 
   /* ── which list does this page play? ──────────────────────────────
-     A standalone game page names its list outright: play("final-blends").
-     A page shared by a family (red-words-game.html serves all ten red
-     lists) calls play() with no id and the list comes from the query
-     string — the home page links to "red-words-game.html?list=red-3-cards".
-     Landing on a family page with no (or a stale) ?list= is not an error:
-     the page shows a chooser of the lists this student has for this game,
+     A page that serves exactly one list names it outright:
+     play("final-blends"). The two shared pages — cards-game.html and
+     match-game.html, which serve every family's cards and Match It modes
+     — call play() with no id, and the list comes from the query string:
+     the home page links to "cards-game.html?list=red-3-cards".
+     Landing on a shared page with no (or a stale) ?list= is not an error:
+     the page shows a chooser of the lists this student has for that mode,
      so a bookmarked or hand-typed URL still lands somewhere useful. */
   function queryList(){
     var m = /[?&]list=([^&#]+)/.exec(location.search || "");
@@ -163,10 +164,17 @@ window.EIPractice = (function(){
         document.head.appendChild(st);
       }
       var mine = EIStore.myLists();
-      var sample = lists[0];
-      var fam = WordLists.familyOf(sample.family);
-      var game = fam && fam.games.filter(function(g){ return g.key === sample.game; })[0];
-      var sorted = lists.slice().sort(function(a,b){ return (a.listNum||0) - (b.listNum||0); });
+      // Every list on this page is the same MODE — that's what a shared
+      // page is — but they come from several families now, so the label
+      // on each option has to name its family. "List 3" alone was enough
+      // when the page only ever served the red words; it isn't now.
+      var mode = WordLists.modeOf(lists[0].mode) || { icon:"", title:"" };
+      var order = {};
+      WordLists.families().forEach(function(f, i){ order[f.key] = i; });
+      var sorted = lists.slice().sort(function(a, b){
+        if(a.family !== b.family) return (order[a.family] || 0) - (order[b.family] || 0);
+        return (a.listNum || 0) - (b.listNum || 0);
+      });
       var assigned = sorted.filter(function(l){ return mine.indexOf(l.id) !== -1; });
       var others   = sorted.filter(function(l){ return mine.indexOf(l.id) === -1; });
 
@@ -176,13 +184,13 @@ window.EIPractice = (function(){
         var note = sum.attempts
           ? "<em>" + sum.mastered + "</em> of " + total + " solid" + (sum.struggling ? " · " + sum.struggling + " shaky" : "")
           : "Not started yet";
-        return '<a class="opt" href="' + WordLists.hrefOf(l.id) + '"><b>' + esc(l.short || l.title) + "</b><small>" + note + "</small></a>";
+        return '<a class="opt" href="' + WordLists.hrefOf(l.id) + '"><b>' + esc(l.listTitle) + "</b><small>" + note + "</small></a>";
       }
       var mount = document.getElementById("app") || document.body;
       mount.className = "";
       mount.innerHTML =
         '<div class="eiChooser">' +
-          "<h1>" + esc((fam ? fam.title : "") + (game ? " · " + game.icon + " " + game.title : "")) + "</h1>" +
+          "<h1>" + esc(mode.icon + " " + mode.title) + "</h1>" +
           '<p class="sub">Which list do you want to practice?</p>' +
           (assigned.length
             ? "<h2>Your lists</h2>" + '<div class="pick">' + assigned.map(opt).join("") + "</div>"
@@ -203,8 +211,9 @@ window.EIPractice = (function(){
   }
 
   /* ── the home page ────────────────────────────────────────────────
-     Tiles for the lists this student is assigned, grouped into the
-     speaking/typing sections, each carrying its own progress line. A
+     Tiles for the lists this student is assigned, grouped into the two
+     shelves sectionsOf() names — words you sound out, and words you
+     can't — each tile carrying a row per mode with its own progress. A
      student with no assignment at all gets everything (see
      EIStore.effectiveLists) rather than an empty page. */
   function renderHome(mountId){
@@ -229,12 +238,12 @@ window.EIPractice = (function(){
         var note = document.createElement("p"); note.className = "sectionNote"; note.textContent = sec.note; wrap.appendChild(note);
         var grid = document.createElement("div"); grid.className = "grid";
 
-        // Family entries fold into one tile per list number ("List 3")
-        // with a Play button per assigned game, so a student assigned
-        // both games for three lists sees three tiles, not six.
+        // One tile per LIST, with a Play row per mode the student has
+        // for it — so a student assigned both modes of three red lists
+        // sees three tiles, not six, and "Blend Words" is one tile with
+        // three ways in rather than three tiles of the same words.
         var byList = {}, order = [];
         lists.forEach(function(l){
-          if(!l.family){ grid.appendChild(tile(l)); return; }
           var k = l.family + ":" + l.listNum;
           if(!byList[k]){ byList[k] = []; order.push(k); }
           byList[k].push(l);
@@ -254,65 +263,37 @@ window.EIPractice = (function(){
     });
   }
 
-  function tile(list){
-    var a = document.createElement("a");
-    a.className = "tile";
-    a.href = WordLists.hrefOf(list.id);
+  /* One list — "Red Words · List 3", or just "Blend Words" for a family
+     that only has the one — with a row per mode the student has for it.
+     Each row is its own link, so the tile is a <div> rather than an <a>.
 
-    var icon = document.createElement("div");
-    icon.className = "icon"; icon.textContent = list.icon;
-
-    var title = document.createElement("h2");
-    title.textContent = list.title;
-
-    var p = document.createElement("p");
-    p.textContent = list.description;
-
-    a.appendChild(icon); a.appendChild(title); a.appendChild(p);
-
-    // Progress line: how much of the list is solid, and what's still
-    // shaky. Phrased as words mastered rather than a percentage score —
-    // this is a practice deck, not a grade.
-    var sum = Adaptive.summarize(EIStore.statsFor(list.id));
-    var total = WordLists.wordsOf(list.id).length;
-    var prog = document.createElement("div");
-    prog.className = "tileProg";
-    if(sum.attempts){
-      var pct = Math.round(sum.mastered / total * 100);
-      prog.innerHTML =
-        '<div class="bar"><span style="width:' + pct + '%"></span></div>' +
-        '<div class="progNote">' + sum.mastered + " of " + total + " words solid" +
-        (sum.struggling ? " · <b>" + sum.struggling + "</b> still shaky" : "") + "</div>";
-    } else {
-      prog.innerHTML = '<div class="progNote">Not started yet</div>';
-    }
-    a.appendChild(prog);
-
-    var play = document.createElement("span");
-    play.className = "play"; play.textContent = "Play ▸";
-    a.appendChild(play);
-    return a;
-  }
-
-  // One list of a family — "Red Words · List 3" — with a row per game the
-  // student has for it. Each row is its own link, so the tile is a <div>.
+     There used to be a second, simpler tile for lists that had only one
+     way to play them. Every list has several now, so that tile had
+     nothing left to render and went away with the distinction. */
   function familyTile(entries){
     var first = entries[0];
-    var fam = WordLists.familyOf(first.family) || { icon:"", title:"", games:[] };
+    var fam = WordLists.familyOf(first.family) || { icon:"", title:"", lists:[], description:"" };
     var d = document.createElement("div");
     d.className = "tile tileFamily";
 
     var icon = document.createElement("div");
     icon.className = "icon"; icon.textContent = fam.icon || first.icon;
     var title = document.createElement("h2");
-    title.textContent = fam.title + " · " + (first.short || "List " + first.listNum);
+    title.textContent = first.listTitle;
     var p = document.createElement("p");
-    p.textContent = WordLists.wordsOf(first.id).slice(0, 6).join(", ") + "…";
+    // Ten red-word tiles all captioned "words that break the rules" tell
+    // a student nothing about which is which, so a family with several
+    // lists shows its words instead. A family with one list has no such
+    // problem and gets the sentence that says what the list is FOR.
+    p.textContent = fam.lists.length > 1
+      ? WordLists.wordsOf(first.id).slice(0, 6).join(", ") + "…"
+      : fam.description;
     d.appendChild(icon); d.appendChild(title); d.appendChild(p);
 
-    // Rows in the family's declared game order, not assignment order.
-    fam.games.forEach(function(g){
-      var l = entries.filter(function(e){ return e.game === g.key; })[0];
+    // Rows in the family's declared mode order, not assignment order, so
+    // the same list looks the same however it was ticked.
+    WordLists.modesOf(fam.key).forEach(function(m){
+      var l = entries.filter(function(e){ return e.mode === m.key; })[0];
       if(!l) return;
       var row = document.createElement("a");
       row.className = "gameRow";
@@ -323,8 +304,9 @@ window.EIPractice = (function(){
         ? "<b>" + sum.mastered + "</b> of " + total + " solid" + (sum.struggling ? " · " + sum.struggling + " shaky" : "")
         : "Not started yet";
       row.innerHTML =
-        '<span class="gIcon">' + esc(g.icon) + "</span>" +
-        '<span class="gMeta"><span class="gTitle">' + esc(g.title) + "</span>" +
+        '<span class="gIcon">' + esc(m.icon) + "</span>" +
+        '<span class="gMeta"><span class="gTitle">' + esc(m.title) +
+          (m.needs ? '<span class="gNeeds">' + esc(m.needs) + "</span>" : "") + "</span>" +
         '<span class="gProg">' + prog + "</span></span>" +
         '<span class="play">Play ▸</span>';
       d.appendChild(row);

@@ -360,9 +360,20 @@ window.MatchGame = (function(){
   }
 
   function start(cfg){
-    var DECKS = (cfg.decks && cfg.decks.length)
+    /* Syllable-dotted entries ("fan·tas·tic") lose their dots on the way
+       in and never get them back. Match It is a reading check: the tiles
+       have to show the word the way a book would, and a dot down the
+       middle of one tile would both give the split away and mark that
+       tile out from its distractors. The plain word is also the form
+       every stat key uses, so this keeps one list's stats in step across
+       all four engines. */
+    function plain(list){
+      return (list || []).map(function(e){ return Core.parseEntry(e).word; });
+    }
+    var DECKS = ((cfg.decks && cfg.decks.length)
       ? cfg.decks.slice()
-      : [{ name: cfg.deckName || "All words", words: cfg.words || [] }];
+      : [{ name: cfg.deckName || "All words", words: cfg.words || [] }]
+    ).map(function(d){ return { name: d.name, words: plain(d.words) }; });
 
     var ALL = dedupeWords(DECKS.reduce(function(acc, d){
       return acc.concat(d.words || []);
@@ -575,6 +586,7 @@ window.MatchGame = (function(){
 
     /* ---------------- game flow ---------------- */
     function startGame(list){
+      list = dedupeWords(plain(list));
       queue = shuffleOn ? shuffled(list) : list.slice();
       // A round has to be able to fill its own tiles. Below that, the wrong
       // answers come from the whole word list instead — still the most

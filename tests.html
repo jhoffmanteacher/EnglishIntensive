@@ -40,8 +40,11 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div class="wrap">
   <h1>Game engine tests</h1>
-  <p class="sub">Pure-function tests for the shared scoring, comeback deck and word-list helpers in game-core.js, the phonetic matcher and syllable parser in blend-game.js, the spelling checker in spell-game.js, the deck builders in card-game.js, the distractor picker in match-game.js, the adaptive scheduler in adaptive.js, the list registry in word-lists.js, and the assignment precedence in store.js. No framework, no build step — just runs in the DOM.</p>
+  <p class="sub">Pure-function tests for the shared scoring, comeback deck and word-list helpers in game-core.js, the phonetic matcher and syllable parser in blend-game.js, the spelling checker in spell-game.js, the deck builders in card-game.js, the distractor picker in match-game.js, the adaptive scheduler in adaptive.js, the list registry in word-lists.js, the assignment precedence in store.js, and the Assign board in teacher.js. No framework, no build step — just runs in the DOM.</p>
   <div id="summary"></div>
+  <!-- The Assign board draws into this, the same id teacher.html gives
+       it. Hidden: the point is that the markup builds, not how it looks. -->
+  <div id="tBody" hidden></div>
   <table>
     <thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead>
     <tbody id="rows"></tbody>
@@ -63,6 +66,13 @@
 <script src="word-lists.js"></script>
 <script src="auth.js"></script>
 <script src="store.js"></script>
+<!-- The Assign board's rules — precedence, copy-on-write, how far a
+     column toggle reaches, the shape of the two documents Save writes —
+     are pure functions of a class's state, so they're tested here too.
+     With no account and no Firestore, teacher.js's boot resolves to "no
+     user" and returns before touching the DOM, leaving EITeacher's
+     _internals reachable. -->
+<script src="teacher.js"></script>
 <script>
 (function(){
   "use strict";
@@ -673,7 +683,7 @@
       return !l.title || !l.page || !l.words.length || ["blend","spell","card","match"].indexOf(l.engine) === -1;
     }).map(function(l){ return l.id; });
     eq("every list has a title, a page, an engine and words", missing.length, 0, missing.join(","));
-    var badSection = WordLists.all.filter(function(l){ return ["speak","type","cards"].indexOf(l.section) === -1; });
+    var badSection = WordLists.all.filter(function(l){ return ["decode","sight"].indexOf(l.section) === -1; });
     eq("every list belongs to a section the home page renders", badSection.length, 0);
     var piped = WordLists.all.filter(function(l){
       return l.words.some(function(w){ return String(w).indexOf("|") !== -1; });
@@ -696,34 +706,116 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
-     word-lists.js — the red-word family and the assignment summary
+     word-lists.js — families, modes, and the ids that must not move
+
+     An id is half of every stored stat key. When every list became a
+     family with modes, the generated id for most of them was NEW —
+     "blends-start-1-cards" and so on — but the six that already existed
+     had to survive untouched or a year of practice would be orphaned
+     from the list it belongs to. That is what the first block here is
+     for, and it is the test most worth keeping.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
     var W = WordLists;
-    var red = W.all.filter(function(l){ return l.family === "red"; });
-    eq("ten red lists × two games = twenty entries", red.length, 20);
-    eq("red list numbers run 1–10", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
-    eq("every red list has twenty words (the screener's page)",
-       red.filter(function(l){ return l.words.length !== 20; }).length, 0);
-    var mismatch = W.listNumsOf("red").filter(function(n){
-      return W.wordsOf("red-" + n + "-cards").join("|") !== W.wordsOf("red-" + n + "-match").join("|");
+
+    // ---- the ids that predate families, pinned by hand ----
+    var LEGACY = {
+      "final-blends":   { engine:"blend", page:"blend-words-game.html",        family:"blends-end",   mode:"say" },
+      "initial-blends": { engine:"blend", page:"initial-blends-game.html",     family:"blends-start", mode:"say" },
+      "nonsense":       { engine:"blend", page:"nonsense-words-game.html",     family:"nonsense",     mode:"say" },
+      "oi-oy-read":     { engine:"blend", page:"oi-oy-words-game.html",        family:"oi-oy",        mode:"say" },
+      "oi-oy-spell":    { engine:"spell", page:"spelling-oi-oy-game.html",     family:"oi-oy",        mode:"spell" },
+      "multisyllable":  { engine:"blend", page:"multisyllable-words-game.html",family:"multi",        mode:"say" }
+    };
+    Object.keys(LEGACY).forEach(function(id){
+      var want = LEGACY[id], got = W.byId(id);
+      eq("legacy id survives: " + id, !!got, true);
+      if(!got) return;
+      eq("  …still on the " + want.engine + " engine", got.engine, want.engine);
+      eq("  …still on " + want.page, got.page, want.page);
+      eq("  …now known as " + want.family + "/" + want.mode, got.family + "/" + got.mode, want.family + "/" + want.mode);
     });
-    eq("cards and Match It play the same words for each list", mismatch.length, 0, mismatch.join(","));
-    eq("every red entry has the family metadata the grid needs",
-       red.filter(function(l){ return !(l.listNum >= 1 && (l.game === "cards" || l.game === "match") && l.short); }).length, 0);
-    eq("card entries use the card engine, match entries the match engine",
-       red.filter(function(l){ return (l.game === "cards") !== (l.engine === "card") || (l.game === "match") !== (l.engine === "match"); }).length, 0);
+    eq("the red words' ids were already family-shaped and are unchanged",
+       [W.idFor("red",1,"cards"), W.idFor("red",10,"match")].join(","), "red-1-cards,red-10-match");
+
+    // ---- generated ids ----
+    var generated = W.all.filter(function(l){ return !LEGACY[l.id]; });
+    var misshapen = generated.filter(function(l){
+      return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
+    }).map(function(l){ return l.id; });
+    eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
+    eq("35 entries: 5 one-list families plus ten red lists, times their modes", W.all.length, 35);
+
+    // ---- families and modes agree with each other ----
+    var badMode = W.all.filter(function(l){
+      var m = W.modeOf(l.mode);
+      return !m || m.engine !== l.engine;
+    }).map(function(l){ return l.id; });
+    eq("every entry runs the engine its mode names", badMode.length, 0, badMode.join(","));
+    var unpaged = W.all.filter(function(l){ return !l.page; }).map(function(l){ return l.id; });
+    eq("every mode of every family has a page to play on", unpaged.length, 0, unpaged.join(","));
+    eq("cards all share one page",
+       W.all.filter(function(l){ return l.mode === "cards"; })
+            .every(function(l){ return l.page === "cards-game.html"; }), true);
+    eq("Match It all shares one page",
+       W.all.filter(function(l){ return l.mode === "match"; })
+            .every(function(l){ return l.page === "match-game.html"; }), true);
+
+    // Every mode of one list plays the same words — the whole reason the
+    // registry generates entries instead of listing them.
+    var drift = [];
+    W.families().forEach(function(fam){
+      W.listNumsOf(fam.key).forEach(function(n){
+        var ids = W.idsOfList(fam.key, n);
+        var first = W.wordsOf(ids[0]).join("|");
+        ids.slice(1).forEach(function(id){ if(W.wordsOf(id).join("|") !== first) drift.push(id); });
+      });
+    });
+    eq("every mode of a list plays exactly the same words", drift.length, 0, drift.join(","));
+
+    eq("six families", W.families().length, 6);
+    eq("the red family still has ten lists", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
+    eq("every red list is still twenty words (the screener's page)",
+       W.all.filter(function(l){ return l.family === "red" && l.words.length !== 20; }).length, 0);
+    eq("the red family declares cards then match",
+       W.modesOf("red").map(function(m){ return m.key; }).join(","), "cards,match");
+    eq("oi/oy is the one list with all four modes",
+       W.modesOf("oi-oy").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
+    // A synthesiser can't say "vab", so there is nothing for Match It to
+    // ask, and the flip has to stay silent.
+    eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards");
+    eq("nonsense cards run with the read-aloud off", W.byId("nonsense-1-cards").config.speak, false);
+    eq("every other family's cards still speak", W.byId("red-1-cards").config.speak, undefined);
+
     eq("idFor() finds a real entry", W.idFor("red", 3, "match"), "red-3-match");
     eq("idFor() is null for a list that doesn't exist", W.idFor("red", 11, "cards"), null);
-    eq("a family entry links to its shared page with ?list=", W.hrefOf("red-3-match"), "red-words-match-game.html?list=red-3-match");
-    eq("a standalone entry links to its own page, no query", W.hrefOf("final-blends"), "blend-words-game.html");
+    eq("idFor() is null for a mode the family doesn't have", W.idFor("nonsense", 1, "match"), null);
+    eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-cards,red-3-match");
+    eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 20);
+
+    eq("a shared page needs a ?list=", W.hrefOf("red-3-match"), "match-game.html?list=red-3-match");
+    eq("a page that serves one list doesn't", W.hrefOf("final-blends"), "blend-words-game.html");
     eq("hrefOf() of an unknown id is a harmless '#'", W.hrefOf("nope"), "#");
-    eq("six standalone games", W.standalone().length, 6);
-    eq("the red family declares cards then match", W.familyOf("red").games.map(function(g){ return g.key; }).join(","), "cards,match");
-    eq("the home page has a section for the family", W.sectionsOf().map(function(s){ return s.key; }).join(","), "speak,type,cards");
-    eq("every red entry lands in that section", red.filter(function(l){ return l.section !== "cards"; }).length, 0);
-    eq("no red word contains the key separator",
-       red.filter(function(l){ return l.words.some(function(w){ return w.indexOf("|") !== -1; }); }).length, 0);
+
+    eq("the home page has both shelves", W.sectionsOf().map(function(s){ return s.key; }).join(","), "decode,sight");
+    eq("the red words are the sight shelf", W.byId("red-1-cards").section, "sight");
+    eq("everything else is the decoding shelf",
+       W.all.filter(function(l){ return l.family !== "red" && l.section !== "decode"; }).length, 0);
+
+    // The tile heading: a family with ten lists has to say which one.
+    eq("a many-list family names the list", W.byId("red-3-cards").listTitle, "Red Words · List 3");
+    eq("a one-list family is just itself", W.byId("initial-blends").listTitle, "Starting Blends");
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     word-lists.js — the assignment summary
+
+     One line, shown in three places that must agree: the roster's Lists
+     column, the picker's live "this gives them", and the board's folded
+     family column.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var W = WordLists;
 
     // rangeText — "1–3, 5, 8–10" so ten ticks don't read as ten numbers
     eq("rangeText compresses runs", W.rangeText([1,2,3,5,8,9,10]), "1–3, 5, 8–10");
@@ -732,24 +824,283 @@
     eq("rangeText is order-insensitive and dedupes", W.rangeText([10,1,2,2,3]), "1–3, 10");
     eq("rangeText of nothing is empty", W.rangeText([]), "");
 
-    // describeAssignment — the roster line and the picker's live summary
     var D = W.describeAssignment;
     eq("nothing assigned reads 'nothing'", D([]), "nothing");
     eq("null reads 'nothing' too", D(null), "nothing");
     eq("every id reads 'everything'", D(W.ids), "everything");
     eq("unknown ids are ignored", D(["nope","also-nope"]), "nothing");
-    eq("one standalone game", D(["nonsense"]), "1 game");
-    eq("several standalone games count", D(["nonsense","final-blends","oi-oy-spell"]), "3 games");
-    eq("red only, one game", D(["red-10-match"]), "Red Words: lists 10 (match it)");
-    eq("red lists as ranges, per game",
+    eq("a repeated id doesn't count twice", D(["nonsense","nonsense"]), "Nonsense Words: 🎤");
+    // ...and specifically doesn't inflate the count into "everything"
+    eq("a list of repeats is not 'everything'",
+       D(W.ids.slice(0,1).concat(W.ids.slice(0,1)).concat(W.ids.slice(0,1))).indexOf("everything"), -1);
+
+    // A family with one list says only HOW; a family with ten says which.
+    eq("one mode of a one-list family", D(["nonsense"]), "Nonsense Words: 🎤");
+    eq("several modes of a one-list family read as icons",
+       D(["initial-blends","blends-start-1-cards","blends-start-1-match"]), "Starting Blends: 🎤🃏🎯");
+    eq("modes come out in the family's order, not the caller's",
+       D(["blends-start-1-match","initial-blends"]), "Starting Blends: 🎤🎯");
+    eq("a many-list family says which lists, per mode", D(["red-10-match"]), "Red Words: 10 🎯");
+    eq("red lists as ranges, per mode",
        D(["red-1-cards","red-2-cards","red-3-cards","red-5-cards","red-1-match","red-2-match","red-3-match"]),
-       "Red Words: lists 1–3, 5 (cards) · 1–3 (match it)");
-    eq("games and red together, games first",
-       D(["final-blends","nonsense","oi-oy-spell","red-1-cards","red-2-cards","red-3-cards","red-5-cards","red-1-match","red-2-match","red-3-match"]),
-       "3 games · Red Words: lists 1–3, 5 (cards) · 1–3 (match it)");
-    eq("all ten lists of one game reads as one range",
-       D(W.listNumsOf("red").map(function(n){ return "red-" + n + "-cards"; })), "Red Words: lists 1–10 (cards)");
+       "Red Words: 1–3, 5 🃏 · 1–3 🎯");
+    eq("all ten lists of one mode read as one range",
+       D(W.listNumsOf("red").map(function(n){ return "red-" + n + "-cards"; })), "Red Words: 1–10 🃏");
+    eq("families come out in registry order, red last",
+       D(["red-1-cards","oi-oy-spell","initial-blends"]),
+       "Starting Blends: 🎤 · oi / oy: ⌨️ · Red Words: 1 🃏");
     eq("everything but one id is not 'everything'", D(W.ids.slice(1)).indexOf("everything"), -1);
+
+    // describeFamily — the same sentence, one family at a time, for the
+    // board's folded column.
+    eq("describeFamily gives one family's share",
+       W.describeFamily("red", ["red-1-cards","red-2-cards","red-1-match","initial-blends"]), "1–2 🃏 · 1 🎯");
+    eq("describeFamily of a family with nothing in it is empty",
+       W.describeFamily("multi", ["nonsense"]), "");
+    eq("describeFamily ignores ids from other families",
+       W.describeFamily("nonsense", ["nonsense","red-1-cards"]), "🎤");
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     teacher.js — the Assign board
+
+     The board writes to a whole class at once, so its rules are the ones
+     that would do real damage if they were wrong: who inherits from whom,
+     what an edit copies, how far an "all" toggle reaches, and the shape
+     of the two documents Save writes.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals;
+    var W = WordLists;
+
+    // Two periods, four students, one of each interesting kind.
+    function aClass(){
+      return {
+        students: [
+          { uid:"u1", name:"Ana",    email:"ana@seq.org",  stats:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 },
+          { uid:"u2", name:"Marcos", email:"marc@seq.org", stats:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 },
+          { uid:"u3", name:"Jesse",  email:"jess@seq.org", stats:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 },
+          { uid:"u4", name:"Nadia",  email:"nadi@seq.org", stats:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 }
+        ],
+        assignments: {
+          u1: { period:"3" },                               // follows period 3
+          u2: { period:"3", lists:["red-1-cards"] },        // own set
+          u3: { period:"5" },                               // follows period 5, which follows the default
+          u4: {}                                            // no period at all
+        },
+        classCfg: {
+          periods: ["3","5"],
+          periodLists: { "3": ["red-2-cards","red-2-match"] },
+          defaultLists: ["nonsense"]
+        }
+      };
+    }
+
+    // ---- the precedence walk, restated on this side of the app ----
+    T.feed(aClass());
+    eq("the dashboard's own precedence copy matches store.js: student wins",
+       T.effectiveLists("u2").ids.join(","), "red-1-cards");
+    eq("…then their period", T.effectiveLists("u1").ids.join(","), "red-2-cards,red-2-match");
+    eq("…then the class default", T.effectiveLists("u3").ids.join(","), "nonsense");
+    eq("…and a student with no period skips straight to the default",
+       T.effectiveLists("u4").ids.join(","), "nonsense");
+
+    // ---- what the board draws before anything is touched ----
+    eq("the class default row is always its own", T.scopeIsOwn("default"), true);
+    eq("a period with a list of its own says so", T.scopeIsOwn("p:3"), true);
+    eq("a period without one is inheriting", T.scopeIsOwn("p:5"), false);
+    eq("a student with their own set says so", T.scopeIsOwn("s:u2"), true);
+    eq("a student following their period is inheriting", T.scopeIsOwn("s:u1"), false);
+    eq("an inheriting student shows their period's set",
+       T.scopeView("s:u1").join(","), "red-2-cards,red-2-match");
+    eq("an inheriting period shows the class default", T.scopeView("p:5").join(","), "nonsense");
+
+    // ---- cells ----
+    var cols = T.boardColumns();
+    function colFor(fam, n){
+      for(var i=0;i<cols.length;i++) if(cols[i].fam.key === fam && cols[i].n === n) return cols[i];
+      return null;
+    }
+    eq("one column per list, families side by side", cols.length, 15);
+    eq("a cell shows the icons of the modes that are on",
+       T.cellText("s:u1", colFor("red", 2)), "🃏🎯");
+    eq("a cell with nothing on it is a dash", T.cellText("s:u1", colFor("red", 4)), "—");
+    eq("a cell reads through inheritance", T.cellText("s:u3", colFor("nonsense", 1)), "🎤");
+
+    // ---- copy-on-write ----
+    T.feed(aClass());
+    eq("nothing is dirty on a fresh board", T.dirtyScopes().length, 0);
+    T.setScope("s:u1", T.scopeView("s:u1").concat(["red-4-cards"]));
+    eq("editing an inheriting student gives them their own set", T.scopeIsOwn("s:u1"), true);
+    eq("…and it starts from what they already had",
+       T.scopeView("s:u1").join(","), "red-2-cards,red-2-match,red-4-cards");
+    eq("…and counts as one pending change", T.dirtyScopes().join(","), "s:u1");
+    eq("…while their period is untouched", T.scopeIsOwn("p:3"), true);
+    eq("…and their classmate is untouched", T.scopeIsOwn("s:u2"), true);
+
+    T.releaseScope("s:u1");
+    eq("own ↺ hands them back to the period", T.scopeIsOwn("s:u1"), false);
+    eq("…and they see the period's set again", T.scopeView("s:u1").join(","), "red-2-cards,red-2-match");
+    // They were inheriting when the board loaded and they are inheriting
+    // now, so there is nothing left for Save to write. Undoing your own
+    // edit has to leave the count at zero or the bar cries wolf.
+    eq("…and undoing an edit that way leaves nothing to save", T.dirtyScopes().length, 0);
+
+    // An edit that lands back where it started is not a change to save.
+    T.feed(aClass());
+    T.setScope("s:u2", ["red-1-cards"]);
+    eq("re-ticking a box back to where it was leaves nothing to save", T.dirtyScopes().length, 0);
+    T.setScope("s:u2", ["red-1-cards","red-1-match"]);
+    eq("…but a real edit does", T.dirtyScopes().join(","), "s:u2");
+    T.releaseScope("s:u1");
+    eq("releasing a student who was already inheriting is not a change",
+       T.dirtyScopes().join(","), "s:u2");
+    T.feed(aClass());
+    T.releaseScope("s:u2");
+    eq("but releasing one who really had their own set is",
+       T.dirtyScopes().join(","), "s:u2");
+
+    // Editing a period redraws everyone following it, before any save.
+    T.feed(aClass());
+    T.setScope("p:3", ["multi-1-cards"]);
+    eq("a student following a period sees the period's unsaved edit",
+       T.scopeView("s:u1").join(","), "multi-1-cards");
+    eq("…but a student with their own set does not", T.scopeView("s:u2").join(","), "red-1-cards");
+
+    // ---- the filter, and how far "all" reaches ----
+    T.feed(aClass());
+    eq("no filter shows the whole class", T.visibleStudents().length, 4);
+    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: "3" });
+    eq("a period filter narrows it", T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u1,u2");
+    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: T.NO_PERIOD });
+    eq("'no period yet' finds the students nobody has placed",
+       T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u4");
+    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, q: "mar" });
+    eq("the search box matches on name", T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u2");
+
+    // This is the safety story for the column toggle: it can only reach
+    // the students actually on screen.
+    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: "3" });
+    T.columnToggle(colFor("red", 7));
+    eq("'all' ticks every mode of that list for the visible students",
+       T.scopeView("s:u1").indexOf("red-7-cards") !== -1 && T.scopeView("s:u1").indexOf("red-7-match") !== -1, true);
+    eq("…for all of them", T.scopeView("s:u2").indexOf("red-7-match") !== -1, true);
+    eq("…and for nobody who was filtered out", T.scopeIsOwn("s:u3"), false);
+    eq("…which is two changes, not four", T.dirtyScopes().length, 2);
+    T.columnToggle(colFor("red", 7));
+    eq("pressing it again clears what it set", T.scopeView("s:u2").indexOf("red-7-cards"), -1);
+    eq("…without taking anything else with it", T.scopeView("s:u2").join(","), "red-1-cards");
+
+    // ---- the shape of the write ----
+    T.feed(aClass());
+    T.setScope("s:u1", ["nonsense"]);
+    T.setScope("p:5", ["red-9-cards"]);
+    T.setScope("default", ["multi-1-cards"]);
+    var body = T.saveBody(T.dirtyScopes(), 1234);
+    eq("one document per changed student", Object.keys(body.students).join(","), "u1");
+    eq("…carrying the lists and a timestamp", JSON.stringify(body.students.u1), '{"lists":["nonsense"],"updatedAt":1234}');
+    eq("…and nothing else, so their period survives the merge",
+       Object.keys(body.students.u1).sort().join(","), "lists,updatedAt");
+    eq("one config document however many periods moved",
+       Object.keys(body.config).sort().join(","), "defaultLists,periodLists");
+    eq("…with the period nested under its own key", body.config.periodLists["5"].join(","), "red-9-cards");
+    eq("…and the default alongside it", body.config.defaultLists.join(","), "multi-1-cards");
+
+    T.feed(aClass());
+    T.setScope("s:u1", ["nonsense"]);
+    eq("no config write when only students changed", T.saveBody(T.dirtyScopes(), 1).config, null);
+    T.feed(aClass());
+    T.setScope("default", []);
+    eq("no student writes when only the default changed",
+       Object.keys(T.saveBody(T.dirtyScopes(), 1).students).length, 0);
+    eq("parking everyone with an empty default is a real answer, not a skip",
+       T.saveBody(T.dirtyScopes(), 1).config.defaultLists.length, 0);
+
+    // Handing a student back is stored as null, the same sentinel
+    // EIStore.effectiveLists walks past.
+    T.feed(aClass());
+    T.releaseScope("s:u2");
+    eq("own ↺ writes null, which is what 'inherit' means on the wire",
+       T.saveBody(T.dirtyScopes(), 1).students.u2.lists, null);
+
+    /* ---- the board actually draws ----
+       Everything above tests the rules with no DOM in sight. This is the
+       other half: that the markup those rules feed builds the table it
+       claims to, with a row for every scope and a cell for every list.
+       A typo in 200 lines of string-built HTML is exactly the kind of
+       thing the rest of this file would sail straight past. */
+    T.feed(aClass());
+    T.renderAssign();
+    var grid = document.getElementById("abGrid");
+    eq("the board renders a grid", !!grid, true);
+    // 1 class default + 2 periods + 4 students + 1 "no period" heading
+    eq("a row for the default, each period, each student and the strays",
+       grid.querySelectorAll("tbody tr").length, 8);
+    eq("a cell for every scope row × every list column",
+       grid.querySelectorAll("[data-cell]").length, 7 * 15);
+    eq("two header rows: families over their lists",
+       grid.querySelectorAll("thead tr").length, 2);
+    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 6);
+    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 15);
+    eq("a cell drawn from an inheriting row is marked inherited",
+       grid.querySelector('[data-cell="s:u1|0"]').classList.contains("inherit"), true);
+    eq("a cell drawn from a row with its own set is marked own",
+       grid.querySelector('[data-cell="s:u2|0"]').classList.contains("own"), true);
+    eq("the own ↺ pill is hidden on an inheriting row",
+       grid.querySelector('[data-ownpill="s:u1"]').hidden, true);
+    eq("…and shown on a row with its own set",
+       grid.querySelector('[data-ownpill="s:u2"]').hidden, false);
+    eq("the save bar is out of the way until something changes",
+       document.getElementById("abBar").hidden, true);
+
+    T.setScope("s:u1", ["nonsense"]);
+    T.paintCells();
+    eq("one edit brings the save bar up", document.getElementById("abBar").hidden, false);
+    eq("…counting what is pending", document.getElementById("abCount").textContent, "1 change");
+    eq("…and repaints the row it touched, without a re-render",
+       grid.querySelector('[data-ownpill="s:u1"]').hidden, false);
+
+    // Folding a family swaps its ten columns for one summary.
+    T.feed(aClass());
+    T.board.collapsed.red = true;
+    T.renderAssign();
+    grid = document.getElementById("abGrid");
+    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 6);
+    eq("…and the folded column summarises instead of ticking",
+       grid.querySelector('[data-cell="s:u2|5"]').textContent, "1 🃏");
+    T.board.collapsed.red = false;
+
+    /* ---- the filter can outlive the period it names ----
+       It is remembered in localStorage, so a new roster or a renamed
+       section would otherwise leave a board with nobody on it under a
+       select box cheerfully reading "All periods". */
+    var cls = aClass();
+    cls.period = "9";
+    T.feed(cls);
+    T.renderAssign();
+    eq("a filter naming a period this class doesn't have falls back to all",
+       T.visibleStudents().length, 4);
+
+    /* ---- the picker binds its handlers once ----
+       #tBody survives every render, so binding on each one stacked another
+       pair of handlers on it. all/none set an absolute state and survived
+       that; the row and column toggles FLIP, so two handlers made them do
+       nothing at all — a bug that hides by looking like a dead button. */
+    var host = document.getElementById("tBody");
+    host.innerHTML = T.pickerHtml("probe", ["red-3-cards"], false);
+    T.bindPickers(host);
+    T.bindPickers(host);
+    T.bindPickers(host);
+    host.querySelector('[data-pk-row="probe|red|3"]').click();
+    eq("a row toggle still toggles after three binds",
+       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 2);
+    host.querySelector('[data-pk-row="probe|red|3"]').click();
+    eq("…and toggles back", 
+       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 0);
+    eq("…and the summary keeps up",
+       host.querySelector('[data-pk-summary="probe"]').textContent, "nothing");
+
+    host.innerHTML = "";
   })();
 
   /* ══════════════════════════════════════════════════════════════════

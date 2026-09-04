@@ -34,65 +34,151 @@ Nothing else deploys it.
 ## Word lists
 
 `word-lists.js` is the single source of truth for what a practice list
-**is** — its id, title, engine, tile copy and words. Three things need to
-agree about a list (the game page that plays it, the home page that
-advertises it, the dashboard that assigns it), so it is defined once.
+**is**. Three things have to agree about them (the game page that plays
+one, the home page that advertises it, the dashboard that assigns it), so
+they are defined once.
 
-Adding a game is two steps:
+### Families and modes
 
-1. Add an entry to `WORD_LISTS` in `word-lists.js`.
-2. Copy any existing game page and change the id in its one line of
-   script; point the entry's `page` at the new filename.
+Every list belongs to a **family**, and every family declares the
+**modes** it can be played in. A mode is an engine plus the habits that
+come with it:
 
-The home page and the dashboard pick it up with no further edits. A
-list's `id` is permanent — it is half of every stored stat key
-(`"<listId>|<word>"`) and it is what an assignment stores, so renaming
-one orphans a class's history. `title` is the display name and can change
-freely. `engine` is one of `blend`, `spell`, `card` or `match`.
+| | mode | engine | what it asks |
+|---|---|---|---|
+| 🎤 | `say` | `blend-game.js` | read it out loud, the computer listens |
+| ⌨️ | `spell` | `spell-game.js` | the computer says it, you type it |
+| 🃏 | `cards` | `card-game.js` | read it, flip it, rate yourself |
+| 🎯 | `match` | `match-game.js` | hear it, find it among look-alikes |
 
-### List families: the red words
+The red words worked this way first: the same "List 3" as flash cards
+*or* as Match It, because knowing *would* on sight and picking it out of
+six look-alikes are different skills and a student can have one without
+the other. That is true of every list here, not only the red ones —
+reading *moist* cold, spelling it, and finding it in a row of look-alikes
+are three separate things to be good at. So the registry generates **one
+entry per (family, list, mode)**, each with its own id and therefore its
+own stats.
 
-Most lists are one entry, one tile, one game. The **red words** aren't:
-the same "List 3" can be played as flash cards *or* as Match It, and those
-are different skills — a student can know *would* on sight and still pick
-*could* out of six look-alikes. So the ten screener lists (`RED_LISTS`,
-kept once; `data/red-words.md` is the source of record) generate **twenty
-entries**, `red-N-cards` and `red-N-match`, with separate stat keys — the
-same reasoning that already keeps `oi-oy-read` and `oi-oy-spell` apart.
+The six families:
 
-Twenty tiles and twenty checkboxes would be the wrong way to show that, so
-each entry carries `family: "red"`, `listNum` and `game`, and the UI folds
-them back into one grid (`LIST_FAMILIES` declares the family's games and
-their order). Helpers on `WordLists`: `families()`, `listNumsOf()`,
-`idFor(family, n, game)`, `standalone()` (the plain games), `hrefOf(id)`
-— a family entry links to its shared page with `?list=<id>` — and a pure
-`describeAssignment(ids)` that turns a set of ids into the one line the
-roster and the picker show: *"2 games · Red Words: lists 1–3 (cards) ·
-1 (match it)"*.
+| family | lists | modes |
+|---|---|---|
+| Starting Blends | 1 | 🎤 🃏 🎯 |
+| Blend Words | 1 | 🎤 🃏 🎯 |
+| Nonsense Words | 1 | 🎤 🃏 |
+| oi / oy | 1 | 🎤 ⌨️ 🃏 🎯 |
+| Multisyllable | 1 | 🎤 🃏 🎯 |
+| Red Words | 10 | 🃏 🎯 |
 
-A red list is 20 words and a round is 18, so one round is nearly the
-whole list, weighted — over two or three rounds every word comes up, the
-missed ones most. Adding an eleventh list is one array in `RED_LISTS`;
-no page, no dashboard change.
+Two families are deliberately short of the full set. **Nonsense words**
+have no Match It: that game works by *saying* a word and asking the
+student to find it, and a synthesiser handed "vab" doesn't say "vab", it
+guesses — often enough as "verb" that the answer key would be wrong. A
+list with no meanings can only be read, not heard. Their cards mode runs
+with `speak: false` for the same reason, so the flip shows the word
+without pronouncing it. And the **red words** have no say-it mode: they
+are irregular by definition, so there is nothing for a phoneme matcher to
+check them against.
+
+### Ids are permanent
+
+An id is half of every Firestore stat key (`"<id>|<word>"`) and it is
+what an assignment stores, so renaming one orphans a class's history.
+Generated ids are `<family>-<n>-<mode>` — `red-3-cards`,
+`multi-1-match`. A family's `ids` map overrides that per mode, and every
+id that predates families is pinned there, unchanged:
+
+```js
+lists: [{ n:1, ids:{ say:"oi-oy-read", spell:"oi-oy-spell" }, words: OI_OY_WORDS }]
+```
+
+`final-blends`, `initial-blends`, `nonsense`, `oi-oy-read`,
+`oi-oy-spell` and `multisyllable` all still resolve to exactly the engine
+and page they always did; `tests.html` pins each one by hand, because
+that is the single check standing between a refactor and a year of
+practice detached from the list it belongs to. `title` is the display
+name and can change freely.
+
+### Adding to the library
+
+- **another red list** — one array in `RED_LISTS`. Nothing else.
+- **another mode on an existing list** — one key in that family's
+  `modes`.
+- **a whole new family** — one entry in `LIST_FAMILIES`. Its `cards` and
+  `match` modes need no new page: they share `cards-game.html` and
+  `match-game.html`, which take the list from `?list=`. A `say` or
+  `spell` mode does need its own page, named in `pages`, because its copy
+  is list-specific (the oi/oy rule box, the mic setup).
+
+`config` is what every mode of the family passes to its engine;
+`modeConfig[mode]` is what only that mode passes, and it wins on a clash.
+The home page and the dashboard pick all of it up with no further edits.
+
+Helpers on `WordLists`: `families()`, `familyOf()`, `modesOf(family)`,
+`listNumsOf(family)`, `idFor(family, n, mode)`, `idsOfList(family, n)`,
+`idsOfFamily(family)`, `hrefOf(id)`, and the pure `describeAssignment(ids)`
+/ `describeFamily(family, ids)` that turn a set of ids into the one line
+the roster, the picker and the board all show: *"Starting Blends: 🎤🃏 ·
+Red Words: 1–3 🃏 · 1 🎯"*. A family with one list has nothing useful to
+say about *which* list, so it prints only the modes; a family with ten
+prints the list numbers per mode, as ranges, so ten ticked boxes read as
+"1–10" rather than as ten numbers.
+
+### Syllable dots
+
+The multisyllable list writes its words with middle dots marking the
+syllable breaks — `fan·tas·tic`. The dots are a display aid and nothing
+else: `GameCore.parseEntry` splits an entry into the plain word and its
+chunks, and the plain word is the only form that reaches phoneme
+matching, TTS, the comeback deck or a stat key. This used to live in
+`blend-game.js`, which was the only engine playing that list; now that
+every list can be played as cards or Match It it belongs in the core,
+where the things three engines must agree about live. The cards engine
+shows the chunked form on the **back** of the card — after the student
+has read it cold off the front — and Match It strips the dots entirely,
+since a tile with a dot down the middle would both give the split away
+and mark that tile out from its distractors.
+
+### Pages
+
+`cards-game.html` and `match-game.html` each serve every family, and take
+the list from the query string: `cards-game.html?list=red-3-cards`. They
+call `EIPractice.play()` with no id. The say-it and spell-it pages name
+their one list outright, and `hrefOf` gives them a clean address with no
+`?list=` at all, because a page that serves one list already knows which.
+
+`red-words-game.html` and `red-words-match-game.html` are now six-line
+redirects that carry the `?list=` across to the generic pages. They stay
+because students bookmark game pages and copy them off the board, and a
+dead link mid-class costs more than the file does.
 
 ## Home page
 
 `index.html` builds its tile grid from `word-lists.js`, filtered to the
 lists the signed-in student is assigned (`EIStore.myLists()`), so two
-students in different periods see different games. Each tile carries that
-student's progress through that list — words solid, words still shaky.
+students in different periods see different games.
 
-Family entries fold into **one tile per list** — "Red Words · List 3" —
-with a Play row per assigned game and that game's own progress, so a
-student assigned both games for three lists sees three tiles, not six.
-Each row links to the family's shared page with `?list=<id>`:
-`red-words-game.html?list=red-3-cards`.
+The registry's (list × mode) entries fold back into **one tile per
+list** — "Red Words · List 3", or just "Blend Words" for a family with a
+single list — with a Play row per mode that student has, each carrying
+its own progress. A student assigned both modes of three red lists sees
+three tiles, not six. Every row links to its page with the list named:
+`cards-game.html?list=red-3-cards`.
 
-Those two pages call `EIPractice.play()` with **no id** and take the list
-from the query string. No `?list=`, or a stale one, isn't an error: the
-page shows a chooser with the student's assigned lists first and the rest
-under "More", so a bookmarked or hand-typed address still lands somewhere
-useful. A list id that belongs to the other red-word page redirects there.
+The two shelves are **🔤 Sounding It Out** and **🃏 Red Words**. They used
+to be one shelf per modality — speaking games, typing games — which
+stopped meaning anything the day every list could be played four ways.
+What actually divides this library is the reading: words you can build
+out of their sounds, and words that refuse to be built and have to be
+known. Each mode's row carries a small `mic` or `headphones` tag, so a
+student on a Chromebook with neither finds that out before they open the
+game.
+
+A shared page with no `?list=`, or a stale one, isn't an error: it shows
+a chooser of every list that has that mode, the student's own first and
+the rest under "More", so a bookmarked or hand-typed address still lands
+somewhere useful. A list id belonging to a different page redirects there.
 
 ## Shared core
 
@@ -117,8 +203,10 @@ behaving differently.
 In the core: combo scoring and the star thresholds, the comeback deck (and
 the one function that touches `localStorage`), the race/vault progress
 graphics, the confetti, the score pop-up, the feedback blips, the voice
-ranking, and the word-list helpers (`shuffled`, `dedupeWords`,
-`sampleWords`, `escapeHtml`).
+ranking, the syllable-chunk parser (`parseEntry`, `chunkMarkup` — three
+engines now play the dotted multisyllable list and all three need the same
+answer to "what word is this really?"), and the word-list helpers
+(`shuffled`, `dedupeWords`, `sampleWords`, `escapeHtml`).
 
 Still in each engine: how it asks its question, how it judges the answer,
 its own screens and styles, and anything to do with the microphone.
@@ -146,17 +234,27 @@ out loud" phonics games. A game page is now one line —
 <script>EIPractice.play("initial-blends");</script>
 ```
 
-— and the list it names lives in `word-lists.js`, whose `config` block is
-exactly what `BlendGame.start()` takes minus the words:
+— and the list it names lives in `word-lists.js`, where the family's
+`modeConfig.say` is exactly what `BlendGame.start()` takes minus the
+words:
 
 ```js
-config: {
-  title: "Starting Blends 🎤",
-  blend: "start",   // "start", "end", or "sound" — see below
-  theme: "maze"     // "race" (default) or "maze" — the progress graphic
-},
-words: ["blip","crop","clam"]
+{
+  key:"blends-start", title:"Starting Blends", modes:["say","cards","match"],
+  pages: { say: "initial-blends-game.html" },
+  modeConfig: {
+    say: {
+      blend: "start",   // "start", "end", or "sound" — see below
+      theme: "maze"     // "race" (default) or "maze" — the progress graphic
+    }
+  },
+  lists: [{ n:1, ids:{ say:"initial-blends" }, words:["blip","crop","clam"] }]
+}
 ```
+
+`title` and `intro` are generated from the family and the mode unless the
+family sets them, so the same words played three ways get three headings
+that read as one game asking different questions.
 
 Three matching modes for `blend`, depending on what's being drilled:
 
@@ -300,13 +398,16 @@ loading its voice list.
 > game — one list per round, drawn by the adaptive scheduler, results
 > reported to the student's record. The `decks` picker described below is
 > the engine's own start screen, used when a page calls `CardGame.start()`
-> directly; `red-words-game.html` doesn't, it plays whichever list
-> `?list=` names.
+> directly; `cards-game.html` doesn't, it plays whichever list `?list=`
+> names.
 
 `card-game.js` is the third engine, and the only one that doesn't judge the
-answer itself. It drills **sight recognition** of irregular ("red") words —
-words the decoding rules lie about, where there's no rule to apply, no blend
-to isolate and nothing to sound out. Whether the student knew the word on
+answer itself. It drills **sight recognition** — knowing a word without
+working for it. That began as a red-word game, for the words the decoding
+rules lie about, where there's no rule to apply, no blend to isolate and
+nothing to sound out; every list can be played this way now, because
+reading a word you *can* decode without stopping to decode it is the
+skill that makes reading fluent. Whether the student knew the word on
 sight is a question only the student can answer, so the game asks them:
 
 1. The word shows on a card. The student reads it out loud.
@@ -342,12 +443,22 @@ too — the picker then never appears. Deck word lists are deduplicated per
 round, which matters because printed word lists repeat words across lists on
 purpose.
 
-Current games:
+`cards-game.html` serves every family's cards mode, taking the list from
+`?list=`. Two config keys are worth knowing:
 
-- `red-words-game.html` — the ten SUHSD red-word screener lists, 20 words
-  each. The lists live in `data/red-words.md` as the source of record; the
-  page's word arrays are that file transcribed, so corrections belong in
-  both.
+- `speak: false` — the flip shows the word without pronouncing it. The
+  nonsense-word list needs this: a synthesiser handed "vab" guesses, and
+  it guesses wrong often enough to teach the wrong answer. Directions are
+  still read aloud; only the word itself goes quiet, and the "Hear it
+  again" button goes with it.
+- Syllable-dotted entries (`fan·tas·tic`) show plain on the front — the
+  student has to read it cold — and chunked on the back, which is where
+  the split earns its keep. The plain word is what gets spoken, rated and
+  stored.
+
+The ten red-word lists live in `data/red-words.md` as the source of
+record; the arrays in `word-lists.js` are that file transcribed, so
+corrections belong in both.
 
 Scoring, streaks, stars, the missed-word list and the comeback deck all match
 the other two engines exactly, so a student moving between games sees one
@@ -363,10 +474,10 @@ up.
 
 ## Matching game
 
-> Same arrangement as the flash cards: `red-words-match-game.html` plays
-> the one list `?list=` names, through `practice.js`, and reports first-try
-> picks to the student's record. Its comeback deck is separate from the
-> cards' on purpose — they're different skills.
+> Same arrangement as the flash cards: `match-game.html` plays the one
+> list `?list=` names, through `practice.js`, and reports first-try picks
+> to the student's record. Its comeback deck is separate from the cards'
+> on purpose — they're different skills.
 
 `match-game.js` is the checked counterpart to the flash cards: the computer
 says a word and the student picks the printed word that matches, out of six.
@@ -431,12 +542,15 @@ Distractors normally come from the round's own list, so the wrong answers are
 words the student is working on. A round too short to fill its own tiles (a
 three-word comeback deck) widens to the whole word list instead.
 
-Current games:
+`match-game.html` serves every family's Match It mode except the nonsense
+words, which have none — the game works by *saying* the word, and there is
+no reliable way to say a word that isn't one. Syllable dots are stripped
+on the way in: a tile with a dot down its middle would both give the
+split away and mark that tile out from its distractors.
 
-- `red-words-match-game.html` — the same ten screener lists as the flash-card
-  game, same source of record in `data/red-words.md`. The two games keep
-  **separate** comeback decks, on purpose: knowing a word on sight and
-  picking it out of five look-alikes are different days' work.
+Cards and Match It on the same list keep **separate** ids, stats and
+comeback decks, on purpose: knowing a word on sight and picking it out of
+five look-alikes are different days' work.
 
 ## Adaptive practice
 
@@ -497,14 +611,16 @@ it is never merged back up.
 ## Teacher dashboard
 
 `teacher.html` — visible to `TEACHER_EMAILS` only, with a link on the home
-page for that account. Three tabs:
+page for that account. Four tabs:
 
 - **Students** — roster with accuracy, words solid, words shaky, last
   activity, and a **Lists** column that says in words what each student
-  currently gets and where it comes from — *"2 games · Red Words: lists
-  1–3 (cards) (period 3)"*. Click through for a student's hardest words
-  (worst first, with which list each came from), their per-list
-  breakdown, and their assignment picker.
+  currently gets and where it comes from — *"Red Words: 1–3 🃏 (period
+  3)"*. Click through for a student's hardest words (worst first, with
+  which list each came from), their per-list breakdown, and their
+  assignment picker.
+- **Assign** — every assignment in the class as one grid. This is the
+  section below.
 - **Periods & Lists** — the same picker for the class default and for
   each period, plus the table that drops students into periods.
 - **Trouble spots** — the same words aggregated across the class, sorted
@@ -512,29 +628,83 @@ page for that account. Three tabs:
   accuracy, so one student's bad day doesn't top the list. Filterable by
   period. This is the "what do I reteach tomorrow" view.
 
-### Assigning games and lists
+### The picker: one scope at a time
 
-Every place a set of lists is chosen — a student's own, a period's, the
-class default — uses one picker (`pickerHtml()` in `teacher.js`). It has
-two parts because the registry has two kinds of entry:
+Every place a set of lists is chosen one scope at a time — a student's
+own, a period's, the class default, the board's bulk dialog — uses one
+component, `pickerHtml()` in `teacher.js`. It is one section per family,
+because that is the only kind of entry the registry has:
 
-- **Games** — the standalone lists, one checkbox each, with *all* / *none*.
-- **Red Words** — a grid: one row per list (with four of its words as a
-  reminder — *you, should, could, said…*), one column per game
-  (🃏 Cards, 🎯 Match It), a **both** toggle on each row and an **all**
-  toggle on each column. "Lists 1–4 as flash cards" is four clicks;
-  "everything as Match It" is one.
+- **a family with one list** — a line of mode checkboxes, with *all* /
+  *none*: "Blend Words: 🎤 Say it · 🃏 Cards · 🎯 Match It", each labelled
+  with its word count and whether it needs a mic or headphones.
+- **a family with several** — a grid: one row per list (with four of its
+  words as a reminder — *you, should, could, said…*), one column per
+  mode, an **all** toggle on each row and each column. "Lists 1–4 as
+  flash cards" is four clicks; "everything as Match It" is one.
 
-A live line under the picker — *"This gives them: 2 games · Red Words:
-lists 1–3 (cards) · 1 (match it)"* — says in words what the ticks add up
-to, and it is the same line the roster shows, so what a student *has* and
-what you're *setting* read the same way.
+A live line under the picker — *"This gives them: Starting Blends: 🎤🃏 ·
+Red Words: 1–3 🃏 · 1 🎯"* — says in words what the ticks add up to, and
+it is the same line the roster shows, so what a student *has* and what
+you're *setting* read the same way.
 
-What gets saved is unchanged: a flat array of list ids in
-`assignments/{uid}` (a student's own set) or `config/class` (a period's
-or the default). The grid is presentation only — `store.js`, the
-precedence and `firestore.rules` never see it, so **adding red words
-needed no rules change**.
+### The Assign board: the whole class at once
+
+The picker answers "what should *this* student get?", which is the right
+shape for a conversation about one student and the wrong shape for the
+ten minutes at the start of a unit when you are moving a class onto List
+4. The **Assign** tab is that: students down the side, lists across the
+top, every assignment in the class visible and editable in place.
+
+Rows are grouped by period, with a period row above each group and the
+class default above everything — the same chain the precedence walks, in
+the order it walks it. Columns are one per list, grouped under a family
+header that can be folded (▾/▸) into a single summary column, which is
+how ten red-word columns get out of the way when you're working on
+blends. Both the first column and the two header rows are sticky, so a
+name and a list stay on screen however far you scroll.
+
+Three things make it work rather than just look busy:
+
+- **Inheritance is visible.** A dashed grey cell is inherited — the
+  student is following their period, or the period is following the class
+  default. A gold cell is a set of that scope's own. Who has been pulled
+  out of their group is the question a differentiated roster actually
+  raises, and it is now answerable at a glance.
+- **Editing is copy-on-write, and says so.** Change any cell on someone
+  who is inheriting and they get their own copy of what they already
+  had — exactly what saving the picker on their page has always done —
+  and the row grows an **own ↺** button that hands them back.
+- **Nothing is written until Save.** Every edit lands in a draft, the bar
+  at the bottom counts what's pending, and Save commits the lot in one
+  `db.batch()`: one `assignments/{uid}` merge per changed student, and at
+  most one `config/class` merge however many periods and the default were
+  touched. A teacher reassigning six students should not be able to end
+  up with three of them moved. Discard throws the draft away; leaving the
+  tab with changes pending asks first.
+
+A cell click opens the modes for that one list, ticked live. A column's
+**all** toggle sets every mode of that list for every *visible* student —
+the period filter and the name search are what bound it, and that is the
+only thing standing between a mis-click and a class's worth of undone
+assignment. Ticking several students turns on **Set lists for N
+selected…**, which opens the same picker once, seeded from the first
+selected student's effective set, and applies it to all of them.
+
+The board's rules — the precedence walk, copy-on-write, how far a column
+toggle reaches, and the shape of the two documents Save writes — are pure
+functions of a class's state and are pinned in `tests.html`, along with a
+check that the grid itself renders the rows and cells it claims to.
+
+### What actually gets stored
+
+Unchanged, and this is the point: a flat array of list ids in
+`assignments/{uid}` (a student's own set) or `config/class` (a period's,
+or the default). The families, the modes, the grid and the board are all
+presentation — `store.js`, the precedence and `firestore.rules` never see
+any of it, so **turning every list into a family needed no rules change
+and no migration**. `null` rather than a missing field is how "inherit"
+is stored, which is what the **own ↺** button writes.
 
 Two things worth knowing: a student can still open a list they haven't
 been assigned (the chooser lists them under "More", and the game shows an
@@ -542,7 +712,8 @@ been assigned (the chooser lists them under "More", and the game shows an
 mis-assignment into a support request mid-class). And the picker's
 pre-ticked state is the student's *effective* set, so opening a student
 who follows their period and pressing Save copies the period's set onto
-them as their own — use "Use my period's lists" to hand them back.
+them as their own — use "Use my period's lists", or the board's **own
+↺**, to hand them back.
 
 Assignment precedence, resolved in `EIStore.effectiveLists` (and pinned by
 `tests.html`): **the student's own list → their period's list → the class

@@ -105,8 +105,10 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 .empty{color:var(--muted);font-size:15px;line-height:1.7;padding:6px 2px}
 
 /* ---------------- the assignment picker ----------------
-   One component for a student's own set, a period's, and the class
-   default: a Games row of checkboxes, then one grid per list family. */
+   One component for a student's own set, a period's, the class default
+   and the board's bulk dialog: one section per family — a line of mode
+   checkboxes for a family with one list, a lists x modes grid for a
+   family with several. */
 .picker{margin:6px 0 14px}
 .pkSection{margin-bottom:18px}
 .pkHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px}
@@ -135,3 +137,149 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 }
 .pkSummary b{color:var(--ink)}
 .t td.listsCell{max-width:340px;line-height:1.45}
+
+/* ---------------- the Assign board ----------------
+   Students down the side, lists across the top. Two things carry the
+   whole design: the first column and the two header rows are sticky, so
+   a name and a list stay on screen however far the board is scrolled;
+   and a cell says where its value CAME FROM, because on a differentiated
+   roster "who has been pulled out of their group" is the question you
+   are actually looking at the grid to answer. */
+.abPanel{padding-bottom:14px}
+.abTools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.abTools .abAll{margin:0;padding:8px 12px}
+
+.abScroll{
+  overflow:auto;max-height:66vh;
+  border:1px solid var(--line);border-radius:14px;background:var(--bg);
+}
+/* The name column's width is a variable because two other things have to
+   know it: the sticky family label parks just to the right of it, and the
+   narrow-screen override below moves both together. */
+.abGrid{--abName:236px;border-collapse:separate;border-spacing:0;font-size:14px;width:max-content;min-width:100%}
+
+/* Sticky in both directions. The corner cell needs the higher z-index of
+   the three, or the name column scrolls up over it. */
+.abGrid thead th{position:sticky;background:var(--panel2);z-index:2}
+.abGrid thead tr:first-child th{top:0}
+.abGrid thead tr:nth-child(2) th{top:38px}
+.abGrid th.abName{
+  position:sticky;left:0;z-index:3;text-align:left;
+  width:var(--abName);min-width:var(--abName);max-width:var(--abName);
+  /* Opaque, always. The row tints below layer over this rather than
+     replacing it — a translucent sticky cell lets the columns it is
+     supposed to be covering slide through underneath. */
+  background-color:var(--panel2);
+}
+.abGrid thead th.abCorner{z-index:4;top:0}
+
+.abGrid th.abFam{
+  color:var(--ink);font-size:13px;font-weight:800;text-align:left;white-space:nowrap;
+  padding:9px 12px;border-bottom:1px solid var(--line);border-left:1px solid var(--line);
+  height:38px;box-sizing:border-box;
+}
+/* Sticky inside its own colspan: it slides along with the scroll until it
+   reaches the end of its family's columns, then leaves with them. */
+.abFamIn{position:sticky;left:calc(var(--abName) + 12px);display:inline-block}
+.abFold{
+  font:inherit;font-size:12px;color:var(--muted);background:none;border:none;
+  cursor:pointer;padding:0 6px 0 0;
+}
+.abFold:hover{color:var(--accent)}
+
+.abGrid th.abCol{
+  padding:7px 10px;border-bottom:1px solid var(--line);border-left:1px solid var(--line);
+  text-align:center;font-weight:700;vertical-align:top;min-width:96px;max-width:150px;
+}
+.abColName{display:block;color:var(--ink);font-size:12.5px;white-space:nowrap}
+/* Two lines, always: a fixed height is what keeps every column's "all"
+   button on the same line as its neighbours', however the words wrap. */
+.abColWords{
+  display:block;color:var(--muted);font-size:11px;font-style:italic;
+  margin:2px 0 4px;line-height:1.35;height:2.7em;overflow:hidden;
+  white-space:normal;
+}
+.abGrid th.abCol .pkMini{margin-top:2px}
+
+.abGrid td,.abGrid tbody th{border-bottom:1px solid rgba(49,64,92,.5)}
+.abGrid tbody th.abName{padding:8px 12px;font-weight:400}
+.abNameIn{display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0}
+.abLabel{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.abMeta,.abFrom{color:var(--muted);font-size:11.5px;line-height:1.35;max-width:100%}
+.abPick{display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0}
+.abPick input{width:15px;height:15px;accent-color:var(--accent);flex:none}
+
+/* The row that says "this one has been pulled out of their group", and
+   the button that puts them back. Hidden on a row that is inheriting. */
+.abPill{
+  font:inherit;font-size:10.5px;font-weight:800;letter-spacing:.03em;
+  color:var(--accent);background:rgba(255,199,89,.12);
+  border:1px solid rgba(255,199,89,.4);border-radius:99px;
+  padding:1px 8px;margin-top:3px;cursor:pointer;
+}
+.abPill:hover{background:rgba(255,199,89,.22)}
+.abPill[hidden]{display:none}
+
+/* The class default and the period rows are the things being inherited
+   FROM, so they read as headers of their group rather than as rows. */
+.abGrid tr.abDefault td{background:rgba(255,255,255,.035)}
+.abGrid tr.abPeriod td,.abGrid tr.abGroup td{background:rgba(255,255,255,.02)}
+/* background-image, not background: the tint has to sit ON TOP of the
+   opaque background-color the sticky column depends on. */
+.abGrid tr.abDefault th.abName{background-image:linear-gradient(rgba(255,255,255,.035),rgba(255,255,255,.035))}
+.abGrid tr.abPeriod th.abName,.abGrid tr.abGroup th.abName{background-image:linear-gradient(rgba(255,255,255,.02),rgba(255,255,255,.02))}
+.abGrid tr.abStudent:hover td{background:rgba(255,255,255,.03)}
+
+.abCell{
+  text-align:center;padding:7px 10px;cursor:pointer;white-space:nowrap;
+  border-left:1px solid var(--line);font-size:15px;line-height:1.5;
+}
+.abCell:focus{outline:2px solid var(--accent);outline-offset:-2px}
+/* Gold and solid: a set of this scope's own. Grey and dashed: handed
+   down from the period or the class default, and it will keep changing
+   under them until somebody edits it. */
+.abCell.own{color:var(--accent)}
+.abCell.inherit{color:var(--muted);border-bottom-style:dashed}
+.abCell.empty{color:rgba(140,158,190,.45)}
+.abCell:hover{background:rgba(255,199,89,.09)}
+
+/* ---- the per-cell mode popover ---- */
+.abPop{
+  position:fixed;z-index:60;min-width:190px;
+  background:var(--panel);border:1px solid var(--accent);border-radius:14px;
+  box-shadow:0 20px 50px rgba(0,0,0,.55);padding:12px;
+}
+.abPopHead{font-weight:800;font-size:13px;margin-bottom:8px}
+.abPopBody label.check{margin-bottom:6px;padding:7px 10px}
+.abPopFoot{display:flex;gap:6px;align-items:center;margin-top:4px}
+.abPopFoot .btn{margin-left:auto}
+
+/* ---- the bulk dialog ---- */
+.abModal{
+  position:fixed;inset:0;z-index:70;background:rgba(6,10,20,.72);
+  display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow:auto;
+}
+.abModalBox{
+  width:100%;max-width:720px;background:var(--panel);
+  border:1px solid var(--line);border-radius:20px;padding:24px;
+  box-shadow:0 30px 70px rgba(0,0,0,.6);
+}
+.abModalBox h2{font-size:19px;margin:0 0 4px}
+.abModalBox .note{color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 16px}
+
+/* ---- the save bar ---- */
+.abBar{
+  position:sticky;bottom:14px;z-index:20;
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  background:var(--panel);border:1px solid var(--accent);border-radius:16px;
+  padding:12px 18px;box-shadow:0 20px 50px rgba(0,0,0,.55);
+}
+.abBar[hidden]{display:none}
+.abCount{font-weight:800;font-size:14px;color:var(--accent)}
+.abBar .btn{margin-left:0}
+.abBar #abSave{margin-left:auto}
+
+@media (max-width:640px){
+  .abGrid{--abName:160px}
+  .abScroll{max-height:60vh}
+}

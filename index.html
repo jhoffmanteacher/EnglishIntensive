@@ -82,8 +82,9 @@
   .tileProg .progNote{color:var(--muted);font-size:13px}
   .tileProg .progNote b{color:var(--accent)}
 
-  /* A family tile ("Red Words · List 3"): a <div>, not a link, holding one
-     row per game the student has for that list. Each row is its own link. */
+  /* A list tile ("Red Words · List 3", "Blend Words"): a <div>, not a
+     link, holding one row per mode the student has for that list. Each
+     row is its own link. */
   .tileFamily{cursor:default}
   .tileFamily:hover{transform:none;border-color:var(--line)}
   .tileFamily p{margin-bottom:14px;font-style:italic}
@@ -99,6 +100,14 @@
   .tileFamily .gIcon{font-size:26px;line-height:1;flex:none}
   .tileFamily .gMeta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
   .tileFamily .gTitle{font-weight:700;font-size:15px}
+  /* What the mode needs at the desk. Two of the four want headphones and
+     one wants a mic, and a student picking a game on a Chromebook with
+     neither should find that out here rather than on the start screen. */
+  .tileFamily .gNeeds{
+    font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--muted);border:1px solid var(--line);border-radius:99px;
+    padding:1px 7px;margin-left:8px;vertical-align:1px;
+  }
   .tileFamily .gProg{color:var(--muted);font-size:12.5px}
   .tileFamily .gProg b{color:var(--accent)}
   .tileFamily .gameRow .play{padding:8px 14px;font-size:14px;flex:none}
@@ -138,10 +147,11 @@
 
 <!-- The tile grid is built from word-lists.js, filtered to the lists
      this student is assigned (EIStore.myLists), so two students in
-     different groups see different games on this page. Entries that
-     belong to a family (the red-word lists) fold into one tile per list
-     with a Play button per assigned game. Adding a game means adding an
-     entry to word-lists.js — not editing this file. -->
+     different groups see different games on this page. The registry holds
+     one entry per (list × mode); they fold back into one tile per list,
+     with a Play row per mode that student has been given. Adding a game,
+     or another way to play an existing one, means editing word-lists.js —
+     not this file. -->
 <script src="firebase-config.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>

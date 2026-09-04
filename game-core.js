@@ -86,6 +86,35 @@ window.GameCore = (function(){
     return out;
   }
 
+  /* ---------------- syllable chunks (pure, testable) ----------------
+     A word list may write a word with middle dots marking its syllable
+     boundaries — "fan·tas·tic". The dots are a teaching aid for the
+     display only: the plain word is the ONLY form that reaches phoneme
+     matching, TTS, or a stored stat key, so a dotted entry and an
+     undotted one are the same word everywhere it counts.
+
+     This used to live in blend-game.js alone, because it was the only
+     engine playing the multisyllable list. Now that every list can be
+     played as cards or Match It, all three need the same answer to
+     "what word is this really?" — so it lives here, with the rest of
+     what the engines must agree about. */
+  var CHUNK_SEP = "\u00b7";   // middle dot (·)
+
+  function parseEntry(entry){
+    var s = String(entry == null ? "" : entry);
+    if(s.indexOf(CHUNK_SEP) === -1) return { word: s, chunks: null };
+    return { word: s.split(CHUNK_SEP).join(""), chunks: s.split(CHUNK_SEP) };
+  }
+
+  // The dotted word as markup: alternating syllable colours with the dot
+  // between (echoing the "·" the word list itself is written with).
+  function chunkMarkup(chunks){
+    return '<span class="chunkword">' + chunks.map(function(c, i){
+      return (i > 0 ? '<span class="chunk-sep">' + CHUNK_SEP + '</span>' : '') +
+             '<span class="chunk ' + (i % 2 === 0 ? "chunk-a" : "chunk-b") + '">' + escapeHtml(c) + '</span>';
+    }).join("") + '</span>';
+  }
+
   // Random sample without replacement. `rnd` is a parameter rather than a
   // direct Math.random() call so tests can feed it a predictable sequence;
   // games never pass it.
@@ -453,6 +482,10 @@ window.GameCore = (function(){
     dedupeWords: dedupeWords,
     sampleWords: sampleWords,
     escapeHtml: escapeHtml,
+
+    chunkSep: CHUNK_SEP,
+    parseEntry: parseEntry,
+    chunkMarkup: chunkMarkup,
 
     comebackCap: COMEBACK_CAP,
     sanitizeComeback: sanitizeComeback,

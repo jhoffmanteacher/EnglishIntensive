@@ -264,7 +264,7 @@ window.BlendGame = (function(){
     return false;
   }
 
-  /* ---------------- syllable chunk parsing (pure, testable) ----------------
+  /* ---------------- syllable chunk parsing ----------------
      Entries in cfg.words may mark syllable boundaries with a middle dot
      ("fan·tas·tic") so the engine can scaffold the reveal on a second miss
      into its syllables instead of just re-showing the whole word.
@@ -272,24 +272,16 @@ window.BlendGame = (function(){
      anything outside the chunk display ever sees: phoneme matching, TTS,
      the recogniser comparison, the comeback deck, localStorage — and a
      chunks array. Entries with no dot get chunks:null and behave exactly
-     as before; nothing downstream has to know the difference. */
-  var CHUNK_SEP = "·";   // middle dot (·)
+     as before; nothing downstream has to know the difference.
 
-  function parseWordEntry(entry){
-    var s = String(entry || "");
-    if(s.indexOf(CHUNK_SEP) === -1) return { word: s, chunks: null };
-    return { word: s.split(CHUNK_SEP).join(""), chunks: s.split(CHUNK_SEP) };
-  }
-
-  // Markup for the scaffolded reveal — each syllable its own span, alternating
-  // accent/ink color so the eye tracks the split, with a small separator dot
-  // between (echoing the "·" the word list itself is written with).
-  function chunkMarkup(chunks){
-    return '<span class="chunkword">' + chunks.map(function(c, i){
-      return (i > 0 ? '<span class="chunk-sep">' + CHUNK_SEP + '</span>' : '') +
-             '<span class="chunk ' + (i % 2 === 0 ? "chunk-a" : "chunk-b") + '">' + c + '</span>';
-    }).join('') + '</span>';
-  }
+     Both functions moved to game-core.js when the cards and Match It
+     engines started playing the same dotted lists: three engines needing
+     the same answer to "what word is this really?" is exactly what the
+     core is for. They stay exported from _internals here because that is
+     where tests.html has always reached for them. */
+  var CHUNK_SEP = Core.chunkSep;
+  var parseWordEntry = Core.parseEntry;
+  var chunkMarkup = Core.chunkMarkup;
 
   // One template literal rather than a hundred lines of string concatenation —
   // this is markup, and it should still read like markup.

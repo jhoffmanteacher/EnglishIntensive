@@ -112,6 +112,7 @@ window.CardGame = (function(){
 
   /* The word is the whole interface — as big as the card allows, and the
      same size on both faces so nothing shifts through the turn. */
+  #uiWordBack .chunkword{font-size:inherit;letter-spacing:inherit;font-weight:inherit}
   .flipface .word{font-size:clamp(40px,11vw,92px);font-weight:800;letter-spacing:1px;
     line-height:1.15;margin:6px 0;word-break:break-word}
   .flipface .facehint{color:var(--muted);font-size:16px;line-height:1.5;margin-top:14px;min-height:24px}
@@ -158,7 +159,7 @@ window.CardGame = (function(){
       <button class="btn ghost" id="btnDirections" type="button" style="margin-bottom:16px">🔊 Read directions aloud</button>
       <ol class="steps">
         <li>A word shows on the card. <b>Read it out loud.</b></li>
-        <li><b>Flip</b> the card — press <kbd>Space</kbd> or click it. Now you hear the word.</li>
+        <li><b>Flip</b> the card — press <kbd>Space</kbd> or click it. ${cfg.speak ? "Now you hear the word." : "Now you see it and check yourself."}</li>
         <li>Tell the game the truth: <b>Got it</b> if you read it right, <b>Not yet</b> if you didn't.</li>
         <li>Every 5 you get in a row is bonus points. Words you miss come back next time.</li>
       </ol>
@@ -238,6 +239,29 @@ window.CardGame = (function(){
   }
 
   function start(cfg){
+    /* Whether the flip reads the word out loud. True everywhere except the
+       nonsense-word list, where it must be off: "vab" and "hux" aren't
+       words, and a synthesiser asked to say one guesses — it reads "vab"
+       as "verb" often enough that the check would be teaching the wrong
+       answer. There the flip is the printed word alone, which is all that
+       list was ever testing. Directions are still spoken; this only
+       silences the word itself. */
+    var SPEAK = cfg.speak !== false;
+
+    /* Syllable-dotted entries ("fan·tas·tic") arrive from the word list.
+       The deck only ever holds the PLAIN word, so every rating reported,
+       every stat key stored and every spoken read matches the rest of the
+       site; the dotted form is kept aside here and shown on the card's
+       BACK — after the student has read it cold off the front. */
+    var CHUNKS = {};
+    function plainList(list){
+      return dedupeWords((list || []).map(function(e){
+        var p = Core.parseEntry(e);
+        if(p.chunks) CHUNKS[p.word] = p.chunks;
+        return p.word;
+      }));
+    }
+
     // A game page may pass a single `words` list instead of decks; the picker
     // then never appears and the round is simply that list.
     var DECKS = (cfg.decks && cfg.decks.length)
@@ -275,6 +299,7 @@ window.CardGame = (function(){
       title: cfg.title,
       intro: cfg.intro || "Read the word out loud, then flip the card to check yourself.",
       note: cfg.note || "",
+      speak: SPEAK,
       hasPicker: CHOICES.length > 1,
       progress: prog.markup()
     });
@@ -336,6 +361,11 @@ window.CardGame = (function(){
       }catch(e){}
     }
 
+    // The word reads specifically, as opposed to the directions: these are
+    // the four places the card speaks the answer, and the only ones
+    // speak:false turns off.
+    function sayWord(text, rate){ if(SPEAK) say(text, rate); }
+
     /* ---------------- screens ---------------- */
     function show(id){
       ["s-start","s-play","s-end"].forEach(function(s){ $(s).classList.toggle("on", s===id); });
@@ -384,7 +414,7 @@ window.CardGame = (function(){
       $("btnFlip").style.display = flipped ? "none" : "";
       $("btnGot").style.display  = flipped ? "" : "none";
       $("btnMiss").style.display = flipped ? "" : "none";
-      $("btnHear").style.display = flipped ? "" : "none";
+      $("btnHear").style.display = (flipped && SPEAK) ? "" : "none";
       $("uiKeyhint").innerHTML = flipped
         ? "Press <kbd>1</kbd> if you got it, <kbd>2</kbd> if you didn't."
         : "Press <kbd>Space</kbd> to flip the card.";
@@ -396,7 +426,12 @@ window.CardGame = (function(){
       // textContent, not innerHTML — these lists carry apostrophes and
       // periods (they'd, Mrs.) and nothing here needs markup.
       $("uiWord").textContent = w;
-      $("uiWordBack").textContent = w;
+      // The front is the plain word — the student has to read it cold.
+      // The back is where the syllable split earns its keep, showing HOW
+      // the word came apart once they've already had their go at it.
+      var chunks = Object.prototype.hasOwnProperty.call(CHUNKS, w) ? CHUNKS[w] : null;
+      if(chunks) $("uiWordBack").innerHTML = Core.chunkMarkup(chunks);
+      else $("uiWordBack").textContent = w;
       $("uiBackHint").textContent = "Did you read it right?";
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
@@ -409,6 +444,7 @@ window.CardGame = (function(){
 
     /* ---------------- game flow ---------------- */
     function startGame(list){
+      list = plainList(list);
       queue = shuffleOn ? shuffled(list) : list.slice();
       idx = 0; score = 0; streak = 0; best = 0; right = 0;
       missed = []; mastered = []; busy = false;
@@ -435,7 +471,7 @@ window.CardGame = (function(){
       sndFlip();
       // The word is spoken only now, on the way over — before the flip it
       // would be the answer, after it it's the check.
-      say(queue[idx], NORMAL_RATE);
+      sayWord(queue[idx], NORMAL_RATE);
       $("btnGot").focus();
     }
 
@@ -478,7 +514,7 @@ window.CardGame = (function(){
         $("uiBackHint").textContent = "That one comes back. Say it once more.";
         Core.popup($("popup"), "✗", "#ff6b6b");
         snd.bad();
-        say(word, SLOW_RATE);
+        sayWord(word, SLOW_RATE);
       }
       // Long enough for the slow read on a miss to finish; the same beat
       // either way so the game's rhythm doesn't tell on the student.
@@ -627,7 +663,7 @@ window.CardGame = (function(){
 
     $("btnHear").addEventListener("click", function(){
       if(!flipped) return;
-      say(queue[idx], SLOW_RATE);
+      sayWord(queue[idx], SLOW_RATE);
     });
     // A skipped card counts as missed: the student didn't know it, whatever
     // the reason, so it belongs in the comeback deck.
@@ -671,7 +707,7 @@ window.CardGame = (function(){
       if(!flipped) return;
       if(e.key === "1"){ e.preventDefault(); rate(true); }
       else if(e.key === "2"){ e.preventDefault(); rate(false); }
-      else if(e.key === "h" || e.key === "H"){ e.preventDefault(); say(queue[idx], SLOW_RATE); }
+      else if(e.key === "h" || e.key === "H"){ e.preventDefault(); sayWord(queue[idx], SLOW_RATE); }
     });
 
     window.addEventListener("beforeunload", function(){
