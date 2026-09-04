@@ -30,6 +30,19 @@ turns out to need after a term of using it.
 
 ---
 
+## Reversed
+
+- **A say-it mode for the red words** — previously "not doing", on the
+  grounds that a phoneme matcher has nothing to check an irregular word
+  against. The reason didn't survive a second look: Say It accepts an
+  **exact transcript first** and only falls back to phonemes, and a red
+  word is an ordinary dictionary word that Chrome returns reliably. The
+  two things that genuinely blocked it were homophones (*to* / *two*) and
+  contractions (*they'd* heard as "they would"), and both are now fixed
+  where they belong — `RED_HOMOPHONES` reaches the say matcher, and
+  `GameCore.normalize` folds a contraction and its expansion to the same
+  string. Ten new ids (`red-N-say`) on the generic `say-game.html`.
+
 ## Decided during the reading-feedback build
 
 Choices the plan left to whoever built it, recorded here so the reasoning
@@ -64,9 +77,6 @@ survives the commit that made them.
   and it guesses "verb" often enough that the answer key would be wrong. A
   list with no meanings can only be read, not heard. Same reason their
   cards mode runs with `speak: false`.
-- **A say-it mode for the red words.** They are irregular by definition,
-  so a phoneme matcher has nothing to check them against — which is the
-  whole reason they're taught by sight.
 - **Making "everything" a stored sentinel.** Editing an unset class
   default pins the 35 lists it was handing down, so a family added later
   wouldn't reach students who were on the old "everything". Tempting to

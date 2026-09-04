@@ -313,6 +313,36 @@ window.GameCore = (function(){
                     "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
                     "eighteen","nineteen","twenty"];
 
+  /* A student saying "they'd" out loud is saying exactly the two words the
+     recogniser writes down as "they would", and there is no way to tell
+     from the audio which one they meant — that is what a contraction IS.
+     So both forms fold to the same string, and the fold goes toward the
+     contraction because that is the form the word list writes.
+
+     Folded only when the transcript is EXACTLY the phrase. Folding inside
+     a longer transcript would quietly destroy tokens the matcher needs:
+     "they have" is the expansion of "they've", and it is also a student
+     reading the word "have" with a run-up. One is worth catching; the
+     other is a word on the list. */
+  var EXPANSIONS = {
+    "they would": "they'd",
+    "you would":  "you'd",
+    "we are":     "we're",
+    "they are":   "they're",
+    "you are":    "you're",
+    "are not":    "aren't",
+    "were not":   "weren't",
+    "have not":   "haven't",
+    "they will":  "they'll",
+    "they have":  "they've"
+  };
+
+  /* Single words, folded wherever they appear, because there is no word on
+     any list they could be shadowing. "Mrs." is not something a
+     recogniser can return — it returns what it heard, which is one of
+     these. */
+  var SPOKEN_WORDS = { missus: "mrs", misses: "mrs", mistress: "mrs", mister: "mr" };
+
   function normalize(s){
     s = String(s||"");
     // The recogniser sometimes returns a number instead of a short word
@@ -322,7 +352,34 @@ window.GameCore = (function(){
       var v = parseInt(d,10);
       return NUM_WORDS[v] !== undefined ? NUM_WORDS[v] : d;
     });
-    return s.toLowerCase().replace(/[^a-z' ]/g," ").replace(/\s+/g," ").trim();
+    s = s.toLowerCase().replace(/[^a-z' ]/g," ").replace(/\s+/g," ").trim();
+    if(has(EXPANSIONS, s)) return EXPANSIONS[s];
+    if(s.indexOf(" ") === -1) return has(SPOKEN_WORDS, s) ? SPOKEN_WORDS[s] : s;
+    return s.split(" ").map(function(w){
+      return has(SPOKEN_WORDS, w) ? SPOKEN_WORDS[w] : w;
+    }).join(" ");
+  }
+
+  /* The homophone group a word belongs to, from a list's own groups. Used
+     by everything that judges a spoken answer: no amount of listening
+     separates "to" from "two", so every member of a group is the same
+     answer to a microphone. */
+  function homophoneGroup(word, groups){
+    var w = normalize(word);
+    for(var i=0;i<(groups||[]).length;i++){
+      for(var j=0;j<groups[i].length;j++){
+        if(normalize(groups[i][j]) === w) return groups[i];
+      }
+    }
+    return null;
+  }
+
+  function sameHomophone(a, b, groups){
+    var g = homophoneGroup(b, groups);
+    if(!g) return false;
+    var x = normalize(a);
+    for(var i=0;i<g.length;i++) if(normalize(g[i]) === x) return true;
+    return false;
   }
 
   // Locate a phoneme subsequence (e.g. ["OY"]) anywhere in a phoneme array —
@@ -1163,6 +1220,8 @@ window.GameCore = (function(){
     normalize: normalize,
     findPhonemeSeq: findPhonemeSeq,
     ACCEPT: ACCEPT,
+    homophoneGroup: homophoneGroup,
+    sameHomophone: sameHomophone,
     phoneticAlign: phoneticAlign,
     diagnose: diagnose,
 

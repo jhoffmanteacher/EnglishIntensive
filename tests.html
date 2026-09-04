@@ -939,6 +939,92 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     Say It for the red words: contractions and homophones
+
+     Two things stood between an irregular word and a microphone. A
+     contraction has no audible difference from its expansion — "they'd"
+     IS "they would" out loud — and a homophone has no audible difference
+     from its twin. Neither is a matching problem the phoneme encoder can
+     solve, and both are fixed by agreeing what counts as the same answer.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+    var RED_G = window.WordLists.familyOf("red").modeConfig.say.homophones;
+
+    eq("they would folds to they'd", C.normalize("They would."), "they'd");
+    eq("…and they'd stays itself", C.normalize("they'd"), "they'd");
+    eq("…so the two are the same answer", C.normalize("they would") === C.normalize("they'd"), true);
+    eq("we are folds to we're", C.normalize("we are"), "we're");
+    eq("are not folds to aren't", C.normalize("are not"), "aren't");
+    eq("were not folds to weren't", C.normalize("were not"), "weren't");
+    eq("have not folds to haven't", C.normalize("have not"), "haven't");
+    eq("they will folds to they'll", C.normalize("they will"), "they'll");
+    eq("they have folds to they've", C.normalize("they have"), "they've");
+    eq("you are folds to you're", C.normalize("you are"), "you're");
+    eq("you would folds to you'd", C.normalize("you'd"), "you'd");
+    eq("missus is Mrs.", C.normalize("Missus"), "mrs");
+    eq("mister is Mr.", C.normalize("mister"), "mr");
+    eq("…and Mrs. normalizes the same way", C.normalize("Mrs."), "mrs");
+
+    /* The fold is whole-transcript only, and this is why: "they have" is
+       the expansion of "they've" AND a student reading the word "have"
+       with a run-up. Folding inside a longer transcript would delete the
+       token the matcher needs. */
+    eq("a longer transcript keeps its words", C.normalize("um they have"), "um they have");
+    eq("…so the word inside it is still findable",
+       C.normalize("um they have").split(" ").indexOf("have") !== -1, true);
+    eq("an ordinary transcript is untouched", C.normalize("Said!"), "said");
+
+    // Homophones, through the matcher Say It actually calls.
+    var I2 = window.BlendGame._internals;
+    function sayMatch(heard, target){
+      return I2.isMatch(heard, target, 0, true, 0, [], null, RED_G);
+    }
+    function sayMatchNoGroups(heard, target){
+      return I2.isMatch(heard, target, 0, true, 0, [], null, null);
+    }
+    eq("the word itself passes", sayMatch("two", "two"), true);
+    eq("its homophone passes too", sayMatch("to", "two"), true);
+    eq("…and the other way round", sayMatch("two", "to"), true);
+    eq("a three-way group works in every direction", sayMatch("they're", "their"), true);
+    eq("…and again", sayMatch("there", "they're"), true);
+    eq("a homophone passes at Challenge, not just Regular", sayMatch("won", "one"), true);
+    eq("a word that merely looks similar does not", sayMatch("tow", "two"), false);
+    eq("with no groups, nothing is forgiven", sayMatchNoGroups("to", "two"), false);
+    eq("a contraction said as two words passes", sayMatch("they would", "they'd"), true);
+    eq("a wrong contraction still fails", sayMatch("they will", "they'd"), false);
+
+    // Every group member has to be a real red word, or the group forgives
+    // a word nobody is being asked to read.
+    (function(){
+      var words = {}, bad = [];
+      window.WordLists.ids.forEach(function(id){
+        if(id.indexOf("red-") !== 0 || id.indexOf("-say") === -1) return;
+        window.WordLists.wordsOf(id).forEach(function(w){ words[w] = true; });
+      });
+      RED_G.forEach(function(g){ g.forEach(function(x){ if(!words[x]) bad.push(x); }); });
+      eq("Say It's homophone groups only name words on the say lists", bad.join(","), "");
+    })();
+
+    // The mode itself.
+    eq("every red list has a say-it entry",
+       window.WordLists.listNumsOf("red").filter(function(n){
+         return !!window.WordLists.idFor("red", n, "say");
+       }).length, 10);
+    eq("red say-it runs the blend engine with no blend",
+       window.WordLists.byId("red-1-say").config.blendLength, 0);
+    eq("red say-it carries its homophone groups",
+       !!window.WordLists.byId("red-1-say").config.homophones, true);
+    eq("red say-it lands on the generic page",
+       window.WordLists.byId("red-1-say").page, "say-game.html");
+    eq("…with a ?list=", window.WordLists.hrefOf("red-1-say"), "say-game.html?list=red-1-say");
+    eq("the phonics families keep their own say pages",
+       window.WordLists.byId("initial-blends").page, "initial-blends-game.html");
+    eq("…and still need no ?list=", window.WordLists.hrefOf("initial-blends"), "initial-blends-game.html");
+    eq("red say-it words are the plain ones", window.WordLists.wordsOf("red-1-say")[3], "said");
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — heart letters
 
      Braces mark the part of a red word the phonics rules get wrong:
@@ -1326,7 +1412,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("35 entries: 5 one-list families plus ten red lists, times their modes", W.all.length, 35);
+    eq("45 entries: 5 one-list families plus ten red lists, times their modes", W.all.length, 45);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -1359,8 +1445,8 @@
     eq("the red family still has ten lists", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
     eq("every red list is still twenty words (the screener's page)",
        W.all.filter(function(l){ return l.family === "red" && l.words.length !== 20; }).length, 0);
-    eq("the red family declares cards then match",
-       W.modesOf("red").map(function(m){ return m.key; }).join(","), "cards,match");
+    eq("the red family declares say, cards then match",
+       W.modesOf("red").map(function(m){ return m.key; }).join(","), "say,cards,match");
     eq("oi/oy is the one list with all four modes",
        W.modesOf("oi-oy").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
     // A synthesiser can't say "vab", so there is nothing for Match It to
@@ -1372,8 +1458,8 @@
     eq("idFor() finds a real entry", W.idFor("red", 3, "match"), "red-3-match");
     eq("idFor() is null for a list that doesn't exist", W.idFor("red", 11, "cards"), null);
     eq("idFor() is null for a mode the family doesn't have", W.idFor("nonsense", 1, "match"), null);
-    eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-cards,red-3-match");
-    eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 20);
+    eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-say,red-3-cards,red-3-match");
+    eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 30);
 
     eq("a shared page needs a ?list=", W.hrefOf("red-3-match"), "match-game.html?list=red-3-match");
     eq("a page that serves one list doesn't", W.hrefOf("final-blends"), "blend-words-game.html");
@@ -1733,7 +1819,7 @@
     T.bindPickers(host);
     host.querySelector('[data-pk-row="probe|red|3"]').click();
     eq("a row toggle still toggles after three binds",
-       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 2);
+       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 3);
     host.querySelector('[data-pk-row="probe|red|3"]').click();
     eq("…and toggles back", 
        [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 0);

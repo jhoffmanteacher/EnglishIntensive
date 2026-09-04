@@ -113,30 +113,20 @@ window.CardGame = (function(){
           returns whatever is nearest and a letter-perfect match is a bar
           no student could clear. Real words don't get this: "bread" for
           "bred" is exactly the error worth catching.  */
-  function homophoneGroupOf(word, groups){
-    for(var i=0;i<(groups||[]).length;i++){
-      for(var j=0;j<groups[i].length;j++){
-        if(Core.normalize(groups[i][j]) === word) return groups[i];
-      }
-    }
-    return null;
-  }
-
   function judgeHeard(heardText, word, groups, allowPhonetic){
     var said = Core.normalize(heardText);
     if(!said) return false;
     var target = Core.normalize(word);
     if(!target) return false;
-    var group = homophoneGroupOf(target, groups);
     var accepted = Core.ACCEPT[target] || Core.ACCEPT[word] || null;
-    var parts = said.split(" "), i, j;
-    for(i=0;i<parts.length;i++){
+    // The whole transcript first: normalize folds "they would" into
+    // "they'd", and that fold is undone the moment it is split on spaces.
+    var parts = [said].concat(said.indexOf(" ") === -1 ? [] : said.split(" "));
+    for(var i=0;i<parts.length;i++){
       var p = parts[i];
       if(!p) continue;
       if(p === target) return true;
-      if(group){
-        for(j=0;j<group.length;j++) if(Core.normalize(group[j]) === p) return true;
-      }
+      if(Core.sameHomophone(p, target, groups)) return true;
       if(accepted && accepted.indexOf(p) !== -1) return true;
       if(allowPhonetic && Core.phoneticDistance(Core.phonemes(p), Core.phonemes(target)) <= 1) return true;
     }

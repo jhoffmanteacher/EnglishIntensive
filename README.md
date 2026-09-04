@@ -372,6 +372,37 @@ words:
 family sets them, so the same words played three ways get three headings
 that read as one game asking different questions.
 
+### Say It for the red words
+
+The red words got a say-it mode late, after the reason they didn't have one
+turned out to be wrong. "A phoneme matcher has nothing to check an irregular
+word against" is true and beside the point: Say It takes an **exact
+transcript** first and only falls back to phonemes, and a red word is an
+ordinary dictionary word that Chrome returns reliably. What actually blocked
+it was two things, both now fixed where they belong.
+
+**Homophones.** No amount of listening separates *to* from *two*, and a
+student who read the card correctly must not be marked wrong because the
+recogniser guessed the other spelling. A list may carry `homophones` groups
+(the red words pass the same `RED_HOMOPHONES` Match It already used), and
+any member of the target's group is accepted — checked *before* the level
+rules, including at Challenge, because a homophone is not a near miss the
+game is being generous about. The phonics lists deliberately have no groups:
+their near-misses are minimal pairs (*sled* / *bled*), and telling those
+apart is the exercise.
+
+**Contractions.** "they'd" said out loud *is* "they would", and the
+recogniser writes down whichever it likes. `GameCore.normalize` folds the
+expansion to the contraction so both are the same string — but only when
+the transcript is exactly that phrase. Folding inside a longer transcript
+would destroy tokens the matcher needs: "they have" is the expansion of
+"they've" and also a student reading the word *have* with a run-up.
+
+The mode runs on a generic `say-game.html?list=red-3-say`, the way
+`cards-game.html` already works. The four phonics families keep their own
+pages, because each carries a rule box or a mic note that only makes sense
+for that list.
+
 Three matching modes for `blend`, depending on what's being drilled:
 
 - `"start"` / `"end"` — a fixed-length blend at one end of the word

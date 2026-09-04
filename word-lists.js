@@ -58,12 +58,14 @@
    pause.
    `engine` picks which engine plays it. `page` is where cards and Match
    It live — one page each, serving every family, told which list to play
-   by the address. Say-it and spell-it have no default: those pages carry
-   list-specific coaching (the oi/oy rule box, the mic setup), so each
-   family names its own in `pages`. */
+   by the address. Say-it now has a generic page too: the four phonics
+   families still name their own in `pages`, because those carry
+   list-specific coaching, but a family that doesn't need any (the red
+   words) gets say-game.html and no new file. Spell-it has no default —
+   the only list with a spelling mode carries the oi/oy rule box. */
 var MODES = {
   say: {
-    key: "say", engine: "blend", icon: "🎤", title: "Say it", needs: "mic",
+    key: "say", engine: "blend", icon: "🎤", title: "Say it", needs: "mic", page: "say-game.html",
     intro: "Say each word out loud. The computer listens and tells you if you're right.<br>Every 5 in a row earns bonus points."
   },
   spell: {
@@ -165,6 +167,15 @@ var RED_NOTE_CARDS = `
     the way you know a friend's face.</p>
     <p>Be honest when you rate yourself. A word you mark <b>Not yet</b> comes
     back next time; a word you mark <b>Got it</b> leaves the list for good.</p>`;
+
+var RED_NOTE_SAY = `
+    <p><b>Red words</b> break the rules. Sounding out <b>said</b> gives you
+    "sayed"; sounding out <b>would</b> gives you "wold". There is nothing
+    to work out here — either you know the word or you don't, and saying it
+    out loud is how you find out which.</p>
+    <p>Some of these <b>sound exactly like another word</b> — to and two,
+    there and their, one and won. The computer can't tell those apart, and
+    neither can anyone listening, so any of them counts as right.</p>`;
 
 var RED_NOTE_MATCH = `
     <p><b>Red words</b> break the rules, so you can't sound them out — you
@@ -395,11 +406,21 @@ window.LIST_FAMILIES = [
     section: "sight",
     note: "Ten screener lists of twenty sight words. Each list can be assigned as flash cards, Match It, or both.",
     description: "Words that break the rules — said, would, Wednesday. You learn these by sight.",
-    /* No say-it mode: these are irregular by definition, so a phoneme
-       matcher has nothing to check them against. Sight and recognition
-       are the two things worth asking about, and they are what's here. */
-    modes: ["cards", "match"],
+    /* Say It was left off these for a long time, on the grounds that a
+       phoneme matcher has nothing to check an irregular word against.
+       That reason didn't hold: Say It takes an EXACT transcript first and
+       only falls back to phonemes, and a red word is an ordinary
+       dictionary word that Chrome returns reliably. The two things that
+       genuinely were problems — homophones and contractions — are fixed
+       where they belong (RED_HOMOPHONES below, and the contraction fold
+       in GameCore.normalize), not by leaving the mode out. */
+    modes: ["say", "cards", "match"],
     modeConfig: {
+      say: {
+        blend: "start", blendLength: 0, theme: "race",
+        note: RED_NOTE_SAY, homophones: RED_HOMOPHONES,
+        intro: "Read each word out loud. The computer listens and tells you if you're right.<br>No sounding out — you either know these or you don't."
+      },
       // The homophone groups are here for the same reason Match It has
       // them: with the Listen toggle on, the cards judge a spoken answer,
       // and no recogniser separates "to" from "two".

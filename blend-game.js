@@ -78,8 +78,14 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function wordMatchesCore(heard, target, level, atStart, blendLength, wordList, soundSeq){
+  function wordMatchesCore(heard, target, level, atStart, blendLength, wordList, soundSeq, homophones){
     if(heard === target) return true;
+    /* Before the level rules, not after: a homophone is not a near miss
+       the game is being generous about, it is the same sound. No listener
+       separates "to" from "two" either, and a student who reads the card
+       correctly must not be marked wrong because the recogniser guessed
+       the other spelling. Accepted at Challenge for the same reason. */
+    if(homophones && Core.sameHomophone(heard, target, homophones)) return true;
     if(level === 0) return false;                              // Challenge: exact only
 
     if(ACCEPT[target] && ACCEPT[target].indexOf(heard) !== -1) return true;
@@ -125,10 +131,13 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq){
-    var parts = normalize(heardText).split(" ");
+  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq, homophones){
+    var said = normalize(heardText);
+    // The whole transcript is a candidate before it is split, because
+    // normalize folds "they would" into "they'd" and splitting undoes it.
+    var parts = [said].concat(said.indexOf(" ") === -1 ? [] : said.split(" "));
     for(var i=0;i<parts.length;i++){
-      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList, soundSeq)) return true;
+      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList, soundSeq, homophones)) return true;
     }
     return false;
   }
@@ -416,6 +425,12 @@ window.BlendGame = (function(){
     // by tests.html; the game itself just never asks for it.)
     var level = 0;
 
+    /* Homophone groups, where the list carries them. Only the red words do
+       — and only they need to: their near-misses are words that sound
+       identical ("to"/"two"), while the phonics lists' near-misses are
+       minimal pairs ("sled"/"bled") whose difference is the whole exercise. */
+    var HOMOPHONES = cfg.homophones || null;
+
     function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }
 
     function markup(word){
@@ -448,11 +463,11 @@ window.BlendGame = (function(){
     }
 
     function wordMatches(heard, target){
-      return wordMatchesCore(heard, target, level, atStart, blendLength, WORDS, soundSeq);
+      return wordMatchesCore(heard, target, level, atStart, blendLength, WORDS, soundSeq, HOMOPHONES);
     }
 
     function isMatch(heardText, target){
-      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq);
+      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq, HOMOPHONES);
     }
 
     /* ---------------- mic check + level meter ----------------
