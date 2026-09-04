@@ -18,7 +18,7 @@
   connect-src 'self' https://*.googleapis.com https://*.google.com https://*.gstatic.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com;
   frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://content.googleapis.com https://www.youtube.com https://www.youtube-nocookie.com https://youtube.com https://docs.google.com https://drive.google.com https://www.google.com;
 ">
-<title>Cards — Read It, Flip It</title>
+<title>Fluency — How Fast Can You Read It?</title>
 <script src="view-boot.js"></script>
 <link rel="stylesheet" href="site.css">
 <link rel="stylesheet" href="blend-game.css">
@@ -27,10 +27,12 @@
 <a class="home" href="index.html">🏠 Home</a>
 <div id="app"></div>
 
-<!-- Flash cards for any list in the library: read it, flip it, rate
-     yourself. One page for every family — which list to play comes from
-     the address (?list=red-3-cards, ?list=multi-1-cards), so a new
-     family's cards mode needs no new page at all.
+<!-- Both fluency modes, for every list that has one: the one-minute
+     word runs (?list=blends-end-1-fluency) and the passages
+     (?list=passages-3-read). One page, because the two are the same
+     engine wearing different clothes — a clock, a pointer walking a list
+     of words, and a recogniser that never interrupts.
+
      Same load order as every other game page: sign-in, the list library,
      the student's record, the shared core, this page's engine, and then
      practice.js, which ties them together. -->
@@ -43,14 +45,11 @@
 <script src="word-lists.js"></script>
 <script src="store.js"></script>
 <script src="game-core.js"></script>
-<script src="listen.js"></script>
-<script src="card-game.js"></script>
+<script src="fluency-game.js"></script>
 <script src="practice.js"></script>
 <script>
-// No id: this page serves every list that has a cards mode, and which
-// one to play comes from the address — index.html links here with
-// ?list=red-3-cards. With no ?list= (or a stale one) practice.js shows a
-// chooser of this student's card lists instead.
+// No id: with no ?list= (or a stale one) practice.js shows a chooser of
+// this student's fluency lists.
 EIPractice.play();
 </script>
 </body>

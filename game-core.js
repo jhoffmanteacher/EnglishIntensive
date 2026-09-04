@@ -382,6 +382,34 @@ window.GameCore = (function(){
     return false;
   }
 
+  /* One spoken thing against one written word. Four ways to be right, in
+     order of how sure they are: it is the word; it is a homophone of the
+     word (the list has to say so — no recogniser separates "to" from
+     "two", and neither does a listener); it is a mishearing already
+     recorded for that word in ACCEPT; or, where the caller allows it,
+     it is within one sound of the word.
+
+     That last one is off by default and on only for made-up words. "vab"
+     has no dictionary entry to come back as, so the recogniser returns
+     whatever is nearest and an exact match is a bar no student could
+     clear. Real words must not get it: "bread" for "bred" is precisely
+     the error worth catching.
+
+     opts = { homophones, phonetic }. Both the flash cards' Listen toggle
+     and the fluency engine judge this way, so it lives here rather than
+     in either of them. */
+  function spokenMatch(said, word, opts){
+    opts = opts || {};
+    var t = normalize(said), w = normalize(word);
+    if(!t || !w) return false;
+    if(t === w) return true;
+    if(opts.homophones && sameHomophone(t, w, opts.homophones)) return true;
+    var accepted = ACCEPT[w] || ACCEPT[word];
+    if(accepted && accepted.indexOf(t) !== -1) return true;
+    if(opts.phonetic && phoneticDistance(phonemes(t), phonemes(w)) <= 1) return true;
+    return false;
+  }
+
   // Locate a phoneme subsequence (e.g. ["OY"]) anywhere in a phoneme array —
   // used by "sound" mode, where the target sound isn't pinned to the start
   // or end of the word (the oi/oy diphthong can land anywhere: "coin",
@@ -1222,6 +1250,7 @@ window.GameCore = (function(){
     ACCEPT: ACCEPT,
     homophoneGroup: homophoneGroup,
     sameHomophone: sameHomophone,
+    spokenMatch: spokenMatch,
     phoneticAlign: phoneticAlign,
     diagnose: diagnose,
 

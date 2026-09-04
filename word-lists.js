@@ -79,6 +79,19 @@ var MODES = {
   match: {
     key: "match", engine: "match", icon: "🎯", title: "Match It", needs: "headphones", page: "match-game.html",
     intro: "No mic — headphones only. The computer says a word and you find it.<br>The wrong answers look close on purpose. Every 5 right in a row is bonus points!"
+  },
+  /* The two fluency modes. Everything above asks whether a student knows
+     a word; these ask how fast, which is a different question and the
+     one that stops being answered by accuracy long before a student
+     reads comfortably. Same engine, two shapes: a minute against a word
+     list, and a paragraph of connected text. */
+  fluency: {
+    key: "fluency", engine: "fluency", icon: "⏱", title: "One minute", needs: "mic", page: "fluency-game.html",
+    intro: "Read as many words out loud as you can in one minute.<br>Don't rush a word you're not sure of — a word read wrong doesn't count."
+  },
+  read: {
+    key: "read", engine: "fluency", icon: "📖", title: "Read it", needs: "mic", page: "fluency-game.html",
+    intro: "Read the whole thing out loud, at a pace you can hear yourself at.<br>The words light up as you pass them. Keep going if you slip."
   }
 };
 
@@ -259,6 +272,15 @@ var OI_OY_RULE =
    clash. Everything the engine's start() takes except `words`, which
    lives on the list so the two can't drift.
    ══════════════════════════════════════════════════════════════════════ */
+/* A passage as a list of words. Punctuation goes, case goes, everything
+   else stays in order — the same tokenising the fluency engine does to a
+   transcript, so a passage's words and a student's reading of them are
+   comparable by construction. */
+window.passageTokens = function(text){
+  return String(text || "").toLowerCase()
+    .replace(/[^a-z' ]/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+};
+
 window.LIST_FAMILIES = [
 
   {
@@ -268,7 +290,7 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Words that begin with a consonant blend — bl, cr, sl, tr.",
     description: "Words that begin with a consonant blend — bl, cr, sl, tr.",
-    modes: ["say", "cards", "match"],
+    modes: ["say", "cards", "match", "fluency"],
     pages: { say: "initial-blends-game.html" },
     modeConfig: {
       say: { blend: "start", theme: "maze" }
@@ -287,7 +309,7 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Words that end with a consonant blend — the hard half of a blend, because the sounds run together on the way out.",
     description: "Words that end with a consonant blend — soft, pond, risk, milk.",
-    modes: ["say", "cards", "match"],
+    modes: ["say", "cards", "match", "fluency"],
     pages: { say: "blend-words-game.html" },
     modeConfig: {
       say: { blend: "end", theme: "race" }
@@ -310,7 +332,7 @@ window.LIST_FAMILIES = [
        not say "vab" — it guesses, and it guesses "verb" often enough that
        the answer key would be wrong. A list with no meanings can only be
        read, not heard. */
-    modes: ["say", "cards"],
+    modes: ["say", "cards", "fluency"],
     pages: { say: "nonsense-words-game.html" },
     modeConfig: {
       say: {
@@ -428,6 +450,36 @@ window.LIST_FAMILIES = [
       match: { note: RED_NOTE_MATCH, choices: 6, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES }
     },
     lists: RED_LISTS.map(function(words, i){ return { n: i + 1, words: words }; })
+  },
+
+  {
+    key: "passages",
+    title: "Passages",
+    icon: "📖",
+    section: "decode",
+    note: "Short pieces of connected text. Every word comes off the lists above — the only new thing is that they are in sentences.",
+    description: "Read a whole paragraph out loud, not one word at a time.",
+    /* One mode, and it could not be any of the others: a passage isn't a
+       deck. A student who is solid on every word of a list can still read
+       a paragraph one halting word at a time, and that gap is the only
+       thing this family exists to find. passages.js explains the
+       vocabulary rule that keeps it honest. */
+    modes: ["read"],
+    // One passage IS the round — there is nothing to draw from.
+    lists: (window.PASSAGES || []).map(function(p){
+      return {
+        n: p.n,
+        title: p.title,
+        text: p.text,
+        targets: p.targets,
+        sessionSize: 1,
+        // wordsOf() has to return something for a passage or every
+        // downstream reader (the scheduler, the dashboard, the export)
+        // has to learn about a new shape. Its tokens are the honest
+        // answer: they are the words being read.
+        words: window.passageTokens(p.text)
+      };
+    })
   }
 
 ];
@@ -445,8 +497,10 @@ window.WORD_LISTS = (function(){
     fam.lists.forEach(function(list){
       // "Red Words · List 3" when a family has several lists; just
       // "Starting Blends" when it is the family's only one.
-      var listTitle = fam.title + (many ? " · List " + list.n : "");
-      var short = many ? "List " + list.n : fam.title;
+      // A list may name itself (the passages do — "List 3" tells a
+      // student nothing about a piece of prose).
+      var listTitle = list.title || (fam.title + (many ? " · List " + list.n : ""));
+      var short = list.title || (many ? "List " + list.n : fam.title);
 
       fam.modes.forEach(function(modeKey){
         var mode = MODES[modeKey];
@@ -463,10 +517,18 @@ window.WORD_LISTS = (function(){
         if(!cfg.title) cfg.title = listTitle + (fam.modes.length > 1 ? " · " + mode.title : "") + " " + mode.icon;
         if(!cfg.intro) cfg.intro = mode.intro;
 
+        /* Most lists are just words. A passage carries its text, the
+           family words it uses, and a round size of one — none of which
+           the generator can work out, so they ride along from the list.
+           A family that doesn't set them leaves them undefined and every
+           reader behaves exactly as it did. */
         out.push({
           id: id,
           family: fam.key,
           listNum: list.n,
+          text: list.text,
+          targets: list.targets,
+          sessionSize: list.sessionSize,
           mode: modeKey,
           engine: mode.engine,
           section: fam.section,

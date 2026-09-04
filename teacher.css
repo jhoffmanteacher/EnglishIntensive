@@ -92,6 +92,13 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 }
 .backlink:hover{border-color:var(--accent);color:var(--ink)}
 
+/* ---- the fluency sparkline ----
+   currentColor, so the line inherits the row's colour and needs no
+   palette of its own. No axes and no labels: the question is "is this
+   going up", and the numbers next to it answer the rest. */
+.sparkcell{width:150px}
+.spark{display:block;color:var(--accent);overflow:visible}
+
 .wordchips{display:flex;flex-wrap:wrap;gap:8px}
 .wordchip{
   background:var(--panel2);border:1px solid var(--line);border-radius:10px;

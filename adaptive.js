@@ -357,6 +357,67 @@ window.Adaptive = (function(){
     return out;
   }
 
+  /* ── fluency runs ──────────────────────────────────────────────────
+     One entry per finished timed read, oldest first, per list. Not a
+     stat: a rate belongs to a whole run, not to a word, and nothing in
+     the scheduler reads it. It is here for the same reason the heard map
+     is — this file owns the shape of students/{uid}, and the student's
+     store and the teacher's dashboard have to agree about it.
+
+     Thirty is a term's worth of weekly reads and a few kilobytes. The
+     tail is what makes a sparkline; a single latest number would say
+     nothing about whether anything is changing. */
+  var FLUENCY_CAP = 30;
+  var MAX_CWPM = 400;      // nobody reads faster; anything higher is a bug
+
+  function sanitizeRun(raw){
+    if(!raw || typeof raw !== "object") return null;
+    // A run with no rate on it is not a run — it is a half-written
+    // document, and averaging it in would drag a sparkline to the floor.
+    var raw_cwpm = num(raw.cwpm, NaN);
+    if(!isFinite(raw_cwpm)) return null;
+    var cwpm = clamp(Math.floor(raw_cwpm), 0, MAX_CWPM);
+    return {
+      at: Math.max(0, Math.floor(num(raw.at, 0))),
+      cwpm: cwpm,
+      errors: Math.max(0, Math.floor(num(raw.errors, 0))),
+      n: Math.max(0, Math.floor(num(raw.n, 0)))
+    };
+  }
+
+  function sanitizeFluency(raw){
+    var out = {};
+    if(!raw || typeof raw !== "object") return out;
+    for(var k in raw){
+      if(!has(raw, k) || typeof k !== "string" || !k) continue;
+      var list = Array.isArray(raw[k]) ? raw[k] : [];
+      var clean = [], i, r;
+      for(i=0;i<list.length;i++){
+        r = sanitizeRun(list[i]);
+        if(r) clean.push(r);
+      }
+      if(clean.length) out[k] = clean.slice(-FLUENCY_CAP);
+    }
+    return out;
+  }
+
+  function pushRun(list, run, cap){
+    var r = sanitizeRun(run);
+    var out = (Array.isArray(list) ? list : []).map(sanitizeRun).filter(Boolean);
+    if(r) out.push(r);
+    return out.slice(-(cap || FLUENCY_CAP));
+  }
+
+  // Latest and best of a list's runs — the two numbers a sparkline needs
+  // a caption for.
+  function fluencySummary(runs){
+    var list = (Array.isArray(runs) ? runs : []).map(sanitizeRun).filter(Boolean);
+    if(!list.length) return null;
+    var best = 0, i;
+    for(i=0;i<list.length;i++) if(list[i].cwpm > best) best = list[i].cwpm;
+    return { latest: list[list.length-1].cwpm, best: best, runs: list.length, last: list[list.length-1] };
+  }
+
   // The subset of a stat map belonging to one list, re-keyed by bare word
   // — which is the shape pickSession and rank want.
   function statsForList(stats, listId){
@@ -379,6 +440,10 @@ window.Adaptive = (function(){
     cleanHeard: cleanHeard,
     pushHeard: pushHeard,
     sanitizeHeard: sanitizeHeard,
+    fluencyCap: FLUENCY_CAP,
+    sanitizeFluency: sanitizeFluency,
+    pushRun: pushRun,
+    fluencySummary: fluencySummary,
     updateStat: updateStat,
     accuracy: accuracy,
     rawAccuracy: rawAccuracy,

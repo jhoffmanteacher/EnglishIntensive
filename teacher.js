@@ -138,6 +138,7 @@
           photo: d.photo || "",
           stats: Adaptive.sanitizeStats(d.words),
           heard: Adaptive.sanitizeHeard(d.heard),
+          fluency: Adaptive.sanitizeFluency(d.fluency),
           totals: d.totals || { n:0, r:0 },
           recent: Array.isArray(d.recent) ? d.recent : [],
           lastSeen: d.lastSeen || 0
@@ -438,11 +439,27 @@
   /* A row per student: who they are, what they've been given and where it
      came from, and how they're doing overall. `lists` is the same sentence
      the roster shows, so a printed copy and the screen agree. */
+  /* Which fluency lists get a pair of columns in the roster export. Only
+     the ones somebody in the class has actually read — thirteen empty
+     column pairs would make the file harder to read, not more complete. */
+  function fluencyColumns(){
+    var seen = {};
+    students.forEach(function(s){
+      for(var k in (s.fluency || {})){
+        if(Object.prototype.hasOwnProperty.call(s.fluency, k)) seen[k] = true;
+      }
+    });
+    return WordLists.all.filter(function(l){ return l.engine === "fluency" && seen[l.id]; });
+  }
+
   function rosterCsv(){
+    var flCols = fluencyColumns();
     var rows = [[
       "Name","Email","Period","Lists","Lists from",
       "Answers","Accuracy %","Words solid","Words shaky","Last active","Note"
-    ]];
+    ].concat(flCols.reduce(function(acc, l){
+      return acc.concat([l.listTitle + " latest", l.listTitle + " best"]);
+    }, []))];
     students.forEach(function(s){
       var sum = Adaptive.summarize(s.stats);
       var eff = effectiveLists(s.uid);
@@ -451,7 +468,10 @@
         WordLists.describeAssignment(eff.ids), eff.from,
         sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
         isoDay(sum.lastSeen || s.lastSeen), noteOf(s.uid)
-      ]);
+      ].concat(flCols.reduce(function(acc, l){
+        var f = Adaptive.fluencySummary((s.fluency || {})[l.id]);
+        return acc.concat(f ? [f.latest, f.best] : ["", ""]);
+      }, [])));
     });
     return csvRows(rows);
   }
@@ -560,6 +580,46 @@
     $("tExportWords").addEventListener("click", function(){ download(exportName("words"), wordsCsv()); });
   }
 
+  /* ---------------- fluency sparkline ----------------
+     Inline SVG, no library, no axes, no labels. The question a teacher
+     asks of a reading rate is never "what number was week four" — it is
+     "is this going up", and a line answers that in less time than it
+     takes to read one number. The latest and best are printed beside it
+     for the times the number does matter.
+
+     A flat polyline for a single run would read as "no progress"; one
+     run is drawn as a dot, which reads as "one run", which is true. */
+  function sparkline(runs, w, h){
+    var pts = (runs || []).map(function(r){ return r.cwpm; });
+    if(!pts.length) return "";
+    w = w || 130; h = h || 30;
+    var max = Math.max.apply(null, pts), min = Math.min.apply(null, pts);
+    if(max === min){ max = min + 1; }
+    function x(i){ return pts.length === 1 ? w / 2 : (i / (pts.length - 1)) * (w - 4) + 2; }
+    function y(v){ return h - 2 - ((v - min) / (max - min)) * (h - 4); }
+    var body = pts.length === 1
+      ? '<circle cx="' + x(0).toFixed(1) + '" cy="' + y(pts[0]).toFixed(1) + '" r="3" fill="currentColor"/>'
+      : '<polyline points="' + pts.map(function(v, i){ return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ") +
+        '" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+        '<circle cx="' + x(pts.length-1).toFixed(1) + '" cy="' + y(pts[pts.length-1]).toFixed(1) + '" r="2.5" fill="currentColor"/>';
+    return '<svg class="spark" viewBox="0 0 ' + w + " " + h + '" width="' + w + '" height="' + h +
+           '" role="img" aria-label="' + pts.length + ' timed reads, latest ' + pts[pts.length-1] +
+           ' words per minute">' + body + "</svg>";
+  }
+
+  // Every list this student has timed reads for, in registry order.
+  function fluencyRows(s){
+    var out = [];
+    WordLists.all.forEach(function(l){
+      if(l.engine !== "fluency") return;
+      var runs = (s.fluency || {})[l.id];
+      var sum = Adaptive.fluencySummary(runs);
+      if(!sum) return;
+      out.push({ list: l, sum: sum, runs: runs });
+    });
+    return out;
+  }
+
   function studentByUid(uid){
     for(var i=0;i<students.length;i++) if(students[i].uid === uid) return students[i];
     return null;
@@ -605,6 +665,14 @@
         "</div>";
     }).join("");
 
+    var fluency = fluencyRows(s).map(function(r){
+      return "<tr><td>" + esc(r.list.icon + " " + r.list.listTitle) + "</td>" +
+        '<td class="sparkcell">' + sparkline(r.runs) + "</td>" +
+        '<td class="num"><b>' + r.sum.latest + "</b></td>" +
+        '<td class="num">' + r.sum.best + "</td>" +
+        '<td class="num">' + r.sum.runs + "</td></tr>";
+    }).join("");
+
     var picker = pickerHtml("student", eff.ids, true);
 
     var periodOpts = ['<option value="">— not set —</option>'].concat(allPeriods().map(function(p){
@@ -648,6 +716,14 @@
         "These are the words the site is already showing them most often.</p>" +
         (worst ? '<div class="wordchips">' + worst + "</div>" : '<div class="empty">No practice recorded yet.</div>') +
       "</div>" +
+
+      (fluency ? '<div class="panel"><h2>Reading rate</h2>' +
+        '<p class="note">Correct words per minute, one point per timed read, oldest on the left. ' +
+        "Accuracy stops moving long before this does — a student can be right about every word on a list " +
+        "and still be reading it one word at a time.</p>" +
+        '<div class="tableScroll"><table class="t"><thead><tr>' +
+        '<th>List</th><th>Progress</th><th class="num">Latest</th><th class="num">Best</th><th class="num">Reads</th>' +
+        "</tr></thead><tbody>" + fluency + "</tbody></table></div></div>" : "") +
 
       (perList ? '<div class="panel"><h2>By list</h2><div class="tableScroll"><table class="t"><thead><tr>' +
         '<th>List</th><th class="num">Answers</th><th class="num">Accuracy</th><th class="num">Solid</th><th class="num">Shaky</th>' +
@@ -1959,6 +2035,7 @@
       noteOf: noteOf,
       csvCell: csvCell,
       csvRows: csvRows,
+      sparkline: sparkline,
       rosterCsv: rosterCsv,
       wordsCsv: wordsCsv,
       exportName: exportName,

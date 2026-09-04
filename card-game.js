@@ -102,33 +102,23 @@ window.CardGame = (function(){
      Deliberately generous, and deliberately not the score. This decides
      which of the two rating buttons to point at, and the student still
      presses one — so a false "Got it" costs a pulse on the wrong button,
-     not a wrong stat. Four ways to be right, in order of how sure they are:
+     not a wrong stat.
 
-       1. it is the word;
-       2. it is a homophone of the word (no recogniser separates to from
-          two, and neither does a listener);
-       3. it is a mishearing already known for that word (ACCEPT);
-       4. on a list of made-up words only, it is within one sound of it —
-          "vab" has no dictionary entry to come back as, so the recogniser
-          returns whatever is nearest and a letter-perfect match is a bar
-          no student could clear. Real words don't get this: "bread" for
-          "bred" is exactly the error worth catching.  */
+     Core.spokenMatch does the judging (the fluency engine judges the same
+     way, so the rule lives in one place); this is the part that is only
+     the cards': try the whole transcript before its words, because
+     normalize folds "they would" into "they'd" and splitting undoes it. */
   function judgeHeard(heardText, word, groups, allowPhonetic){
     var said = Core.normalize(heardText);
     if(!said) return false;
     var target = Core.normalize(word);
     if(!target) return false;
-    var accepted = Core.ACCEPT[target] || Core.ACCEPT[word] || null;
+    var opts = { homophones: groups, phonetic: !!allowPhonetic };
     // The whole transcript first: normalize folds "they would" into
     // "they'd", and that fold is undone the moment it is split on spaces.
     var parts = [said].concat(said.indexOf(" ") === -1 ? [] : said.split(" "));
     for(var i=0;i<parts.length;i++){
-      var p = parts[i];
-      if(!p) continue;
-      if(p === target) return true;
-      if(Core.sameHomophone(p, target, groups)) return true;
-      if(accepted && accepted.indexOf(p) !== -1) return true;
-      if(allowPhonetic && Core.phoneticDistance(Core.phonemes(p), Core.phonemes(target)) <= 1) return true;
+      if(parts[i] && Core.spokenMatch(parts[i], target, opts)) return true;
     }
     return false;
   }

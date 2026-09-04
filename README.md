@@ -796,6 +796,88 @@ thing to serve a second caller is how it stops being tuned. Both exist; the
 mic is stopped before the card speaks, so the recogniser can never
 transcribe the computer's own read back as the student's answer.
 
+## Fluency games
+
+Every other mode asks whether a student knows a word. These two ask how
+fast, which is a different question and the one that goes on being worth
+asking long after accuracy has stopped moving. A student can be right
+about *would* every single time and still take three seconds to get there,
+and a reader who takes three seconds a word cannot read a paragraph — by
+the end of the sentence the beginning is gone.
+
+`fluency-game.js` + `fluency-game.html` are one engine in two shapes,
+chosen by whether the list carries a `text`:
+
+- **One minute** (`fluency`) — the word list in rows of five, sixty
+  seconds, the deck cycling so a fast reader never runs out. Space skips.
+  Score: **correct words per minute**. On the starting blends, the final
+  blends and the nonsense words.
+- **Read it** (`read`) — a passage of connected text; words light up as the
+  student passes them, and tapping one reads it aloud. Score: **words
+  correct per minute**, plus the delta since last time, which is the reason
+  to do it twice.
+
+The clock starts on the **first word actually read**, not on the button: a
+student fumbling with headphones for four seconds has not been reading for
+four seconds.
+
+### Following a reader
+
+`consume()` (pure, in `tests.html`) walks a transcript's tokens against the
+words still to be read. Its `lookahead` is the whole difference between the
+two games:
+
+- **0** — the one-minute list. Every token answers the current word, right
+  or wrong, and the pointer moves either way, so the run never stalls on a
+  word the student has given up on.
+- **3** — a passage. A token that doesn't match the current word is tried
+  against the next three, so a reader who skips a word carries on from
+  where they actually are and the skipped words go red behind them. A token
+  matching nothing at all is *ignored*: in connected text the recogniser
+  returns plenty that isn't on the page, and scoring that would be scoring
+  the microphone.
+
+Interim results drive the pointer, not just finals — a reader at sixty
+words a minute is four words past whatever the recogniser is still thinking
+about, and waiting would leave the highlight hopelessly behind.
+
+Stars are the usual three tiers against a target rate: **60 CWPM** for real
+words, **40** for the nonsense list, with two stars at 70 % of that and one
+at 50 %.
+
+### Passages
+
+`passages.js` holds eight — two each for starting blends, final blends,
+oi/oy and multisyllable — of 80–120 words. Every single word in every
+passage is on that family's list, on another family's list, on Red Lists
+1–3, or in a closed set of function words at the top of the file. About two
+hundred words in total, and a test walks every passage against it.
+
+The rule is the point: a student who stalls here has stalled on reading
+connected text, not on a word nobody taught them. It also bites hard —
+there is no *them*, no *him*, no past tense the lists don't carry — which
+is why these read the way they do. A draft that fails the test gets edited;
+the rule doesn't.
+
+Only a passage's `targets` — the family words it actually uses — are
+reported to the scheduler. *the* going past tells nobody anything about
+anybody's reading.
+
+### What gets stored
+
+`students/{uid}.fluency[listId]` is a list of `{at, cwpm, errors, n}`,
+oldest first, capped at **30** — a term of weekly reads, and a few
+kilobytes. It is not a stat: a rate belongs to a run, not to a word, and
+nothing in the scheduler reads it. The tail is what makes the dashboard's
+sparkline; a single latest number would say nothing about whether anything
+is changing.
+
+The student page draws one inline-SVG sparkline per fluency list (no
+library, no axes, no labels — the question is "is this going up", and the
+latest and best are printed beside it), and the roster CSV gains a
+*latest*/*best* pair of columns for each fluency list somebody has actually
+read.
+
 ## Adaptive practice
 
 A round is no longer the whole word list. `EIPractice.play()` draws

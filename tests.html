@@ -57,6 +57,7 @@
 <script src="spell-game.js"></script>
 <script src="listen.js"></script>
 <script src="card-game.js"></script>
+<script src="fluency-game.js"></script>
 <script src="match-game.js"></script>
 <!-- The scheduler and the assignment resolver are pure too, so they're
      tested here alongside the engines. EI_REQUIRE_AUTH switches auth.js
@@ -65,6 +66,7 @@
      helpers reachable. -->
 <script>window.EI_REQUIRE_AUTH = false;</script>
 <script src="adaptive.js"></script>
+<script src="passages.js"></script>
 <script src="word-lists.js"></script>
 <script src="auth.js"></script>
 <script src="store.js"></script>
@@ -869,6 +871,190 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     fluency-game.js — following a reader
+
+     The engine can't be played headlessly, so everything that decides
+     anything is pure and lives here: the tokeniser, the pointer walk, the
+     arithmetic. The pointer walk is where a bug would be invisible and
+     expensive — a reader who skips a word and is then scored against the
+     wrong word for the rest of a paragraph would look like a reader who
+     can't read.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var F = window.FluencyGame._internals;
+    var GC = window.GameCore;
+
+    eq("tokenize drops punctuation", F.tokenize("The tent, at dusk.").join(","), "the,tent,at,dusk");
+    eq("tokenize keeps an apostrophe", F.tokenize("they'd").join(","), "they'd");
+    eq("tokenize collapses whitespace", F.tokenize("  a   b  ").join(","), "a,b");
+    eq("tokenize of nothing is nothing", F.tokenize(null).length, 0);
+    eq("tokenize of pure punctuation is nothing", F.tokenize("— …!").length, 0);
+
+    // A plain exact matcher, so these tests are about the WALK and not
+    // about the phonetics (which have their own tests above).
+    function exact(tok, word){ return tok === word; }
+    var LIST = ["soft","golf","honk","cost","pond"];
+    function walk(tokens, lookahead, from){
+      return F.consume(from || 0, tokens, LIST, exact, lookahead);
+    }
+
+    // ---- the one-minute list: lookahead 0, nothing is ignored ----
+    (function(){
+      var r = walk(["soft","golf"], 0);
+      eq("a clean read advances", r.pointer, 2);
+      eq("…and marks both right", r.marks.map(function(m){ return m.ok ? "y" : "n"; }).join(""), "yy");
+      r = walk(["soft","wrong","honk"], 0);
+      eq("a wrong word costs the word it was said for", r.marks[1].ok, false);
+      eq("…and the pointer moves past it anyway", r.pointer, 3);
+      eq("…so the run never stalls", r.marks.length, 3);
+      // The reader is back in step immediately: the next thing said is
+      // judged against the next word, not against the one already lost.
+      eq("…and the next word is judged against the next word", r.marks[2].ok, true);
+      r = walk([], 0);
+      eq("silence decides nothing", r.marks.length, 0);
+      eq("…and moves nothing", r.pointer, 0);
+      r = F.consume(4, ["pond","extra","more"], LIST, exact, 0);
+      eq("tokens past the end of the list are dropped", r.pointer, 5);
+    })();
+
+    // ---- a passage: lookahead 3, noise is ignored ----
+    (function(){
+      var r = walk(["soft","golf"], 3);
+      eq("a clean read still advances", r.pointer, 2);
+      r = walk(["soft","honk"], 3);
+      eq("skipping a word jumps to the one actually read", r.pointer, 3);
+      eq("…marking the skipped one wrong", r.marks[1].index + ":" + r.marks[1].ok, "1:false");
+      eq("…and the one read right", r.marks[2].index + ":" + r.marks[2].ok, "2:true");
+      r = walk(["soft","er","um","golf"], 3);
+      eq("noise between words is ignored, not scored", r.pointer, 2);
+      eq("…so only the two real words are marked", r.marks.length, 2);
+      eq("…both right", r.marks.every(function(m){ return m.ok; }), true);
+      r = walk(["pond"], 3);
+      eq("a jump further than the lookahead is not taken", r.pointer, 0);
+      eq("…and nothing is marked", r.marks.length, 0);
+      r = walk(["cost"], 3);
+      eq("a jump of exactly the lookahead is taken", r.pointer, 4);
+      eq("…costing the three words stepped over", r.marks.filter(function(m){ return !m.ok; }).length, 3);
+    })();
+
+    // ---- the same walk, judged the way the game judges ----
+    (function(){
+      function spoken(opts){
+        return function(tok, word){ return GC.spokenMatch(tok, word, opts || {}); };
+      }
+      var r = F.consume(0, ["to","the"], ["two","the"], spoken({ homophones: [["to","two"]] }), 0);
+      eq("a homophone counts as the word", r.marks[0].ok, true);
+      r = F.consume(0, ["veb"], ["vab"], spoken({ phonetic: true }), 0);
+      eq("a made-up word is judged by sound", r.marks[0].ok, true);
+      r = F.consume(0, ["bread"], ["bred"], spoken({}), 0);
+      eq("a real word is not", r.marks[0].ok, false);
+    })();
+
+    // ---- the arithmetic ----
+    eq("sixty words in sixty seconds is sixty", F.wordsPerMinute(60, 60000), 60);
+    eq("thirty words in thirty seconds is sixty", F.wordsPerMinute(30, 30000), 60);
+    eq("…rounded, not truncated", F.wordsPerMinute(7, 10000), 42);
+    eq("no time at all is zero, not infinity", F.wordsPerMinute(10, 0), 0);
+    eq("negative time is zero too", F.wordsPerMinute(10, -5), 0);
+    eq("no words is zero", F.wordsPerMinute(0, 60000), 0);
+
+    eq("hitting the target is three stars", F.starsForRate(60, 60), 3);
+    eq("beating it is still three", F.starsForRate(200, 60), 3);
+    eq("seventy per cent of it is two", F.starsForRate(42, 60), 2);
+    eq("fifty per cent of it is one", F.starsForRate(30, 60), 1);
+    eq("below that is none", F.starsForRate(29, 60), 0);
+    eq("the nonsense target is lower, so the same rate scores higher",
+       F.starsForRate(40, 40) > F.starsForRate(40, 60), true);
+
+    /* ---- the fluency record ---- */
+    var A2 = window.Adaptive;
+    eq("a run round-trips", A2.sanitizeFluency({ x:[{at:1,cwpm:50,errors:2,n:52}] }).x[0].cwpm, 50);
+    eq("a run with no rate is dropped", (A2.sanitizeFluency({ x:[{at:1}] }).x || []).length, 0);
+    eq("an absurd rate is clamped", A2.sanitizeFluency({ x:[{cwpm:99999}] }).x[0].cwpm, 400);
+    eq("a negative rate is clamped", A2.sanitizeFluency({ x:[{cwpm:-5}] }).x[0].cwpm, 0);
+    eq("rubbish is dropped", Object.keys(A2.sanitizeFluency("nope")).length, 0);
+    eq("a non-array value is dropped",
+       Object.prototype.hasOwnProperty.call(A2.sanitizeFluency({ x:"nope" }), "x"), false);
+    (function(){
+      var runs = [], i;
+      for(i=0;i<40;i++) runs = A2.pushRun(runs, { at:i, cwpm:i, errors:0, n:i });
+      eq("the tail is capped at thirty", runs.length, 30);
+      eq("…keeping the newest", runs[runs.length-1].cwpm, 39);
+      eq("…and dropping the oldest", runs[0].cwpm, 10);
+    })();
+    eq("summary of nothing is null", A2.fluencySummary([]), null);
+    (function(){
+      var s = A2.fluencySummary([{cwpm:40},{cwpm:70},{cwpm:55}]);
+      eq("latest is the last run, not the best", s.latest, 55);
+      eq("best is the best", s.best, 70);
+      eq("…and it counts them", s.runs, 3);
+    })();
+
+    /* ---- the passages, and the rule that keeps them honest ----
+       Every word in every passage has to come off a list the student has
+       actually been taught, or a stall here means nothing. */
+    (function(){
+      var allowed = {}, bad = [], short = [], noTarget = [];
+      window.PASSAGE_FUNCTION_WORDS.forEach(function(w){ allowed[w] = true; });
+      window.WordLists.ids.forEach(function(id){
+        var l = window.WordLists.byId(id);
+        if(l.family === "nonsense" || l.family === "passages") return;
+        if(l.family === "red" && l.listNum > 3) return;
+        window.WordLists.wordsOf(id).forEach(function(w){
+          allowed[String(w).toLowerCase().replace(/[^a-z']/g, "")] = true;
+        });
+      });
+      window.PASSAGES.forEach(function(p){
+        var toks = window.passageTokens(p.text);
+        if(toks.length < 80 || toks.length > 120) short.push(p.n + ":" + toks.length);
+        toks.forEach(function(w){ if(!allowed[w]) bad.push(p.n + ":" + w); });
+        // targets must be the family's own words, and actually used.
+        var famWords = {};
+        window.WordLists.ids.forEach(function(id){
+          if(window.WordLists.byId(id).family !== p.family) return;
+          window.WordLists.wordsOf(id).forEach(function(w){ famWords[w.toLowerCase()] = true; });
+        });
+        var used = {};
+        toks.forEach(function(w){ if(famWords[w]) used[w] = true; });
+        var declared = p.targets.slice().sort().join(",");
+        if(declared !== Object.keys(used).sort().join(",")) noTarget.push(String(p.n));
+      });
+      eq("there are eight passages, two per decodable family", window.PASSAGES.length, 8);
+      eq("every passage word is on a list the student has been taught", bad.join(" "), "");
+      eq("every passage is 80–120 words", short.join(" "), "");
+      eq("every passage's targets are exactly its family words, used", noTarget.join(" "), "");
+    })();
+
+    eq("a passage list carries its text", !!window.WordLists.byId("passages-1-read").text, true);
+    eq("…and its words are its tokens",
+       window.WordLists.wordsOf("passages-1-read").length,
+       window.passageTokens(window.PASSAGES[0].text).length);
+    eq("…and one passage is one round", window.WordLists.byId("passages-1-read").sessionSize, 1);
+    eq("…and it names itself, not 'List 1'", window.WordLists.byId("passages-1-read").listTitle, "The sled and the glen");
+    eq("the three decodable families gained a one-minute run",
+       ["blends-start-1-fluency","blends-end-1-fluency","nonsense-1-fluency"]
+         .filter(function(id){ return window.WordLists.exists(id); }).length, 3);
+    eq("both fluency modes run the same engine",
+       window.WordLists.byId("nonsense-1-fluency").engine + "," + window.WordLists.byId("passages-1-read").engine,
+       "fluency,fluency");
+    eq("…on the same page",
+       window.WordLists.byId("nonsense-1-fluency").page, "fluency-game.html");
+  })();
+
+  /* ---- the dashboard's sparkline ---- */
+  (function(){
+    var S = window.EITeacher._internals.sparkline;
+    eq("no runs, no line", S([]), "");
+    eq("one run is a dot, not a flat line", S([{cwpm:50}]).indexOf("<circle") !== -1, true);
+    eq("…and not a polyline", S([{cwpm:50}]).indexOf("polyline"), -1);
+    eq("two runs make a line", S([{cwpm:40},{cwpm:60}]).indexOf("<polyline") !== -1, true);
+    eq("a flat run of equal values doesn't divide by zero",
+       S([{cwpm:50},{cwpm:50}]).indexOf("NaN"), -1);
+    eq("the line says what it is to a screen reader",
+       S([{cwpm:40},{cwpm:60}]).indexOf('aria-label="2 timed reads, latest 60 words per minute"') !== -1, true);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — the Reading view
 
      Four switches applied as classes on <html>. The parts worth pinning:
@@ -1348,7 +1534,7 @@
     });
     eq("every list id is unique (they key stored stats)", dupes.length, 0, dupes.join(","));
     var missing = WordLists.all.filter(function(l){
-      return !l.title || !l.page || !l.words.length || ["blend","spell","card","match"].indexOf(l.engine) === -1;
+      return !l.title || !l.page || !l.words.length || ["blend","spell","card","match","fluency"].indexOf(l.engine) === -1;
     }).map(function(l){ return l.id; });
     eq("every list has a title, a page, an engine and words", missing.length, 0, missing.join(","));
     var badSection = WordLists.all.filter(function(l){ return ["decode","sight"].indexOf(l.section) === -1; });
@@ -1412,7 +1598,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("45 entries: 5 one-list families plus ten red lists, times their modes", W.all.length, 45);
+    eq("56 entries: six word families and eight passages, times their modes", W.all.length, 56);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -1441,7 +1627,7 @@
     });
     eq("every mode of a list plays exactly the same words", drift.length, 0, drift.join(","));
 
-    eq("six families", W.families().length, 6);
+    eq("seven families", W.families().length, 7);
     eq("the red family still has ten lists", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
     eq("every red list is still twenty words (the screener's page)",
        W.all.filter(function(l){ return l.family === "red" && l.words.length !== 20; }).length, 0);
@@ -1451,7 +1637,7 @@
        W.modesOf("oi-oy").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
     // A synthesiser can't say "vab", so there is nothing for Match It to
     // ask, and the flip has to stay silent.
-    eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards");
+    eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards,fluency");
     eq("nonsense cards run with the read-aloud off", W.byId("nonsense-1-cards").config.speak, false);
     eq("every other family's cards still speak", W.byId("red-1-cards").config.speak, undefined);
 
@@ -1589,7 +1775,7 @@
       for(var i=0;i<cols.length;i++) if(cols[i].fam.key === fam && cols[i].n === n) return cols[i];
       return null;
     }
-    eq("one column per list, families side by side", cols.length, 15);
+    eq("one column per list, families side by side", cols.length, 23);
     eq("a cell shows the icons of the modes that are on",
        T.cellText("s:u1", colFor("red", 2)), "🃏🎯");
     eq("a cell with nothing on it is a dash", T.cellText("s:u1", colFor("red", 4)), "—");
@@ -1740,11 +1926,11 @@
     eq("a row for the default, each period, each student and the strays",
        grid.querySelectorAll("tbody tr").length, 8);
     eq("a cell for every scope row × every list column",
-       grid.querySelectorAll("[data-cell]").length, 7 * 15);
+       grid.querySelectorAll("[data-cell]").length, 7 * 23);
     eq("two header rows: families over their lists",
        grid.querySelectorAll("thead tr").length, 2);
-    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 6);
-    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 15);
+    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 7);
+    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 23);
     eq("a cell drawn from an inheriting row is marked inherited",
        grid.querySelector('[data-cell="s:u1|0"]').classList.contains("inherit"), true);
     eq("a cell drawn from a row with its own set is marked own",
@@ -1768,7 +1954,7 @@
     T.board.collapsed.red = true;
     T.renderAssign();
     grid = document.getElementById("abGrid");
-    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 6);
+    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 14);
     eq("…and the folded column summarises instead of ticking",
        grid.querySelector('[data-cell="s:u2|5"]').textContent, "1 🃏");
     T.board.collapsed.red = false;
