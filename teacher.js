@@ -137,6 +137,7 @@
           email: d.email || "",
           photo: d.photo || "",
           stats: Adaptive.sanitizeStats(d.words),
+          heard: Adaptive.sanitizeHeard(d.heard),
           totals: d.totals || { n:0, r:0 },
           recent: Array.isArray(d.recent) ? d.recent : [],
           lastSeen: d.lastSeen || 0
@@ -587,13 +588,20 @@
         '<td class="num">' + (ls.struggling ? '<span class="pill bad">' + ls.struggling + "</span>" : '<span class="muted">0</span>') + "</td></tr>";
     }).filter(Boolean).join("");
 
+    /* The chips carry what the mic heard, where Say It logged any. A word
+       that keeps coming back as "bread" is a reading error worth teaching;
+       one that comes back as three spellings of itself is the recogniser
+       failing, and the fix for that is a line in ACCEPT, not a lesson. */
     var worst = Adaptive.rank(s.stats).slice(0, 30).map(function(r){
       var parsed = Adaptive.parseKey(r.word);
       var l = WordLists.byId(parsed.listId);
       var pct = Math.round(r.acc * 100);
       var cls = pct >= 80 ? "" : pct >= 60 ? "warn" : "bad";
+      var h = (s.heard || {})[r.word];
       return '<div class="wordchip ' + cls + '">' + esc(parsed.word) +
-        "<small>" + r.stat.r + "/" + r.stat.n + " · " + esc(l ? l.title : parsed.listId) + "</small></div>";
+        "<small>" + r.stat.r + "/" + r.stat.n + " · " + esc(l ? l.title : parsed.listId) + "</small>" +
+        (h && h.length ? '<small class="heardline">heard: ' + esc(h.slice(-3).join(", ")) + "</small>" : "") +
+        "</div>";
     }).join("");
 
     var picker = pickerHtml("student", eff.ids, true);
@@ -1806,6 +1814,18 @@
 
   /* ---------------- trouble spots ---------------- */
   var troublePeriod = "";
+
+  /* The transcript the most students produced for one word, or null.
+     Ties break alphabetically so the table doesn't reshuffle itself
+     between renders on the same data. */
+  function modeHeard(counts){
+    var best = null, bestN = 0;
+    for(var k in counts){
+      if(!Object.prototype.hasOwnProperty.call(counts, k)) continue;
+      if(counts[k] > bestN || (counts[k] === bestN && best !== null && k < best)){ best = k; bestN = counts[k]; }
+    }
+    return best === null ? null : { text: best, n: bestN };
+  }
   var MIN_SAMPLE = 3;   // a word nobody has really attempted isn't a trouble spot
 
   function renderTrouble(){
@@ -1824,15 +1844,21 @@
         if(!Object.prototype.hasOwnProperty.call(s.stats, key)) continue;
         var st = s.stats[key];
         if(!st.n) continue;
-        var a = agg[key] || (agg[key] = { n:0, r:0, students:0, missers:0 });
+        var a = agg[key] || (agg[key] = { n:0, r:0, students:0, missers:0, heard:{} });
         a.n += st.n; a.r += st.r; a.students += 1;
         if(st.w > 0 && st.r / st.n < 0.7) a.missers += 1;
+        // One vote per student per transcript, not one per utterance: the
+        // question is "what does the ROOM say", and a single student who
+        // repeats themselves five times isn't the room.
+        var h = (s.heard || {})[key] || [];
+        for(var i=0;i<h.length;i++) a.heard[h[i]] = (a.heard[h[i]] || 0) + 1;
       }
     });
 
+
     var rows = Object.keys(agg).map(function(key){
       var a = agg[key], parsed = Adaptive.parseKey(key);
-      return { key:key, word:parsed.word, listId:parsed.listId, acc:a.r/a.n, n:a.n, students:a.students, missers:a.missers };
+      return { key:key, word:parsed.word, listId:parsed.listId, acc:a.r/a.n, n:a.n, students:a.students, missers:a.missers, heard:modeHeard(a.heard) };
     }).filter(function(r){
       // Enough attempts to mean anything, and at least one student
       // actually struggling — a word the class has nailed is not a
@@ -1851,7 +1877,9 @@
       var pct = Math.round(r.acc * 100);
       var cls = pct >= 80 ? "" : pct >= 60 ? "warn" : "bad";
       return '<div class="wordchip ' + cls + '">' + esc(r.word) +
-        "<small>" + pct + "% · " + r.missers + " of " + r.students + " struggling · " + esc(l ? l.title : r.listId) + "</small></div>";
+        "<small>" + pct + "% · " + r.missers + " of " + r.students + " struggling · " + esc(l ? l.title : r.listId) + "</small>" +
+        (r.heard ? '<small class="heardline">most often heard as: ' + esc(r.heard.text) + "</small>" : "") +
+        "</div>";
     }).join("");
 
     var opts = ['<option value="">All periods</option>'].concat(periods.map(function(p){
@@ -1862,7 +1890,8 @@
       '<div class="panel"><h2>Trouble spots</h2>' +
         '<p class="note">Words the class is getting wrong, hardest first — sorted by how many students are struggling with each, ' +
         "not by raw accuracy, so one student's bad day doesn't top the list. " +
-        "Words with fewer than " + MIN_SAMPLE + " attempts across the group are left out.</p>" +
+        "Words with fewer than " + MIN_SAMPLE + " attempts across the group are left out. " +
+        "Where Say It logged what the mic heard, the most common mishearing is under the word.</p>" +
         '<div class="rowActions" style="margin-bottom:18px"><select class="sel" id="tTroublePeriod">' + opts + "</select></div>" +
         (chips ? '<div class="wordchips">' + chips + "</div>"
                : '<div class="empty">Nothing to show yet — students need a few rounds of practice first.</div>') +
@@ -1884,6 +1913,7 @@
      one thing here that needs Firestore. */
   window.EITeacher = {
     _internals: {
+      modeHeard: modeHeard,
       feed: function(st){
         st = st || {};
         students = st.students || [];

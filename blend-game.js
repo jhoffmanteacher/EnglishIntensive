@@ -280,6 +280,9 @@ window.BlendGame = (function(){
        passes nothing and behaves exactly as it always did.
 
          onResult(word, firstTryCorrect, tries)  once per word, per visit
+         onHeard(word, transcript)               on every miss, so the
+                                                 teacher can see what the
+                                                 recogniser actually heard
          onFinish({right, total})                once per round
          nextRound()                             a fresh word list for
                                                  "Play again", so the
@@ -291,11 +294,19 @@ window.BlendGame = (function(){
        right, missed twice, or skipped — never on the first miss, so the
        retry doesn't get counted as its own answer. */
     var onResult   = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onHeard    = typeof cfg.onHeard === "function" ? cfg.onHeard : null;
     var onFinish   = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
     var nextRound  = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
     function report(word, correct, tryCount){
       if(!onResult) return;
       try{ onResult(word, !!correct, tryCount|0); }catch(e){}
+    }
+    // Every miss, not just the reveal: the first wrong transcript is often
+    // the honest one, and the retry is where the student has already been
+    // told to slow down.
+    function reportHeard(word, text){
+      if(!onHeard || !text) return;
+      try{ onHeard(word, text); }catch(e){}
     }
 
     var mount = document.getElementById(cfg.mount || "app");
@@ -673,6 +684,7 @@ window.BlendGame = (function(){
       var target = queue[idx];
       var targetChunks = tries >= 2 ? chunksFor(target) : null;
       var heardTxt = normalize(heard);
+      reportHeard(target, heardTxt);
       /* Which part went wrong — but only on the reveal. On the first miss
          the student gets the transcript and nothing else: they are about
          to try again, and a hint they haven't asked for yet just slows

@@ -815,6 +815,60 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     adaptive.js + store.js — what the mic heard
+
+     A short tail of transcripts per missed word. It is evidence, not a
+     score: nothing in the scheduler reads it, and the only thing that
+     matters is that it stays small, stays clean, and reaches the write
+     body when — and only when — it changed.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A = window.Adaptive;
+    eq("cleanHeard lowercases and strips punctuation", A.cleanHeard("Bread!!"), "bread");
+    eq("cleanHeard keeps an apostrophe", A.cleanHeard("they'd"), "they'd");
+    eq("cleanHeard collapses whitespace", A.cleanHeard("  a   b  "), "a b");
+    eq("cleanHeard truncates a runaway transcript",
+       A.cleanHeard(new Array(200).join("x")).length, 40);
+    eq("cleanHeard on rubbish is empty", A.cleanHeard({}), "");
+
+    eq("pushHeard appends newest last", A.pushHeard(["a"], "b").join(","), "a,b");
+    eq("pushHeard doesn't repeat a transcript", A.pushHeard(["a","b"], "a").join(","), "b,a");
+    eq("pushHeard caps at five", A.pushHeard(["a","b","c","d","e"], "f").join(","), "b,c,d,e,f");
+    eq("pushHeard ignores an empty transcript", A.pushHeard(["a"], "   ").join(","), "a");
+    eq("pushHeard on a non-array starts one", A.pushHeard(null, "a").join(","), "a");
+
+    var dirty = A.sanitizeHeard({ "l|w": ["Bread", "bread", "", "b<b>"], "": ["x"], bad: "nope" });
+    eq("sanitizeHeard dedupes and cleans", (dirty["l|w"] || []).join(","), "bread,b b");
+    eq("sanitizeHeard drops a blank key", Object.prototype.hasOwnProperty.call(dirty, ""), false);
+    eq("sanitizeHeard drops a non-array value", Object.prototype.hasOwnProperty.call(dirty, "bad"), false);
+    eq("sanitizeHeard on rubbish is empty", Object.keys(A.sanitizeHeard("nope")).length, 0);
+    eq("sanitizeHeard caps a long stored tail",
+       A.sanitizeHeard({ k: ["a","b","c","d","e","f","g"] }).k.join(","), "c,d,e,f,g");
+
+    // The write body. Only what changed goes up, so a round that logged
+    // nothing new doesn't rewrite the whole map.
+    var S = window.EIStore._internals;
+    S._feed({ stats: { "l|w": A.emptyStat() }, heard: { "l|w": ["bread"], "l|x": ["gas"] },
+              dirty: {}, dirtyHeard: { "l|w": true } });
+    var body = S.payload();
+    eq("payload sends the heard keys that changed", Object.keys(body.heard).join(","), "l|w");
+    eq("…with their transcripts", body.heard["l|w"].join(","), "bread");
+    eq("payload omits words when none changed", Object.prototype.hasOwnProperty.call(body, "words"), false);
+    S._feed({ stats: {}, heard: {}, dirty: {}, dirtyHeard: {} });
+    eq("payload omits heard when nothing changed",
+       Object.prototype.hasOwnProperty.call(S.payload(), "heard"), false);
+  })();
+
+  /* ---- the dashboard's mode across students ---- */
+  (function(){
+    var M = window.EITeacher._internals.modeHeard;
+    eq("modeHeard picks the commonest", M({ bread:3, bred:1 }).text, "bread");
+    eq("…and says how many said it", M({ bread:3, bred:1 }).n, 3);
+    eq("modeHeard breaks a tie alphabetically", M({ bred:2, bread:2 }).text, "bread");
+    eq("modeHeard on nothing is null", M({}), null);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — the start screen, read aloud
 
      All four engines used to build this text themselves, and all four

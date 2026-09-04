@@ -247,6 +247,56 @@ window.Adaptive = (function(){
     if(i === -1) return { listId: null, word: String(key) };
     return { listId: key.slice(0, i), word: key.slice(i + 1) };
   }
+  /* ── what the mic heard ────────────────────────────────────────────
+     Not a stat — a short tail of the transcripts the recogniser returned
+     for a word the student missed, keyed the same way stats are. It lives
+     here beside sanitizeStats because this file owns the shape of
+     students/{uid}, and both the student's store and the teacher's
+     dashboard have to agree about it.
+
+     Why keep it at all: a word that comes back as "bread" every time is a
+     reading error, and a word that comes back as "crab, crabbe, crabb" is
+     the recogniser failing, and only the transcripts tell those apart.
+     Five is enough to see a pattern and short enough that a hundred words
+     of it is still a few kilobytes. */
+  var HEARD_CAP = 5;
+  var HEARD_MAX_LEN = 40;
+
+  // Whatever the recogniser said, reduced to something safe to store and
+  // print: lowercase, letters/digits/apostrophe/space, and short.
+  function cleanHeard(s){
+    if(typeof s !== "string") return "";   // "[object Object]" is not a transcript
+    return s.toLowerCase()
+      .replace(/[^a-z0-9' ]/g, " ").replace(/\s+/g, " ").trim().slice(0, HEARD_MAX_LEN).trim();
+  }
+
+  // Newest last, no repeats, capped. A student who says "bread" four
+  // times running should leave one entry, not fill the tail with it.
+  function pushHeard(list, text, cap){
+    var t = cleanHeard(text);
+    var out = (Array.isArray(list) ? list : []).map(cleanHeard).filter(Boolean);
+    if(!t) return out.slice(-(cap || HEARD_CAP));
+    out = out.filter(function(x){ return x !== t; });
+    out.push(t);
+    return out.slice(-(cap || HEARD_CAP));
+  }
+
+  function sanitizeHeard(raw){
+    var out = {};
+    if(!raw || typeof raw !== "object") return out;
+    for(var k in raw){
+      if(!has(raw, k) || typeof k !== "string" || !k) continue;
+      var v = Array.isArray(raw[k]) ? raw[k] : [];
+      var clean = [], i;
+      for(i=0;i<v.length;i++){
+        var t = cleanHeard(v[i]);
+        if(t && clean.indexOf(t) === -1) clean.push(t);
+      }
+      if(clean.length) out[k] = clean.slice(-HEARD_CAP);
+    }
+    return out;
+  }
+
   // The subset of a stat map belonging to one list, re-keyed by bare word
   // — which is the shape pickSession and rank want.
   function statsForList(stats, listId){
@@ -265,6 +315,10 @@ window.Adaptive = (function(){
     emptyStat: emptyStat,
     sanitizeStat: sanitizeStat,
     sanitizeStats: sanitizeStats,
+    heardCap: HEARD_CAP,
+    cleanHeard: cleanHeard,
+    pushHeard: pushHeard,
+    sanitizeHeard: sanitizeHeard,
     updateStat: updateStat,
     accuracy: accuracy,
     rawAccuracy: rawAccuracy,

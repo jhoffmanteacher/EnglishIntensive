@@ -382,12 +382,14 @@ have to reconnect between words. Silence never counts as a wrong answer.
 
 The word has to come back exactly right to be marked correct — there's no
 forgiving near-misses, since the student actually saying the word correctly
-is the whole point. `blend-game.js` also carries a more forgiving phonetic
-matcher (`phonemes()`, `phoneticDistance()`, the `ACCEPT` table of known
-recogniser mishearings) that compares **sounds** rather than letters — e.g.
-"krab" would pass for "crab" — but the games no longer expose it; it only
-runs today through the `_internals` seam that `tests.html` exercises
-directly, in case a more forgiving mode is wanted again later.
+is the whole point. A more forgiving phonetic matcher lives in
+`game-core.js` (`phonemes()`, `phoneticDistance()`, the `ACCEPT` table of
+known recogniser mishearings); it compares **sounds** rather than letters,
+so "krab" would pass for "crab". The games don't expose it as a level any
+more, but it is not dead code: the encoder underneath it is what tells a
+student which part of a word went wrong (below), what the phoneme clips in
+`audio/ph/` are named after, and what the flash cards use to judge a spoken
+answer.
 
 Run `tests.html` (served the same way as the games) to check the matcher
 itself, along with everything shared in `game-core.js` (scoring, stars, the
@@ -399,6 +401,46 @@ with a summary line.
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.
+
+### Which part went wrong
+
+A red ✗ tells a student they were wrong. It doesn't tell them *which part*,
+and for a reader who is guessing at blends or sliding off vowels that is the
+only part worth knowing. `GameCore.diagnose()` lines up what the mic heard
+against the word that was on screen, sound by sound, and names one thing:
+
+| kind | what it means | what the student sees |
+|---|---|---|
+| `blend` | the blend being practised came back wrong | Look at the blend: **bl** |
+| `sound` | the sound the list exists for is missing | The **oi** sound is the key |
+| `vowel` | one vowel swapped for another | Check the vowel: **e** |
+| `consonant` | one consonant swapped for another | Listen to the **s** sound |
+| `missing` | a sound was dropped | You dropped a sound: **st** |
+| `extra` | a sound was added | That's one sound too many |
+| `other` | right sounds, wrong word | Read it slowly, left to right |
+
+One answer, never a list. A wrong reading usually has one cause, and three
+guesses at once is how a hint becomes noise. The rules are tried in the
+order a teacher would look — the blend on the page first, then the target
+sound, then the vowel, then the rest — so on the Blend Words list "gasp"
+read as "gas" points at the blend, and everywhere else it points at the
+dropped **p**.
+
+It is built on `phonemeSpans()`, which is `phonemes()` with the letters kept:
+each sound carries the slice of the word that spells it, so the reveal can
+light up **cr** rather than saying "the second phoneme". Silent letters fold
+into the sound before them, so every letter belongs to something.
+
+The first miss doesn't get any of this — just "I heard: *bred*", because the
+student is about to try again and a hint they haven't asked for slows the
+retry down. The reveal is where it lands: the letters turn gold, the message
+appears under the word, and with **Voice** on it is read out as one sentence
+after the word ("The word was, crab. Look at the blend, cr."). That costs
+700 ms of extra reveal time, spent only when there is a voice saying it.
+
+The end screen's missed-word chips carry the kind of error too, so a round
+that went wrong in four different ways looks different from one that went
+wrong the same way four times.
 
 ### Scoring
 
@@ -644,6 +686,18 @@ shared Chromebook can't leak one student's deck into the next student's
 session. It keeps word selection sensible if the network drops mid-round;
 it is never merged back up.
 
+The document also carries a `heard` map: for each word Say It marked wrong,
+the last **five** transcripts the recogniser returned, cleaned (lowercase,
+letters/digits/apostrophe/space, 40 characters) and deduplicated. It is
+evidence, not a score — nothing in the scheduler reads it. It is there
+because a word that keeps coming back as "bread" is a reading error worth a
+lesson, and a word that comes back as three spellings of itself is the
+recogniser failing and wants a line in `ACCEPT` instead. The shape lives in
+`adaptive.js` (`cleanHeard`, `pushHeard`, `sanitizeHeard`) beside
+`sanitizeStats`, because both the student's store and the teacher's
+dashboard have to agree about it. Both places sanitize on the way in: the
+document is hand-editable and outlives any change to this repo.
+
 ## Teacher dashboard
 
 `teacher.html` — visible to `TEACHER_EMAILS` only, with a link on the home
@@ -847,3 +901,7 @@ every list"* rather than pretending to be a configured one, and its
 The teacher has **read** on `students/{uid}` and no write. Everything the
 teacher sets lives in `assignments/{uid}` instead, so a compromised
 teacher session can't erase anyone's work.
+
+The `heard` map added with the sound-level feedback needed no rules change
+either: `students/{uid}` is write-your-own-document, not a whitelist of
+fields.

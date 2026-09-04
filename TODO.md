@@ -35,6 +35,10 @@ turns out to need after a term of using it.
 Choices the plan left to whoever built it, recorded here so the reasoning
 survives the commit that made them.
 
+- **The dashboard's "most often heard as" is a line on each chip, not a
+  column.** Trouble spots renders word chips, not a table, so the mode
+  transcript goes under the word the way the counts already do. A column
+  would have meant rebuilding the panel as a table for one field.
 - **A dropped final consonant on a final-blend list reads as a blend
   error, not a dropped sound.** `diagnose()` tries the blend being
   practised before anything else, so "gasp" read as "gas" says *Look at

@@ -35,12 +35,14 @@ window.EIStore = (function(){
 
   var uid = null, user = null;
   var stats = {};               // "<listId>|<word>" → stat (adaptive.js shape)
+  var heard = {};               // same keys → the last few mishearings
   var totals = { n:0, r:0 };
   var recent = [];              // [{list, at, right, total}] newest last
   var assignment = null;        // { period, lists } or null
   var classCfg = null;          // { periodLists, defaultLists, periods }
   var loadFailed = false;
   var dirty = {};               // stat keys changed since the last write
+  var dirtyHeard = {};          // heard keys changed since the last write
   var dirtyMeta = false;
   var saveTimer = null, inFlight = null;
 
@@ -104,6 +106,7 @@ window.EIStore = (function(){
         var d = snaps[0] && snaps[0].exists ? snaps[0].data() : null;
         if(d){
           stats  = Adaptive.sanitizeStats(d.words);
+          heard  = Adaptive.sanitizeHeard(d.heard);
           totals = { n: Math.max(0, d.totals && d.totals.n || 0), r: Math.max(0, d.totals && d.totals.r || 0) };
           recent = Array.isArray(d.recent) ? d.recent.slice(-RECENT_CAP) : [];
         }
@@ -136,8 +139,11 @@ window.EIStore = (function(){
   function payload(){
     var words = {}, any = false;
     for(var k in dirty){ if(has(dirty, k) && has(stats, k)){ words[k] = stats[k]; any = true; } }
+    var heardOut = {}, anyHeard = false;
+    for(k in dirtyHeard){ if(has(dirtyHeard, k) && has(heard, k)){ heardOut[k] = heard[k]; anyHeard = true; } }
     var p = {};
     if(any) p.words = words;
+    if(anyHeard) p.heard = heardOut;
     if(dirtyMeta){
       p.name  = (user && user.displayName) || null;
       p.email = (user && user.email) || null;
@@ -156,10 +162,10 @@ window.EIStore = (function(){
   function flush(){
     clearTimeout(saveTimer); saveTimer = null;
     if(loadFailed || !uid || (user && user._dev)) return Promise.resolve();
-    if(!Object.keys(dirty).length && !dirtyMeta) return inFlight || Promise.resolve();
-    var sending = dirty, sendingMeta = dirtyMeta;
+    if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length && !dirtyMeta) return inFlight || Promise.resolve();
+    var sending = dirty, sendingHeard = dirtyHeard, sendingMeta = dirtyMeta;
     var body = payload();
-    dirty = {}; dirtyMeta = false;
+    dirty = {}; dirtyHeard = {}; dirtyMeta = false;
     inFlight = EIAuth.db().then(function(db){
       if(!db) throw new Error("no db");
       return db.collection("students").doc(uid).set(body, { merge:true });
@@ -167,6 +173,7 @@ window.EIStore = (function(){
       // Put the unsent keys back so the next save retries them rather than
       // dropping a round of practice on one bad request.
       for(var k in sending){ if(has(sending, k)) dirty[k] = true; }
+      for(k in sendingHeard){ if(has(sendingHeard, k)) dirtyHeard[k] = true; }
       if(sendingMeta) dirtyMeta = true;
     }).then(function(){ inFlight = null; });
     return inFlight;
@@ -183,6 +190,21 @@ window.EIStore = (function(){
     totals.n += 1; if(correct) totals.r += 1;
     dirty[key] = true;
     writeLocal();
+    scheduleSave();
+  }
+
+  /* What the recogniser thought it heard on a miss. Say It calls this
+     with the final transcript, once per wrong answer — never on a right
+     one, since there is nothing to learn from a transcript that matched.
+     Separate from record() because it is teacher-facing evidence, not a
+     score: nothing in the scheduler reads it. */
+  function recordHeard(listId, word, text){
+    if(!uid) return;
+    var key = Adaptive.keyFor(listId, WordLists.plain(word));
+    var next = Adaptive.pushHeard(heard[key], text, Adaptive.heardCap);
+    if(!next.length) return;
+    heard[key] = next;
+    dirtyHeard[key] = true;
     scheduleSave();
   }
 
@@ -216,6 +238,7 @@ window.EIStore = (function(){
   return {
     ready: function(){ return readyPromise; },
     record: record,
+    recordHeard: recordHeard,
     finishRound: finishRound,
     flush: flush,
     statsFor: statsFor,
@@ -225,6 +248,18 @@ window.EIStore = (function(){
     myLists: myLists,
     period: function(){ return assignment ? assignment.period : null; },
     failed: function(){ return loadFailed; },
-    _internals: { effectiveLists: effectiveLists }
+    _internals: {
+      effectiveLists: effectiveLists,
+      // The write body, for a test that can assert its shape without a
+      // Firestore. Reads the module's live state, so a test drives it
+      // through the same recordHeard() a game calls.
+      payload: payload,
+      _feed: function(st){
+        uid = st.uid || "test"; user = { _dev:true };
+        stats = st.stats || {}; heard = st.heard || {};
+        dirty = st.dirty || {}; dirtyHeard = st.dirtyHeard || {}; dirtyMeta = !!st.dirtyMeta;
+        totals = st.totals || { n:0, r:0 }; recent = st.recent || [];
+      }
+    }
   };
 })();

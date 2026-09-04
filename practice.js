@@ -116,6 +116,9 @@ window.EIPractice = (function(){
       cfg.onResult = function(word, firstTryCorrect){
         EIStore.record(list.id, word, firstTryCorrect);
       };
+      cfg.onHeard = function(word, text){
+        EIStore.recordHeard(list.id, word, text);
+      };
       cfg.onFinish = function(sum){
         EIStore.finishRound(list.id, sum.right, sum.total);
       };
