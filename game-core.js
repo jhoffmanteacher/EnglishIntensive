@@ -163,6 +163,192 @@ window.GameCore = (function(){
     return parts;
   }
 
+  /* ---------------- phonetic encoding (pure, testable) ----------------
+     Everything here compares SOUNDS, not letters, so "krab" can match
+     "crab" (same sounds, different spelling) while "bled" still never
+     matches "bred" (different sounds, similar spelling). None of this is
+     full text-to-speech phoneme conversion (G2P) — it's a small rule-based
+     encoder good enough for the 1–2 syllable classroom words used here.
+
+     phonemeSpans(word) walks the string left to right, matching the
+     longest applicable rule at each position first: digraphs/trigraphs
+     (ch, th, igh, dge…), then vowel teams (ai, ee, oo…) and r-controlled
+     vowels (ar, er…), then magic-e (silent final e that lengthens the
+     vowel before it), then plain letters. Examples:
+       phonemes("crab")  -> ["K","R","AE","B"]
+       phonemes("krab")  -> ["K","R","AE","B"]   (same — passes)
+       phonemes("plum")  -> ["P","L","UH","M"]
+       phonemes("plumb") -> ["P","L","UH","M"]   (silent b after m — same)
+       phonemes("sled")  -> ["S","L","EH","D"]
+       phonemes("slade") -> ["S","L","EY","D"]   (differ only in the vowel)
+
+     This lived in blend-game.js while Say It was the only thing that
+     listened. It is core now because three other things need it: the
+     cards page judges a spoken answer without loading the say engine,
+     the phoneme clips in audio/ph are keyed by these tokens, and
+     diagnose() below has to point at the LETTERS behind a wrong sound —
+     which is what the spans are for. A span carries the sound and the
+     slice of the word that spells it, so a diagnosis can highlight "ai"
+     rather than "the third phoneme". */
+
+  var SHORT_VOWEL = { a:"AE", e:"EH", i:"IH", o:"AO", u:"UH" };
+  var LONG_VOWEL  = { a:"EY", e:"IY", i:"AY", o:"OW", u:"UW" };
+  var VOWEL_PHONES = { AE:1,EH:1,IH:1,AO:1,UH:1,EY:1,IY:1,AY:1,OW:1,UW:1,AW:1,OY:1,AR:1,OR:1,ER:1 };
+
+  function isVowelPhone(p){ return !!VOWEL_PHONES[p]; }
+  function isVowelLetter(ch){ return ch==="a"||ch==="e"||ch==="i"||ch==="o"||ch==="u"; }
+  function isConsonantLetter(ch){ return /[a-z]/.test(ch) && !isVowelLetter(ch); }
+
+  // c/g are "soft" before e, i or y (cent, gem); x and everything else is
+  // a fixed letter-to-sound mapping.
+  function consonantToken(ch, next){
+    if(ch === "c") return (next==="e"||next==="i"||next==="y") ? "S" : "K";
+    if(ch === "g") return (next==="e"||next==="i"||next==="y") ? "J" : "G";
+    if(ch === "x") return "KS";
+    return ch.toUpperCase();
+  }
+
+  // The word as [{ ph, start, end }] — `start`/`end` index the lowercased,
+  // letters-only word, so the spans are contiguous and together cover all
+  // of it. A silent letter has no sound of its own, so it is folded into
+  // the span before it ("said" is S + ai + D, "slide" is S+L + i + d-e)
+  // rather than left as a hole a highlight could fall through.
+  function phonemeSpans(word){
+    word = String(word||"").toLowerCase().replace(/[^a-z]/g,"");
+    var out = [], i = 0, n = word.length;
+    function at(s){ return word.substr(i, s.length) === s; }
+    function push(ph, len){ out.push({ ph: ph, start: i, end: i + len }); i += len; }
+    // Extend the previous sound over letters that make no sound of their own.
+    function absorb(len){
+      if(out.length) out[out.length-1].end += len;
+      i += len;
+    }
+    while(i < n){
+      var c = word.charAt(i);
+
+      // Trigraphs/tetragraphs first, longest match wins.
+      if(at("eigh")){ push("EY", 4); continue; }
+      if(at("igh")){ push("AY", 3); continue; }
+      if(at("tch")){ push("C", 3); continue; }
+      if(at("dge")){ push("J", 3); continue; }
+      if(at("mb") && i+2===n){ push("M", 2); continue; }   // silent b, end only
+
+      // Digraphs.
+      if(at("ch")){ push("C", 2); continue; }
+      if(at("sh")){ push("SH", 2); continue; }
+      if(at("th")){ push("TH", 2); continue; }
+      if(at("ph")){ push("F", 2); continue; }
+      if(at("wh")){ push("W", 2); continue; }
+      if(at("ck")){ push("K", 2); continue; }
+      if(at("ng")){ push("NG", 2); continue; }
+      if(at("qu")){ push("KW", 2); continue; }
+      if(i===0 && at("wr")){ push("R", 2); continue; }
+      if(i===0 && at("kn")){ push("N", 2); continue; }
+      if(i===0 && at("gn")){ push("N", 2); continue; }
+
+      // Vowel teams and r-controlled vowels.
+      if(at("ai")||at("ay")){ push("EY", 2); continue; }
+      if(at("ee")||at("ea")){ push("IY", 2); continue; }
+      if(at("oa")||at("ow")){ push("OW", 2); continue; }
+      if(at("oo")){ push("UW", 2); continue; }
+      if(at("ou")){ push("AW", 2); continue; }
+      if(at("oi")||at("oy")){ push("OY", 2); continue; }
+      if(at("ar")){ push("AR", 2); continue; }
+      if(at("or")){ push("OR", 2); continue; }
+      if(at("er")||at("ir")||at("ur")){ push("ER", 2); continue; }
+
+      // Magic e: vowel + single consonant + silent final e lengthens the vowel.
+      if(isVowelLetter(c) && (i+2)===(n-1) && word.charAt(i+2)==="e" && isConsonantLetter(word.charAt(i+1))){
+        push(LONG_VOWEL[c], 1); continue;
+      }
+      // A word-final e that wasn't just consumed above is silent.
+      if(c==="e" && i===n-1 && n>1){ absorb(1); continue; }
+
+      // Doubled consonants collapse to one sound ("ll" -> L, "ss" -> S…).
+      if(isConsonantLetter(c) && word.charAt(i+1)===c){
+        push(consonantToken(c, word.charAt(i+2)), 2); continue;
+      }
+
+      if(c==="y"){
+        push(i===0 ? "Y" : (i===n-1 ? "IY" : "IH"), 1); continue;
+      }
+      if(isVowelLetter(c)){ push(SHORT_VOWEL[c], 1); continue; }
+      push(consonantToken(c, word.charAt(i+1)), 1);
+    }
+    return out;
+  }
+
+  // The sounds alone. Derived from the spans rather than walked separately,
+  // so the two can never disagree about how a word is encoded.
+  function phonemes(word){
+    return phonemeSpans(word).map(function(s){ return s.ph; });
+  }
+
+  // Phoneme-level edit distance. Recognisers mangle vowels far more than
+  // consonants, so swapping one vowel sound for another costs half as much
+  // as any other kind of change. A plain consonant-for-consonant swap costs
+  // *more* than a full point (not exactly 1) so it never fits inside
+  // Regular's budget of 1 — a wrong consonant almost always means a
+  // different word entirely (e.g. "vest" heard as "nest"), not a mishearing,
+  // so Regular shouldn't forgive it the same way it forgives vowel drift.
+  function subCostOf(a, b){
+    if(a === b) return 0;
+    return (isVowelPhone(a) && isVowelPhone(b)) ? 0.5 : 1.5;
+  }
+
+  function phoneticDistance(a, b){
+    var m=a.length, n=b.length, i, j, prev=[], cur=[];
+    for(j=0;j<=n;j++) prev[j]=j;
+    for(i=1;i<=m;i++){
+      cur[0]=i;
+      for(j=1;j<=n;j++){
+        cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+subCostOf(a[i-1], b[j-1]));
+      }
+      for(j=0;j<=n;j++) prev[j]=cur[j];
+    }
+    return prev[n];
+  }
+
+  var NUM_WORDS = ["zero","one","two","three","four","five","six","seven","eight","nine","ten",
+                    "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
+                    "eighteen","nineteen","twenty"];
+
+  function normalize(s){
+    s = String(s||"");
+    // The recogniser sometimes returns a number instead of a short word
+    // ("tent" -> "10"); spell 0-20 back out before stripping non-letters,
+    // since that stripping would otherwise just delete the digits.
+    s = s.replace(/\b\d{1,2}\b/g, function(d){
+      var v = parseInt(d,10);
+      return NUM_WORDS[v] !== undefined ? NUM_WORDS[v] : d;
+    });
+    return s.toLowerCase().replace(/[^a-z' ]/g," ").replace(/\s+/g," ").trim();
+  }
+
+  // Locate a phoneme subsequence (e.g. ["OY"]) anywhere in a phoneme array —
+  // used by "sound" mode, where the target sound isn't pinned to the start
+  // or end of the word (the oi/oy diphthong can land anywhere: "coin",
+  // "boyish", "annoy"). Returns the index it starts at, or -1.
+  function findPhonemeSeq(arr, seq){
+    for(var i=0;i+seq.length<=arr.length;i++){
+      var ok = true;
+      for(var j=0;j<seq.length;j++){ if(arr[i+j]!==seq[j]){ ok=false; break; } }
+      if(ok) return i;
+    }
+    return -1;
+  }
+
+  // Known-good transcripts the recogniser returns for specific target words,
+  // seeded from mishearings actually observed in class — not a guess at
+  // every possible mishearing. Accepted at Regular, never Challenge.
+  // Add more here as they turn up; keep it short and commented — and see
+  // the teacher dashboard's "most often heard as" column, which is where a
+  // mishearing worth adding shows itself.
+  var ACCEPT = {
+    gasp: ["gas"],     // final consonant dropped
+    tent: ["tenth"]    // recogniser adds a trailing "th" sound
+  };
+
   /* ---------------- syllable chunks (pure, testable) ----------------
      A word list may write a word with middle dots marking its syllable
      boundaries — "fan·tas·tic". The dots are a teaching aid for the
@@ -563,6 +749,14 @@ window.GameCore = (function(){
     chunkSep: CHUNK_SEP,
     parseEntry: parseEntry,
     chunkMarkup: chunkMarkup,
+
+    phonemeSpans: phonemeSpans,
+    phonemes: phonemes,
+    isVowelPhone: isVowelPhone,
+    phoneticDistance: phoneticDistance,
+    normalize: normalize,
+    findPhonemeSeq: findPhonemeSeq,
+    ACCEPT: ACCEPT,
 
     spokenText: spokenText,
     directionParts: directionParts,

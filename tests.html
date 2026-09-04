@@ -172,6 +172,75 @@
     ph("sled").split(" ")[3] === ph("slade").split(" ")[3],
     true, ph("sled") + " / " + ph("slade"));
 
+  /* ---- the encoder is the core's, not this engine's ----
+     Say It aliases what game-core.js exports rather than keeping a second
+     copy. These assert the alias, not a lookalike: the cards page and the
+     phoneme clips depend on every caller encoding a word the same way. */
+  var GC = window.GameCore;
+  eq("phonemes is GameCore.phonemes", I.phonemes === GC.phonemes, true);
+  eq("normalize is GameCore.normalize", I.normalize === GC.normalize, true);
+  eq("phoneticDistance is GameCore.phoneticDistance", I.phoneticDistance === GC.phoneticDistance, true);
+  eq("isVowelPhone is GameCore.isVowelPhone", I.isVowelPhone === GC.isVowelPhone, true);
+  eq("findPhonemeSeq is GameCore.findPhonemeSeq", I.findPhonemeSeq === GC.findPhonemeSeq, true);
+  eq("phonemeSpans is GameCore.phonemeSpans", I.phonemeSpans === GC.phonemeSpans, true);
+
+  /* ---- pinned encoder output ----
+     One row per rule branch. The encoder moved files and gained spans; the
+     sounds it emits must not have moved with it, because a stat key, a
+     clip filename and a match all read them. */
+  var PINNED = {
+    crab:"K R AE B", ship:"SH IH P", sip:"S IH P", shoe:"SH AO", push:"P UH SH",
+    should:"SH AW L D", fish:"F IH SH", wash:"W AE SH", sled:"S L EH D", slade:"S L EY D",
+    plumb:"P L UH M", fantastic:"F AE N T AE S T IH K", said:"S EY D", eight:"EY T",
+    light:"L AY T", badge:"B AE J", watch:"W AE C", queen:"KW IY N", box:"B AO KS",
+    knee:"N IY", wrap:"R AE P", gnome:"N OW M", yellow:"Y EH L OW", happy:"H AE P IY",
+    city:"S IH T IY", gem:"J EH M", annoy:"AE N OY", coin:"K OY N", boyish:"B OY IH SH",
+    house:"H AW S", school:"S C UW L", the:"TH", one:"OW N", kite:"K AY T",
+    phone:"F OW N", white:"W AY T", sock:"S AO K", sing:"S IH NG", turn:"T ER N",
+    bird:"B ER D", her:"H ER", car:"K AR", "for":"F OR", tree:"T R IY", boat:"B OW T",
+    moon:"M UW N", rain:"R EY N", play:"P L EY", bread:"B R IY D"
+  };
+  Object.keys(PINNED).forEach(function(w){
+    eq("phonemes(\"" + w + "\")", ph(w), PINNED[w]);
+  });
+
+  /* ---- sh is its own sound ----
+     It used to encode as "S", which made ship and sip identical — the one
+     pair of real words the matcher could not tell apart. */
+  eq("phonemes: ship != sip", ph("ship") === ph("sip"), false, ph("ship") + " / " + ph("sip"));
+  eq("ship <- sip is never a match, Regular", match("sip","ship",1,NOBLEND), false);
+  eq("SH counts as a consonant", I.isVowelPhone("SH"), false);
+
+  /* ---- spans line up with the letters ----
+     Over every word on every list: the spans are contiguous, together
+     they cover the whole letters-only word, and mapping them gives
+     exactly what phonemes() returns. A hole here would let a diagnosis
+     highlight the wrong letters. */
+  (function(){
+    var bad = [], nWords = 0;
+    window.WordLists.ids.forEach(function(id){
+      window.WordLists.wordsOf(id).forEach(function(w){
+        nWords++;
+        var letters = String(w).toLowerCase().replace(/[^a-z]/g, "");
+        var spans = GC.phonemeSpans(w), at = 0, i;
+        for(i=0;i<spans.length;i++){
+          if(spans[i].start !== at || spans[i].end <= spans[i].start){ bad.push(w + " span " + i); return; }
+          at = spans[i].end;
+        }
+        if(at !== letters.length){ bad.push(w + " covers " + at + "/" + letters.length); return; }
+        if(spans.map(function(s){ return s.ph; }).join(" ") !== GC.phonemes(w).join(" ")) bad.push(w + " spans != phonemes");
+      });
+    });
+    eq("phonemeSpans: contiguous, complete and equal to phonemes() on every list word (" + nWords + " words)",
+      bad.length, 0, bad.slice(0,5).join(", ") || "0");
+  })();
+  eq("phonemeSpans: silent final e joins the sound before it",
+    JSON.stringify(GC.phonemeSpans("kite")),
+    JSON.stringify([{ph:"K",start:0,end:1},{ph:"AY",start:1,end:2},{ph:"T",start:2,end:4}]));
+  eq("phonemeSpans: x is one span, two sounds", GC.phonemeSpans("box").length, 3);
+  eq("phonemeSpans: qu is one span", JSON.stringify(GC.phonemeSpans("queen")[0]),
+    JSON.stringify({ph:"KW",start:0,end:2}));
+
   // ---- Regular accepts sound-alikes, Challenge does not ----
   eq("crab <- krab, Regular", match("krab","crab",1,START), true);
   eq("crab <- krab, Challenge", match("krab","crab",0,START), false);
