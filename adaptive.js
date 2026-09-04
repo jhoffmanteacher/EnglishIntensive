@@ -82,6 +82,15 @@ window.Adaptive = (function(){
   var ERROR_KINDS = ["blend","sound","vowel","consonant","missing","extra","other"];
   var MAX_KIND = 999;
 
+  /* How much of a list has to be solid before it counts as done — for
+     the "ready to move up" suggestion, and now for a sequence that acts
+     on it without being asked. Not 100 %: a list is finished when a
+     student can read it, and there is always one word that isn't the
+     point. It lives here rather than in teacher.js because the dashboard
+     and the student's own browser both have to agree about it, and they
+     are two different files. */
+  var SOLID_ENOUGH = 0.8;
+
   var SLOW_MS     = 2500;
   var SLOW_BOOST  = 1.5;
   var LAT_ALPHA   = 0.4;    // weight of the newest time in the running average
@@ -460,6 +469,67 @@ window.Adaptive = (function(){
     return { latest: list[list.length-1].cwpm, best: best, runs: list.length, last: list[list.length-1] };
   }
 
+  /* ── sequences ─────────────────────────────────────────────────────
+     Where a student is in an ordered course of lists, computed from their
+     own stats. Pure, and that is the whole trick: a student's position is
+     a FUNCTION of their practice rather than a fact somebody has to write
+     down, so the student's browser and the teacher's dashboard work it
+     out separately and always agree, and nothing has to write to
+     assignments/{uid} to move anybody on. (Which matters: that
+     collection is teacher-only on purpose, and a student who could
+     advance themselves could assign themselves anything.)
+
+     A `sequence` is an ordered array of STEPS, each an array of list ids
+     that unlock together. What comes back is ADDITIVE — every step up to
+     and including the first unfinished one — because a finished list
+     stays in rotation. The scheduler already damps a mastered word into
+     near-invisibility; taking the list away as well is how a student
+     loses a word they had.
+
+     `totalOf(listId)` is injected because this file knows nothing about
+     the word library. Without it nothing is ever done and only the first
+     step unlocks, which is the safe way to be wrong. */
+  function listShare(stats, listId, totalOf){
+    var total = typeof totalOf === "function" ? (totalOf(listId) || 0) : 0;
+    if(!total) return 0;
+    var prefix = listId + "|", solid = 0;
+    for(var k in stats){
+      if(!has(stats, k) || k.indexOf(prefix) !== 0) continue;
+      var s = sanitizeStat(stats[k]);
+      // Solid AND at pace, where anything timed it. A word that was
+      // never timed has lat 0 and is simply solid, which is every mode
+      // but the flash cards.
+      if(isMastered(s) && !isSlow(s)) solid++;
+    }
+    return solid / total;
+  }
+
+  function unlocked(sequence, stats, startAt, totalOf){
+    var steps = Array.isArray(sequence) ? sequence : [];
+    var from = clamp(Math.floor(num(startAt, 0)), 0, Math.max(0, steps.length - 1));
+    var ids = [], i, j, step, stepDone;
+    for(i=0;i<=from && i<steps.length;i++){
+      // Everything up to the starting step is unlocked outright: a
+      // student placed at step four by the screener has not "finished"
+      // steps one to three, and must not have to.
+      for(j=0;j<(steps[i] || []).length;j++) if(ids.indexOf(steps[i][j]) === -1) ids.push(steps[i][j]);
+    }
+    var index = from;
+    for(i=from;i<steps.length;i++){
+      step = steps[i] || [];
+      for(j=0;j<step.length;j++) if(ids.indexOf(step[j]) === -1) ids.push(step[j]);
+      stepDone = step.length > 0 && step.every(function(id){
+        return listShare(stats, id, totalOf) >= SOLID_ENOUGH;
+      });
+      index = i;
+      // `stepIds` is what the CURRENT step opened, which is what a
+      // "new list" message has to name — the whole unlocked set would
+      // announce everything the student has ever been given.
+      if(!stepDone) return { ids: ids, stepIndex: i, stepIds: step.slice(), done: false };
+    }
+    return { ids: ids, stepIndex: index, stepIds: (steps[index] || []).slice(), done: steps.length > 0 };
+  }
+
   /* The commonest kind of error in a tally, or null. Ties break by the
      order in ERROR_KINDS — which is diagnose()'s own order of
      specificity, so a tie goes to the more specific diagnosis. */
@@ -503,6 +573,9 @@ window.Adaptive = (function(){
     rawAccuracy: rawAccuracy,
     isMastered: isMastered,
     isSlow: isSlow,
+    solidEnough: SOLID_ENOUGH,
+    listShare: listShare,
+    unlocked: unlocked,
     errorKinds: ERROR_KINDS.slice(),
     sanitizeKinds: sanitizeKinds,
     topKind: topKind,
@@ -515,7 +588,8 @@ window.Adaptive = (function(){
       NEW_WEIGHT: NEW_WEIGHT, MAX_BOX: MAX_BOX, BOX_DAYS: BOX_DAYS,
       REST_FLOOR: REST_FLOOR, MASTERED_DAMP: MASTERED_DAMP,
       MASTERED_ACC: MASTERED_ACC, DAY: DAY,
-      SLOW_MS: SLOW_MS, SLOW_BOOST: SLOW_BOOST, LAT_ALPHA: LAT_ALPHA, MAX_LAT_MS: MAX_LAT_MS
+      SLOW_MS: SLOW_MS, SLOW_BOOST: SLOW_BOOST, LAT_ALPHA: LAT_ALPHA, MAX_LAT_MS: MAX_LAT_MS,
+      SOLID_ENOUGH: SOLID_ENOUGH
     }
   };
 })();

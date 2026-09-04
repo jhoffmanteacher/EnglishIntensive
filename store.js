@@ -89,13 +89,18 @@ window.EIStore = (function(){
      A missing roster (nothing imported, or the rules not published yet)
      makes the walk exactly what it was before the roster existed, which
      is the property that lets this ship ahead of the rules. */
-  function effectiveLists(assignment, classCfg, allIds, roster){
+  function effectiveLists(assignment, classCfg, allIds, roster, seqIds){
     var cfg = classCfg || {};
     if(assignment && Array.isArray(assignment.lists)) return assignment.lists.slice();
     // The roster's own lists come next: a student the teacher placed on
     // the import, before anybody had a uid to assign against. An
     // assignment written later outranks it, which is the whole order.
     if(roster && Array.isArray(roster.lists)) return roster.lists.slice();
+    // Then the sequence, where the period has one switched on. It is
+    // computed from the student's own practice (adaptive.js explains
+    // why), and it replaces the period's flat list rather than adding to
+    // it — a period with a course is a period whose list IS the course.
+    if(Array.isArray(seqIds)) return seqIds.slice();
     // A period from either place. The assignment's wins where there is
     // one, so a student moved on the dashboard stays moved.
     var period = (assignment && assignment.period) || (roster && roster.period) || null;
@@ -104,6 +109,47 @@ window.EIStore = (function(){
     if(period != null && Array.isArray(byPeriod[period])) return byPeriod[period].slice();
     if(Array.isArray(cfg.defaultLists)) return cfg.defaultLists.slice();
     return (allIds || []).slice();
+  }
+
+  /* ── sequences ─────────────────────────────────────────────────────
+     A period may run an ordered course instead of a flat list of lists.
+     Where it does, a student's position in it is worked out from their
+     own stats every time this runs — nothing is stored, nothing is
+     written, and the dashboard computes the identical answer from the
+     same function. See Adaptive.unlocked.
+
+     A period with no stored sequence has no course and keeps its flat
+     list, which is every period until a teacher builds one. `sequenceOn`
+     only ever turns one OFF: a sequence that exists is on unless somebody
+     says otherwise. */
+  function sequenceStepsFor(period, classCfg){
+    var cfg = classCfg || {};
+    if(period == null || period === "") return null;
+    var all = cfg.sequences || {};
+    var steps = all[period];
+    if(!Array.isArray(steps) || !steps.length) return null;
+    var on = cfg.sequenceOn || {};
+    if(has(on, period) && on[period] === false) return null;
+    return steps;
+  }
+
+  /* Where this student is in their period's course, or null when there
+     isn't one. `startAt` comes from the roster row: a student the
+     screener placed on Red 3 starts there rather than working up to it. */
+  function sequenceState(assignment, classCfg, roster, stats, totalOf, stepOf){
+    var period = (assignment && assignment.period) || (roster && roster.period) || null;
+    var steps = sequenceStepsFor(period, classCfg);
+    if(!steps) return null;
+    var startAt = 0;
+    var startId = roster && roster.startAt;
+    if(startId && typeof stepOf === "function"){
+      var at = stepOf(steps, startId);
+      if(at >= 0) startAt = at;
+    }
+    var res = Adaptive.unlocked(steps, stats || {}, startAt, totalOf);
+    res.period = period;
+    res.steps = steps.length;
+    return res;
   }
 
   /* ── loading ─────────────────────────────────────────────────────── */
@@ -277,8 +323,17 @@ window.EIStore = (function(){
 
   /* ── reads for the pages ──────────────────────────────────────────── */
   function statsFor(listId){ return Adaptive.statsForList(stats, listId); }
+  // The student's course position, recomputed from live stats — so a
+  // list unlocked mid-round shows up as soon as the home page redraws.
+  function mySequence(){
+    return sequenceState(assignment, classCfg, rosterRow, stats,
+      function(id){ return WordLists.wordsOf(id).length; },
+      function(steps, id){ return WordLists.stepOf(steps, id); });
+  }
+
   function myLists(){
-    var ids = effectiveLists(assignment, classCfg, WordLists.ids, rosterRow);
+    var seq = mySequence();
+    var ids = effectiveLists(assignment, classCfg, WordLists.ids, rosterRow, seq && seq.ids);
     // Drop assignments naming a list that no longer exists, so a deleted
     // list doesn't render a broken tile.
     return ids.filter(function(id){ return WordLists.exists(id); });
@@ -312,9 +367,12 @@ window.EIStore = (function(){
       return (assignment && assignment.period) || (rosterRow && rosterRow.period) || null;
     },
     roster: function(){ return rosterRow; },
+    sequence: mySequence,
     failed: function(){ return loadFailed; },
     _internals: {
       effectiveLists: effectiveLists,
+      sequenceStepsFor: sequenceStepsFor,
+      sequenceState: sequenceState,
       // The write body, for a test that can assert its shape without a
       // Firestore. Reads the module's live state, so a test drives it
       // through the same recordHeard() a game calls.

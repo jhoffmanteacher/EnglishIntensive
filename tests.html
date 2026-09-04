@@ -1916,6 +1916,162 @@
     })();
   })();
 
+  /* ══════════════════════════════════════════════════════════════════
+     Sequences
+
+     A student's position in a course is a pure function of their own
+     stats, computed twice — once in their browser, once on the
+     dashboard — from the same function. These pin the function, and one
+     of them pins that the dashboard's "ready to move up" and the
+     student's auto-advance agree about what "finished" means, because
+     the day they disagree a student is either stuck or two lists ahead.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A2 = window.Adaptive, W = window.WordLists;
+    function totals(map){ return function(id){ return map[id] || 0; }; }
+    function solid(listId, n){
+      // n words of that list, each mastered and at pace.
+      var out = {}, i;
+      for(i=0;i<n;i++) out[listId + "|w" + i] = A2.sanitizeStat({ n:12, r:12, box:5, last:1, lat:900 });
+      return out;
+    }
+    function merge(){
+      var out = {}, i, k;
+      for(i=0;i<arguments.length;i++) for(k in arguments[i]) out[k] = arguments[i][k];
+      return out;
+    }
+    var SEQ = [["a"], ["b","c"], ["d"]];
+    var TOT = totals({ a:10, b:10, c:10, d:10 });
+
+    (function(){
+      var u = A2.unlocked(SEQ, {}, 0, TOT);
+      eq("a student with nothing gets the first step", u.ids.join(","), "a");
+      eq("…and is on step 0", u.stepIndex, 0);
+      eq("…and isn't done", u.done, false);
+      eq("…and the step names itself", u.stepIds.join(","), "a");
+    })();
+
+    eq("a step under the bar doesn't open the next one",
+       A2.unlocked(SEQ, solid("a", 7), 0, TOT).ids.join(","), "a");
+    (function(){
+      var u = A2.unlocked(SEQ, solid("a", 8), 0, TOT);
+      eq("a step at the bar opens the next one", u.ids.join(","), "a,b,c");
+      eq("…and the finished list stays in rotation", u.ids.indexOf("a") !== -1, true);
+      eq("…on step 1", u.stepIndex, 1);
+      eq("…which is what just opened", u.stepIds.join(","), "b,c");
+    })();
+    eq("BOTH lists of a step have to be finished",
+       A2.unlocked(SEQ, merge(solid("a",10), solid("b",10)), 0, TOT).ids.join(","), "a,b,c");
+    eq("…and then the last step opens",
+       A2.unlocked(SEQ, merge(solid("a",10), solid("b",10), solid("c",10)), 0, TOT).ids.join(","), "a,b,c,d");
+    (function(){
+      var u = A2.unlocked(SEQ, merge(solid("a",10), solid("b",10), solid("c",10), solid("d",10)), 0, TOT);
+      eq("finishing everything says done", u.done, true);
+      eq("…with the whole course unlocked", u.ids.join(","), "a,b,c,d");
+    })();
+
+    // startAt: the screener put them further along.
+    (function(){
+      var u = A2.unlocked(SEQ, {}, 2, TOT);
+      eq("starting at step 2 unlocks everything up to it", u.ids.join(","), "a,b,c,d");
+      eq("…without pretending they finished it", u.done, false);
+      eq("a startAt past the end is clamped", A2.unlocked(SEQ, {}, 99, TOT).stepIndex, 2);
+      eq("a negative startAt is 0", A2.unlocked(SEQ, {}, -3, TOT).stepIndex, 0);
+    })();
+
+    eq("no sequence, nothing unlocked", A2.unlocked([], {}, 0, TOT).ids.length, 0);
+    eq("…and not 'done' either", A2.unlocked([], {}, 0, TOT).done, false);
+    eq("no totalOf means no evidence, so only step one",
+       A2.unlocked(SEQ, solid("a", 10), 0).ids.join(","), "a");
+    eq("a slow word doesn't count towards finishing", (function(){
+      var st = {}, i;
+      for(i=0;i<10;i++) st["a|w" + i] = A2.sanitizeStat({ n:12, r:12, box:5, last:1, lat:9000 });
+      return A2.unlocked(SEQ, st, 0, TOT).ids.join(",");
+    })(), "a");
+
+    // ---- the generated course ----
+    (function(){
+      var seq = W.defaultSequence();
+      eq("the default course has steps", seq.length > 15, true, String(seq.length));
+      eq("every id in it is a real list",
+         seq.reduce(function(acc, s){ return acc.concat(s); }, [])
+            .filter(function(id){ return !W.exists(id); }).join(","), "");
+      eq("no list appears twice", (function(){
+        var seen = {}, dupes = [];
+        seq.forEach(function(s){ s.forEach(function(id){ if(seen[id]) dupes.push(id); seen[id] = true; }); });
+        return dupes.join(",");
+      })(), "");
+      eq("the nonsense words are in the first step, as warm-up",
+         seq[0].indexOf("nonsense") !== -1, true);
+      eq("…alongside the starting blends", seq[0].indexOf("initial-blends") !== -1, true);
+      eq("the blends come before the red words",
+         W.stepOf(seq, "initial-blends") < W.stepOf(seq, "red-1-cards"), true);
+      eq("within a family, say comes before cards",
+         W.stepOf(seq, "initial-blends") < W.stepOf(seq, "blends-start-1-cards"), true);
+      eq("…and cards before match",
+         W.stepOf(seq, "blends-start-1-cards") < W.stepOf(seq, "blends-start-1-match"), true);
+      eq("a red list's cards unlock its Match It and the next list's cards",
+         W.stepOf(seq, "red-1-match") === W.stepOf(seq, "red-2-cards"), true);
+      eq("…one step after its own cards",
+         W.stepOf(seq, "red-1-match") - W.stepOf(seq, "red-1-cards"), 1);
+      eq("the course ends on the last red list", seq[seq.length-1].join(","), "red-10-match");
+      eq("modes that aren't rungs are left out",
+         W.stepOf(seq, "oi-oy-spell") === -1 && W.stepOf(seq, "nonsense-1-blendit") === -1, true);
+      eq("stepOf on a list that isn't in the course is -1", W.stepOf(seq, "passages-1-read"), -1);
+    })();
+
+    // ---- store.js: when a sequence applies at all ----
+    (function(){
+      var S = window.EIStore._internals;
+      var cfg = { sequences: { "3": SEQ } };
+      eq("a period with a sequence has one", (S.sequenceStepsFor("3", cfg) || []).length, 3);
+      eq("a period without one doesn't", S.sequenceStepsFor("4", cfg), null);
+      eq("no period, no sequence", S.sequenceStepsFor(null, cfg), null);
+      eq("an empty period name is not a period", S.sequenceStepsFor("", cfg), null);
+      eq("a sequence is on unless somebody turned it off",
+         (S.sequenceStepsFor("3", { sequences:{ "3":SEQ }, sequenceOn:{} }) || []).length, 3);
+      eq("…and off when they did",
+         S.sequenceStepsFor("3", { sequences:{ "3":SEQ }, sequenceOn:{ "3":false } }), null);
+      eq("an empty sequence is no sequence", S.sequenceStepsFor("3", { sequences:{ "3":[] } }), null);
+
+      var st = S.sequenceState({ period:"3" }, cfg, null, {}, TOT, W.stepOf);
+      eq("the state carries the period", st.period, "3");
+      eq("…and how long the course is", st.steps, 3);
+      eq("…and where they are", st.stepIndex, 0);
+      eq("a roster start moves them along", 
+         S.sequenceState({ period:"3" }, cfg, { startAt:"d" }, {}, TOT, W.stepOf).stepIndex, 2);
+      eq("a roster start that isn't in the course is ignored",
+         S.sequenceState({ period:"3" }, cfg, { startAt:"zz" }, {}, TOT, W.stepOf).stepIndex, 0);
+      eq("the roster's period counts when the assignment has none",
+         S.sequenceState(null, cfg, { period:"3" }, {}, TOT, W.stepOf).period, "3");
+
+      // The rung, in the walk.
+      var E = S.effectiveLists;
+      eq("a sequence replaces the period's flat list",
+         E({period:"3"}, { periodLists:{ "3":["zz"] } }, ["all"], null, ["a","b"]).join(","), "a,b");
+      eq("…but never the student's own",
+         E({period:"3", lists:["mine"]}, {}, ["all"], null, ["a","b"]).join(","), "mine");
+      eq("…nor their roster set",
+         E({period:"3"}, {}, ["all"], { lists:["ros"] }, ["a","b"]).join(","), "ros");
+      eq("no sequence leaves the period's flat list alone",
+         E({period:"3"}, { periodLists:{ "3":["zz"] } }, ["all"], null, null).join(","), "zz");
+    })();
+
+    /* ---- the two sides agree ----
+       The dashboard's suggestion and the student's auto-advance must call
+       a list finished at the same moment, or one of them is lying. */
+    (function(){
+      var T2 = window.EITeacher._internals;
+      var stats = solid("red-1-cards", 16);   // 16 of 20 = exactly the bar
+      eq("the dashboard's share is the scheduler's share",
+         T2.listProgress(stats, "red-1-cards").share,
+         A2.listShare(stats, "red-1-cards", function(id){ return W.wordsOf(id).length; }));
+      eq("…and it is exactly at the bar", T2.listProgress(stats, "red-1-cards").share, A2.solidEnough);
+      eq("the dashboard uses the scheduler's threshold, not its own",
+         T2.SOLID_ENOUGH, A2.solidEnough);
+    })();
+  })();
+
   /* ---- the dashboard's mode across students ---- */
   (function(){
     var M = window.EITeacher._internals.modeHeard;

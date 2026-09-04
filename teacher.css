@@ -118,6 +118,36 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 .riPaste:focus{outline:none;border-color:var(--accent)}
 #riPreview{margin-top:14px}
 
+/* ---- the sequence editor ----
+   An ordered list of steps, drag-to-reorder with buttons as well: the
+   drag is what everybody reaches for and the buttons are what works on a
+   trackpad, with a keyboard, and past the bottom of a scrolling panel. */
+.seqBox{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.seqList{list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:6px}
+.seqStep{
+  display:flex;align-items:center;gap:10px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  padding:8px 12px;cursor:grab;
+}
+.seqStep.dragging{opacity:.45}
+.seqStep:hover{border-color:var(--accent)}
+.seqNum{
+  flex:none;width:26px;height:26px;border-radius:50%;
+  background:var(--panel);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;color:var(--muted);
+}
+.seqIds{flex:1 1 auto;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.seqChip{
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:2px 8px;font-size:12.5px;font-weight:700;white-space:nowrap;
+}
+.seqTools{flex:none;display:inline-flex;gap:4px}
+/* A cell the sequence decided, on the Assign board — dashed like an
+   inherited one, because it is inherited: from the course, not a person. */
+.abCell.seq{border-style:dashed}
+.abCell .seqStepNum{display:block;font-size:10px;color:var(--muted);letter-spacing:.04em}
+
 /* A roster row with no account behind it yet. Present, clickable and
    assignable — just visibly not here. */
 table.t tbody tr.pending td{opacity:.62}

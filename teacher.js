@@ -62,7 +62,7 @@
   var notes = {};             // uid → { text, updatedAt } — teacher-only
   var roster = {};            // email → { name, id, period, start, lists, importedAt }
   var rosterReadable = false; // false until the roster rules are published
-  var classCfg = { periodLists:{}, defaultLists:null, periods:[] };
+  var classCfg = { periodLists:{}, defaultLists:null, periods:[], sequences:{}, sequenceOn:{} };
   var view = "roster";
   var detailUid = null;
 
@@ -174,7 +174,12 @@
       classCfg = {
         periodLists: c.periodLists || {},
         defaultLists: Array.isArray(c.defaultLists) ? c.defaultLists : null,
-        periods: Array.isArray(c.periods) ? c.periods : []
+        periods: Array.isArray(c.periods) ? c.periods : [],
+        // A period's ordered course, and the switch that turns one off.
+        // Absent means the period has no course and keeps its flat list,
+        // which is every period until somebody builds one.
+        sequences: c.sequences || {},
+        sequenceOn: c.sequenceOn || {}
       };
       addPendingStudents();
       // Sort by display name, falling back to the email local part — an
@@ -479,6 +484,10 @@
     var s = studentByUid(uid);
     var r = rosterFor(s);
     if(r && Array.isArray(r.lists)) return { ids: r.lists, from: "roster" };
+    // The course, where the period runs one. Same rung, same order and
+    // the same function as store.js — see sequenceStateFor.
+    var seq = sequenceStateFor(s);
+    if(seq) return { ids: seq.ids, from: "sequence · step " + (seq.stepIndex + 1) + " of " + seq.steps, seq: seq };
     var p = (a && a.period) || (r && r.period) || null;
     if(p != null && p !== "" && Array.isArray(classCfg.periodLists[p])) return { ids: classCfg.periodLists[p], from: "period " + p };
     if(Array.isArray(classCfg.defaultLists)) return { ids: classCfg.defaultLists, from: "class default" };
@@ -1211,22 +1220,241 @@
       });
   }
 
+  /* ---------------- the sequence editor ----------------
+     A period's course, as an ordered list of steps. Edits are held in
+     `seqDraft` until Save, the same way the Assign board holds its cells,
+     because a course is thirty-odd decisions and saving each one as it is
+     made would mean a half-built course reaching students mid-lesson.
+
+     Steps are drag-to-reorder AND have ↑/↓ buttons. The drag is what
+     everybody reaches for; the buttons are what works on a Chromebook
+     trackpad, with a keyboard, and for anybody who has ever tried to drag
+     a row past the bottom of a scrolling panel. */
+  var seqDraft = {};      // period → steps, only while being edited
+
+  function seqSteps(p){
+    if(Object.prototype.hasOwnProperty.call(seqDraft, p)) return seqDraft[p];
+    return sequenceStored(p) || [];
+  }
+  function seqDirty(p){ return Object.prototype.hasOwnProperty.call(seqDraft, p); }
+
+  function stepLabel(ids){
+    return (ids || []).map(function(id){
+      var l = WordLists.byId(id);
+      if(!l) return id;
+      var m = WordLists.modeOf(l.mode);
+      return '<span class="seqChip">' + esc(l.short || l.listTitle) + " " + esc(m ? m.icon : "") + "</span>";
+    }).join("");
+  }
+
+  function sequenceEditorHtml(p){
+    var steps = seqSteps(p);
+    var on = sequenceIsOn(p);
+    var rows = steps.map(function(ids, i){
+      return '<li class="seqStep" draggable="true" data-seq="' + esc(p) + '" data-step="' + i + '">' +
+        '<span class="seqNum">' + (i + 1) + "</span>" +
+        '<span class="seqIds">' + (ids.length ? stepLabel(ids) : '<span class="muted tiny">empty</span>') + "</span>" +
+        '<span class="seqTools">' +
+          '<button class="pkMini" data-seqmove="up" title="Move up">↑</button>' +
+          '<button class="pkMini" data-seqmove="down" title="Move down">↓</button>' +
+          '<button class="pkMini" data-seqmove="drop" title="Remove this step">✕</button>' +
+        "</span></li>";
+    }).join("");
+
+    return '<div class="seqBox" data-seqbox="' + esc(p) + '">' +
+      '<div class="pkHead"><h3>Sequence</h3>' +
+        '<span class="muted tiny">' + (steps.length ? steps.length + " steps" : "none yet") + "</span>" +
+        '<span class="pkTools">' +
+          '<button class="pkMini" data-seqon="' + esc(p) + '">' + (on ? "On" : "Off") + "</button>" +
+          '<button class="pkMini" data-seqdefault="' + esc(p) + '">Reset to default</button>' +
+          '<button class="pkMini" data-seqadd="' + esc(p) + '">Add a step…</button>' +
+        "</span></div>" +
+      '<p class="note" style="margin:0 0 10px">An ordered course. A student sees every step up to and ' +
+      "including the one they are on, and the site opens the next one when the current one is " +
+      Math.round(SOLID_ENOUGH * 100) + "&nbsp;% solid — nothing is written and nobody has to notice. " +
+      "While a sequence is on it replaces this period's flat list.</p>" +
+      (steps.length ? '<ol class="seqList">' + rows + "</ol>"
+                    : '<div class="empty">No sequence yet. <b>Reset to default</b> builds the standard course.</div>') +
+      '<div class="rowActions">' +
+        '<button class="btn sm" data-seqsave="' + esc(p) + '"' + (seqDirty(p) ? "" : " disabled") + ">Save sequence</button>" +
+        '<span class="saveNote" data-seqnote="' + esc(p) + '"></span>' +
+      "</div></div>";
+  }
+
+  function redrawSequence(p){
+    var box = document.querySelector('[data-seqbox="' + p.replace(/"/g, '\\"') + '"]');
+    if(!box) return;
+    var holder = document.createElement("div");
+    holder.innerHTML = sequenceEditorHtml(p);
+    box.parentNode.replaceChild(holder.firstChild, box);
+    bindSequenceEditors();
+  }
+
+  function bindSequenceEditors(){
+    Array.prototype.forEach.call(document.querySelectorAll("[data-seqbox]"), function(box){
+      var p = box.getAttribute("data-seqbox");
+      if(box.dataset.bound) return;
+      box.dataset.bound = "1";
+
+      box.addEventListener("click", function(ev){
+        var t2 = ev.target;
+        if(!t2 || !t2.getAttribute) return;
+
+        if(t2.getAttribute("data-seqdefault") !== null){
+          seqDraft[p] = WordLists.defaultSequence();
+          return redrawSequence(p);
+        }
+        if(t2.getAttribute("data-seqon") !== null){
+          // The switch saves on its own: it is one bit, and holding it in
+          // a draft alongside the steps would mean "Off" not taking
+          // effect until somebody pressed Save on something else.
+          saveSequenceOn(p, !sequenceIsOn(p));
+          return;
+        }
+        if(t2.getAttribute("data-seqadd") !== null){
+          return openStepPicker(p);
+        }
+        if(t2.getAttribute("data-seqsave") !== null){
+          return saveSequence(p);
+        }
+        var move = t2.getAttribute("data-seqmove");
+        if(move){
+          var li = t2;
+          while(li && !li.getAttribute("data-step")) li = li.parentNode;
+          if(!li) return;
+          var i = parseInt(li.getAttribute("data-step"), 10);
+          var steps = seqSteps(p).slice();
+          if(move === "up" && i > 0){ var a = steps[i-1]; steps[i-1] = steps[i]; steps[i] = a; }
+          else if(move === "down" && i < steps.length - 1){ var b = steps[i+1]; steps[i+1] = steps[i]; steps[i] = b; }
+          else if(move === "drop"){ steps.splice(i, 1); }
+          else return;
+          seqDraft[p] = steps;
+          redrawSequence(p);
+        }
+      });
+
+      // Drag to reorder. dataTransfer carries the index; the drop target
+      // works out where it landed.
+      var dragFrom = -1;
+      box.addEventListener("dragstart", function(ev){
+        var li = ev.target;
+        if(!li || !li.getAttribute || li.getAttribute("data-step") === null) return;
+        dragFrom = parseInt(li.getAttribute("data-step"), 10);
+        li.classList.add("dragging");
+        try{ ev.dataTransfer.setData("text/plain", String(dragFrom)); ev.dataTransfer.effectAllowed = "move"; }catch(e){}
+      });
+      box.addEventListener("dragend", function(ev){
+        if(ev.target && ev.target.classList) ev.target.classList.remove("dragging");
+      });
+      box.addEventListener("dragover", function(ev){ ev.preventDefault(); });
+      box.addEventListener("drop", function(ev){
+        ev.preventDefault();
+        var li = ev.target;
+        while(li && li.getAttribute && li.getAttribute("data-step") === null) li = li.parentNode;
+        if(!li || !li.getAttribute) return;
+        var to = parseInt(li.getAttribute("data-step"), 10);
+        var from = dragFrom;
+        try{ from = parseInt(ev.dataTransfer.getData("text/plain"), 10); }catch(e){}
+        if(!isFinite(from) || !isFinite(to) || from === to) return;
+        var steps = seqSteps(p).slice();
+        var moved = steps.splice(from, 1)[0];
+        steps.splice(to, 0, moved);
+        seqDraft[p] = steps;
+        redrawSequence(p);
+      });
+    });
+  }
+
+  // One step, built with the same picker every other assignment uses.
+  function openStepPicker(p){
+    closeBulk();
+    bulkWrap = document.createElement("div");
+    bulkWrap.className = "abModal";
+    bulkWrap.innerHTML =
+      '<div class="abModalBox" role="dialog" aria-modal="true">' +
+        "<h2>Add a step to period " + esc(p) + "</h2>" +
+        '<p class="note">Everything ticked here unlocks together, and stays unlocked. ' +
+        "The step goes on the end; drag it where it belongs.</p>" +
+        pickerHtml("bulk", [], false) +
+        '<div class="rowActions">' +
+          '<button class="btn sm" id="abApply">Add the step</button>' +
+          '<button class="btn ghost sm" id="abCancel">Cancel</button>' +
+        "</div></div>";
+    document.body.appendChild(bulkWrap);
+    bindPickers(bulkWrap);
+    bulkWrap.addEventListener("click", function(e){ if(e.target === bulkWrap) closeBulk(); });
+    document.getElementById("abCancel").addEventListener("click", closeBulk);
+    document.getElementById("abApply").addEventListener("click", function(){
+      var ids = scopeSelection("bulk");
+      if(ids.length){
+        seqDraft[p] = seqSteps(p).slice().concat([ids]);
+      }
+      closeBulk();
+      redrawSequence(p);
+    });
+  }
+
+  function seqNote(p, cls, text){
+    var el = document.querySelector('[data-seqnote="' + p.replace(/"/g, '\\"') + '"]');
+    if(!el) return;
+    el.className = "saveNote" + (cls ? " " + cls : "");
+    el.textContent = text;
+  }
+
+  function saveSequence(p){
+    var steps = seqSteps(p).filter(function(s){ return s && s.length; });
+    var before = classCfg.sequences[p];
+    classCfg.sequences[p] = steps;
+    var patch = {}; patch[p] = steps;
+    seqNote(p, "", "Saving…");
+    db.collection("config").doc("class").set({ sequences: patch }, { merge:true })
+      .then(function(){
+        delete seqDraft[p];
+        redrawSequence(p);
+        seqNote(p, "ok", "Saved.");
+      })
+      .catch(function(){
+        classCfg.sequences[p] = before;
+        seqNote(p, "err", "Didn't save — check the network and try again.");
+      });
+  }
+
+  function saveSequenceOn(p, on){
+    var before = classCfg.sequenceOn[p];
+    classCfg.sequenceOn[p] = on;
+    var patch = {}; patch[p] = on;
+    seqNote(p, "", "Saving…");
+    db.collection("config").doc("class").set({ sequenceOn: patch }, { merge:true })
+      .then(function(){ render(); })
+      .catch(function(){
+        classCfg.sequenceOn[p] = before;
+        seqNote(p, "err", "Didn't save — check the network and try again.");
+      });
+  }
+
   /* ---------------- periods & lists ---------------- */
   function renderGroups(){
     var periods = allPeriods();
 
     var periodPanels = periods.map(function(p){
       var sel = Array.isArray(classCfg.periodLists[p]) ? classCfg.periodLists[p] : null;
-      var count = students.filter(function(s){ return (assignments[s.uid] || {}).period === p; }).length;
+      var count = students.filter(function(s){
+        var r = rosterFor(s);
+        return ((assignments[s.uid] || {}).period || (r && r.period)) === p;
+      }).length;
+      var live = !!sequenceOf(p);
       return '<div class="panel"><h2>Period ' + esc(p) + "</h2>" +
         '<p class="note">' + count + " student" + (count === 1 ? "" : "s") + " · " +
-        (sel ? "its own list set" : "following the class default") + "</p>" +
+        (live ? "running a <b>sequence</b> — the flat list below is ignored while it is on"
+              : sel ? "its own list set" : "following the class default") + "</p>" +
         pickerHtml("p:" + p, sel, Array.isArray(classCfg.defaultLists) ? false : true) +
         '<div class="rowActions">' +
           '<button class="btn sm" data-save="p:' + esc(p) + '">Save period ' + esc(p) + "</button>" +
           '<button class="btn ghost sm" data-clear="p:' + esc(p) + '">Use class default</button>' +
           '<span class="saveNote" data-note="p:' + esc(p) + '"></span>' +
-        "</div></div>";
+        "</div>" +
+        sequenceEditorHtml(p) +
+        "</div>";
     }).join("");
 
     var roster = students.map(function(s){
@@ -1273,6 +1501,7 @@
         "<tbody>" + roster + "</tbody></table></div></div>" : "");
 
     $("tImport").addEventListener("click", openImport);
+    bindSequenceEditors();
 
     Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-save]"), function(b){
       b.addEventListener("click", function(){ saveScope(b.dataset.save, false); });
@@ -1435,13 +1664,26 @@
     var k = "s:" + uid;
     if(hasDraft(k)) return board.draft[k];
     var a = assignments[uid];
-    return (a && Array.isArray(a.lists)) ? a.lists : null;
+    if(a && Array.isArray(a.lists)) return a.lists;
+    /* A student who hasn't signed in has their own set on their roster
+       row instead of in an assignment — same rung, same board cell,
+       different document. See saveBody. */
+    var r = rosterFor(studentByUid(uid));
+    return (r && Array.isArray(r.lists)) ? r.lists : null;
   }
+  /* What this student actually has right now, board drafts included.
+     The same walk store.js runs — own → roster → sequence → period →
+     default — so a cell on this board says what the student's home page
+     will say. */
   function liveStudent(uid){
     var own = liveOwnStudent(uid);
     if(own !== null) return own;
-    var p = (assignments[uid] || {}).period;
-    return p != null ? livePeriod(p) : liveDefault();
+    var s = studentByUid(uid);
+    var seq = sequenceStateFor(s);
+    if(seq) return seq.ids;
+    var r = rosterFor(s);
+    var p = (assignments[uid] || {}).period || (r && r.period) || null;
+    return (p != null && p !== "") ? livePeriod(p) : liveDefault();
   }
 
   function scopeView(scope){
@@ -1573,13 +1815,23 @@
       td.textContent = txt;
       td.classList.toggle("empty", txt === "—");
       var own = scopeIsOwn(scope);
+      /* A cell the course decided rather than a person. Dashed like an
+         inherited one, because it IS inherited — from the sequence — and
+         carrying the step it came from, so a teacher looking at a row can
+         see how far along it is without opening anything. */
+      var seq = scope.slice(0,2) === "s:" && !own ? sequenceStateFor(studentByUid(scope.slice(2))) : null;
       td.classList.toggle("own", own);
       td.classList.toggle("inherit", !own);
+      td.classList.toggle("seq", !!seq);
+      if(seq && !own && txt !== "—"){
+        td.innerHTML = esc(txt) + '<span class="seqStepNum">step ' + (seq.stepIndex + 1) + "</span>";
+      }
       // "Ana, Red Words List 2: Cards, Match It (inherited)" — an em dash
       // and two emoji are not something to hand a screen reader.
       td.setAttribute("aria-label",
         (rowName[scope] || scope) + ", " + colName[i] + ": " + cellSpoken(scope, col) +
-        (own ? "" : " (inherited)"));
+        (seq ? " (from the sequence, step " + (seq.stepIndex + 1) + " of " + seq.steps + ")"
+             : own ? "" : " (inherited)"));
     });
     Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-ownpill]"), function(el){
       el.hidden = !scopeIsOwn(el.dataset.ownpill);
@@ -1749,15 +2001,25 @@
   // is worth putting on. Not 100%: one stubborn word — a name, a word
   // whose recording is poor — should not be able to hold a student on a
   // list for a term. Four in five, and the fifth keeps coming round.
-  var SOLID_ENOUGH = 0.8;
+  // Aliased, not redefined: the student's own browser decides when a
+  // list is finished using the same number, and two copies of it is two
+  // answers to "has this student moved on".
+  var SOLID_ENOUGH = Adaptive.solidEnough;
 
+  /* How far through one list a student is. `share` comes from
+     Adaptive.listShare — the same function Adaptive.unlocked uses to
+     decide whether a sequence step is finished — so the suggestion this
+     dashboard makes and the advance the student's own browser performs
+     can never disagree about what "done" means. tests.html runs both
+     over the same stats to keep it that way.
+
+     Solid AND at pace: a word a student gets right after three seconds
+     of decoding is not one they can move on from, and suggesting the
+     next list on the strength of thirty of them is how somebody ends up
+     two lists ahead of their reading. */
   function listProgress(stats, listId){
     var sum = Adaptive.summarize(Adaptive.statsForList(stats, listId));
     var total = WordLists.wordsOf(listId).length;
-    /* Solid AND at pace. A word the student gets right after three
-       seconds of decoding is not a word they can move on from, and
-       suggesting the next list on the strength of thirty of them is how a
-       student ends up two lists ahead of their reading. */
     var fluent = Math.max(0, sum.mastered - sum.slow);
     return {
       mastered: sum.mastered,
@@ -1766,8 +2028,55 @@
       total: total,
       // No total means an id that isn't in the registry any more; treat
       // that as "no evidence" rather than as finished.
-      share: total ? fluent / total : 0
+      share: Adaptive.listShare(stats, listId, listTotal)
     };
+  }
+
+  function listTotal(listId){ return WordLists.wordsOf(listId).length; }
+
+  /* ---------------- sequences ----------------
+     A period may run an ordered course instead of a flat list. Where it
+     does, the site advances the student itself — Adaptive.unlocked
+     computes their position from their own stats, here and in their own
+     browser, from the same function. Nothing is written to move anybody
+     on, which is why students can't self-advance: they never write
+     assignments/{uid} at all. */
+  function sequenceOf(period){
+    var steps = classCfg.sequences && classCfg.sequences[period];
+    if(!Array.isArray(steps) || !steps.length) return null;
+    var on = classCfg.sequenceOn || {};
+    if(Object.prototype.hasOwnProperty.call(on, period) && on[period] === false) return null;
+    return steps;
+  }
+
+  // Whether a period has a course at all, on or off — for the editor,
+  // which has to show a switched-off sequence in order to switch it on.
+  function sequenceStored(period){
+    var steps = classCfg.sequences && classCfg.sequences[period];
+    return Array.isArray(steps) && steps.length ? steps : null;
+  }
+  function sequenceIsOn(period){
+    var on = classCfg.sequenceOn || {};
+    if(Object.prototype.hasOwnProperty.call(on, period)) return on[period] !== false;
+    return !!sequenceStored(period);
+  }
+
+  // Where one student is in their period's course, or null.
+  function sequenceStateFor(s){
+    if(!s) return null;
+    var r = rosterFor(s);
+    var period = (assignments[s.uid] && assignments[s.uid].period) || (r && r.period) || null;
+    var steps = sequenceOf(period);
+    if(!steps) return null;
+    var startAt = 0;
+    if(r && r.start){
+      var at = WordLists.stepOf(steps, r.start);
+      if(at >= 0) startAt = at;
+    }
+    var res = Adaptive.unlocked(steps, s.stats || {}, startAt, listTotal);
+    res.period = period;
+    res.steps = steps.length;
+    return res;
   }
 
   /* Pure. Given one student's stats and the lists they actually have,
@@ -1807,11 +2116,16 @@
     return out;
   }
 
-  // Every suggestion on the board right now, for the students the filter
-  // leaves visible — the same bound the column toggles work inside.
+  /* Every suggestion on the board right now, for the students the filter
+     leaves visible — the same bound the column toggles work inside.
+
+     A student whose period runs a sequence is left out: the site has
+     already moved them on, and a strip suggesting what has just happened
+     by itself is a strip nobody reads twice. */
   function boardSuggestions(){
     var out = [];
     visibleStudents().forEach(function(s){
+      if(sequenceStateFor(s)) return;   // the site already moves them on
       readyToAdvance(s.stats, liveStudent(s.uid)).forEach(function(sug){
         sug.uid = s.uid;
         sug.name = s.name || s.email || s.uid;
@@ -2496,6 +2810,9 @@
     _internals: {
       modeHeard: modeHeard,
       importBody: importBody,
+      sequenceOf: sequenceOf,
+      sequenceIsOn: sequenceIsOn,
+      sequenceStateFor: sequenceStateFor,
       rosterStatus: rosterStatus,
       isPending: isPending,
       studentUids: function(){ return students.map(function(s){ return s.uid; }); },
@@ -2508,7 +2825,9 @@
         classCfg = {
           periodLists: (st.classCfg && st.classCfg.periodLists) || {},
           defaultLists: (st.classCfg && Array.isArray(st.classCfg.defaultLists)) ? st.classCfg.defaultLists : null,
-          periods: (st.classCfg && st.classCfg.periods) || []
+          periods: (st.classCfg && st.classCfg.periods) || [],
+          sequences: (st.classCfg && st.classCfg.sequences) || {},
+          sequenceOn: (st.classCfg && st.classCfg.sequenceOn) || {}
         };
         notes = st.notes || {};
         roster = st.roster || {};

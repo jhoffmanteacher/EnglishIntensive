@@ -718,6 +718,78 @@ window.WordLists = (function(){
       return null;
     },
 
+    /* ── the default sequence ──────────────────────────────────────
+       An ordered course through the library, as a list of steps that
+       unlock together. Generated rather than written down so it cannot
+       drift from the families: add a family and it appears in the course
+       without anybody editing a second file.
+
+       The order is the curriculum's, not the file's: the decodable
+       families first, in the order they get harder, and within each one
+       say → cards → match, which is read it, know it on sight, pick it
+       out of a line-up. Then the ten red lists, where cards N unlocks
+       both match N and cards N+1, so a student is always reading one
+       list and being tested on the one before it.
+
+       The nonsense words sit in the FIRST step and never leave. They are
+       warm-up — pure sounding-out with nothing to guess from — and a
+       warm-up that has to be unlocked is not a warm-up. Everything
+       unlocked stays unlocked, so being in step one is being available
+       for the whole course.
+
+       Modes with no place in a course (spelling, the fluency runs, Blend
+       It, Split it) are deliberately left out: they are practice a
+       teacher assigns on purpose, not rungs on a ladder. */
+    defaultSequence: function(){
+      var steps = [];
+      var COURSE = ["blends-start", "blends-end", "oi-oy", "multi"];
+      var LADDER = ["say", "cards", "match"];
+      var warmUp = [];
+      this.listNumsOf("nonsense").forEach(function(n){
+        ["say", "cards"].forEach(function(m){
+          var id = this.idFor("nonsense", n, m);
+          if(id) warmUp.push(id);
+        }, this);
+      }, this);
+
+      COURSE.forEach(function(fam){
+        this.listNumsOf(fam).forEach(function(n){
+          LADDER.forEach(function(m){
+            var id = this.idFor(fam, n, m);
+            if(id) steps.push([id]);
+          }, this);
+        }, this);
+      }, this);
+
+      // Red words: cards first, then that list's Match It together with
+      // the next list's cards.
+      var reds = this.listNumsOf("red"), i, cur, nextCards;
+      for(i=0;i<reds.length;i++){
+        cur = this.idFor("red", reds[i], "cards");
+        if(!cur) continue;
+        if(i === 0) steps.push([cur]);
+        var m = this.idFor("red", reds[i], "match");
+        nextCards = (i + 1 < reds.length) ? this.idFor("red", reds[i+1], "cards") : null;
+        var step = [];
+        if(m) step.push(m);
+        if(nextCards) step.push(nextCards);
+        if(step.length) steps.push(step);
+      }
+
+      if(steps.length && warmUp.length) steps[0] = warmUp.concat(steps[0]);
+      else if(warmUp.length) steps.push(warmUp);
+      return steps;
+    },
+
+    /* Where a list id sits in a sequence, as a step index — what a
+       roster row's "starts on" resolves to. -1 when the sequence doesn't
+       contain it, which the caller reads as "start at the beginning". */
+    stepOf: function(sequence, listId){
+      var steps = sequence || [];
+      for(var i=0;i<steps.length;i++) if((steps[i] || []).indexOf(listId) !== -1) return i;
+      return -1;
+    },
+
     // What a list is teaching, in a teacher's words. Falls back to the
     // family title so a family added without a tag still reads sensibly.
     patternOf: function(listId){
