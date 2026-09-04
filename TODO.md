@@ -19,7 +19,9 @@ with the reasoning, so they don't get re-proposed every few months.
 ## Next
 
 *(The three items that were here — progression rules, per-student notes and
-export — are all done. See the Teacher dashboard section of the README.)*
+export — are all done, and progression is no longer a suggestion: a period
+can run a sequence and the site advances students along it by itself. See
+the Teacher dashboard section of the README.)*
 
 Nothing outstanding from the assignment-board work. The reading-feedback
 build (sound-level feedback, fluency, phoneme clips, sound boxes, patterns)

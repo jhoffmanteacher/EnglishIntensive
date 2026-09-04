@@ -1198,6 +1198,128 @@ toggle reaches, and the shape of the two documents Save writes — are pure
 functions of a class's state and are pinned in `tests.html`, along with a
 check that the grid itself renders the rows and cells it claims to.
 
+### Roster import
+
+A class only existed on this dashboard once every student had signed in,
+which made the first day of term an empty page and a teacher typing thirty
+names into a period dropdown. **Periods & Lists → 📋 Import roster** takes
+whatever the student information system exports and places the whole class
+before any of them touches the site.
+
+The join is the ID number. Students sign in as `<student id>@seq.org`, so
+the address is knowable in August and a uid is not — and the roster is
+therefore stored at `roster/{email}`, keyed by the thing both sides of a
+first sign-in agree about.
+
+`GameCore.parseRoster` reads what it is given rather than a format, because
+an SIS export is never the same twice: comma, tab or semicolon (sniffed);
+quoted fields with commas inside names; a BOM; Windows line endings; `Perm
+ID` or `Local ID` or `Student Number`; one *Name* column or *Last* plus
+*First*; `Period 3` or `P3` or `3rd`. With no header row at all it reads the
+columns by shape — the all-digits column is the ID, the wordy one is the
+name, the one- or two-digit one is the period. An optional *start* column
+takes a list id or the shorthand a teacher actually writes (`Red 3`,
+`oi/oy`, `Blend Words`).
+
+What it will **not** do is guess an ID. A row without one, or with a
+non-numeric or duplicate one, is listed and left out — a guessed ID is a
+student matched to somebody else's record. An unreadable *start* is a
+warning, not an error: that student starts at the beginning.
+
+Nothing is written until the preview has been looked at: name, email,
+period, start, and a status of *new*, *update* or *already signed in*.
+Then one batch of set-merges (chunks of 400).
+
+Two rules do the rest of the work and both are about not destroying
+anything:
+
+- **A re-import never deletes.** A student dropped from an export by
+  mistake keeps their row and their period. Removal is one explicit button
+  on their page.
+- **The one place the roster writes into `assignments` only ever fills a
+  blank.** After an import, a student who has signed in, has a roster row
+  and has *no* assignment document gets one. A period a teacher set by hand
+  in March is never overwritten by a re-import in April.
+
+A roster row with no account behind it is folded into the class as a
+**pending student** — a real row, greyed, clickable and assignable, with
+"hasn't signed in yet" where their numbers would be. That is the design
+decision worth knowing: every view shows the class as it actually is, and
+nothing had to learn about a second kind of student. Their assignments are
+written to their roster row instead of to `assignments/{uid}`, because
+there is no uid to write one against yet; `store.js` picks them up on the
+first sign-in.
+
+### Sequences
+
+A period can run an ordered **course** instead of a flat list of lists.
+Where it does, the site moves students along it: a student sees every step
+up to and including the one they are on, and the next opens when the
+current one is 80 % solid.
+
+Nothing is written to make that happen. A student's position is a pure
+function of their own stats (`Adaptive.unlocked`), computed separately in
+their browser and on this dashboard from the same function, so the two
+cannot disagree — which is what lets `assignments/{uid}` stay teacher-only.
+A student who could advance themselves would be a student who could assign
+themselves anything.
+
+What unlocks is **additive**: a finished list stays in rotation. The
+scheduler already damps a mastered word to near-invisibility, and taking
+the list away as well is how a student loses a word they had.
+
+`WordLists.defaultSequence()` generates the standard course from the
+families, so adding a family puts it in the course without editing a second
+file: the decodable lists in the order they get harder, **say → cards →
+match** within each, then the ten red lists with *cards N* unlocking *match
+N* and *cards N+1*. The nonsense words sit in step one and never leave — a
+warm-up you have to unlock is not a warm-up. Modes that aren't rungs on a
+ladder (spelling, the fluency runs, Blend It, Split it) are left out; those
+are practice a teacher assigns on purpose.
+
+A period with **no stored sequence has no sequence** and keeps its flat
+list, which is every period until somebody presses **Reset to default** in
+the editor. `sequenceOn[period]` only ever turns one *off*.
+
+On the dashboard: a per-period editor (steps drag-to-reorder, and with ↑/↓
+buttons, because a drag past the bottom of a scrolling panel is nobody's
+friend), board cells the course decided marked with the step they came
+from, and those students dropped from the *Ready to move up* strip — the
+site has already done it. `SOLID_ENOUGH` lives in `adaptive.js` now with the
+dashboard aliasing it, so the suggestion and the auto-advance cannot
+disagree about "finished".
+
+On the student's home page: when a step opens, one line saying which list
+just arrived — **once**, and only forward. There are no lock icons on
+anything else. A list not yet reached simply isn't on the page, exactly as
+an unassigned list isn't today; a wall of locked tiles is a list of
+everything a student can't do yet, which is not a thing to put in front of
+this class.
+
+### What should change
+
+A short panel at the top of the Students tab: **at most one line per
+student**, and nothing for most of them. A dashboard that shows everything
+shows nothing — thirty students with four numbers each is a hundred and
+twenty numbers and no next action.
+
+`Adaptive.nextSteps` is pure and takes the first rule that fires:
+
+1. **Stuck on cards** — 30+ answers on a card list under 40 % solid. That
+   student is being shown a word, saying "not yet", and being shown it
+   again; the answer is almost never more cards, so the line offers Say It
+   on the same words (or Match It where the family has no Say It).
+2. **The two in the wrong order** — under 50 % on Match It for a list whose
+   cards are under 60 % solid. Picking a word out of six look-alikes is
+   harder than reading it, not easier.
+3. **Coasting** — every assigned list 90 %+ solid with no course running.
+4. **Quiet** — no round in more than 7 **school** days. Counting calendar
+   days would say the whole class had gone quiet every weekend.
+
+Each line carries the same one-click apply the *Ready to move up* strip
+uses: it feeds the board's draft rather than writing, so a teacher sees
+what it did before committing.
+
 ### Ready to move up
 
 A student who has finished Red List 3 should be on List 4, and the only
@@ -1322,9 +1444,10 @@ them as their own — use "Use my period's lists", or the board's **own
 ↺**, to hand them back.
 
 Assignment precedence, resolved in `EIStore.effectiveLists` (and pinned by
-`tests.html`): **the student's own list → their period's list → the class
-default → everything**. A student with nothing set anywhere sees the whole
-site, so day one isn't an empty page. Setting an explicit empty list at
+`tests.html`): **the student's own list → their roster row → their period's
+sequence, or its flat list → the class default → everything**. A student
+with nothing set anywhere sees the whole site, so day one isn't an empty
+page. Setting an explicit empty list at
 any level is a real answer and stops the walk — that's how you park a
 student.
 
@@ -1338,6 +1461,17 @@ every list"* rather than pretending to be a configured one, and its
 The teacher has **read** on `students/{uid}` and no write. Everything the
 teacher sets lives in `assignments/{uid}` instead, so a compromised
 teacher session can't erase anyone's work.
+
+The roster adds a fifth path, `roster/{email}`, and it is the one rules
+change in all of this. A student may read **exactly one document** — their
+own, matched on their own token's address — and may not write it at all.
+They need the read (their period and starting list resolve through it on a
+first sign-in, before any teacher has touched their account) and must not
+have the write (the row decides which lists they get). Rules in the repo
+are not rules in the console: until `firestore.rules` is pasted in and
+published, every roster read is denied, and the site behaves exactly as it
+did before the roster existed — which is designed, and is also exactly why
+there is a boxed reminder at the top of `TODO.md`.
 
 The `heard` map added with the sound-level feedback needed no rules change
 either: `students/{uid}` is write-your-own-document, not a whitelist of
