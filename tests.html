@@ -54,6 +54,7 @@
 <script src="game-core.js"></script>
 <script src="blend-game.js"></script>
 <script src="spell-game.js"></script>
+<script src="listen.js"></script>
 <script src="card-game.js"></script>
 <script src="match-game.js"></script>
 <!-- The scheduler and the assignment resolver are pure too, so they're
@@ -864,6 +865,50 @@
        E({}, {periodLists:{"3":["b"]}}, ALL).join(","), "a,b,c,d");
     eq("the returned array is a copy, not the stored one",
        (function(){ var cfg = {defaultLists:["a"]}; E(null,cfg,ALL).push("x"); return cfg.defaultLists.length; })(), 1);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     card-game.js — judging a spoken answer (the Listen toggle)
+
+     This decides which of the two rating buttons to PULSE. The student
+     still presses one, so a wrong answer here costs a pulse on the wrong
+     button and never a wrong stat — which is exactly why it is allowed to
+     be generous.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var J = window.CardGame._internals.judgeHeard;
+    var GROUPS = [["to","two"],["there","their","they're"],["one","won"]];
+
+    eq("the word itself", J("would", "would", GROUPS, false), true);
+    eq("…however it was punctuated", J("Would!", "would", GROUPS, false), true);
+    eq("…and inside a phrase", J("um would yeah", "would", GROUPS, false), true);
+    eq("a different word", J("wood", "would", GROUPS, false), false);
+    eq("nothing said at all", J("", "would", GROUPS, false), false);
+    eq("a transcript of pure noise", J("!!!", "would", GROUPS, false), false);
+
+    eq("a homophone counts: two for to", J("two", "to", GROUPS, false), true);
+    eq("…and the other way round", J("to", "two", GROUPS, false), true);
+    eq("…across a three-word group", J("they're", "their", GROUPS, false), true);
+    eq("a homophone of some OTHER word doesn't", J("won", "to", GROUPS, false), false);
+    eq("no groups given, no homophones accepted", J("two", "to", null, false), false);
+
+    eq("a known mishearing counts (ACCEPT)", J("gas", "gasp", null, false), true);
+    eq("…but only for the word it was recorded against", J("gas", "gasp", null, false) && !J("gas", "grasp", null, false), true);
+
+    eq("a made-up word is judged by sound", J("vab", "vab", null, true), true);
+    // Vowel drift is what a recogniser handed a non-word actually does,
+    // and it costs half a point; a swapped consonant costs one and a half
+    // and never fits, because that is a different made-up word.
+    eq("…and through a drifted vowel", J("veb", "vab", null, true), true);
+    eq("…but not through a swapped consonant", J("vap", "vab", null, true), false);
+    eq("…and not through a different word entirely", J("shrimp", "vab", null, true), false);
+    eq("a real word is NOT judged by sound: bread is not bred",
+       J("bread", "bred", null, false), false);
+    eq("…which is the whole error worth catching",
+       J("bread", "bred", null, true) && !J("bread", "bred", null, false), true);
+
+    eq("case and spacing don't matter", J("  TO  ", "to", GROUPS, false), true);
+    eq("a word with a period still matches", J("mrs", "Mrs.", null, false), true);
   })();
 
   /* ══════════════════════════════════════════════════════════════════

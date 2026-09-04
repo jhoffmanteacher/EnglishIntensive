@@ -386,7 +386,10 @@ window.LIST_FAMILIES = [
        are the two things worth asking about, and they are what's here. */
     modes: ["cards", "match"],
     modeConfig: {
-      cards: { note: RED_NOTE_CARDS },
+      // The homophone groups are here for the same reason Match It has
+      // them: with the Listen toggle on, the cards judge a spoken answer,
+      // and no recogniser separates "to" from "two".
+      cards: { note: RED_NOTE_CARDS, homophones: RED_HOMOPHONES },
       match: { note: RED_NOTE_MATCH, choices: 6, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES }
     },
     lists: RED_LISTS.map(function(words, i){ return { n: i + 1, words: words }; })

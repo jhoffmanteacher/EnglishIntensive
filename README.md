@@ -630,6 +630,40 @@ Cards and Match It on the same list keep **separate** ids, stats and
 comeback decks, on purpose: knowing a word on sight and picking it out of
 five look-alikes are different days' work.
 
+### Listen (optional)
+
+Off by default and remembered per device, like Shuffle and Voice. With it
+on, the mic keeps whatever the student said while the card was face up; on
+the flip the back shows "I heard: *could*" and **pulses** the rating button
+it thinks is right. The student still presses one — that self-rating is
+still the score, and a suggestion that pre-pressed it would quietly take
+the game over. No transcript means no line and no pulse: an empty mic looks
+exactly like the game with Listen off.
+
+Turning it on is where Chrome asks for the microphone, so the prompt
+happens on the start screen and not in the middle of a card. A blocked mic
+snaps the toggle back to Off with the same message Say It gives, and the
+cards carry on.
+
+`judgeHeard()` (pure, in `tests.html`) accepts four things, in order of how
+sure they are: the word; a homophone of it (the red lists pass their
+`RED_HOMOPHONES` groups — no recogniser separates *to* from *two*, and
+neither does a listener); a mishearing already recorded for it in `ACCEPT`;
+and, **on the nonsense list only**, anything within one sound of it. That
+last one is off for real words on purpose: "bread" for "bred" is exactly
+the error worth catching, while "vab" has no dictionary entry to come back
+as and a letter-perfect match would be a bar no student could clear.
+
+The listening itself is `listen.js` (`EIListen`) — a small wrapper over
+`SpeechRecognition` with `start`/`stop`/`hold`/`onTranscript`. It is
+deliberately **not** a refactor of Say It's loop. That one is the whole
+game: it holds the mic open for a round, mutes around every beep and
+utterance, and its hold lengths were tuned by ear against a room of
+Chromebooks. The cards want something much smaller, and touching a tuned
+thing to serve a second caller is how it stops being tuned. Both exist; the
+mic is stopped before the card speaks, so the recogniser can never
+transcribe the computer's own read back as the student's answer.
+
 ## Adaptive practice
 
 A round is no longer the whole word list. `EIPractice.play()` draws

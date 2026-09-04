@@ -21,6 +21,12 @@
  * special handling, since nothing is ever matched against what a student
  * typed or said.
  *
+ * The optional "Listen" toggle (listen.js) does not change that. With it on
+ * the mic keeps whatever the student said while the card was face up and
+ * shows it on the back — the game SUGGESTS a rating and the student still
+ * presses it. Off by default, and off is the state everything above
+ * describes.
+ *
  *   CardGame.start({
  *     title: "Red Words 🃏",
  *     intro: "…",                       // HTML ok
@@ -63,6 +69,53 @@ window.CardGame = (function(){
   var FAST_MS = 1500;
   var SPEED_MIN = 8;
   var SPEED_FLIP_MS = 2000;
+
+  var SPEECH_SETTLE_MS = 400;   // let the speakers stop before listening again
+
+  /* ---------------- judging a spoken answer (pure, testable) ----------------
+     Deliberately generous, and deliberately not the score. This decides
+     which of the two rating buttons to point at, and the student still
+     presses one — so a false "Got it" costs a pulse on the wrong button,
+     not a wrong stat. Four ways to be right, in order of how sure they are:
+
+       1. it is the word;
+       2. it is a homophone of the word (no recogniser separates to from
+          two, and neither does a listener);
+       3. it is a mishearing already known for that word (ACCEPT);
+       4. on a list of made-up words only, it is within one sound of it —
+          "vab" has no dictionary entry to come back as, so the recogniser
+          returns whatever is nearest and a letter-perfect match is a bar
+          no student could clear. Real words don't get this: "bread" for
+          "bred" is exactly the error worth catching.  */
+  function homophoneGroupOf(word, groups){
+    for(var i=0;i<(groups||[]).length;i++){
+      for(var j=0;j<groups[i].length;j++){
+        if(Core.normalize(groups[i][j]) === word) return groups[i];
+      }
+    }
+    return null;
+  }
+
+  function judgeHeard(heardText, word, groups, allowPhonetic){
+    var said = Core.normalize(heardText);
+    if(!said) return false;
+    var target = Core.normalize(word);
+    if(!target) return false;
+    var group = homophoneGroupOf(target, groups);
+    var accepted = Core.ACCEPT[target] || Core.ACCEPT[word] || null;
+    var parts = said.split(" "), i, j;
+    for(i=0;i<parts.length;i++){
+      var p = parts[i];
+      if(!p) continue;
+      if(p === target) return true;
+      if(group){
+        for(j=0;j<group.length;j++) if(Core.normalize(group[j]) === p) return true;
+      }
+      if(accepted && accepted.indexOf(p) !== -1) return true;
+      if(allowPhonetic && Core.phoneticDistance(Core.phonemes(p), Core.phonemes(target)) <= 1) return true;
+    }
+    return false;
+  }
 
   // performance.now() where it exists; it is monotonic, so a card doesn't
   // read as instant because the clock moved under it.
@@ -173,6 +226,28 @@ window.CardGame = (function(){
   }
   .fastpill[hidden]{display:none}
 
+  /* ---- what the mic heard, and the rating it points at ----
+     A pulse, not a pre-press: the student's own judgement is the score in
+     this game, and a suggestion that looked like an answer would quietly
+     take it over. */
+  .heardline{
+    display:inline-block;margin-top:8px;padding:5px 14px;border-radius:99px;
+    background:var(--panel2);border:1px solid var(--line);
+    font-size:15px;color:var(--ink);font-weight:600;
+  }
+  .heardline[hidden]{display:none}
+  .heardline i{font-style:italic;opacity:.85}
+  .btn.suggest{animation:suggestPulse 1.1s ease-in-out infinite}
+  @keyframes suggestPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}
+    50%{box-shadow:0 0 0 6px rgba(255,255,255,.18)}
+  }
+  .listennote{color:var(--muted);font-size:14px;line-height:1.5;margin:10px 0 0}
+  .listennote.bad{color:var(--bad)}
+  @media (prefers-reduced-motion: reduce){
+    .btn.suggest{animation:none;outline:2px solid rgba(255,255,255,.35)}
+  }
+
   @media (prefers-reduced-motion: reduce){
     .flipinner{transition:none}
   }
@@ -200,9 +275,11 @@ window.CardGame = (function(){
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
+        <button class="btn ghost" id="btnListen" style="display:none">🎤 Listen: <span id="lisLbl">Off</span></button>
         <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
         <button class="btn ghost" id="btnSpeed" style="display:none">⚡ Speed round (<span id="spCount">0</span>)</button>
       </div>
+      <p class="listennote" id="listenNote" hidden></p>
     </div>
   </section>
 
@@ -228,6 +305,7 @@ window.CardGame = (function(){
             <div class="word" id="uiWordBack"></div>
             <div class="facehint" id="uiBackHint">Did you read it right?</div>
             <div class="fastpill" id="uiFast" hidden>⚡ fast</div>
+            <div class="heardline" id="uiHeard" hidden></div>
           </div>
         </div>
       </div>
@@ -359,6 +437,10 @@ window.CardGame = (function(){
        being reported on its own — one answer, one report. */
     var shownAt = 0, flipMs = 0, fastCount = 0;
     var speedRound = false, speedTimer = null;
+    // The mic, if the student turned it on. heardText is whatever was said
+    // while the card was face up; it is cleared with every new card.
+    var listenOn = false, heardText = "";
+    var HOMOPHONES = cfg.homophones || null;
     var pending = null;    // the timer that moves on to the next card
     var pendingList = null;   // a one-off list (comeback / missed words) to run instead of the deck
     var deckIdx = 0;
@@ -370,6 +452,7 @@ window.CardGame = (function(){
        "correct" is the student's own rating: Got it on the flip. Reported
        once per card, when it's rated or skipped. */
     var onResult  = typeof cfg.onResult === "function" ? cfg.onResult : null;
+    var onHeard   = typeof cfg.onHeard === "function" ? cfg.onHeard : null;
     var onFinish  = typeof cfg.onFinish === "function" ? cfg.onFinish : null;
     var nextRound = typeof cfg.nextRound === "function" ? cfg.nextRound : null;
     /* The 4th argument is this engine's alone: the other three can't time
@@ -378,6 +461,12 @@ window.CardGame = (function(){
     function report(word, correct, ms){
       if(!onResult) return;
       try{ onResult(word, !!correct, 0, { ms: ms || 0 }); }catch(e){}
+    }
+    // Same contract as Say It's: what the mic returned on a card the
+    // student rated "Not yet". Nothing scores it; the teacher reads it.
+    function reportHeard(word, text){
+      if(!onHeard || !text) return;
+      try{ onHeard(word, text); }catch(e){}
     }
 
     var shuffleOn = true;
@@ -475,6 +564,23 @@ window.CardGame = (function(){
         : "Press <kbd>Space</kbd> to flip the card.";
     }
 
+    /* What the mic caught, and which button it points at. No transcript
+       means no line and no suggestion — an empty mic must look like the
+       game has always looked, not like a broken feature. */
+    function showHeard(){
+      if(!listenOn || !heardText){ $("uiHeard").hidden = true; return; }
+      var word = queue[idx];
+      var said = Core.normalize(heardText);
+      if(!said){ $("uiHeard").hidden = true; return; }
+      $("uiHeard").innerHTML = "I heard: <i>" + Core.escapeHtml(said) + "</i>";
+      $("uiHeard").hidden = false;
+      // Nonsense words have no dictionary entry to come back as, so the
+      // recogniser returns the nearest real word and only a phonetic
+      // comparison is fair. Real words are judged on the word.
+      var ok = judgeHeard(heardText, word, HOMOPHONES, !SPEAK);
+      $(ok ? "btnGot" : "btnMiss").classList.add("suggest");
+    }
+
     function render(){
       var w = queue[idx];
       flipped = false;
@@ -494,12 +600,25 @@ window.CardGame = (function(){
       $("uiCount").textContent = (idx+1) + "/" + queue.length;
       prog.update(idx/queue.length*100);
       $("uiFast").hidden = true;
+      $("uiHeard").hidden = true;
+      $("btnGot").classList.remove("suggest");
+      $("btnMiss").classList.remove("suggest");
       renderFace();
       $("btnFlip").focus();
       // Last, so the clock starts when the card is actually on screen and
       // not while the rest of the HUD is still being written.
       shownAt = now();
       flipMs = 0;
+      /* A new card, a new answer: whatever was said about the last one is
+         forgotten before the mic comes back. hold() rather than a plain
+         start() so the previous card's read-aloud has stopped coming out
+         of the speakers before the mic is open to hear it. */
+      heardText = "";
+      if(listenOn && window.EIListen){
+        window.EIListen.clear();
+        window.EIListen.start();
+        window.EIListen.hold(SPEECH_SETTLE_MS);
+      }
       armSpeedFlip();
     }
 
@@ -544,6 +663,12 @@ window.CardGame = (function(){
       renderFace();
       if(flipMs && flipMs < FAST_MS){ fastCount++; $("uiFast").hidden = false; }
       sndFlip();
+      /* Stop listening BEFORE the card speaks. The recogniser would
+         happily transcribe the computer's own read of the word and hand
+         it back as the student's answer, which would mark every card
+         correct. */
+      if(listenOn && window.EIListen) window.EIListen.stop();
+      showHeard();
       // The word is spoken only now, on the way over — before the flip it
       // would be the answer, after it it's the check.
       sayWord(queue[idx], NORMAL_RATE);
@@ -585,6 +710,8 @@ window.CardGame = (function(){
         $("uiStreak").textContent = 0;
         renderCombo();
         if(missed.indexOf(word) === -1) missed.push(word);
+        // Only on a miss: a transcript that matched teaches nobody anything.
+        reportHeard(word, heardText);
         $("flipCard").className = "flip flipped rated-no";
         // No scolding, and no "wrong" — a card you didn't know yet is the
         // entire reason to be here, and it's coming back either way.
@@ -601,6 +728,9 @@ window.CardGame = (function(){
     function finish(){
       if(pending){ clearTimeout(pending); pending = null; }
       if(speedTimer){ clearTimeout(speedTimer); speedTimer = null; }
+      // The round is over; the mic has no business staying open on the
+      // end screen. It comes back with the next card.
+      if(window.EIListen) window.EIListen.stop();
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();
@@ -701,6 +831,65 @@ window.CardGame = (function(){
     function renderShuffle(){
       $("shufLbl").textContent = shuffleOn ? "On" : "Off";
     }
+
+    /* ---------------- the Listen toggle ----------------
+       Off by default and remembered per device, like Shuffle and Voice.
+       Off is not a degraded mode: it is what this game has always been,
+       and everything about the flip works the same without a mic. */
+    function listenAvailable(){ return !!(window.EIListen && window.EIListen.available()); }
+
+    function listenNote(text, bad){
+      var el = $("listenNote");
+      el.hidden = !text;
+      el.className = "listennote" + (bad ? " bad" : "");
+      el.innerHTML = text || "";
+    }
+
+    function renderListen(){
+      $("btnListen").style.display = listenAvailable() ? "" : "none";
+      $("lisLbl").textContent = listenOn ? "On" : "Off";
+    }
+
+    // Chrome asks for the microphone the first time recognition starts, so
+    // the toggle is where the prompt happens — not in the middle of a card.
+    function setListen(on){
+      listenOn = !!on && listenAvailable();
+      try{ localStorage.setItem("cardListen", listenOn ? "1" : "0"); }catch(e){}
+      if(listenOn){
+        window.EIListen.start();
+        listenNote("Click <b>Allow</b> if Chrome asks for the microphone. " +
+                   "The card still waits for you — the mic only suggests which button to press.");
+      } else {
+        if(window.EIListen) window.EIListen.stop();
+        listenNote("");
+      }
+      renderListen();
+    }
+
+    if(listenAvailable()){
+      try{ listenOn = localStorage.getItem("cardListen") === "1"; }catch(e){ listenOn = false; }
+      window.EIListen.onTranscript(function(text){
+        // Only while the front is up: after the flip the page is about to
+        // say the word itself, and that is not the student's answer.
+        if(!flipped) heardText = text;
+      });
+      window.EIListen.onError(function(name){
+        if(name === "not-allowed" || name === "service-not-allowed"){
+          listenOn = false;
+          try{ localStorage.setItem("cardListen", "0"); }catch(e){}
+          renderListen();
+          listenNote("<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar, " +
+                     "choose Allow, then reload this page. The cards work fine without it.", true);
+        } else if(name === "network"){
+          listenOn = false;
+          renderListen();
+          listenNote("<b>No connection.</b> Listening needs the internet. The cards work fine without it.", true);
+        }
+      });
+      if(listenOn) window.EIListen.start();
+    }
+    renderListen();
+    $("btnListen").addEventListener("click", function(){ snd.click(); setListen(!listenOn); });
     $("btnShuffle").addEventListener("click", function(){
       shuffleOn = !shuffleOn;
       try{ localStorage.setItem("cardShuffle", shuffleOn ? "1" : "0"); }catch(e){}
@@ -815,6 +1004,7 @@ window.CardGame = (function(){
     });
 
     window.addEventListener("beforeunload", function(){
+      if(window.EIListen) window.EIListen.stop();
       // speechSynthesis is window-global — a word mid-utterance would
       // otherwise keep talking over the next page for a beat.
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
@@ -828,6 +1018,7 @@ window.CardGame = (function(){
   return {
     start: start,
     _internals: {
+      judgeHeard: judgeHeard,
       dedupeWords: Core.dedupeWords,
       sampleWords: Core.sampleWords,
       comboMultiplier: Core.comboMultiplier,
