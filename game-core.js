@@ -518,19 +518,98 @@ window.GameCore = (function(){
      what the engines must agree about. */
   var CHUNK_SEP = "\u00b7";   // middle dot (·)
 
+  /* ---------------- heart letters ----------------
+     A second, independent mark an entry may carry: braces around the part
+     of a word the phonics rules get WRONG — "s{ai}d", "c{oul}d". Red words
+     are taught as if they were unsplittable wholes, and they mostly
+     aren't: "said" is s + d with one impossible middle, and the student
+     only has to remember the middle. Naming that part is the difference
+     between memorising four letters and memorising one chunk.
+
+     Deliberately hand-marked, not derived. phonemes() would flag the vowel
+     team in every regular word too, and "the part you can't sound out" is
+     a teaching judgement, not a rule the encoder knows.
+
+     Braces and dots combine ("al{th}·ough" is legal) and both are display
+     only: the plain word is the ONLY form that reaches matching, TTS or a
+     stored stat key, exactly as with the dots alone. */
+  var HEART_OPEN = "{", HEART_CLOSE = "}";
+
   function parseEntry(entry){
     var s = String(entry == null ? "" : entry);
-    if(s.indexOf(CHUNK_SEP) === -1) return { word: s, chunks: null };
-    return { word: s.split(CHUNK_SEP).join(""), chunks: s.split(CHUNK_SEP) };
+    var hasHeart = s.indexOf(HEART_OPEN) !== -1;
+    var hasChunk = s.indexOf(CHUNK_SEP) !== -1;
+    if(!hasHeart){
+      if(!hasChunk) return { word: s, chunks: null, heart: null };
+      return { word: s.split(CHUNK_SEP).join(""), chunks: s.split(CHUNK_SEP), heart: null };
+    }
+    // One walk, because the two marks index the same string: heart ranges
+    // are positions in the PLAIN word, so they have to be counted as the
+    // dots and the braces themselves are dropped.
+    var word = "", chunks = [], cur = "", heart = [], open = -1, i, ch;
+    for(i=0;i<s.length;i++){
+      ch = s.charAt(i);
+      if(ch === HEART_OPEN){ open = word.length; continue; }
+      if(ch === HEART_CLOSE){
+        if(open >= 0 && word.length > open) heart.push([open, word.length]);
+        open = -1;
+        continue;
+      }
+      if(ch === CHUNK_SEP){ chunks.push(cur); cur = ""; continue; }
+      word += ch; cur += ch;
+    }
+    chunks.push(cur);
+    return {
+      word: word,
+      chunks: chunks.length > 1 ? chunks : null,
+      heart: heart.length ? heart : null
+    };
+  }
+
+  /* `text` is a slice of the plain word starting at `offset`; the heart
+     ranges are in whole-word coordinates. Returns escaped markup with the
+     overlapping parts wrapped. Shared by the two markup functions below so
+     a dotted word and an undotted one mark their hearts the same way. */
+  function markHeart(text, offset, heart){
+    if(!heart || !heart.length) return escapeHtml(text);
+    var out = "", at = 0, i, s, e;
+    for(i=0;i<heart.length;i++){
+      s = Math.max(0, heart[i][0] - offset);
+      e = Math.min(text.length, heart[i][1] - offset);
+      if(e <= s || s >= text.length) continue;
+      if(s > at) out += escapeHtml(text.slice(at, s));
+      out += '<span class="heart">' + escapeHtml(text.slice(s, e)) + "</span>";
+      at = e;
+    }
+    return out + escapeHtml(text.slice(at));
+  }
+
+  // The plain word with its heart letters marked, and nothing else.
+  function heartMarkup(word, heart){
+    return markHeart(String(word == null ? "" : word), 0, heart);
   }
 
   // The dotted word as markup: alternating syllable colours with the dot
-  // between (echoing the "·" the word list itself is written with).
-  function chunkMarkup(chunks){
+  // between (echoing the "·" the word list itself is written with). Heart
+  // letters, where the entry has any, are marked inside the syllables.
+  function chunkMarkup(chunks, heart){
+    var at = 0;
     return '<span class="chunkword">' + chunks.map(function(c, i){
+      var start = at;
+      at += c.length;
       return (i > 0 ? '<span class="chunk-sep">' + CHUNK_SEP + '</span>' : '') +
-             '<span class="chunk ' + (i % 2 === 0 ? "chunk-a" : "chunk-b") + '">' + escapeHtml(c) + '</span>';
+             '<span class="chunk ' + (i % 2 === 0 ? "chunk-a" : "chunk-b") + '">' + markHeart(c, start, heart) + '</span>';
     }).join("") + '</span>';
+  }
+
+  /* "s. a. i. d. said" — the word spelled out, then said. One string, so
+     it is one utterance: a spelled word read as four separate utterances
+     comes out as four separate thoughts. Used on the card's reveal, where
+     the letters are the thing that has to be remembered. */
+  function spellOut(word){
+    var letters = String(word == null ? "" : word).split("").filter(function(ch){ return /[a-z']/i.test(ch); });
+    if(!letters.length) return String(word == null ? "" : word);
+    return letters.join(". ") + ". " + word;
   }
 
   // Random sample without replacement. `rnd` is a parameter rather than a
@@ -904,6 +983,8 @@ window.GameCore = (function(){
     chunkSep: CHUNK_SEP,
     parseEntry: parseEntry,
     chunkMarkup: chunkMarkup,
+    heartMarkup: heartMarkup,
+    spellOut: spellOut,
 
     phonemeSpans: phonemeSpans,
     phonemes: phonemes,

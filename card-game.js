@@ -237,6 +237,13 @@ window.CardGame = (function(){
   }
   .heardline[hidden]{display:none}
   .heardline i{font-style:italic;opacity:.85}
+
+  /* ---- heart letters ----
+     Red, and underlined so the mark survives a colour-blind reader and a
+     black-and-white printout of a screenshot. Back of the card only: the
+     front has to be read cold. */
+  .heart{color:var(--bad);text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:6px}
+  .chunkword .heart{text-underline-offset:4px}
   .btn.suggest{animation:suggestPulse 1.1s ease-in-out infinite}
   @keyframes suggestPulse{
     0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}
@@ -365,14 +372,19 @@ window.CardGame = (function(){
        every stat key stored and every spoken read matches the rest of the
        site; the dotted form is kept aside here and shown on the card's
        BACK — after the student has read it cold off the front. */
-    var CHUNKS = {};
+    var CHUNKS = {}, HEART = {};
     function plainList(list){
       return dedupeWords((list || []).map(function(e){
         var p = Core.parseEntry(e);
         if(p.chunks) CHUNKS[p.word] = p.chunks;
+        // The red lists mark the part the phonics rules get wrong —
+        // "s{ai}d". Same deal as the dots: display only, back of the card
+        // only, and the plain word is what everything else ever sees.
+        if(p.heart) HEART[p.word] = p.heart;
         return p.word;
       }));
     }
+    function heartOf(w){ return Object.prototype.hasOwnProperty.call(HEART, w) ? HEART[w] : null; }
 
     // A game page may pass a single `words` list instead of decks; the picker
     // then never appears and the round is simply that list.
@@ -591,9 +603,13 @@ window.CardGame = (function(){
       // The back is where the syllable split earns its keep, showing HOW
       // the word came apart once they've already had their go at it.
       var chunks = Object.prototype.hasOwnProperty.call(CHUNKS, w) ? CHUNKS[w] : null;
-      if(chunks) $("uiWordBack").innerHTML = Core.chunkMarkup(chunks);
+      var heart = heartOf(w);
+      if(chunks) $("uiWordBack").innerHTML = Core.chunkMarkup(chunks, heart);
+      else if(heart) $("uiWordBack").innerHTML = Core.heartMarkup(w, heart);
       else $("uiWordBack").textContent = w;
-      $("uiBackHint").textContent = "Did you read it right?";
+      $("uiBackHint").textContent = heart && !chunks
+        ? "In red: the part to remember by heart."
+        : "Did you read it right?";
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;
       renderCombo();
@@ -718,7 +734,11 @@ window.CardGame = (function(){
         $("uiBackHint").textContent = "That one comes back. Say it once more.";
         Core.popup($("popup"), "✗", "#ff6b6b");
         snd.bad();
-        sayWord(word, SLOW_RATE);
+        /* For a word with heart letters the slow read isn't the lesson —
+           the spelling is. "s. a. i. d. said", one utterance, because four
+           utterances come out as four separate thoughts. */
+        if(heartOf(word)) sayWord(Core.spellOut(word), SLOW_RATE);
+        else sayWord(word, SLOW_RATE);
       }
       // Long enough for the slow read on a miss to finish; the same beat
       // either way so the game's rhythm doesn't tell on the student.

@@ -868,6 +868,101 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     game-core.js — heart letters
+
+     Braces mark the part of a red word the phonics rules get wrong:
+     "s{ai}d". Display only, exactly like the syllable dots, and the two
+     combine. The load-bearing property is the last one below: the plain
+     word every red list produces must be BYTE-IDENTICAL to what it
+     produced before the marks were added, because those strings are stat
+     keys with a term of practice behind them.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore, P = C.parseEntry;
+
+    eq("an unmarked word has no heart", P("carrot").heart, null);
+    eq("…and is unchanged", P("carrot").word, "carrot");
+    eq("braces come out of the word", P("s{ai}d").word, "said");
+    eq("…and become a range", JSON.stringify(P("s{ai}d").heart), "[[1,3]]");
+    eq("a word can have two hearts", JSON.stringify(P("{a}b{o}ve").heart), "[[0,1],[2,3]]");
+    eq("…with the word still intact", P("{a}b{o}ve").word, "above");
+    eq("a heart at the very start", JSON.stringify(P("{of}").heart), "[[0,2]]");
+    eq("a heart at the very end", JSON.stringify(P("cl{o}th{es}").heart), "[[2,3],[5,7]]");
+    eq("an apostrophe is a letter as far as the index goes", P("th{ey}'d").word, "they'd");
+    eq("…so the heart lands before it", JSON.stringify(P("th{ey}'d").heart), "[[2,4]]");
+    eq("a period survives", P("Mrs.").word, "Mrs.");
+    eq("an accent survives", P("res{u}m{é}").word, "resumé");
+    eq("…and is markable", JSON.stringify(P("res{u}m{é}").heart), "[[3,4],[5,6]]");
+    eq("an empty pair of braces marks nothing", P("s{}aid").heart, null);
+
+    // Dots and braces on the same entry.
+    eq("braces and dots combine: the word", P("al{th}·ough").word, "although");
+    eq("…the chunks are brace-free", P("al{th}·ough").chunks.join("|"), "alth|ough");
+    eq("…and the heart indexes the plain word", JSON.stringify(P("al{th}·ough").heart), "[[2,4]]");
+    eq("a dotted word with no braces is untouched", P("fan·tas·tic").chunks.join("|"), "fan|tas|tic");
+    eq("…and has no heart", P("fan·tas·tic").heart, null);
+
+    // Markup.
+    eq("heartMarkup wraps the marked letters",
+       C.heartMarkup("said", [[1,3]]), 's<span class="heart">ai</span>d');
+    eq("heartMarkup with no heart is just the word", C.heartMarkup("said", null), "said");
+    eq("heartMarkup escapes HTML",
+       C.heartMarkup("a<b>c", [[0,1]]), '<span class="heart">a</span>&lt;b&gt;c');
+    eq("chunkMarkup marks a heart inside a syllable",
+       C.chunkMarkup(["alth","ough"], [[2,4]]).indexOf('<span class="heart">th</span>') !== -1, true);
+    eq("chunkMarkup with no heart is unchanged",
+       C.chunkMarkup(["fan","tas","tic"]), C.chunkMarkup(["fan","tas","tic"], null));
+
+    eq("spellOut spells then says", C.spellOut("said"), "s. a. i. d. said");
+    eq("spellOut keeps an apostrophe", C.spellOut("they'd"), "t. h. e. y. '. d. they'd");
+    eq("spellOut drops a period", C.spellOut("Mrs."), "M. r. s. Mrs.");
+
+    /* The stat keys. Every red list is now written with braces; every red
+       list must still produce exactly the words it produced before, or a
+       term of practice comes back keyed to nothing. */
+    var RED_PLAIN = {
+      "red-1-cards": "you,should,could,said,they,have,of,are,what,put,would,to,your,was,the,once,do,from,into,two",
+      "red-2-cards": "give,were,many,whose,any,here,live,some,Mrs.,Mr.,where,other,one,whom,right,there,done,great,does,their",
+      "red-3-cards": "thought,who,come,very,again,aren't,weren't,mother,father,brother,watch,haven't,they'd,you'd,against,friend,they'll,we're,they're,you're",
+      "red-4-cards": "beautiful,been,blood,none,only,says,sure,both,bought,buy,prove,straight,worn,push,today,pull,most,change,child,clothes",
+      "red-5-cards": "flood,floor,often,door,gone,laugh,break,steak,above,they've,you,lose,tough,view,rough,front,love,among,anyone,answer",
+      "red-6-cards": "nothing,cousins,cover,courage,toward,enough,through,sugar,busy,almost,ninth,although,always,another,onion,though,people,build,piano,pint",
+      "red-7-cards": "shoved,butcher,post,pretty,canoe,promise,carrot,cough,roll,danger,debt,sew,shoe,heart,forward,son,four,spirit,swan,bouquet",
+      "red-8-cards": "honest,toll,honor,touch,hour,Tuesday,Wednesday,imagine,iron,wind,wolf,won,wore,move,minute,mirror,young,success,already,idea",
+      "red-9-cards": "music,sure,garage,system,figure,friend,national,ready,island,unique,ocean,radio,feature,continue,condition,caution,enough,guarantee,technique,anxious",
+      "red-10-cards": "cologne,resumé,resume,boutique,fair,pair,fought,eye,show,small,about,call,fall,mall,air,know,large,barge,house,mouse"
+    };
+    Object.keys(RED_PLAIN).forEach(function(id){
+      eq("wordsOf(\"" + id + "\") is unchanged by the marks",
+         window.WordLists.wordsOf(id).join(","), RED_PLAIN[id]);
+    });
+    eq("WordLists.plain strips braces", window.WordLists.plain("s{ai}d"), "said");
+    eq("WordLists.plain strips braces and dots together", window.WordLists.plain("al{th}·ough"), "although");
+
+    // The two lookup tables keyed by plain word have to keep resolving.
+    (function(){
+      var words = {};
+      window.WordLists.ids.forEach(function(id){
+        if(id.indexOf("red-") !== 0) return;
+        window.WordLists.wordsOf(id).forEach(function(w){ words[w] = true; });
+      });
+      var missingH = [], missingS = [], k;
+      window.LIST_FAMILIES.forEach(function(fam){
+        if(fam.key !== "red") return;
+        (fam.modeConfig.match.homophones || []).forEach(function(g){
+          g.forEach(function(x){ if(!words[x]) missingH.push(x); });
+        });
+        for(k in fam.modeConfig.match.sentences){
+          if(!Object.prototype.hasOwnProperty.call(fam.modeConfig.match.sentences, k)) continue;
+          if(!words[k]) missingS.push(k);
+        }
+      });
+      eq("every RED_HOMOPHONES member is still a real red word", missingH.join(","), "");
+      eq("every RED_SENTENCES key is still a real red word", missingS.join(","), "");
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      card-game.js — judging a spoken answer (the Listen toggle)
 
      This decides which of the two rating buttons to PULSE. The student

@@ -125,6 +125,39 @@ say about *which* list, so it prints only the modes; a family with ten
 prints the list numbers per mode, as ranges, so ten ticked boxes read as
 "1–10" rather than as ten numbers.
 
+### Heart letters
+
+A red word is irregular, but it is rarely irregular all the way through.
+"said" is s + d with one impossible middle; "could" is c + d with one. The
+lists mark that middle with braces — `"s{ai}d"`, `"c{oul}d"` — and the
+flash cards show it in red on the **back** of the card, under "In red: the
+part to remember by heart". The front stays plain: the card has to be read
+cold first.
+
+The point is the size of the thing being memorised. "Learn s-a-i-d" is four
+letters with no pattern. "Learn that *said* has an **ai** in the middle" is
+one chunk, and the s and the d are just reading.
+
+Marks are display only and stack with the syllable dots (`"al{th}·ough"` is
+legal). `GameCore.parseEntry` returns `{ word, chunks, heart }` — the heart
+ranges index the **plain** word, apostrophes and periods included — and
+`WordLists.plain()` strips braces as well as dots. Everything that stores or
+matches a word sees the plain form, so adding the marks changed no stat key;
+`tests.html` pins all ten red lists' `wordsOf()` byte for byte against what
+they produced before, because those strings have a term of practice behind
+them.
+
+Marking is by hand, deliberately. `phonemes()` could flag the vowel team in
+every word, including the regular ones — "which part can't be sounded out"
+is a teaching judgement, not something the encoder knows. The unmarked words
+in those lists are unmarked on purpose: *carrot*, *spirit*, *radio* and
+*about* are regular enough to sound out, and *Mrs.*, *Mr.* and *wind* are an
+abbreviation and a heteronym, which is a different problem.
+
+On **Not yet**, a word with heart letters is spelled rather than just
+re-read: "s. a. i. d. said", as one utterance, because four utterances come
+out as four separate thoughts.
+
 ### Syllable dots
 
 The multisyllable list writes its words with middle dots marking the

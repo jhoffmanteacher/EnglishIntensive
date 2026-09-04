@@ -89,28 +89,38 @@ var MODES = {
 
    A red list is 20 words and a round is 18, so one round is nearly the
    whole list, weighted — over two or three rounds every word comes up,
-   the missed ones most. */
+   the missed ones most.
+
+   The braces mark the HEART of each word — the part the phonics rules get
+   wrong, and therefore the only part that has to be learned by heart.
+   "s{ai}d" is s + d with one impossible middle. They are display only
+   (GameCore.parseEntry strips them, WordLists.plain strips them), and the
+   flash cards show them on the BACK of the card, after the student has
+   already had their go at reading it cold. A word left unmarked is left
+   unmarked on purpose: "carrot", "spirit", "radio", "about" and the rest
+   are regular enough to sound out, and "Mrs.", "Mr." and "wind" are an
+   abbreviation and a heteronym, which is a different problem. */
 var RED_LISTS = [
-  ["you","should","could","said","they","have","of","are","what","put",
-   "would","to","your","was","the","once","do","from","into","two"],
-  ["give","were","many","whose","any","here","live","some","Mrs.","Mr.",
-   "where","other","one","whom","right","there","done","great","does","their"],
-  ["thought","who","come","very","again","aren't","weren't","mother","father","brother",
-   "watch","haven't","they'd","you'd","against","friend","they'll","we're","they're","you're"],
-  ["beautiful","been","blood","none","only","says","sure","both","bought","buy",
-   "prove","straight","worn","push","today","pull","most","change","child","clothes"],
-  ["flood","floor","often","door","gone","laugh","break","steak","above","they've",
-   "you","lose","tough","view","rough","front","love","among","anyone","answer"],
-  ["nothing","cousins","cover","courage","toward","enough","through","sugar","busy","almost",
-   "ninth","although","always","another","onion","though","people","build","piano","pint"],
-  ["shoved","butcher","post","pretty","canoe","promise","carrot","cough","roll","danger",
-   "debt","sew","shoe","heart","forward","son","four","spirit","swan","bouquet"],
-  ["honest","toll","honor","touch","hour","Tuesday","Wednesday","imagine","iron","wind",
-   "wolf","won","wore","move","minute","mirror","young","success","already","idea"],
-  ["music","sure","garage","system","figure","friend","national","ready","island","unique",
-   "ocean","radio","feature","continue","condition","caution","enough","guarantee","technique","anxious"],
-  ["cologne","resumé","resume","boutique","fair","pair","fought","eye","show","small",
-   "about","call","fall","mall","air","know","large","barge","house","mouse"]
+  ["y{ou}","sh{oul}d","c{oul}d","s{ai}d","th{ey}","ha{ve}","{of}","{are}","wh{a}t","p{u}t",
+   "w{oul}d","t{o}","y{our}","w{a}s","th{e}","{o}nce","d{o}","fr{o}m","int{o}","t{wo}"],
+  ["gi{ve}","w{ere}","m{a}ny","wh{ose}","{a}ny","h{ere}","li{ve}","s{o}me","Mrs.","Mr.",
+   "wh{ere}","{o}ther","{one}","wh{o}m","right","th{ere}","d{o}ne","gr{ea}t","d{oe}s","th{eir}"],
+  ["th{ough}t","wh{o}","c{o}me","very","ag{ai}n","aren't","w{ere}n't","m{o}ther","f{a}ther","br{o}ther",
+   "w{a}tch","ha{ve}n't","th{ey}'d","y{ou}'d","ag{ai}nst","fr{ie}nd","th{ey}'ll","we're","th{ey}'re","y{ou}'re"],
+  ["b{eau}tiful","b{ee}n","bl{oo}d","n{o}ne","{o}nly","s{ay}s","{su}re","b{o}th","b{ough}t","b{uy}",
+   "pr{o}ve","str{aigh}t","w{or}n","p{u}sh","t{o}day","p{u}ll","m{o}st","ch{a}nge","ch{i}ld","cl{o}th{es}"],
+  ["fl{oo}d","fl{oor}","of{te}n","d{oor}","g{o}ne","l{augh}","br{ea}k","st{ea}k","{a}b{o}ve","th{ey}'ve",
+   "y{ou}","l{o}se","t{ough}","v{iew}","r{ough}","fr{o}nt","l{o}ve","am{o}ng","{a}ny{one}","ans{w}er"],
+  ["n{o}thing","c{ou}sins","c{o}ver","c{ou}rage","t{owa}rd","en{ough}","thr{ough}","{su}gar","b{u}sy","{a}lmost",
+   "n{i}nth","{al}th{ough}","{al}ways","an{o}ther","{o}nion","th{ough}","pe{o}ple","b{ui}ld","pi{a}no","p{i}nt"],
+  ["sh{o}ved","b{u}tcher","p{o}st","pr{e}tty","can{oe}","promi{se}","carrot","c{ough}","r{o}ll","d{a}nger",
+   "de{b}t","s{ew}","sh{oe}","h{ear}t","forward","s{o}n","f{our}","spirit","sw{a}n","b{ou}qu{et}"],
+  ["{h}onest","t{o}ll","{h}on{or}","t{ou}ch","{hou}r","T{ue}sday","We{d}nesday","imagi{ne}","{iro}n","wind",
+   "w{o}lf","w{o}n","w{ore}","m{o}ve","min{u}te","mirror","y{ou}ng","su{cc}ess","{al}ready","idea"],
+  ["m{u}sic","{su}re","gara{ge}","s{y}stem","fig{u}re","fr{ie}nd","na{ti}onal","r{ea}dy","i{s}land","un{ique}",
+   "o{ce}an","radio","f{ea}t{u}re","contin{ue}","condi{ti}on","cau{ti}on","en{ough}","g{ua}rant{ee}","te{ch}n{ique}","an{xi}ous"],
+  ["col{ogne}","res{u}m{é}","resume","b{ou}t{ique}","f{air}","p{air}","f{ough}t","{eye}","show","sm{a}ll",
+   "about","c{a}ll","f{a}ll","m{a}ll","{air}","know","large","barge","house","mouse"]
 ];
 
 // Words that sound alike are never put on screen together in Match It —
@@ -463,10 +473,13 @@ window.WordLists = (function(){
   all.forEach(function(l){ pageServes[l.page] = (pageServes[l.page] || 0) + 1; });
 
   var CHUNK_SEP = "·";
-  // The plain word, with any syllable dots removed — the form every stat
-  // key, every match and every bit of stored data uses. The dotted form
-  // never leaves the engine's display code.
-  function plain(entry){ return String(entry || "").split(CHUNK_SEP).join(""); }
+  // The plain word, with the two display marks removed — the syllable dots
+  // and the braces round a red word's heart letters ("s{ai}d"). This is the
+  // form every stat key, every match and every bit of stored data uses;
+  // the marked-up forms never leave the engine's display code.
+  function plain(entry){
+    return String(entry || "").split(CHUNK_SEP).join("").replace(/[{}]/g, "");
+  }
 
   function familyOf(key){
     for(var i=0;i<window.LIST_FAMILIES.length;i++) if(window.LIST_FAMILIES[i].key === key) return window.LIST_FAMILIES[i];
