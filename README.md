@@ -509,6 +509,22 @@ on), the syllable parser, the spelling checker, the flash-card deck builders
 and the matching game's distractor picker — it renders a pass/fail table
 with a summary line.
 
+Three scripts in `tools/` run the checks headlessly, against a plain
+`python3 -m http.server`:
+
+| | |
+|---|---|
+| `tools/run-tests.sh` | `tests.html` in headless Chrome; prints the summary line |
+| `tools/check-pages.sh <pages…>` | loads each page and reports console errors and CSP violations |
+| `tools/boot-check.sh` | **starts every engine** against its real list and clicks a few steps through it |
+
+The last one exists because of the gap the other two leave. `tests.html`
+covers pure logic; page loads stop at the sign-in wall, so an engine's
+`start()` never runs on a real page without an account. A listener bound to
+an element before the shell exists throws on the first card and passes both
+of the other checks — which is exactly what happened once, and is why this
+one is here.
+
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.
