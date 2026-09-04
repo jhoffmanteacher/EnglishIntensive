@@ -16,7 +16,7 @@ rules_version = '2';
    Keep this file and the console in sync; if they drift, the console wins
    and this file becomes a lie.
 
-   The site only ever touches four paths (verified against store.js and
+   The site only ever touches five paths (verified against store.js and
    teacher.js):
      students/{uid}      one doc per student: words (per-word stats),
                          heard (what the mic returned on a miss),
@@ -27,6 +27,9 @@ rules_version = '2';
                          periods (teacher writes, everyone reads)
      notes/{uid}         teacher-written and TEACHER-READ: the teacher's
                          private note about a student
+     roster/{email}      teacher-written: the class list as imported, keyed
+                         by the address a student will sign in with, so a
+                         student can be placed before they ever appear
 
    Anything not matched below is denied by default. Do not add a catch-all.
    ══════════════════════════════════════════════════════════════════════ */
@@ -116,6 +119,38 @@ service cloud.firestore {
        you ever find yourself adding one, you are turning this back into
        assignments/{uid} and should just use that instead. */
     match /notes/{userId} {
+      allow read, write: if isTeacher();
+    }
+
+    /* The imported class roster, one document per student, keyed by the
+       address they will sign in with — `<student id>@seq.org`.
+
+       Keyed by EMAIL rather than by uid because the whole point is to
+       exist before the student does. A uid is minted at first sign-in;
+       an ID number is on the roster export in August. The email derived
+       from that number is the only thing that is knowable on both sides
+       of a first sign-in, which makes it the only possible join.
+
+       A student may read exactly one document: their own. They need it —
+       store.js resolves their period and starting list through it on the
+       first sign-in, before any teacher has touched their account — and
+       the row holds their own name, ID and period, which they already
+       know. They may not read anyone else's, so the collection can hold
+       the whole class without being a class list any student can pull.
+
+       A student may not WRITE it, and that is the load-bearing half. The
+       row decides which lists they get; a writable row is a student
+       assigning themselves whatever they like. Same reasoning as
+       assignments/{uid} above, and the reason Phase 5's sequences are
+       computed in the browser from the student's own stats rather than
+       written anywhere.
+
+       `.lower()` on the token, not on the id: the document id is written
+       lowercased by the import, and a comparison that lowercased only one
+       side would let "Student@seq.org" read a row it does not own on a
+       provider that preserves case. */
+    match /roster/{email} {
+      allow read: if isSchool() && request.auth.token.email.lower() == email;
       allow read, write: if isTeacher();
     }
 

@@ -63,6 +63,23 @@ These rules run on Google's servers and cannot.
 Re-paste them any time `firestore.rules` changes in the repo. GitHub Pages
 does not deploy rules; nothing does but this box.
 
+> **Waiting to be published.** `firestore.rules` in the repo is ahead of
+> the console: it has the `roster/{email}` block the roster import needs.
+> Until it is pasted in and published, the import writes fail and every
+> student's roster read comes back denied — which is handled (the site
+> behaves exactly as it did before the roster existed), but nothing about
+> the roster works. Two minutes: copy the file, paste, Publish.
+
+A machine can do it instead of a person, but only where the Firebase CLI
+has already been logged in:
+
+```
+firebase deploy --only firestore:rules --project english-intensive
+```
+
+`firebase projects:list` says whether it is. Logging in needs a browser,
+so on a headless machine this is a person's job.
+
 ## 6. Fill in `firebase-config.js`
 
 1. Console → the **gear icon** next to Project Overview → **Project
