@@ -671,6 +671,125 @@ window.WordLists = (function(){
 
     /* ── families ───────────────────────────────────────────────────── */
     families: function(){ return window.LIST_FAMILIES.slice(); },
+    /* Whatever a roster export calls a starting point, as a list id.
+       Accepts an id outright ("red-3-cards"), and otherwise the shorthand
+       a teacher actually writes in a spreadsheet column — "Red 3", "Red
+       Words 3", "oi/oy", "Blends" — because the alternative is telling a
+       teacher to look up thirty ids before they can import their class.
+
+       Ambiguity resolves to the family's FIRST mode in its own order,
+       which is the one a student starts on. Null when nothing matches;
+       the caller treats that as a warning, never an error. */
+    resolveListRef: function(text){
+      var s = String(text == null ? "" : text).toLowerCase().trim();
+      if(!s) return null;
+      if(index[s]) return s;
+      var num = null;
+      var m = /(\d+)\s*$/.exec(s);
+      if(m){ num = parseInt(m[1], 10); s = s.slice(0, m.index).trim(); }
+      /* Compare with every separator gone: a teacher writes "oi/oy" and
+         the family is titled "oi / oy", and neither of them is wrong. */
+      function squash(x){ return String(x).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+      s = squash(s);
+      if(!s) return null;
+      var fam = null, i, f;
+      for(i=0;i<window.LIST_FAMILIES.length;i++){
+        f = window.LIST_FAMILIES[i];
+        if(squash(f.title) === s || squash(f.key) === s){ fam = f; break; }
+      }
+      if(!fam){
+        /* A prefix is enough — "red" for "Red Words". Longest title first,
+           so a short word that prefixes two families lands on the more
+           specific one rather than on whichever is declared earliest. */
+        var cands = window.LIST_FAMILIES.slice().sort(function(a, b){ return b.title.length - a.title.length; });
+        for(i=0;i<cands.length;i++){
+          var t = squash(cands[i].title), k = squash(cands[i].key);
+          if(t.indexOf(s) === 0 || s.indexOf(t) === 0 || k.indexOf(s) === 0){ fam = cands[i]; break; }
+        }
+      }
+      if(!fam) return null;
+      var nums = this.listNumsOf(fam.key);
+      var n = (num != null && nums.indexOf(num) !== -1) ? num : nums[0];
+      var modes = fam.modes;
+      for(i=0;i<modes.length;i++){
+        var id = this.idFor(fam.key, n, modes[i]);
+        if(id) return id;
+      }
+      return null;
+    },
+
+    /* ── the default sequence ──────────────────────────────────────
+       An ordered course through the library, as a list of steps that
+       unlock together. Generated rather than written down so it cannot
+       drift from the families: add a family and it appears in the course
+       without anybody editing a second file.
+
+       The order is the curriculum's, not the file's: the decodable
+       families first, in the order they get harder, and within each one
+       say → cards → match, which is read it, know it on sight, pick it
+       out of a line-up. Then the ten red lists, where cards N unlocks
+       both match N and cards N+1, so a student is always reading one
+       list and being tested on the one before it.
+
+       The nonsense words sit in the FIRST step and never leave. They are
+       warm-up — pure sounding-out with nothing to guess from — and a
+       warm-up that has to be unlocked is not a warm-up. Everything
+       unlocked stays unlocked, so being in step one is being available
+       for the whole course.
+
+       Modes with no place in a course (spelling, the fluency runs, Blend
+       It, Split it) are deliberately left out: they are practice a
+       teacher assigns on purpose, not rungs on a ladder. */
+    defaultSequence: function(){
+      var steps = [];
+      var COURSE = ["blends-start", "blends-end", "oi-oy", "multi"];
+      var LADDER = ["say", "cards", "match"];
+      var warmUp = [];
+      this.listNumsOf("nonsense").forEach(function(n){
+        ["say", "cards"].forEach(function(m){
+          var id = this.idFor("nonsense", n, m);
+          if(id) warmUp.push(id);
+        }, this);
+      }, this);
+
+      COURSE.forEach(function(fam){
+        this.listNumsOf(fam).forEach(function(n){
+          LADDER.forEach(function(m){
+            var id = this.idFor(fam, n, m);
+            if(id) steps.push([id]);
+          }, this);
+        }, this);
+      }, this);
+
+      // Red words: cards first, then that list's Match It together with
+      // the next list's cards.
+      var reds = this.listNumsOf("red"), i, cur, nextCards;
+      for(i=0;i<reds.length;i++){
+        cur = this.idFor("red", reds[i], "cards");
+        if(!cur) continue;
+        if(i === 0) steps.push([cur]);
+        var m = this.idFor("red", reds[i], "match");
+        nextCards = (i + 1 < reds.length) ? this.idFor("red", reds[i+1], "cards") : null;
+        var step = [];
+        if(m) step.push(m);
+        if(nextCards) step.push(nextCards);
+        if(step.length) steps.push(step);
+      }
+
+      if(steps.length && warmUp.length) steps[0] = warmUp.concat(steps[0]);
+      else if(warmUp.length) steps.push(warmUp);
+      return steps;
+    },
+
+    /* Where a list id sits in a sequence, as a step index — what a
+       roster row's "starts on" resolves to. -1 when the sequence doesn't
+       contain it, which the caller reads as "start at the beginning". */
+    stepOf: function(sequence, listId){
+      var steps = sequence || [];
+      for(var i=0;i<steps.length;i++) if((steps[i] || []).indexOf(listId) !== -1) return i;
+      return -1;
+    },
+
     // What a list is teaching, in a teacher's words. Falls back to the
     // family title so a family added without a tag still reads sensibly.
     patternOf: function(listId){

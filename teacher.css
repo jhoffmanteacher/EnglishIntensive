@@ -99,6 +99,72 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 .sparkcell{width:150px}
 .spark{display:block;color:var(--accent);overflow:visible}
 
+/* ---- the roster import dialog ----
+   A drop zone and a paste box, because a teacher with a file will drop it
+   and a teacher with a browser tab full of a spreadsheet will paste it,
+   and neither of them should have to save a file first. */
+.riBox{max-width:820px}
+.riDrop{
+  border:2px dashed var(--line);border-radius:16px;padding:22px;text-align:center;
+  background:var(--panel2);transition:border-color .15s ease, background .15s ease;
+}
+.riDrop.over{border-color:var(--accent);background:rgba(255,201,77,.08)}
+.riDrop input[type=file]{display:block;margin:12px auto 0;color:var(--muted);font:inherit;font-size:13px}
+.riPaste{
+  width:100%;min-height:110px;resize:vertical;
+  background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.6;padding:12px 14px;
+}
+.riPaste:focus{outline:none;border-color:var(--accent)}
+#riPreview{margin-top:14px}
+
+/* ---- what should change ----
+   A list of sentences, not a table. There is one line per student and it
+   is a sentence, so a row that looked like a data row would be read as
+   one and skimmed past. */
+.nsList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.nsRow{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+}
+.nsWho{font-weight:800;min-width:130px}
+.nsText{flex:1 1 260px;color:var(--ink);font-size:14.5px;line-height:1.5}
+
+/* ---- the sequence editor ----
+   An ordered list of steps, drag-to-reorder with buttons as well: the
+   drag is what everybody reaches for and the buttons are what works on a
+   trackpad, with a keyboard, and past the bottom of a scrolling panel. */
+.seqBox{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.seqList{list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:6px}
+.seqStep{
+  display:flex;align-items:center;gap:10px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  padding:8px 12px;cursor:grab;
+}
+.seqStep.dragging{opacity:.45}
+.seqStep:hover{border-color:var(--accent)}
+.seqNum{
+  flex:none;width:26px;height:26px;border-radius:50%;
+  background:var(--panel);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;color:var(--muted);
+}
+.seqIds{flex:1 1 auto;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.seqChip{
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:2px 8px;font-size:12.5px;font-weight:700;white-space:nowrap;
+}
+.seqTools{flex:none;display:inline-flex;gap:4px}
+/* A cell the sequence decided, on the Assign board — dashed like an
+   inherited one, because it is inherited: from the course, not a person. */
+.abCell.seq{border-style:dashed}
+.abCell .seqStepNum{display:block;font-size:10px;color:var(--muted);letter-spacing:.04em}
+
+/* A roster row with no account behind it yet. Present, clickable and
+   assignable — just visibly not here. */
+table.t tbody tr.pending td{opacity:.62}
+table.t tbody tr.pending .who .nm{font-weight:600}
+
 .wordchips{display:flex;flex-wrap:wrap;gap:8px}
 .wordchip{
   background:var(--panel2);border:1px solid var(--line);border-radius:10px;

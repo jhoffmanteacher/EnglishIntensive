@@ -1,5 +1,12 @@
 # TODO
 
+> ### ⚠ PUBLISH `firestore.rules`
+> `roster/{email}` (the roster import) and `notes/{uid}` are both waiting
+> in the repo's rules file and are not live. Firebase console → Firestore
+> Database → Rules → paste the whole file → **Publish**. Two minutes, and
+> nothing about the roster works until it is done — the site behaves as it
+> did before, silently, which is exactly why this is easy to miss.
+
 What's left after the assignment-board work, roughly in the order it's
 worth doing. Nothing here is blocking: the site is complete and tested as
 it stands. Items are written so they can be picked up cold.
@@ -12,7 +19,9 @@ with the reasoning, so they don't get re-proposed every few months.
 ## Next
 
 *(The three items that were here — progression rules, per-student notes and
-export — are all done. See the Teacher dashboard section of the README.)*
+export — are all done, and progression is no longer a suggestion: a period
+can run a sequence and the site advances students along it by itself. See
+the Teacher dashboard section of the README.)*
 
 Nothing outstanding from the assignment-board work. The reading-feedback
 build (sound-level feedback, fluency, phoneme clips, sound boxes, patterns)
@@ -52,6 +61,26 @@ Two things worth watching once it has had one:
   where they belong — `RED_HOMOPHONES` reaches the say matcher, and
   `GameCore.normalize` folds a contraction and its expansion to the same
   string. Ten new ids (`red-N-say`) on the generic `say-game.html`.
+
+## Decided during the roster build
+
+Choices the roster plan left open, recorded so the reasoning survives.
+
+- **"Stuck on cards for two weeks" is measured in attempts, not days.**
+  A stat carries the time a word was LAST practised and nothing about
+  when it was first seen, so "for two weeks" has nothing to compute
+  against. Thirty answers on one list at under 40 % solid is the same
+  student by any other route — at eighteen words a round that is a
+  fortnight of it — and it is a number the data actually has.
+- **A period with no stored sequence has no sequence.** The plan says a
+  default one is "generated on first use"; generating it silently for
+  every period would switch auto-advance on across a school without
+  anybody asking for it. **Reset to default** in the sequence editor is
+  the first use, and it is a button somebody presses.
+- **"Red 3" in a roster's start column resolves to the family's FIRST
+  mode**, which for the red words is now Say It. Whatever a teacher
+  meant, the first mode is where a student starts, and every later mode
+  of that list unlocks a step or two behind it.
 
 ## Decided during the reading-feedback build
 

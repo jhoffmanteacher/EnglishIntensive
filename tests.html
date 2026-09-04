@@ -869,6 +869,36 @@
        E({}, {periodLists:{"3":["b"]}}, ALL).join(","), "a,b,c,d");
     eq("the returned array is a copy, not the stored one",
        (function(){ var cfg = {defaultLists:["a"]}; E(null,cfg,ALL).push("x"); return cfg.defaultLists.length; })(), 1);
+
+    /* ---- the roster rung ----
+       Between the student's own assignment and their period. The rule
+       that lets this ship before the rules for it are published: with no
+       roster the walk is byte-for-byte what it was, so a read that fails
+       (permission denied, nothing imported) is indistinguishable from
+       the site as it was yesterday. */
+    eq("no roster at all is exactly the walk as it was",
+       E({period:"3"}, {defaultLists:["a"], periodLists:{"3":["b"]}}, ALL, null).join(","), "b");
+    eq("a roster read that failed looks the same as no roster",
+       E(null, {defaultLists:["a"]}, ALL, undefined).join(","),
+       E(null, {defaultLists:["a"]}, ALL).join(","));
+    eq("a roster row with no lists changes nothing",
+       E(null, {defaultLists:["a"]}, ALL, {name:"Ana"}).join(","), "a");
+    eq("a roster row's lists beat the class default",
+       E(null, {defaultLists:["a"]}, ALL, {lists:["c"]}).join(","), "c");
+    eq("…and beat the period",
+       E({period:"3"}, {periodLists:{"3":["b"]}}, ALL, {lists:["c"]}).join(","), "c");
+    eq("a student's OWN assignment still beats the roster",
+       E({lists:["d"]}, {}, ALL, {lists:["c"]}).join(","), "d");
+    eq("the roster's period is used when the assignment has none",
+       E(null, {periodLists:{"3":["b"]}, defaultLists:["a"]}, ALL, {period:"3"}).join(","), "b");
+    eq("…and the assignment's period wins when it has one",
+       E({period:"4"}, {periodLists:{"3":["b"],"4":["e"]}}, ALL, {period:"3"}).join(","), "e");
+    eq("an empty roster period is no period, not a period called ''",
+       E(null, {defaultLists:["a"], periodLists:{"":["z"]}}, ALL, {period:""}).join(","), "a");
+    eq("an explicit empty roster list parks them too",
+       E(null, {defaultLists:["a"]}, ALL, {lists:[]}).length, 0);
+    eq("nothing anywhere, roster included, still opens the whole site",
+       E(null, null, ALL, null).join(","), "a,b,c,d");
   })();
 
   /* ══════════════════════════════════════════════════════════════════
@@ -1195,6 +1225,113 @@
     eq("…and it tells the engine so", window.WordLists.byId("multi-1-split").config.split, true);
     eq("…and only the multisyllable family has it",
        window.WordLists.all.filter(function(l){ return l.mode === "split"; }).length, 1);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     game-core.js — reading a roster export
+
+     What comes out of a student information system is never the same
+     twice, so the parser reads what it is given rather than a format.
+     The rule that must never bend: an ID is never guessed. A guessed ID
+     is a student matched to somebody else's record.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore, W = window.WordLists;
+    function P(text){ return C.parseRoster(text, function(s){ return W.resolveListRef(s); }); }
+
+    eq("the email is the ID plus the domain", C.emailForId("102345"), "102345@seq.org");
+    eq("…lowercased and trimmed", C.emailForId("  102345  "), "102345@seq.org");
+    eq("no ID, no email", C.emailForId(""), "");
+    eq("…and nothing isn't an email either", C.emailForId(null), "");
+
+    // ---- the shapes a real export arrives in ----
+    (function(){
+      var r = P("Student ID,Name,Period\n102345,Ana Ruiz,Period 3\n102346,Sam Lee,P4");
+      eq("a header row is recognised", r.hadHeader, true);
+      eq("both students come through", r.rows.length, 2);
+      eq("the ID becomes an email", r.rows[0].email, "102345@seq.org");
+      eq("“Period 3” is period 3", r.rows[0].period, "3");
+      eq("“P4” is period 4", r.rows[1].period, "4");
+      eq("nothing went wrong", r.errors.length, 0);
+    })();
+
+    eq("tabs are sniffed", P("id\tname\tperiod\n1\tA B\t3").delimiter, "\t");
+    eq("semicolons are sniffed", P("id;name;period\n1;A B;3").delimiter, ";");
+    eq("a BOM doesn't eat the first header", P("\ufeffid,name\n1,A B").columns.id, 0);
+    eq("Windows line endings are lines", P("id,name\r\n1,A B\r\n2,C D").rows.length, 2);
+    eq("trailing blank lines aren't rows", P("id,name\n1,A B\n\n\n").rows.length, 1);
+
+    // A comma inside a quoted name is the case that breaks a naive split.
+    (function(){
+      var r = P('id,name,period\n1,"O\'Brien, Jr.",3');
+      eq("a quoted comma stays inside the name", r.rows[0].name, "O'Brien, Jr.");
+      eq("…and the period is still the period", r.rows[0].period, "3");
+    })();
+    eq("a doubled quote is one quote",
+       P('id,name\n1,"She said ""hi"""').rows[0].name, 'She said "hi"');
+
+    // ---- the header aliases ----
+    eq("Perm ID counts", P("Perm ID,Name\n7,A B").rows[0].id, "7");
+    eq("Local ID counts", P("Local ID,Name\n7,A B").rows[0].id, "7");
+    eq("SIS ID counts", P("SIS ID,Name\n7,A B").rows[0].id, "7");
+    eq("headers are case-insensitive", P("STUDENT NUMBER,STUDENT\n7,A B").rows[0].id, "7");
+    eq("last and first become one name",
+       P("id,Last Name,First Name\n7,Ruiz,Ana").rows[0].name, "Ana Ruiz");
+    eq("…in the order a person says it",
+       P("id,First Name,Last Name\n7,Ana,Ruiz").rows[0].name, "Ana Ruiz");
+    eq("a lone Name column wins over Last/First",
+       P("id,Name,Last Name\n7,Ana Ruiz,Ignored").rows[0].name, "Ana Ruiz");
+    eq("Section is a period", P("id,name,Section\n7,A B,2").rows[0].period, "2");
+
+    // ---- no header at all ----
+    (function(){
+      var r = P("102345\tAna Ruiz\t3\n102346\tSam Lee\t4");
+      eq("a headerless file is read by shape", r.hadHeader, false);
+      eq("…the long digits are the IDs", r.rows[0].id, "102345");
+      eq("…the words are the names", r.rows[0].name, "Ana Ruiz");
+      eq("…the short digits are the periods", r.rows[1].period, "4");
+    })();
+
+    // ---- what is rejected, and what is only a warning ----
+    (function(){
+      var r = P("id,name\n,Nobody\nabc,Bad Id\n7,Fine\n7,Twin");
+      eq("a row with no ID is rejected", r.errors[0].message, "No ID number");
+      eq("a non-numeric ID is rejected", r.errors[1].message.indexOf("isn't a number") !== -1, true);
+      eq("a duplicate ID is rejected", r.errors[2].message.indexOf("Duplicate"), 0);
+      eq("…and the rest still imports", r.rows.length, 1);
+      eq("…the one that was fine", r.rows[0].name, "Fine");
+      eq("an error names the line it was on", r.errors[0].line, 2);
+    })();
+    (function(){
+      var r = P("id,name,start\n7,A B,Red 3\n8,C D,somewhere else");
+      eq("a start that resolves becomes a list id", r.rows[0].start, "red-3-say");
+      eq("one that doesn't is a warning, not an error", r.errors.length, 0);
+      eq("…on the row", r.rows[1].warning.indexOf("somewhere else") !== -1, true);
+      eq("…and the student still imports", r.rows.length, 2);
+    })();
+    eq("a file with nothing usable says so",
+       P("colour,shape\nred,round").errors.length > 0, true);
+    eq("an empty file is empty, not an error", P("").rows.length, 0);
+
+    // ---- period normalising ----
+    eq("“3rd” is 3", C.normalizePeriod("3rd"), "3");
+    eq("“ 03 ” is 3", C.normalizePeriod(" 03 "), "3");
+    eq("a period with no digits keeps its name", C.normalizePeriod("A"), "A");
+    eq("no period is no period", C.normalizePeriod(""), "");
+
+    // ---- what a teacher may write in a "start" column ----
+    eq("a list id is itself", W.resolveListRef("red-3-cards"), "red-3-cards");
+    eq("“Red 3” is the third red list", W.resolveListRef("Red 3"), "red-3-say");
+    eq("“Red Words 3” is the same", W.resolveListRef("Red Words 3"), "red-3-say");
+    eq("“oi/oy” finds the family whatever the spacing", W.resolveListRef("oi/oy"), "oi-oy-read");
+    eq("…and so does “oi oy”", W.resolveListRef("oi oy"), "oi-oy-read");
+    eq("“Starting Blends” is the starting blends", W.resolveListRef("Starting Blends"), "initial-blends");
+    eq("“Blend Words” is the other one", W.resolveListRef("Blend Words"), "final-blends");
+    eq("a family with no number starts at its first list", W.resolveListRef("Red Words"), "red-1-say");
+    eq("a list number that doesn't exist falls back to the first",
+       W.resolveListRef("Red 99"), "red-1-say");
+    eq("nonsense is nonsense", W.resolveListRef("zzz"), null);
+    eq("nothing is nothing", W.resolveListRef(""), null);
   })();
 
   /* ══════════════════════════════════════════════════════════════════
@@ -1663,6 +1800,383 @@
 
     eq("the kinds read as a teacher would write them", T2.kindText("missing"), "dropped a sound");
     eq("an unknown kind passes through rather than blanking a cell", T2.kindText("zzz"), "zzz");
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     teacher.js — the roster on the dashboard
+
+     Two rules do the work and both are about not destroying anything: an
+     import never deletes a row, and it never overwrites an assignment
+     that already exists. A teacher who moved a student in March must not
+     have that undone by an April re-import.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T2 = window.EITeacher._internals;
+    function feed(st){ T2.feed(st); }
+
+    function rows(){
+      return [
+        { id:"1", name:"Ana Ruiz",  email:"1@seq.org", period:"3", start:null },
+        { id:"2", name:"Sam Lee",   email:"2@seq.org", period:"4", start:"red-3-cards" },
+        { id:"3", name:"Kai Moore", email:"3@seq.org", period:"",  start:null }
+      ];
+    }
+
+    // A class where 1 has signed in and already has an assignment, 2 has
+    // signed in with none, 3 has never appeared.
+    function aClass(){
+      return {
+        students: [
+          { uid:"u1", name:"Ana Ruiz", email:"1@seq.org", stats:{}, heard:{}, fluency:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 },
+          { uid:"u2", name:"Sam Lee",  email:"2@seq.org", stats:{}, heard:{}, fluency:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 }
+        ],
+        assignments: { u1: { period:"9", lists:["nonsense"] } },
+        classCfg: { periods: ["9"] },
+        roster: {}
+      };
+    }
+
+    (function(){
+      feed(aClass());
+      var b = T2.importBody(rows(), 1000);
+      eq("every row becomes a roster document", Object.keys(b.roster).sort().join(","), "1@seq.org,2@seq.org,3@seq.org");
+      eq("…carrying the name", b.roster["1@seq.org"].name, "Ana Ruiz");
+      eq("…the ID", b.roster["1@seq.org"].id, "1");
+      eq("…the period", b.roster["1@seq.org"].period, "3");
+      eq("…and a start where the file gave one", b.roster["2@seq.org"].startAt, "red-3-cards");
+      eq("…and none where it didn't",
+         Object.prototype.hasOwnProperty.call(b.roster["1@seq.org"], "startAt"), false);
+      eq("a period the class didn't have is created", b.periods.sort().join(","), "3,4");
+      eq("…and one it already had isn't", b.periods.indexOf("9"), -1);
+
+      eq("a signed-in student with NO assignment gets one filled in",
+         Object.keys(b.assignments).join(","), "u2");
+      eq("…from the roster row", b.assignments.u2.period, "4");
+      eq("a signed-in student who already has one is never touched",
+         Object.prototype.hasOwnProperty.call(b.assignments, "u1"), false);
+      eq("a student who hasn't signed in gets no assignment at all",
+         Object.keys(b.assignments).length, 1);
+    })();
+
+    // The preview's status column.
+    (function(){
+      var c = aClass();
+      c.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
+      feed(c);
+      eq("a student already signed in says so", T2.rosterStatus(rows()[0]).key, "signed-in");
+      eq("a row that exists is an update", T2.rosterStatus(rows()[2]).key, "update");
+      eq("anything else is new",
+         T2.rosterStatus({ id:"9", email:"9@seq.org", name:"New", period:"1" }).key, "new");
+    })();
+
+    // Roster rows with no account fold into the class as pending students.
+    (function(){
+      var c = aClass();
+      c.roster = {
+        "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5", lists:["nonsense","initial-blends"] },
+        "1@seq.org": { email:"1@seq.org", name:"Ana Ruiz", period:"3" }
+      };
+      feed(c);
+      var uids = T2.studentUids();
+      eq("a roster row with no account becomes a student", uids.indexOf("roster:3@seq.org") !== -1, true);
+      eq("…and one WITH an account does not duplicate them",
+         uids.filter(function(u){ return u.indexOf("1@seq.org") !== -1; }).length, 0);
+      eq("a pending uid is recognisable", T2.isPending("roster:3@seq.org"), true);
+      eq("…and a real one isn't", T2.isPending("u1"), false);
+
+      eq("a pending student's lists come off their roster row",
+         T2.effectiveLists("roster:3@seq.org").ids.join(","), "nonsense,initial-blends");
+      eq("…and say where from", T2.effectiveLists("roster:3@seq.org").from, "roster");
+
+      // Precedence, the same walk store.js does.
+      c.roster["3@seq.org"].lists = null;
+      c.classCfg = { periods:["5"], periodLists: { "5": ["red-1-cards"] } };
+      feed(c);
+      eq("with no roster lists, the roster's PERIOD decides",
+         T2.effectiveLists("roster:3@seq.org").ids.join(","), "red-1-cards");
+      eq("…and says so", T2.effectiveLists("roster:3@seq.org").from, "period 5");
+      eq("a signed-in student's own assignment still wins over everything",
+         T2.effectiveLists("u1").ids.join(","), "nonsense");
+    })();
+
+    // Board edits for a pending student go to the roster, not assignments.
+    (function(){
+      var c = aClass();
+      c.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
+      feed(c);
+      T2.setScope("s:roster:3@seq.org", ["nonsense"]);
+      T2.setScope("s:u2", ["initial-blends"]);
+      var b = T2.saveBody(["s:roster:3@seq.org", "s:u2"], 500);
+      eq("the pending student is written to the roster",
+         Object.keys(b.roster).join(","), "3@seq.org");
+      eq("…with their lists", b.roster["3@seq.org"].lists.join(","), "nonsense");
+      eq("the signed-in one is written to assignments", Object.keys(b.students).join(","), "u2");
+      eq("…and never to both",
+         Object.prototype.hasOwnProperty.call(b.students, "roster:3@seq.org"), false);
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     Sequences
+
+     A student's position in a course is a pure function of their own
+     stats, computed twice — once in their browser, once on the
+     dashboard — from the same function. These pin the function, and one
+     of them pins that the dashboard's "ready to move up" and the
+     student's auto-advance agree about what "finished" means, because
+     the day they disagree a student is either stuck or two lists ahead.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A2 = window.Adaptive, W = window.WordLists;
+    function totals(map){ return function(id){ return map[id] || 0; }; }
+    function solid(listId, n){
+      // n words of that list, each mastered and at pace.
+      var out = {}, i;
+      for(i=0;i<n;i++) out[listId + "|w" + i] = A2.sanitizeStat({ n:12, r:12, box:5, last:1, lat:900 });
+      return out;
+    }
+    function merge(){
+      var out = {}, i, k;
+      for(i=0;i<arguments.length;i++) for(k in arguments[i]) out[k] = arguments[i][k];
+      return out;
+    }
+    var SEQ = [["a"], ["b","c"], ["d"]];
+    var TOT = totals({ a:10, b:10, c:10, d:10 });
+
+    (function(){
+      var u = A2.unlocked(SEQ, {}, 0, TOT);
+      eq("a student with nothing gets the first step", u.ids.join(","), "a");
+      eq("…and is on step 0", u.stepIndex, 0);
+      eq("…and isn't done", u.done, false);
+      eq("…and the step names itself", u.stepIds.join(","), "a");
+    })();
+
+    eq("a step under the bar doesn't open the next one",
+       A2.unlocked(SEQ, solid("a", 7), 0, TOT).ids.join(","), "a");
+    (function(){
+      var u = A2.unlocked(SEQ, solid("a", 8), 0, TOT);
+      eq("a step at the bar opens the next one", u.ids.join(","), "a,b,c");
+      eq("…and the finished list stays in rotation", u.ids.indexOf("a") !== -1, true);
+      eq("…on step 1", u.stepIndex, 1);
+      eq("…which is what just opened", u.stepIds.join(","), "b,c");
+    })();
+    eq("BOTH lists of a step have to be finished",
+       A2.unlocked(SEQ, merge(solid("a",10), solid("b",10)), 0, TOT).ids.join(","), "a,b,c");
+    eq("…and then the last step opens",
+       A2.unlocked(SEQ, merge(solid("a",10), solid("b",10), solid("c",10)), 0, TOT).ids.join(","), "a,b,c,d");
+    (function(){
+      var u = A2.unlocked(SEQ, merge(solid("a",10), solid("b",10), solid("c",10), solid("d",10)), 0, TOT);
+      eq("finishing everything says done", u.done, true);
+      eq("…with the whole course unlocked", u.ids.join(","), "a,b,c,d");
+    })();
+
+    // startAt: the screener put them further along.
+    (function(){
+      var u = A2.unlocked(SEQ, {}, 2, TOT);
+      eq("starting at step 2 unlocks everything up to it", u.ids.join(","), "a,b,c,d");
+      eq("…without pretending they finished it", u.done, false);
+      eq("a startAt past the end is clamped", A2.unlocked(SEQ, {}, 99, TOT).stepIndex, 2);
+      eq("a negative startAt is 0", A2.unlocked(SEQ, {}, -3, TOT).stepIndex, 0);
+    })();
+
+    eq("no sequence, nothing unlocked", A2.unlocked([], {}, 0, TOT).ids.length, 0);
+    eq("…and not 'done' either", A2.unlocked([], {}, 0, TOT).done, false);
+    eq("no totalOf means no evidence, so only step one",
+       A2.unlocked(SEQ, solid("a", 10), 0).ids.join(","), "a");
+    eq("a slow word doesn't count towards finishing", (function(){
+      var st = {}, i;
+      for(i=0;i<10;i++) st["a|w" + i] = A2.sanitizeStat({ n:12, r:12, box:5, last:1, lat:9000 });
+      return A2.unlocked(SEQ, st, 0, TOT).ids.join(",");
+    })(), "a");
+
+    // ---- the generated course ----
+    (function(){
+      var seq = W.defaultSequence();
+      eq("the default course has steps", seq.length > 15, true, String(seq.length));
+      eq("every id in it is a real list",
+         seq.reduce(function(acc, s){ return acc.concat(s); }, [])
+            .filter(function(id){ return !W.exists(id); }).join(","), "");
+      eq("no list appears twice", (function(){
+        var seen = {}, dupes = [];
+        seq.forEach(function(s){ s.forEach(function(id){ if(seen[id]) dupes.push(id); seen[id] = true; }); });
+        return dupes.join(",");
+      })(), "");
+      eq("the nonsense words are in the first step, as warm-up",
+         seq[0].indexOf("nonsense") !== -1, true);
+      eq("…alongside the starting blends", seq[0].indexOf("initial-blends") !== -1, true);
+      eq("the blends come before the red words",
+         W.stepOf(seq, "initial-blends") < W.stepOf(seq, "red-1-cards"), true);
+      eq("within a family, say comes before cards",
+         W.stepOf(seq, "initial-blends") < W.stepOf(seq, "blends-start-1-cards"), true);
+      eq("…and cards before match",
+         W.stepOf(seq, "blends-start-1-cards") < W.stepOf(seq, "blends-start-1-match"), true);
+      eq("a red list's cards unlock its Match It and the next list's cards",
+         W.stepOf(seq, "red-1-match") === W.stepOf(seq, "red-2-cards"), true);
+      eq("…one step after its own cards",
+         W.stepOf(seq, "red-1-match") - W.stepOf(seq, "red-1-cards"), 1);
+      eq("the course ends on the last red list", seq[seq.length-1].join(","), "red-10-match");
+      eq("modes that aren't rungs are left out",
+         W.stepOf(seq, "oi-oy-spell") === -1 && W.stepOf(seq, "nonsense-1-blendit") === -1, true);
+      eq("stepOf on a list that isn't in the course is -1", W.stepOf(seq, "passages-1-read"), -1);
+    })();
+
+    // ---- store.js: when a sequence applies at all ----
+    (function(){
+      var S = window.EIStore._internals;
+      var cfg = { sequences: { "3": SEQ } };
+      eq("a period with a sequence has one", (S.sequenceStepsFor("3", cfg) || []).length, 3);
+      eq("a period without one doesn't", S.sequenceStepsFor("4", cfg), null);
+      eq("no period, no sequence", S.sequenceStepsFor(null, cfg), null);
+      eq("an empty period name is not a period", S.sequenceStepsFor("", cfg), null);
+      eq("a sequence is on unless somebody turned it off",
+         (S.sequenceStepsFor("3", { sequences:{ "3":SEQ }, sequenceOn:{} }) || []).length, 3);
+      eq("…and off when they did",
+         S.sequenceStepsFor("3", { sequences:{ "3":SEQ }, sequenceOn:{ "3":false } }), null);
+      eq("an empty sequence is no sequence", S.sequenceStepsFor("3", { sequences:{ "3":[] } }), null);
+
+      var st = S.sequenceState({ period:"3" }, cfg, null, {}, TOT, W.stepOf);
+      eq("the state carries the period", st.period, "3");
+      eq("…and how long the course is", st.steps, 3);
+      eq("…and where they are", st.stepIndex, 0);
+      eq("a roster start moves them along", 
+         S.sequenceState({ period:"3" }, cfg, { startAt:"d" }, {}, TOT, W.stepOf).stepIndex, 2);
+      eq("a roster start that isn't in the course is ignored",
+         S.sequenceState({ period:"3" }, cfg, { startAt:"zz" }, {}, TOT, W.stepOf).stepIndex, 0);
+      eq("the roster's period counts when the assignment has none",
+         S.sequenceState(null, cfg, { period:"3" }, {}, TOT, W.stepOf).period, "3");
+
+      // The rung, in the walk.
+      var E = S.effectiveLists;
+      eq("a sequence replaces the period's flat list",
+         E({period:"3"}, { periodLists:{ "3":["zz"] } }, ["all"], null, ["a","b"]).join(","), "a,b");
+      eq("…but never the student's own",
+         E({period:"3", lists:["mine"]}, {}, ["all"], null, ["a","b"]).join(","), "mine");
+      eq("…nor their roster set",
+         E({period:"3"}, {}, ["all"], { lists:["ros"] }, ["a","b"]).join(","), "ros");
+      eq("no sequence leaves the period's flat list alone",
+         E({period:"3"}, { periodLists:{ "3":["zz"] } }, ["all"], null, null).join(","), "zz");
+    })();
+
+    /* ---- the two sides agree ----
+       The dashboard's suggestion and the student's auto-advance must call
+       a list finished at the same moment, or one of them is lying. */
+    (function(){
+      var T2 = window.EITeacher._internals;
+      var stats = solid("red-1-cards", 16);   // 16 of 20 = exactly the bar
+      eq("the dashboard's share is the scheduler's share",
+         T2.listProgress(stats, "red-1-cards").share,
+         A2.listShare(stats, "red-1-cards", function(id){ return W.wordsOf(id).length; }));
+      eq("…and it is exactly at the bar", T2.listProgress(stats, "red-1-cards").share, A2.solidEnough);
+      eq("the dashboard uses the scheduler's threshold, not its own",
+         T2.SOLID_ENOUGH, A2.solidEnough);
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     Adaptive.nextSteps — one line per student, or none
+
+     The rule that matters most is the LAST one: no student gets two
+     lines, and most students get none. A panel that lists the whole
+     class is the roster table again with worse formatting.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A2 = window.Adaptive;
+    var NOW = 1750000000000;   // a fixed "now"; T0 above is the same idea
+    function info(lists, extra){
+      var o = { lists: lists || [], now: NOW, lastRound: NOW, sequenceOn: false };
+      for(var k in (extra || {})) o[k] = extra[k];
+      return o;
+    }
+    function card(over){
+      var l = { id:"red-1-cards", title:"Red Words · List 1", mode:"cards", family:"red",
+                attempts:40, share:0.2, accuracy:0.4,
+                hasSay:true, hasMatch:true, sayId:"red-1-say", matchId:"red-1-match",
+                cardsId:"red-1-cards", cardsShare:0.2 };
+      for(var k in (over || {})) l[k] = over[k];
+      return l;
+    }
+    function match(over){
+      var l = { id:"red-1-match", title:"Red Words · List 1", mode:"match", family:"red",
+                attempts:20, share:0.2, accuracy:0.3,
+                hasSay:true, hasMatch:true, sayId:"red-1-say", matchId:"red-1-match",
+                cardsId:"red-1-cards", cardsShare:0.2 };
+      for(var k in (over || {})) l[k] = over[k];
+      return l;
+    }
+
+    eq("nothing to say about nobody", A2.nextSteps(info([])), null);
+    eq("nothing to say about a healthy student",
+       A2.nextSteps(info([card({ attempts:20, share:0.7 })])), null);
+
+    // 1. stuck
+    (function(){
+      var r = A2.nextSteps(info([card()]));
+      eq("thirty answers at 20% solid is stuck", r.rule, "stuck");
+      eq("…and the answer is not more cards", r.addId, "red-1-say");
+      eq("…named in the line", r.text.indexOf("Say It") !== -1, true);
+      eq("under the attempt bar it isn't stuck yet",
+         A2.nextSteps(info([card({ attempts:12 })])), null);
+      eq("over the solid bar it isn't stuck either",
+         A2.nextSteps(info([card({ share:0.8 })])), null);
+      eq("a family with no Say It gets Match It instead",
+         A2.nextSteps(info([card({ hasSay:false, sayId:null })])).addId, "red-1-match");
+      eq("a family with neither still says something",
+         A2.nextSteps(info([card({ hasSay:false, sayId:null, hasMatch:false, matchId:null })])).rule, "stuck");
+    })();
+
+    // 2. the two in the wrong order
+    (function(){
+      var r = A2.nextSteps(info([match()]));
+      eq("failing Match It on words they can't read is an ordering problem", r.rule, "order");
+      eq("…and the fix is the cards", r.addId, "red-1-cards");
+      eq("solid cards make it a different problem, not this one",
+         A2.nextSteps(info([match({ cardsShare:0.9 })])), null);
+      eq("passing Match It is not a problem at all",
+         A2.nextSteps(info([match({ accuracy:0.8 })])), null);
+      eq("a list with no accuracy yet says nothing",
+         A2.nextSteps(info([match({ accuracy:null })])), null);
+    })();
+
+    // 3. coasting
+    (function(){
+      var done = card({ attempts:60, share:0.95, accuracy:0.95 });
+      eq("everything solid with no course is coasting", A2.nextSteps(info([done])).rule, "coasting");
+      eq("…and there is nothing to one-click",
+         A2.nextSteps(info([done])).addId, undefined);
+      eq("a course already running is not coasting",
+         A2.nextSteps(info([done], { sequenceOn:true })), null);
+      eq("one unfinished list is not coasting",
+         A2.nextSteps(info([done, card({ id:"x", share:0.3, attempts:5 })])), null);
+    })();
+
+    // 4. quiet
+    (function(){
+      var quiet = info([card({ attempts:20, share:0.7 })], { lastRound: NOW - 20 * 86400000 });
+      eq("three weeks away is quiet", A2.nextSteps(quiet).rule, "quiet");
+      eq("…counted in school days", A2.nextSteps(quiet).text.indexOf("school days") !== -1, true);
+      eq("a long weekend is not quiet",
+         A2.nextSteps(info([card({ attempts:20, share:0.7 })], { lastRound: NOW - 3 * 86400000 })), null);
+      eq("a student who has never practised isn't 'quiet'",
+         A2.nextSteps(info([card({ attempts:20, share:0.7 })], { lastRound: 0 })), null);
+    })();
+
+    // precedence — the point of "first rule wins"
+    (function(){
+      var both = info([card(), match()], { lastRound: NOW - 30 * 86400000 });
+      eq("stuck outranks everything", A2.nextSteps(both).rule, "stuck");
+      var later = info([match()], { lastRound: NOW - 30 * 86400000 });
+      eq("ordering outranks quiet", A2.nextSteps(later).rule, "order");
+      eq("one line, never two", typeof A2.nextSteps(both).text, "string");
+    })();
+
+    // school days
+    eq("a weekend is no school days", A2.schoolDaysBetween(NOW, NOW), 0);
+    eq("time going backwards is no school days", A2.schoolDaysBetween(NOW, NOW - 86400000), 0);
+    (function(){
+      var week = A2.schoolDaysBetween(NOW, NOW + 7 * 86400000);
+      eq("seven calendar days are five school days", week, 5);
+      eq("fourteen calendar days are ten", A2.schoolDaysBetween(NOW, NOW + 14 * 86400000), 10);
+    })();
   })();
 
   /* ---- the dashboard's mode across students ---- */
@@ -2304,7 +2818,7 @@
     var roster = T.rosterCsv().split("\r\n");
     eq("the roster has a header and a row per student", roster.length, 3, JSON.stringify(roster));
     eq("the header names the columns",
-       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Note");
+       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Signed in,Note");
     eq("a name with a comma and an apostrophe survives whole",
        roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,3,'), 0);
     eq("the roster carries the same sentence the screen shows",

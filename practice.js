@@ -260,6 +260,8 @@ window.EIPractice = (function(){
       var sections = WordLists.sectionsOf();
       mount.innerHTML = "";
       var shown = 0;
+      var banner = unlockBanner();
+      if(banner) mount.appendChild(banner);
 
       sections.forEach(function(sec){
         var lists = WordLists.all.filter(function(l){
@@ -297,6 +299,48 @@ window.EIPractice = (function(){
       }
       EIAuth.unlock();
     });
+  }
+
+  /* ── the unlock banner ────────────────────────────────────────────
+     A period running a sequence moves a student on by itself, and a
+     thing that happens silently might as well not have happened. So the
+     first time the home page is drawn after a step opens, it says which
+     list just arrived.
+
+     Once, and only forward. The step number is remembered per device, so
+     a student who reloads doesn't get told again, and a step index that
+     went DOWN (a teacher rebuilt the sequence) is recorded without a
+     banner — "you have gone backwards" is not news anybody needs.
+
+     No lock icons anywhere else: a list not yet reached simply isn't on
+     the page, exactly as an unassigned list isn't today. A locked tile is
+     a list of everything a student can't do yet, which is not a thing to
+     put in front of this class. */
+  var STEP_KEY = "eiStep:";
+
+  function unlockBanner(){
+    var seq = EIStore.sequence && EIStore.sequence();
+    if(!seq) return null;
+    var key = STEP_KEY + (seq.period || "");
+    var was = null;
+    try{ was = localStorage.getItem(key); }catch(e){ return null; }
+    var now = seq.stepIndex;
+    try{ localStorage.setItem(key, String(now)); }catch(e){}
+    if(was === null) return null;                 // first visit: nothing to compare
+    var before = parseInt(was, 10);
+    if(!isFinite(before) || now <= before) return null;
+
+    // Exactly what the step that just opened contains — not the whole
+    // unlocked set, which would announce everything they have ever had.
+    var names = (seq.stepIds || []).map(function(id){
+      var l = WordLists.byId(id);
+      return l ? l.listTitle + " · " + (WordLists.modeOf(l.mode) || { title:l.mode }).title : id;
+    });
+    if(!names.length) return null;
+    var div = document.createElement("div");
+    div.className = "unlockBanner";
+    div.innerHTML = "🔓 <b>New:</b> " + names.map(esc).join(" · ");
+    return div;
   }
 
   /* One list — "Red Words · List 3", or just "Blend Words" for a family
