@@ -70,6 +70,32 @@ window.CardGame = (function(){
   var SPEED_MIN = 8;
   var SPEED_FLIP_MS = 2000;
 
+  /* ---- words in context ----
+     Once a word is solid on its own, the next thing worth asking is
+     whether it survives a sentence — which is where a word actually gets
+     read, and where a student who has memorised a shape rather than a
+     word comes unstuck. One card in three, and only for words the
+     scheduler already counts as solid, so it reads as a step up rather
+     than as the game getting harder. */
+  var CONTEXT_EVERY = 3;
+
+  /* The target word inside its sentence, bold, with the rest muted. A
+     word-boundary match so "one" doesn't light up inside "money", and
+     case-insensitive so a sentence-initial "The" still matches "the". */
+  function contextMarkup(sentence, word){
+    var text = String(sentence == null ? "" : sentence);
+    var w = String(word == null ? "" : word);
+    if(!w) return escapeHtmlLocal(text);
+    var re = new RegExp("(^|[^A-Za-z'])(" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")(?![A-Za-z'])", "i");
+    var m = re.exec(text);
+    if(!m) return escapeHtmlLocal(text);
+    var at = m.index + m[1].length;
+    return '<span class="ctxrest">' + escapeHtmlLocal(text.slice(0, at)) + "</span>" +
+           '<b class="ctxword">' + escapeHtmlLocal(text.slice(at, at + m[2].length)) + "</b>" +
+           '<span class="ctxrest">' + escapeHtmlLocal(text.slice(at + m[2].length)) + "</span>";
+  }
+  function escapeHtmlLocal(x){ return Core.escapeHtml(x); }
+
   var SPEECH_SETTLE_MS = 400;   // let the speakers stop before listening again
 
   /* ---------------- judging a spoken answer (pure, testable) ----------------
@@ -243,6 +269,14 @@ window.CardGame = (function(){
      black-and-white printout of a screenshot. Back of the card only: the
      front has to be read cold. */
   .heart{color:var(--bad);text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:6px}
+
+  /* ---- a word inside its sentence ----
+     Smaller than a lone word, because it is a line of text now and not a
+     flash card's headline; the word itself keeps the card's weight so the
+     eye still lands on it first. */
+  .word.sentence{font-size:clamp(24px,4.6vw,42px);letter-spacing:0;line-height:1.35;font-weight:600}
+  .word.sentence .ctxrest{color:var(--muted);font-weight:500}
+  .word.sentence .ctxword{color:var(--ink);font-weight:800}
   .chunkword .heart{text-underline-offset:4px}
   .btn.suggest{animation:suggestPulse 1.1s ease-in-out infinite}
   @keyframes suggestPulse{
@@ -304,7 +338,7 @@ window.CardGame = (function(){
       <div class="flip" id="flipCard">
         <div class="flipinner" id="flipInner">
           <div class="flipface front">
-            <div class="hint">Read it out loud</div>
+            <div class="hint" id="uiFrontHint">Read it out loud</div>
             <div class="word" id="uiWord"></div>
             <div class="facehint">Then flip the card to check yourself.</div>
           </div>
@@ -387,6 +421,20 @@ window.CardGame = (function(){
     }
     function heartOf(w){ return Object.prototype.hasOwnProperty.call(HEART, w) ? HEART[w] : null; }
 
+    /* The sentence to put on the front of this card, or null. Three gates,
+       all of them deliberate: the list has to carry sentences at all, the
+       student has to already own the word (this is a step up, not extra
+       difficulty on a word they are still learning), and the speed round
+       is exempt — that round is about reading one word fast, and a
+       sentence in it would just be a slower card. */
+    function contextFor(word){
+      if(speedRound || !SENTENCES) return null;
+      if(!Object.prototype.hasOwnProperty.call(SENTENCES, word)) return null;
+      if(!MASTERED[word]) return null;
+      ctxTick++;
+      return (ctxTick % CONTEXT_EVERY === 1) ? SENTENCES[word] : null;
+    }
+
     // A game page may pass a single `words` list instead of decks; the picker
     // then never appears and the round is simply that list.
     var DECKS = (cfg.decks && cfg.decks.length)
@@ -456,6 +504,10 @@ window.CardGame = (function(){
     // while the card was face up; it is cleared with every new card.
     var listenOn = false, heardText = "";
     var HOMOPHONES = cfg.homophones || null;
+    var SENTENCES = cfg.sentences || null;
+    // Counts only the cards that COULD have shown a sentence, so "one in
+    // three" means one in three of those and not one in three of the round.
+    var ctxTick = 0;
     var pending = null;    // the timer that moves on to the next card
     var pendingList = null;   // a one-off list (comeback / missed words) to run instead of the deck
     var deckIdx = 0;
@@ -601,7 +653,17 @@ window.CardGame = (function(){
       flipped = false;
       // textContent, not innerHTML — these lists carry apostrophes and
       // periods (they'd, Mrs.) and nothing here needs markup.
-      $("uiWord").textContent = w;
+      var sentence = contextFor(w);
+      if(sentence){
+        $("uiWord").innerHTML = contextMarkup(sentence, w);
+        $("uiWord").className = "word sentence";
+        $("uiFrontHint").textContent = "Read the sentence out loud";
+      } else {
+        $("uiWord").textContent = w;
+        $("uiWord").className = "word";
+        $("uiFrontHint").textContent = "Read it out loud";
+      }
+      // The back is always the word alone — the sentence was the question.
       Core.markWordCase($("uiWord"), w);
       Core.markWordCase($("uiWordBack"), w);
       // The front is the plain word — the student has to read it cold.
@@ -660,6 +722,7 @@ window.CardGame = (function(){
       idx = 0; score = 0; streak = 0; best = 0; right = 0;
       missed = []; mastered = []; busy = false;
       fastCount = 0;
+      ctxTick = 0;
       prog.reset();
       show("s-play");
       render();
@@ -1044,6 +1107,7 @@ window.CardGame = (function(){
     start: start,
     _internals: {
       judgeHeard: judgeHeard,
+      contextMarkup: contextMarkup,
       dedupeWords: Core.dedupeWords,
       sampleWords: Core.sampleWords,
       comboMultiplier: Core.comboMultiplier,

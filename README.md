@@ -710,6 +710,27 @@ Cards and Match It on the same list keep **separate** ids, stats and
 comeback decks, on purpose: knowing a word on sight and picking it out of
 five look-alikes are different days' work.
 
+### Words in context
+
+Once a word is solid on its own, the next thing worth asking is whether it
+survives a sentence — which is where a word actually gets read, and where a
+student who has memorised a shape rather than a word comes unstuck. On lists
+that carry sentences (the red words and oi/oy), **one card in three** shows a
+mastered word inside its sentence on the front, the word in full weight and
+the rest muted. The back is the word alone: the sentence was the question.
+
+Three gates, all deliberate. The word has to be one the scheduler already
+counts as solid, so this reads as a step up rather than the game getting
+harder; the counter only advances on cards that *could* have shown a
+sentence, so "one in three" means one in three of those; and the speed round
+is exempt, because that round is about reading one word fast and a sentence
+in it is just a slower card.
+
+The bold lands on the word and nowhere else — a word-boundary match, so
+"one" doesn't light up inside "money", and case-insensitive, so a
+sentence-initial "The" still matches "the". A test walks every sentence a
+card can show and checks the word is actually in it.
+
 ### Listen (optional)
 
 Off by default and remembered per device, like Shuffle and Voice. With it

@@ -1077,6 +1077,45 @@
     eq("a word with a period still matches", J("mrs", "Mrs.", null, false), true);
   })();
 
+  /* ---- a word inside its sentence ----
+     Shown on the front of one card in three, once the word is solid. The
+     bold has to land on the word itself and nowhere else — highlighting
+     "one" inside "money" would teach a reader to look for letters rather
+     than words. */
+  (function(){
+    var M = window.CardGame._internals.contextMarkup;
+    function bolded(s, w){
+      var m = /<b class="ctxword">([^<]*)<\/b>/.exec(M(s, w));
+      return m ? m[1] : null;
+    }
+    eq("the word is the bold part", bolded("I only need one more.", "one"), "one");
+    eq("a word inside another word is not", bolded("He counted the money.", "one"), null);
+    eq("…and the sentence comes back plain", M("He counted the money.", "one"), "He counted the money.");
+    eq("a sentence-initial capital still matches", bolded("The team missed their bus.", "the"), "The");
+    eq("…keeping the case the sentence wrote", bolded("The team missed their bus.", "the"), "The");
+    eq("an apostrophe is part of the word",
+       bolded("I think you're right about that.", "you're"), "you're");
+    eq("…and doesn't match the bare stem", bolded("I think you're right about that.", "you"), null);
+    eq("a word at the very end", bolded("Pizza or tacos — it's your choice.", "choice"), "choice");
+    eq("markup is escaped", M("a <b>x</b> one", "one").indexOf("&lt;b&gt;") !== -1, true);
+    eq("no word, no bold", M("Just a sentence.", ""), "Just a sentence.");
+
+    // Every sentence a card can show has to contain its word, or the card
+    // shows a sentence with nothing highlighted in it.
+    (function(){
+      var bad = [];
+      window.LIST_FAMILIES.forEach(function(fam){
+        var s = fam.modeConfig && fam.modeConfig.cards && fam.modeConfig.cards.sentences;
+        if(!s) return;
+        for(var w in s){
+          if(!Object.prototype.hasOwnProperty.call(s, w)) continue;
+          if(bolded(s[w], w) === null) bad.push(fam.key + ":" + w);
+        }
+      });
+      eq("every cards sentence actually contains its word", bad.join(","), "");
+    })();
+  })();
+
   /* ══════════════════════════════════════════════════════════════════
      adaptive.js + store.js — what the mic heard
 

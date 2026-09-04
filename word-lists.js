@@ -344,6 +344,10 @@ window.LIST_FAMILIES = [
     modeConfig: {
       say:   { blend: "sound", sound: "OY", theme: "maze" },
       spell: { rule: OI_OY_RULE, sentences: OI_OY_SENTENCES },
+      // The cards use them for something different from Match It: once a
+      // word is solid, one card in three shows it inside its sentence
+      // instead of alone. See card-game.js.
+      cards: { sentences: OI_OY_SENTENCES },
       match: { choices: 6, sentences: OI_OY_SENTENCES }
     },
     lists: [{ n: 1, ids: { say: "oi-oy-read", spell: "oi-oy-spell" }, words: OI_OY_WORDS }]
@@ -399,7 +403,7 @@ window.LIST_FAMILIES = [
       // The homophone groups are here for the same reason Match It has
       // them: with the Listen toggle on, the cards judge a spoken answer,
       // and no recogniser separates "to" from "two".
-      cards: { note: RED_NOTE_CARDS, homophones: RED_HOMOPHONES },
+      cards: { note: RED_NOTE_CARDS, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES },
       match: { note: RED_NOTE_MATCH, choices: 6, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES }
     },
     lists: RED_LISTS.map(function(words, i){ return { n: i + 1, words: words }; })
