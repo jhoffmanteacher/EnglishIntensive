@@ -1,11 +1,13 @@
 # TODO
 
 > ### ⚠ PUBLISH `firestore.rules`
-> `roster/{email}` (the roster import) and `notes/{uid}` are both waiting
-> in the repo's rules file and are not live. Firebase console → Firestore
-> Database → Rules → paste the whole file → **Publish**. Two minutes, and
-> nothing about the roster works until it is done — the site behaves as it
-> did before, silently, which is exactly why this is easy to miss.
+> One block is new since the rules were last published: **`roster/{email}`**,
+> which the roster import needs. Everything else in the file — including
+> `notes/{uid}` — is already live and unchanged. Firebase console →
+> Firestore Database → Rules → paste the whole file → **Publish**. Two
+> minutes, and nothing about the roster works until it is done: the site
+> behaves exactly as it did before, silently, which is why this is easy to
+> miss.
 
 What's left after the assignment-board work, roughly in the order it's
 worth doing. Nothing here is blocking: the site is complete and tested as
