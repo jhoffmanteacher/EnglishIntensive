@@ -8,26 +8,13 @@
  * cannot read a paragraph — by the end of the sentence the beginning is
  * gone.
  *
- * Two shapes, one engine, chosen by whether the list carries `text`:
- *
- *   ONE MINUTE (mode "fluency")  a word list in rows of five, sixty
- *                                seconds, deck cycling. Score: correct
- *                                words per minute.
- *   READ IT   (mode "read")      a passage of connected text. The words
- *                                light up as the student passes them.
- *                                Score: words correct per minute.
- *
- * The difference between them is not cosmetic. A word list measures how
- * fast single words come; a passage measures whether they survive being
- * next to each other, which is where a student who has memorised shapes
- * comes apart. Both are in here because the machinery — a continuous
- * recogniser, a pointer walking a list of words, a clock — is the same.
+ * ONE MINUTE (mode "fluency"): the word list in rows of five, sixty
+ * seconds, the deck cycling so a fast reader never runs out. Score:
+ * correct words per minute.
  *
  *   FluencyGame.start({
  *     title: "Blend Words ⏱",
- *     words: ["soft","golf", …],       // one-minute mode
- *     text:  "The tent is damp…",      // read mode (wins if present)
- *     targets: ["tent","damp"],        // read mode: which words to report
+ *     words: ["soft","golf", …],
  *     phonetic: true,                  // made-up words only — see spokenMatch
  *     target: 60                       // CWPM worth three stars
  *   });
@@ -45,7 +32,6 @@ window.FluencyGame = (function(){
   var shuffled = Core.shuffled;
 
   var RUN_MS = 60000;          // the "one minute"
-  var LOOKAHEAD = 3;           // how far ahead a passage pointer will jump
   var ROW = 5;                 // words per row in the one-minute grid
   var DEFAULT_TARGET = 60;     // CWPM worth three stars on real words
 
@@ -60,46 +46,20 @@ window.FluencyGame = (function(){
 
   /* Walk a transcript's tokens against the words still to be read.
 
-     `lookahead` is the whole difference between the two games. At 0 —
-     the one-minute list — every token answers the current word: right or
-     wrong, the pointer moves, and the run never stalls on a word the
-     student has given up on. Above 0 — a passage — a token that doesn't
-     match the current word is tried against the next few, so a reader who
-     skips a word carries on from where they actually are, with the skipped
-     words marked red behind them. A token matching nothing at all is
-     ignored there: in connected text the recogniser returns plenty that
-     isn't a word on the page, and treating that as an error would score
-     the microphone rather than the student.
+     Every token answers the current word: right or wrong, the pointer
+     moves. That is what stops the run stalling on a word the student has
+     given up on — a minute spent staring at "gasp" is a minute that
+     measured nothing.
 
      Pure: `matches(token, word)` is injected, and nothing here touches
      the clock or the DOM. Returns the new pointer and one mark per word
-     decided, in order.  */
-  function consume(pointer, tokens, words, matches, lookahead){
-    var p = pointer, marks = [], i, k, hit;
-    lookahead = lookahead || 0;
+     decided, in order. */
+  function consume(pointer, tokens, words, matches){
+    var p = pointer, marks = [], i;
     for(i=0;i<tokens.length;i++){
       if(p >= words.length) break;
-      if(matches(tokens[i], words[p])){
-        marks.push({ index: p, ok: true });
-        p++;
-        continue;
-      }
-      hit = -1;
-      for(k=1;k<=lookahead && p+k<words.length;k++){
-        if(matches(tokens[i], words[p+k])){ hit = k; break; }
-      }
-      if(hit > 0){
-        // The words jumped over were on the page and didn't get read.
-        for(k=0;k<hit;k++) marks.push({ index: p+k, ok: false });
-        marks.push({ index: p+hit, ok: true });
-        p = p + hit + 1;
-        continue;
-      }
-      if(!lookahead){
-        marks.push({ index: p, ok: false });
-        p++;
-      }
-      // With lookahead, an unmatched token is noise and is dropped.
+      marks.push({ index: p, ok: !!matches(tokens[i], words[p]) });
+      p++;
     }
     return { pointer: p, marks: marks };
   }
@@ -167,24 +127,6 @@ window.FluencyGame = (function(){
   .wgw.ok{color:var(--good)}
   .wgw.no{color:var(--bad)}
 
-  /* ---- the passage ----
-     Big, loose lines, and every word its own element so the pointer has
-     something to colour. Tapping one reads it aloud: a reader who has
-     stalled needs the word, not a hint. */
-  .passage{
-    background:var(--panel);border:1px solid var(--line);border-radius:22px;
-    padding:26px 24px;text-align:left;font-size:clamp(21px,3vw,30px);line-height:1.95;
-    max-height:56vh;overflow-y:auto;
-  }
-  .pw{
-    display:inline;border:none;background:transparent;color:var(--muted);
-    font:inherit;padding:1px 2px;border-radius:6px;cursor:pointer;
-  }
-  .pw:hover{background:var(--panel2);color:var(--ink)}
-  .pw.ok{color:var(--good)}
-  .pw.no{color:var(--bad);text-decoration:underline;text-decoration-style:wavy;text-underline-offset:5px}
-  .pw.now{color:var(--ink);background:var(--panel2);box-shadow:inset 0 0 0 2px var(--accent)}
-
   .bignum{font-size:clamp(44px,9vw,78px);font-weight:800;line-height:1;letter-spacing:-2px}
   .bignum small{display:block;font-size:15px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:8px}
   .delta{font-size:19px;font-weight:800;margin-top:10px}
@@ -205,11 +147,8 @@ window.FluencyGame = (function(){
         <li>Put on <b>headphones with a mic</b>.</li>
         <li>Click <b>Allow</b> so Chrome can use your microphone.</li>
         <li>Check the <b>mic meter</b>, then start.</li>
-        ${cfg.passage
-          ? `<li>Read the whole thing <b>out loud</b>. Words turn green as you pass them.</li>
-             <li>If you slip, <b>keep going</b> — don't stop to fix it.</li>`
-          : `<li>Read down the rows <b>out loud</b>. You have <b>one minute</b>.</li>
-             <li>Don't rush a word you're unsure of. A word read wrong doesn't count.</li>`}
+        <li>Read down the rows <b>out loud</b>. You have <b>one minute</b>.</li>
+        <li>Don't rush a word you're unsure of. A word read wrong doesn't count.</li>
       </ol>
       ${window.GameCore.readingViewButton()}
       <div class="row" style="margin-top:26px">
@@ -241,18 +180,16 @@ window.FluencyGame = (function(){
     <div class="hud">
       <div class="stat"><div class="lbl">Read</div><div class="val" id="uiRight">0</div></div>
       <div class="stat"><div class="lbl">Missed</div><div class="val" id="uiWrong">0</div></div>
-      <div class="stat"><div class="lbl">${cfg.passage ? "Left" : "Time"}</div><div class="val" id="uiLeft">—</div></div>
+      <div class="stat"><div class="lbl">Time</div><div class="val" id="uiLeft">—</div></div>
     </div>
     <div class="clock" id="uiClock"><i id="uiClockFill"></i></div>
 
-    ${cfg.passage
-      ? `<div class="passage" id="uiPassage"></div>`
-      : `<div class="wordgrid" id="uiGrid"><div class="wgrows" id="uiRows"></div></div>`}
+    <div class="wordgrid" id="uiGrid"><div class="wgrows" id="uiRows"></div></div>
 
     <div class="keyhint" id="uiState" role="status" style="margin-top:14px">Getting the microphone ready…</div>
 
     <div class="toolbar">
-      ${cfg.passage ? "" : `<button class="btn ghost" id="btnSkip" type="button">Skip ▸ <span class="kbd">Space</span></button>`}
+      <button class="btn ghost" id="btnSkip" type="button">Skip ▸ <span class="kbd">Space</span></button>
       <button class="btn ghost" id="btnDone" type="button">Done</button>
     </div>
   </section>
@@ -261,7 +198,7 @@ window.FluencyGame = (function(){
     <div class="card">
       <div class="stars" id="uiStars" aria-hidden="true"></div>
       <h2 id="uiTitle">Nice work! 🎉</h2>
-      <div class="bignum" id="uiRate">0<small>${cfg.passage ? "words correct per minute" : "correct words per minute"}</small></div>
+      <div class="bignum" id="uiRate">0<small>correct words per minute</small></div>
       <div class="delta" id="uiDelta" hidden></div>
       <p class="sub" id="uiSummary" style="margin-top:14px"></p>
       <div class="hud" style="margin-bottom:0">
@@ -275,7 +212,7 @@ window.FluencyGame = (function(){
         <div class="grid" id="uiMissed"></div>
       </div>
       <div class="row" style="margin-top:26px">
-        <button class="btn" id="btnAgain">${cfg.passage ? "Read it again" : "Go again"}</button>
+        <button class="btn" id="btnAgain">Go again</button>
         <a class="btn ghost" href="index.html" id="btnHome">Home</a>
       </div>
     </div>
@@ -284,10 +221,7 @@ window.FluencyGame = (function(){
   }
 
   function start(cfg){
-    var PASSAGE = !!cfg.text;
-    var WORDS = PASSAGE ? tokenize(cfg.text) : (cfg.words || []).map(function(e){ return Core.parseEntry(e).word; });
-    var TARGETS = {};
-    (cfg.targets || []).forEach(function(w){ TARGETS[String(w).toLowerCase()] = true; });
+    var WORDS = (cfg.words || []).map(function(e){ return Core.parseEntry(e).word; });
     var MATCH_OPTS = { homophones: cfg.homophones || null, phonetic: !!cfg.phonetic };
     var RATE_TARGET = cfg.target || DEFAULT_TARGET;
 
@@ -297,8 +231,7 @@ window.FluencyGame = (function(){
     mount.innerHTML = shell({
       title: cfg.title,
       intro: cfg.intro || "Read out loud. The computer follows along.",
-      note: cfg.note || "",
-      passage: PASSAGE
+      note: cfg.note || ""
     });
     // The Reading view panel is markup the core supplied; the core wires it.
     Core.mountReadingView();
@@ -318,9 +251,6 @@ window.FluencyGame = (function(){
 
     function report(word, correct){
       if(!onResult) return;
-      // On a passage only the family's own words are reported: "the" going
-      // past does not tell anybody anything about anybody's reading.
-      if(PASSAGE && !TARGETS[String(word).toLowerCase()]) return;
       try{ onResult(word, !!correct, correct ? 0 : 1); }catch(e){}
     }
 
@@ -353,40 +283,7 @@ window.FluencyGame = (function(){
       }
     }
 
-    function buildPassage(){
-      var box = $("uiPassage");
-      box.innerHTML = "";
-      // The original text supplies the punctuation and the capitals; the
-      // token list supplies what is being matched. Walking both at once
-      // keeps the page readable and the pointer honest.
-      var text = String(cfg.text || ""), i = 0, at = 0, n = text.length;
-      while(at < n && i < queue.length){
-        var re = /[A-Za-z']+/g;
-        re.lastIndex = at;
-        var m = re.exec(text);
-        if(!m) break;
-        if(m.index > at) box.appendChild(document.createTextNode(text.slice(at, m.index)));
-        var b = document.createElement("button");
-        b.type = "button";
-        b.className = "pw";
-        b.id = "pw" + i;
-        b.dataset.i = String(i);
-        b.textContent = m[0];
-        Core.markWordCase(b, m[0]);
-        box.appendChild(b);
-        at = m.index + m[0].length;
-        i++;
-      }
-      if(at < n) box.appendChild(document.createTextNode(text.slice(at)));
-      box.addEventListener("click", function(ev){
-        var t = ev.target;
-        if(!t || !t.dataset || t.dataset.i === undefined) return;
-        // Tap to hear. A reader who has stalled needs the word, not a hint.
-        say(t.textContent, 0.85);
-      });
-    }
-
-    function cellOf(i){ return $((PASSAGE ? "pw" : "wg") + i); }
+    function cellOf(i){ return $("wg" + i); }
 
     function paint(i, cls){
       var el = cellOf(i);
@@ -401,14 +298,8 @@ window.FluencyGame = (function(){
       scrollTo(pointer);
     }
 
-    // The row being read stays put; the ones above it slide away. On a
-    // passage the browser's own scrolling does the same job.
+    // The row being read stays put; the ones above it slide away.
     function scrollTo(i){
-      if(PASSAGE){
-        var el = cellOf(i);
-        if(el && el.scrollIntoView) el.scrollIntoView({ block:"nearest" });
-        return;
-      }
       var rowH = 0, rows = $("uiRows");
       if(!rows || !rows.firstChild) return;
       rowH = rows.firstChild.getBoundingClientRect().height;
@@ -419,11 +310,11 @@ window.FluencyGame = (function(){
 
     /* ---------------- the run ---------------- */
     function begin(){
-      queue = PASSAGE ? WORDS.slice() : deckFor();
+      queue = deckFor();
       pointer = 0; okCount = 0; noCount = 0; missed = []; seen = {};
       startedAt = 0; endsAt = 0; running = true;
       show("s-play");
-      if(PASSAGE) buildPassage(); else buildGrid();
+      buildGrid();
       paintPointer();
       updateHud();
       $("uiState").textContent = "Listening — start reading.";
@@ -455,17 +346,11 @@ window.FluencyGame = (function(){
 
     function tick(){
       if(!running) return;
-      if(!PASSAGE){
-        var left = startedAt ? Math.max(0, endsAt - Date.now()) : RUN_MS;
-        $("uiLeft").textContent = Math.ceil(left / 1000) + "s";
-        $("uiClockFill").style.width = (left / RUN_MS * 100) + "%";
-        $("uiClock").classList.toggle("low", left < 10000);
-        if(startedAt && left <= 0) finish();
-      } else {
-        var togo = Math.max(0, queue.length - pointer);
-        $("uiLeft").textContent = togo;
-        $("uiClockFill").style.width = (queue.length ? (pointer / queue.length * 100) : 0) + "%";
-      }
+      var left = startedAt ? Math.max(0, endsAt - Date.now()) : RUN_MS;
+      $("uiLeft").textContent = Math.ceil(left / 1000) + "s";
+      $("uiClockFill").style.width = (left / RUN_MS * 100) + "%";
+      $("uiClock").classList.toggle("low", left < 10000);
+      if(startedAt && left <= 0) finish();
     }
 
     function updateHud(){
@@ -481,7 +366,7 @@ window.FluencyGame = (function(){
       if(!tokens.length) return;
       var res = consume(pointer, tokens, queue, function(tok, word){
         return Core.spokenMatch(tok, word, MATCH_OPTS);
-      }, PASSAGE ? LOOKAHEAD : 0);
+      });
       if(!res.marks.length) return;
       startClock();
       paint(pointer, null);
@@ -528,10 +413,10 @@ window.FluencyGame = (function(){
       if(tickTimer){ clearInterval(tickTimer); tickTimer = null; }
       stopListening();
 
-      // A one-minute run is scored over the minute it was given, even if
-      // the student pressed Done early; a passage is scored over the time
-      // it actually took, which is the whole point of a passage.
-      var ms = PASSAGE ? elapsed() : Math.min(RUN_MS, elapsed() || RUN_MS);
+      // Scored over the minute it was given, even if the student pressed
+      // Done early: the number means "words in a minute", and a
+      // forty-second run that stopped early is not a faster reader.
+      var ms = Math.min(RUN_MS, elapsed() || RUN_MS);
       var rate = wordsPerMinute(okCount, ms);
       var stars = starsForRate(rate, RATE_TARGET);
       var total = okCount + noCount;
@@ -547,9 +432,8 @@ window.FluencyGame = (function(){
       $("uiFRight").textContent = okCount;
       $("uiFWrong").textContent = noCount;
       $("uiFBest").textContent = bestBefore ? Math.max(bestBefore, rate) : rate;
-      $("uiSummary").textContent = PASSAGE
-        ? "You read " + okCount + " of " + queue.length + " words right (" + acc + "%)."
-        : "You read " + okCount + " words right out of " + total + " (" + acc + "%).";
+      $("uiSummary").textContent =
+        "You read " + okCount + " words right out of " + total + " (" + acc + "%).";
 
       /* The delta is the reason to do this twice. A rate on its own is a
          number a student has no way to judge; "+9" is progress they can
@@ -802,13 +686,13 @@ window.FluencyGame = (function(){
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
     $("btnPlay").addEventListener("click", function(){ stopMicCheck(); begin(); });
     $("btnDone").addEventListener("click", function(){ finish(); });
-    if($("btnSkip")) $("btnSkip").addEventListener("click", skip);
+    $("btnSkip").addEventListener("click", skip);
     $("btnAgain").addEventListener("click", function(){ show("s-start"); $("btnStart").focus(); });
 
     document.addEventListener("keydown", function(e){
       if(!$("s-play").classList.contains("on")) return;
       if(e.target && e.target.tagName === "BUTTON") return;
-      if(e.key === " " && !PASSAGE){ e.preventDefault(); skip(); }
+      if(e.key === " "){ e.preventDefault(); skip(); }
     });
 
     window.addEventListener("beforeunload", function(){
@@ -827,7 +711,6 @@ window.FluencyGame = (function(){
       consume: consume,
       wordsPerMinute: wordsPerMinute,
       starsForRate: starsForRate,
-      lookahead: LOOKAHEAD,
       runMs: RUN_MS
     }
   };

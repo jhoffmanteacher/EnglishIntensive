@@ -29,9 +29,6 @@ is done and described in the README; what it wants now is a term of use.
 
 Two things worth watching once it has had one:
 
-- **The Assign board is 23 columns wide.** The passages added eight. The
-  family fold (▾) is the escape hatch and it works, but if the board
-  becomes unusable the passages are the family to fold by default.
 - **`ACCEPT` is still hand-edited.** The dashboard's "most often heard as"
   column now shows which mishearings are common across the class, which is
   the signal for adding one. Nobody has added one yet.
@@ -99,6 +96,22 @@ survives the commit that made them.
   it is the thing to point at.
 
 ---
+
+## Reversed, again
+
+- **Connected-text passages.** Built as part of the reading-feedback plan
+  (a "Read it" mode, eight hand-written passages, a pointer that followed
+  a reader through prose with a three-word lookahead) and removed a day
+  later. Two reasons. The site is word practice; a paragraph is a
+  different exercise with a different teaching purpose behind it. And the
+  vocabulary rule that made the passages honest — every word off a list
+  the student had been taught, about two hundred of them, no *them*, no
+  *him*, no past tense the lists don't carry — made them read like nothing
+  anybody would write, which is a poor advertisement for reading.
+
+  If it comes back it wants real prose and a different answer to "which
+  words are allowed". The engine's pointer walk kept only the branch the
+  word runs use; the lookahead went with the passages.
 
 ## Considered and not doing
 

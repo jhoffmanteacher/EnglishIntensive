@@ -67,7 +67,6 @@
      helpers reachable. -->
 <script>window.EI_REQUIRE_AUTH = false;</script>
 <script src="adaptive.js"></script>
-<script src="passages.js"></script>
 <script src="word-lists.js"></script>
 <script src="auth.js"></script>
 <script src="store.js"></script>
@@ -925,47 +924,27 @@
     // about the phonetics (which have their own tests above).
     function exact(tok, word){ return tok === word; }
     var LIST = ["soft","golf","honk","cost","pond"];
-    function walk(tokens, lookahead, from){
-      return F.consume(from || 0, tokens, LIST, exact, lookahead);
+    function walk(tokens, from){
+      return F.consume(from || 0, tokens, LIST, exact);
     }
 
-    // ---- the one-minute list: lookahead 0, nothing is ignored ----
+    // ---- every token answers the current word, right or wrong ----
     (function(){
-      var r = walk(["soft","golf"], 0);
+      var r = walk(["soft","golf"]);
       eq("a clean read advances", r.pointer, 2);
       eq("…and marks both right", r.marks.map(function(m){ return m.ok ? "y" : "n"; }).join(""), "yy");
-      r = walk(["soft","wrong","honk"], 0);
+      r = walk(["soft","wrong","honk"]);
       eq("a wrong word costs the word it was said for", r.marks[1].ok, false);
       eq("…and the pointer moves past it anyway", r.pointer, 3);
       eq("…so the run never stalls", r.marks.length, 3);
       // The reader is back in step immediately: the next thing said is
       // judged against the next word, not against the one already lost.
       eq("…and the next word is judged against the next word", r.marks[2].ok, true);
-      r = walk([], 0);
+      r = walk([]);
       eq("silence decides nothing", r.marks.length, 0);
       eq("…and moves nothing", r.pointer, 0);
-      r = F.consume(4, ["pond","extra","more"], LIST, exact, 0);
+      r = F.consume(4, ["pond","extra","more"], LIST, exact);
       eq("tokens past the end of the list are dropped", r.pointer, 5);
-    })();
-
-    // ---- a passage: lookahead 3, noise is ignored ----
-    (function(){
-      var r = walk(["soft","golf"], 3);
-      eq("a clean read still advances", r.pointer, 2);
-      r = walk(["soft","honk"], 3);
-      eq("skipping a word jumps to the one actually read", r.pointer, 3);
-      eq("…marking the skipped one wrong", r.marks[1].index + ":" + r.marks[1].ok, "1:false");
-      eq("…and the one read right", r.marks[2].index + ":" + r.marks[2].ok, "2:true");
-      r = walk(["soft","er","um","golf"], 3);
-      eq("noise between words is ignored, not scored", r.pointer, 2);
-      eq("…so only the two real words are marked", r.marks.length, 2);
-      eq("…both right", r.marks.every(function(m){ return m.ok; }), true);
-      r = walk(["pond"], 3);
-      eq("a jump further than the lookahead is not taken", r.pointer, 0);
-      eq("…and nothing is marked", r.marks.length, 0);
-      r = walk(["cost"], 3);
-      eq("a jump of exactly the lookahead is taken", r.pointer, 4);
-      eq("…costing the three words stepped over", r.marks.filter(function(m){ return !m.ok; }).length, 3);
     })();
 
     // ---- the same walk, judged the way the game judges ----
@@ -973,11 +952,11 @@
       function spoken(opts){
         return function(tok, word){ return GC.spokenMatch(tok, word, opts || {}); };
       }
-      var r = F.consume(0, ["to","the"], ["two","the"], spoken({ homophones: [["to","two"]] }), 0);
+      var r = F.consume(0, ["to","the"], ["two","the"], spoken({ homophones: [["to","two"]] }));
       eq("a homophone counts as the word", r.marks[0].ok, true);
-      r = F.consume(0, ["veb"], ["vab"], spoken({ phonetic: true }), 0);
+      r = F.consume(0, ["veb"], ["vab"], spoken({ phonetic: true }));
       eq("a made-up word is judged by sound", r.marks[0].ok, true);
-      r = F.consume(0, ["bread"], ["bred"], spoken({}), 0);
+      r = F.consume(0, ["bread"], ["bred"], spoken({}));
       eq("a real word is not", r.marks[0].ok, false);
     })();
 
@@ -1021,54 +1000,10 @@
       eq("…and it counts them", s.runs, 3);
     })();
 
-    /* ---- the passages, and the rule that keeps them honest ----
-       Every word in every passage has to come off a list the student has
-       actually been taught, or a stall here means nothing. */
-    (function(){
-      var allowed = {}, bad = [], short = [], noTarget = [];
-      window.PASSAGE_FUNCTION_WORDS.forEach(function(w){ allowed[w] = true; });
-      window.WordLists.ids.forEach(function(id){
-        var l = window.WordLists.byId(id);
-        if(l.family === "nonsense" || l.family === "passages") return;
-        if(l.family === "red" && l.listNum > 3) return;
-        window.WordLists.wordsOf(id).forEach(function(w){
-          allowed[String(w).toLowerCase().replace(/[^a-z']/g, "")] = true;
-        });
-      });
-      window.PASSAGES.forEach(function(p){
-        var toks = window.passageTokens(p.text);
-        if(toks.length < 80 || toks.length > 120) short.push(p.n + ":" + toks.length);
-        toks.forEach(function(w){ if(!allowed[w]) bad.push(p.n + ":" + w); });
-        // targets must be the family's own words, and actually used.
-        var famWords = {};
-        window.WordLists.ids.forEach(function(id){
-          if(window.WordLists.byId(id).family !== p.family) return;
-          window.WordLists.wordsOf(id).forEach(function(w){ famWords[w.toLowerCase()] = true; });
-        });
-        var used = {};
-        toks.forEach(function(w){ if(famWords[w]) used[w] = true; });
-        var declared = p.targets.slice().sort().join(",");
-        if(declared !== Object.keys(used).sort().join(",")) noTarget.push(String(p.n));
-      });
-      eq("there are eight passages, two per decodable family", window.PASSAGES.length, 8);
-      eq("every passage word is on a list the student has been taught", bad.join(" "), "");
-      eq("every passage is 80–120 words", short.join(" "), "");
-      eq("every passage's targets are exactly its family words, used", noTarget.join(" "), "");
-    })();
-
-    eq("a passage list carries its text", !!window.WordLists.byId("passages-1-read").text, true);
-    eq("…and its words are its tokens",
-       window.WordLists.wordsOf("passages-1-read").length,
-       window.passageTokens(window.PASSAGES[0].text).length);
-    eq("…and one passage is one round", window.WordLists.byId("passages-1-read").sessionSize, 1);
-    eq("…and it names itself, not 'List 1'", window.WordLists.byId("passages-1-read").listTitle, "The sled and the glen");
     eq("the three decodable families gained a one-minute run",
        ["blends-start-1-fluency","blends-end-1-fluency","nonsense-1-fluency"]
          .filter(function(id){ return window.WordLists.exists(id); }).length, 3);
-    eq("both fluency modes run the same engine",
-       window.WordLists.byId("nonsense-1-fluency").engine + "," + window.WordLists.byId("passages-1-read").engine,
-       "fluency,fluency");
-    eq("…on the same page",
+    eq("the one-minute runs live on their own page",
        window.WordLists.byId("nonsense-1-fluency").page, "fluency-game.html");
   })();
 
@@ -2017,8 +1952,7 @@
       eq("the course ends on the last red list", seq[seq.length-1].join(","), "red-10-match");
       eq("modes that aren't rungs are left out",
          W.stepOf(seq, "oi-oy-spell") === -1 && W.stepOf(seq, "nonsense-1-blendit") === -1, true);
-      eq("stepOf on a list that isn't in the course is -1", W.stepOf(seq, "passages-1-read"), -1);
-    })();
+      })();
 
     // ---- store.js: when a sequence applies at all ----
     (function(){
@@ -2344,7 +2278,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("60 entries: six word families and eight passages, times their modes", W.all.length, 60);
+    eq("52 entries: six families, times their modes", W.all.length, 52);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -2373,7 +2307,7 @@
     });
     eq("every mode of a list plays exactly the same words", drift.length, 0, drift.join(","));
 
-    eq("seven families", W.families().length, 7);
+    eq("six families", W.families().length, 6);
     eq("the red family still has ten lists", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
     eq("every red list is still twenty words (the screener's page)",
        W.all.filter(function(l){ return l.family === "red" && l.words.length !== 20; }).length, 0);
@@ -2521,7 +2455,7 @@
       for(var i=0;i<cols.length;i++) if(cols[i].fam.key === fam && cols[i].n === n) return cols[i];
       return null;
     }
-    eq("one column per list, families side by side", cols.length, 23);
+    eq("one column per list, families side by side", cols.length, 15);
     eq("a cell shows the icons of the modes that are on",
        T.cellText("s:u1", colFor("red", 2)), "🃏🎯");
     eq("a cell with nothing on it is a dash", T.cellText("s:u1", colFor("red", 4)), "—");
@@ -2672,11 +2606,11 @@
     eq("a row for the default, each period, each student and the strays",
        grid.querySelectorAll("tbody tr").length, 8);
     eq("a cell for every scope row × every list column",
-       grid.querySelectorAll("[data-cell]").length, 7 * 23);
+       grid.querySelectorAll("[data-cell]").length, 7 * 15);
     eq("two header rows: families over their lists",
        grid.querySelectorAll("thead tr").length, 2);
-    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 7);
-    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 23);
+    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 6);
+    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 15);
     eq("a cell drawn from an inheriting row is marked inherited",
        grid.querySelector('[data-cell="s:u1|0"]').classList.contains("inherit"), true);
     eq("a cell drawn from a row with its own set is marked own",
@@ -2700,7 +2634,7 @@
     T.board.collapsed.red = true;
     T.renderAssign();
     grid = document.getElementById("abGrid");
-    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 14);
+    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 6);
     eq("…and the folded column summarises instead of ticking",
        grid.querySelector('[data-cell="s:u2|5"]').textContent, "1 🃏");
     T.board.collapsed.red = false;

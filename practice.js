@@ -125,12 +125,9 @@ window.EIPractice = (function(){
       /* Every engine but one gets a weighted DRAW of the list. The
          fluency engine gets the whole thing: its one-minute deck cycles,
          and a fast reader who ran out of words would be scored on the
-         length of the draw rather than on their reading. A passage isn't
-         a draw at all — it is one text, and it arrives as cfg.text. */
+         length of the draw rather than on their reading. */
       if(list.engine === "fluency"){
         cfg.words = list.words.slice();
-        if(list.text) cfg.text = list.text;
-        if(list.targets) cfg.targets = list.targets;
         var fl = EIStore.fluencyFor(list.id);
         if(fl){ cfg.best = fl.best; cfg.last = fl.latest; }
         cfg.onFluency = function(run){ EIStore.recordFluency(list.id, run); };
