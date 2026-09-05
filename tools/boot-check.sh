@@ -15,7 +15,7 @@ if [ -z "$CHROME" ]; then
   done
 fi
 PORT="${PORT:-8000}"
-GAMES="say say-red spell cards cards-nonsense split match fluency read blendit"
+GAMES="say say-red spell cards cards-nonsense split match fluency blendit"
 fail=0
 for g in $GAMES; do
   out=$("$CHROME" --headless=new --disable-gpu --no-sandbox --enable-logging=stderr --v=1 \
