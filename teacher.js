@@ -160,16 +160,7 @@
       roster = {};
       rosterReadable = !!snaps[4];
       if(snaps[4]) snaps[4].forEach(function(doc){
-        var d = doc.data() || {};
-        roster[String(doc.id).toLowerCase()] = {
-          email: String(doc.id).toLowerCase(),
-          name: d.name || "",
-          id: d.id || "",
-          period: d.period == null ? "" : String(d.period),
-          start: d.start || "",
-          lists: Array.isArray(d.lists) ? d.lists : null,
-          importedAt: d.importedAt || 0
-        };
+        roster[String(doc.id).toLowerCase()] = rosterRowOf(doc.id, doc.data() || {});
       });
       var c = snaps[2].exists ? (snaps[2].data() || {}) : {};
       classCfg = {
@@ -207,6 +198,23 @@
      have to know is that a pending student's assignment is written to
      their roster row instead of to assignments/{uid}; there is no uid to
      write one against yet. */
+  /* One stored roster document as the dashboard holds it. The stored
+     field for a starting list is `startAt` — that is what importBody
+     writes and what store.js reads — while every reader in here calls it
+     `start`. Named so tests can pin the two names against each other. */
+  function rosterRowOf(id, d){
+    d = d || {};
+    return {
+      email: String(id).toLowerCase(),
+      name: d.name || "",
+      id: d.id || "",
+      period: d.period == null ? "" : String(d.period),
+      start: d.startAt || "",
+      lists: Array.isArray(d.lists) ? d.lists : null,
+      importedAt: d.importedAt || 0
+    };
+  }
+
   var PENDING_PREFIX = "roster:";
   function isPending(uid){ return String(uid).indexOf(PENDING_PREFIX) === 0; }
   function emailOfPending(uid){ return String(uid).slice(PENDING_PREFIX.length); }
@@ -2167,7 +2175,9 @@
     if(!steps) return null;
     var startAt = 0;
     if(r && r.start){
-      var at = WordLists.stepOf(steps, r.start);
+      // Same placement rule as the student's own page: a start the course
+      // doesn't literally contain still lands on that list's earliest rung.
+      var at = WordLists.startStepOf(steps, r.start);
       if(at >= 0) startAt = at;
     }
     var res = Adaptive.unlocked(steps, s.stats || {}, startAt, listTotal);
@@ -2913,6 +2923,8 @@
       sequenceIsOn: sequenceIsOn,
       sequenceStateFor: sequenceStateFor,
       rosterStatus: rosterStatus,
+      rosterRowOf: rosterRowOf,
+      studentByUid: studentByUid,
       isPending: isPending,
       studentUids: function(){ return students.map(function(s){ return s.uid; }); },
       patternRows: patternRows,

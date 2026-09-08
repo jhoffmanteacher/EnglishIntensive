@@ -50,6 +50,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="auth.js"></script>
 <script src="adaptive.js"></script>
+<!-- The dashboard parses pasted rosters with GameCore.parseRoster, so the
+     core has to be here too. It also applies reading-view classes to
+     <html> on load, which the dashboard simply doesn't use. -->
+<script src="game-core.js"></script>
 <script src="word-lists.js"></script>
 <script src="teacher.js"></script>
 </body>

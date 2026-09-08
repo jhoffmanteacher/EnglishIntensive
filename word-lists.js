@@ -560,6 +560,32 @@ window.WordLists = (function(){
     return null;
   }
 
+  /* These two are module-level rather than plain methods because they get
+     handed around as bare callbacks — store.js passes a placement function
+     into EIStore.sequenceState — and a method that leaned on `this` would
+     throw the moment it was detached from the object. */
+  function stepOf(sequence, listId){
+    var steps = sequence || [];
+    for(var i=0;i<steps.length;i++) if((steps[i] || []).indexOf(listId) !== -1) return i;
+    return -1;
+  }
+  function idsOfList(familyKey, listNum){
+    return all.filter(function(l){ return l.family === familyKey && l.listNum === listNum; })
+              .map(function(l){ return l.id; });
+  }
+  function startStepOf(sequence, listId){
+    var at = stepOf(sequence, listId);
+    if(at !== -1) return at;
+    var l = index[listId];
+    if(!l) return -1;
+    var best = -1;
+    idsOfList(l.family, l.listNum).forEach(function(id){
+      var s = stepOf(sequence, id);
+      if(s !== -1 && (best === -1 || s < best)) best = s;
+    });
+    return best;
+  }
+
   return {
     all: all,
     ids: all.map(function(l){ return l.id; }),
@@ -729,11 +755,14 @@ window.WordLists = (function(){
     /* Where a list id sits in a sequence, as a step index — what a
        roster row's "starts on" resolves to. -1 when the sequence doesn't
        contain it, which the caller reads as "start at the beginning". */
-    stepOf: function(sequence, listId){
-      var steps = sequence || [];
-      for(var i=0;i<steps.length;i++) if((steps[i] || []).indexOf(listId) !== -1) return i;
-      return -1;
-    },
+    stepOf: stepOf,
+
+    /* Where a roster row's "starts on" lands in a course. The id itself
+       if the course has it; otherwise the earliest step holding any mode
+       of the same list — "Red 3" resolves to red-3-say, and a course
+       built from cards and match still has a place for List 3. -1 only
+       when no mode of that list is a rung. */
+    startStepOf: startStepOf,
 
     // What a list is teaching, in a teacher's words. Falls back to the
     // family title so a family added without a tag still reads sensibly.
@@ -762,10 +791,7 @@ window.WordLists = (function(){
       return all.filter(function(l){ return l.family === familyKey; }).map(function(l){ return l.id; });
     },
     // Every id for one list of one family, across its modes.
-    idsOfList: function(familyKey, listNum){
-      return all.filter(function(l){ return l.family === familyKey && l.listNum === listNum; })
-                .map(function(l){ return l.id; });
-    },
+    idsOfList: idsOfList,
 
     /* ── describing an assignment ─────────────────────────────────────
        Pure. Turns a list of ids into the one line the roster, the picker
