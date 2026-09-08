@@ -834,14 +834,53 @@ a forty-second run that stopped early is not a faster reader.
 ### Following a reader
 
 `consume()` (pure, in `tests.html`) walks a transcript's tokens against the
-words still to be read. Every token answers the current word: right or
-wrong, the pointer moves. That is what stops the run stalling on a word the
-student has given up on — a minute spent staring at "gasp" is a minute that
-measured nothing.
+words still to be read. The obvious rule — every token answers the current
+word, right or wrong — is wrong in a way that took a while to see: a single
+**extra** token knocks the alignment out for the rest of the run. Say "um"
+at word three and "um" eats *golf*, then "golf" is judged against *honk*,
+and every word after it reads as wrong. The student never resyncs, because
+they're reading straight down a fixed list. A reader who hesitated once
+ended the minute at nought — and hesitating is exactly what the students
+this measures actually do.
+
+So a token that doesn't match the current word isn't automatically a
+misread. Four rules decide, in order:
+
+1. It matches the word **just read** — a repeat. Saying a word twice is not
+   an error and must never cost the next word.
+2. **Joined to the next token** it matches the word we're on — the
+   recogniser split one word in two ("hubcap" comes back as "hub cap"),
+   which is its mistake, not the student's.
+3. One of the next couple of tokens matches the word we're on, so this one
+   was **noise** — a filler, half a self-correction — and the real read is
+   coming. Drop the token, hold the pointer.
+4. Otherwise it's a **misread**: mark it wrong and move on.
+
+Rule 3 needs to see two tokens after this one before it can rule the
+possibility out, so until those arrive the decision is *held* rather than
+guessed; `flush` forces one when the recogniser finalises, which keeps the
+pointer honest across the gap between utterances. The forgiving rules only
+fire when a *later* token matches the word we're on — the signature of
+noise — so a wrong word followed by the next right word is still a misread
+and still counts. Three fillers in a row is past what a two-token window
+can tell from a run of misreads; that limit is pinned by a test rather than
+chased, because widening the window until nothing ever desyncs is the same
+as forgiving every misread.
 
 Interim results drive the pointer, not just finals — a reader at sixty
 words a minute is four words past whatever the recogniser is still thinking
-about, and waiting would leave the highlight hopelessly behind.
+about, and waiting would leave the highlight hopelessly behind. But an
+interim is a guess Chrome keeps **revising**: "cost" becomes "cast" a beat
+later. So each result is scored from a snapshot of the run taken before it
+was first seen, and a revision rolls back to that snapshot and scores the
+new transcript from scratch. Nothing reaches the scheduler until the result
+goes final — a stat write can't be rolled back, and reporting a word wrong
+on a guess about to be withdrawn is worse than reporting it a moment late.
+
+That last path is the one mic behaviour that *can* be tested headlessly, and
+`tools/boot-check.sh` does: a fake recogniser emits a bad interim and then
+the corrected final, and the run has to end with three words right and no
+errors.
 
 Stars are the usual three tiers against a target rate: **60 CWPM** for real
 words, **40** for the nonsense list, with two stars at 70 % of that and one
