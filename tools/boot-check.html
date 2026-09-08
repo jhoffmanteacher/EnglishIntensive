@@ -82,8 +82,54 @@
                       click(q(".tile"));
                     } },
     "fluency":    { engine: "FluencyGame", list: "blends-end-1-fluency" },
+
+    /* The one mic path that CAN be driven headlessly, and the one worth
+       driving: Chrome revises its interim results, and a word scored
+       wrong on a guess it is about to withdraw has to be un-scored. A
+       fake recogniser stands in for Chrome's; everything downstream of
+       onresult is the real engine. */
+    "fluency-revision": { engine: "FluencyGame", list: "blends-end-1-fluency",
+      fake: true, drive: function(q, click){
+        click(q("#btnStart"));
+        // The mic check enables Start Reading from a getUserMedia
+        // promise, which hasn't settled yet in a synchronous drive.
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        var rec = window.FakeSR.last;
+        if(!rec) throw new Error("the engine never opened a recogniser");
+        var w = [q("#wg0").textContent, q("#wg1").textContent, q("#wg2").textContent];
+
+        // An interim that gets one of the three words wrong…
+        rec.emit(0, w[0] + " zzzz aaaa bbbb", false);
+        if(q("#uiWrong").textContent === "0") throw new Error("the interim scored nothing");
+
+        // …then Chrome revises it to what was actually said.
+        rec.emit(0, w.join(" "), true);
+        if(q("#uiRight").textContent !== "3"){
+          throw new Error("after the revision, read = " + q("#uiRight").textContent + ", wanted 3");
+        }
+        if(q("#uiWrong").textContent !== "0"){
+          throw new Error("the withdrawn guess left " + q("#uiWrong").textContent + " errors behind");
+        }
+      } },
     "blendit":    { engine: "BlendItGame", list: "nonsense-1-blendit" }
   };
+
+  /* Stands in for Chrome's SpeechRecognition. Only what the engine
+     touches: the handlers it assigns, and results shaped the way
+     onresult reads them. */
+  function FakeSR(){ FakeSR.last = this; }
+  FakeSR.prototype.start = function(){};
+  FakeSR.prototype.stop = function(){};
+  FakeSR.prototype.abort = function(){};
+  FakeSR.prototype.emit = function(index, text, isFinal){
+    var results = [];
+    results.length = index + 1;
+    results[index] = [{ transcript: text }];
+    results[index].isFinal = !!isFinal;
+    if(this.onresult) this.onresult({ resultIndex: index, results: results });
+  };
+  window.FakeSR = FakeSR;
 
   function param(){
     var m = /[?&]g=([^&#]+)/.exec(location.search || "");
@@ -111,6 +157,9 @@
   cfg.mastered = window.WordLists.wordsOf(g.list).slice(0, 8);
   if(l.text) cfg.text = l.text;
   if(l.targets) cfg.targets = l.targets;
+
+  // Before start(), because the engine reads it there.
+  if(g.fake){ window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR; }
 
   try{ engine.start(cfg); }
   catch(e){ say("FAILED: " + name + " start — " + e.message); return; }

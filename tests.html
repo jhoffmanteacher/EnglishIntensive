@@ -924,27 +924,76 @@
     // about the phonetics (which have their own tests above).
     function exact(tok, word){ return tok === word; }
     var LIST = ["soft","golf","honk","cost","pond"];
+    // `flush` on, because most of these are whole utterances. The tests
+    // that are about waiting for more of the transcript pass it off.
     function walk(tokens, from){
-      return F.consume(from || 0, tokens, LIST, exact);
+      return F.consume(from || 0, tokens, LIST, exact, true);
+    }
+    // "soft✓ golf✗" — the words decided and how, which is what every
+    // one of these is really asserting.
+    function read(said, from){
+      var r = walk(said.split(" ").filter(Boolean), from);
+      return r.marks.map(function(m){ return LIST[m.index] + (m.ok ? "✓" : "✗"); }).join(" ");
     }
 
-    // ---- every token answers the current word, right or wrong ----
+    // ---- a clean read ----
     (function(){
       var r = walk(["soft","golf"]);
       eq("a clean read advances", r.pointer, 2);
-      eq("…and marks both right", r.marks.map(function(m){ return m.ok ? "y" : "n"; }).join(""), "yy");
-      r = walk(["soft","wrong","honk"]);
-      eq("a wrong word costs the word it was said for", r.marks[1].ok, false);
-      eq("…and the pointer moves past it anyway", r.pointer, 3);
-      eq("…so the run never stalls", r.marks.length, 3);
-      // The reader is back in step immediately: the next thing said is
-      // judged against the next word, not against the one already lost.
-      eq("…and the next word is judged against the next word", r.marks[2].ok, true);
-      r = walk([]);
-      eq("silence decides nothing", r.marks.length, 0);
-      eq("…and moves nothing", r.pointer, 0);
-      r = F.consume(4, ["pond","extra","more"], LIST, exact);
-      eq("tokens past the end of the list are dropped", r.pointer, 5);
+      eq("…and marks both right", read("soft golf"), "soft✓ golf✓");
+      eq("silence decides nothing", walk([]).marks.length, 0);
+      eq("…and moves nothing", walk([]).pointer, 0);
+      eq("tokens past the end of the list are dropped",
+         F.consume(4, ["pond","extra","more"], LIST, exact, true).pointer, 5);
+    })();
+
+    /* ---- one extra token must not knock the run out of step ----
+       The bug these exist for: with every token answering the current
+       word, an "um" at word three ate `golf`, then "golf" was judged
+       against `honk`, and every word after it read as wrong. A student
+       who hesitated once ended the minute at nought — and hesitating is
+       what the students this measures actually do. */
+    eq("a filler word costs nothing", read("soft um golf honk"), "soft✓ golf✓ honk✓");
+    eq("half a self-correction costs nothing", read("soft gol golf honk"), "soft✓ golf✓ honk✓");
+    eq("two fillers in a row still cost nothing", read("soft um er golf"), "soft✓ golf✓");
+    /* Three is past what a two-token window can tell from a run of
+       misreads, and the run does knock out of step. Pinned rather than
+       fixed: widening the window until nothing ever desyncs is the same
+       as forgiving every misread, and a reader saying "um" three times
+       between two words is a different problem from the one this solves. */
+    eq("three fillers in a row is past what the window can see",
+       read("soft um er ah golf"), "soft✓ golf✗ honk✗ cost✗ pond✗");
+    eq("saying the word again costs nothing", read("soft soft golf"), "soft✓ golf✓");
+    eq("…however many times", read("soft soft soft golf"), "soft✓ golf✓");
+    eq("a word the recogniser split in two is still one word",
+       F.consume(0, ["hub","cap","picnic"], ["hubcap","picnic"], exact, true)
+        .marks.map(function(m){ return m.ok ? "y" : "n"; }).join(""), "yy");
+
+    /* ---- and a real misread still costs ----
+       The forgiving rules only fire when a LATER token matches the word
+       we are on, which is the signature of noise. A wrong word followed
+       by the next right word is a misread and is marked as one. */
+    eq("a misread is a misread", read("soft vest honk"), "soft✓ golf✗ honk✓");
+    eq("…and the reader is back in step after it",
+       read("soft vest honk cost"), "soft✓ golf✗ honk✓ cost✓");
+    eq("a run of misreads is a run of misreads",
+       read("vest mink kilt lisp"), "soft✗ golf✗ honk✗ cost✗");
+
+    /* ---- waiting for the rest of the transcript ----
+       Noise can only be told from a misread by what comes after it, so
+       with the window not yet filled the decision is held rather than
+       guessed. `flush` forces one when the recogniser says no more is
+       coming, which keeps the pointer honest across the gap between
+       utterances. */
+    (function(){
+      var held = F.consume(0, ["soft","um"], LIST, exact, false);
+      eq("an undecidable last token is held, not guessed", held.pending, "um");
+      eq("…and the pointer waits with it", held.pointer, 1);
+      eq("…and it decides once the rest arrives",
+         read("soft um golf"), "soft✓ golf✓");
+      var flushed = F.consume(0, ["soft","um"], LIST, exact, true);
+      eq("flushing forces the verdict", flushed.pending, null);
+      eq("…as a misread", flushed.marks[1].ok, false);
     })();
 
     // ---- the same walk, judged the way the game judges ----
@@ -952,11 +1001,11 @@
       function spoken(opts){
         return function(tok, word){ return GC.spokenMatch(tok, word, opts || {}); };
       }
-      var r = F.consume(0, ["to","the"], ["two","the"], spoken({ homophones: [["to","two"]] }));
+      var r = F.consume(0, ["to","the"], ["two","the"], spoken({ homophones: [["to","two"]] }), true);
       eq("a homophone counts as the word", r.marks[0].ok, true);
-      r = F.consume(0, ["veb"], ["vab"], spoken({ phonetic: true }));
+      r = F.consume(0, ["veb"], ["vab"], spoken({ phonetic: true }), true);
       eq("a made-up word is judged by sound", r.marks[0].ok, true);
-      r = F.consume(0, ["bread"], ["bred"], spoken({}));
+      r = F.consume(0, ["bread"], ["bred"], spoken({}), true);
       eq("a real word is not", r.marks[0].ok, false);
     })();
 

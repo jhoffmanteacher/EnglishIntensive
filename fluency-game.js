@@ -46,22 +46,80 @@ window.FluencyGame = (function(){
 
   /* Walk a transcript's tokens against the words still to be read.
 
-     Every token answers the current word: right or wrong, the pointer
-     moves. That is what stops the run stalling on a word the student has
-     given up on — a minute spent staring at "gasp" is a minute that
-     measured nothing.
+     The naive rule — every token answers the current word, right or
+     wrong — is wrong in a way that took a while to see. It never stalls,
+     which is what it was chosen for, but a single EXTRA token knocks the
+     alignment out for the rest of the run: say "um" at word three and
+     "um" eats `golf`, then "golf" is judged against `honk`, and every
+     word after it reads as wrong. The student never resyncs, because
+     they are reading straight down a fixed list. A reader who hesitated
+     once ends the minute at nought. Struggling readers hesitate and
+     self-correct constantly, which is to say the bug fired hardest on
+     exactly the students the measure is for.
+
+     So a token that doesn't match the current word is not automatically
+     a misread. Three rules decide, in order:
+
+       1. It matches the word JUST READ — a repeat. Saying a word twice
+          is not an error and must never cost the next word.
+       2. Joined to the next token it matches the word we are on — the
+          recogniser split one word into two ("hubcap" comes back as
+          "hub cap"), which is its mistake and not the student's.
+       3. One of the next couple of tokens matches the word we are on —
+          so this token was noise (a filler, half a self-correction, or a
+          compound the recogniser split) and the real read is coming.
+          Drop the token, hold the pointer.
+       4. Otherwise the student genuinely misread it: mark it wrong and
+          move on, exactly as before.
+
+     Rule 3 needs to see NOISE_LOOKAHEAD tokens after this one before it
+     can rule the possibility out. Until those arrive the decision is
+     held — `pending` — and the caller comes back with a longer
+     transcript. `flush` forces a verdict when no more is coming (the
+     recogniser finalised): undecided tokens resolve as misreads, so the
+     pointer stays honest across the gap between utterances.
 
      Pure: `matches(token, word)` is injected, and nothing here touches
-     the clock or the DOM. Returns the new pointer and one mark per word
-     decided, in order. */
-  function consume(pointer, tokens, words, matches){
-    var p = pointer, marks = [], i;
-    for(i=0;i<tokens.length;i++){
-      if(p >= words.length) break;
-      marks.push({ index: p, ok: !!matches(tokens[i], words[p]) });
-      p++;
+     the clock or the DOM. */
+  var NOISE_LOOKAHEAD = 2;
+
+  function consume(pointer, tokens, words, matches, flush){
+    var p = pointer, marks = [], i = 0, pending = null, k, hit, avail;
+    while(i < tokens.length && p < words.length){
+      var tok = tokens[i];
+
+      if(matches(tok, words[p])){
+        marks.push({ index: p, ok: true });
+        p++; i++;
+        continue;
+      }
+
+      // 1. the word they just read, said again
+      if(p > 0 && matches(tok, words[p-1])){ i++; continue; }
+
+      // 2. one word the recogniser broke in half
+      if(i + 1 < tokens.length && matches(tok + tokens[i+1], words[p])){
+        marks.push({ index: p, ok: true });
+        p++; i += 2;
+        continue;
+      }
+
+      // 3. noise, if the real read is within sight
+      avail = tokens.length - (i + 1);
+      hit = false;
+      for(k = 1; k <= Math.min(NOISE_LOOKAHEAD, avail); k++){
+        if(matches(tokens[i+k], words[p])){ hit = true; break; }
+      }
+      if(hit){ i++; continue; }
+
+      // Not enough of the transcript yet to tell noise from a misread.
+      if(avail < NOISE_LOOKAHEAD && !flush){ pending = tok; break; }
+
+      // 4. a misread
+      marks.push({ index: p, ok: false });
+      p++; i++;
     }
-    return { pointer: p, marks: marks };
+    return { pointer: p, marks: marks, pending: pending };
   }
 
   // Correct words per minute. Rounded, never negative, and 0 rather than
@@ -261,6 +319,9 @@ window.FluencyGame = (function(){
     var missed = [];
     var startedAt = 0, endsAt = 0, running = false;
     var tickTimer = null, seen = {};
+    /* Where the run stood before the recogniser's current result was
+       first scored, so a revision of it can be undone. See heardResult. */
+    var snap = null;
 
     var snd = Core.sounds({ onPlay: function(){} });
 
@@ -311,7 +372,7 @@ window.FluencyGame = (function(){
     /* ---------------- the run ---------------- */
     function begin(){
       queue = deckFor();
-      pointer = 0; okCount = 0; noCount = 0; missed = []; seen = {};
+      pointer = 0; okCount = 0; noCount = 0; missed = []; seen = {}; snap = null;
       startedAt = 0; endsAt = 0; running = true;
       show("s-play");
       buildGrid();
@@ -358,17 +419,39 @@ window.FluencyGame = (function(){
       $("uiWrong").textContent = noCount;
     }
 
-    /* One transcript, consumed. The pure part is consume(); everything
-       here is what to do with its marks. */
-    function heard(text){
+    /* One result from the recogniser, scored.
+
+       The awkward part is that a result is not a fact — it is a guess
+       that Chrome keeps revising. "cost" becomes "cast" a beat later,
+       and a word already marked wrong on the discarded guess would
+       otherwise stand. So every result is scored from a SNAPSHOT of the
+       run taken before it was first seen: a revision rolls the run back
+       to that snapshot and scores the new transcript from scratch.
+
+       Interims are for the screen and the counters only. Nothing reaches
+       the scheduler until the result goes final, because a stat write
+       cannot be rolled back and reporting a word wrong on a guess Chrome
+       is about to withdraw is worse than reporting it a second late. */
+    function heardResult(index, text, isFinal){
       if(!running) return;
-      var tokens = tokenize(text);
-      if(!tokens.length) return;
-      var res = consume(pointer, tokens, queue, function(tok, word){
+
+      if(!snap || snap.index !== index){
+        snap = { index: index, pointer: pointer, ok: okCount, no: noCount, missed: missed.slice() };
+      } else {
+        // A revision. Undo everything this result did, including the
+        // colours it put on the grid, then score it again.
+        for(var i = snap.pointer; i <= pointer; i++) paint(i, null);
+        pointer = snap.pointer;
+        okCount = snap.ok;
+        noCount = snap.no;
+        missed = snap.missed.slice();
+      }
+
+      var res = consume(pointer, tokenize(text), queue, function(tok, word){
         return Core.spokenMatch(tok, word, MATCH_OPTS);
-      });
-      if(!res.marks.length) return;
-      startClock();
+      }, !!isFinal);
+
+      if(res.marks.length) startClock();
       paint(pointer, null);
       res.marks.forEach(function(m){
         var word = queue[m.index];
@@ -378,16 +461,18 @@ window.FluencyGame = (function(){
           noCount++;
           if(missed.indexOf(word) === -1) missed.push(word);
         }
-        /* A cycling deck can show the same word twice. Only the first
-           reading of it is reported: the second is the same word inside
-           the same minute, and counting it twice would let one lucky
-           re-read undo one bad one. */
-        if(!Object.prototype.hasOwnProperty.call(seen, word)){
+        /* Final only, and once per word. A cycling deck can show the same
+           word twice; the second reading is the same word inside the same
+           minute, and counting it twice would let one lucky re-read undo
+           one bad one. */
+        if(isFinal && !Object.prototype.hasOwnProperty.call(seen, word)){
           seen[word] = true;
           report(word, m.ok);
         }
       });
       pointer = res.pointer;
+      if(isFinal) snap = null;
+
       paintPointer();
       updateHud();
       if(pointer >= queue.length) finish();
@@ -395,6 +480,9 @@ window.FluencyGame = (function(){
 
     function skip(){
       if(!running || pointer >= queue.length) return;
+      // The pointer just moved for a reason no revision should undo, so
+      // the result in flight loses its right to be rolled back.
+      snap = null;
       startClock();
       var word = queue[pointer];
       paint(pointer, "no");
@@ -503,21 +591,12 @@ window.FluencyGame = (function(){
       /* Interim results matter more here than anywhere else on the site.
          A reader going at sixty words a minute is four words past the one
          the recogniser is still thinking about, and waiting for finals
-         would make the highlight trail hopelessly. So interims drive the
-         pointer, and `consumedTo` remembers how much of the current
-         result has already been counted — otherwise every interim would
-         re-consume the words before it. */
-      var consumedTo = 0, activeIndex = -1;
+         would leave the highlight hopelessly behind. So interims drive
+         the screen — and heardResult() scores each result from a snapshot
+         so that when Chrome revises one, the revision wins. */
       rec.onresult = function(ev){
         for(var i = ev.resultIndex; i < ev.results.length; i++){
-          var r = ev.results[i], text = r[0].transcript;
-          if(i !== activeIndex){ activeIndex = i; consumedTo = 0; }
-          var toks = tokenize(text);
-          if(toks.length > consumedTo){
-            heard(toks.slice(consumedTo).join(" "));
-            consumedTo = toks.length;
-          }
-          if(r.isFinal){ activeIndex = -1; consumedTo = 0; }
+          heardResult(i, ev.results[i][0].transcript, ev.results[i].isFinal);
         }
       };
 
@@ -711,6 +790,7 @@ window.FluencyGame = (function(){
       consume: consume,
       wordsPerMinute: wordsPerMinute,
       starsForRate: starsForRate,
+      noiseLookahead: NOISE_LOOKAHEAD,
       runMs: RUN_MS
     }
   };
