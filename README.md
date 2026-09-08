@@ -17,29 +17,37 @@ python3 -m http.server 8000
 
 ## The overview page
 
-`docs/overview.html` is this same site described for a **reading teacher**
+`overview.html` is this same site described for a **reading teacher**
 rather than for whoever is editing it: what students practise, what each
 mode asks of them, what the dashboard reports, and what the site
-deliberately does not do. It is published as an Artifact —
-<https://claude.ai/code/artifact/a711f0ee-9868-4a7d-a7fd-5923c92b2057> —
-and that link, not the file, is the copy anybody actually reads.
+deliberately does not do. It is served from the repo like every other
+page —
 
-It is not a page of the site. No CSP header, no `auth.js`, no doctype: it
-is an artifact source that happens to render fine on its own, and it is in
-`docs/` so that "which HTML files are the site?" stays answerable by
-listing the root.
+    https://jhoffmanteacher.github.io/EnglishIntensive/overview.html
+
+— and that is the link to hand somebody.
+
+It is a page of the site, but not one of the games. No `auth.js`, because
+the person reading it does not have an account and shouldn't need one; no
+JavaScript at all, which its CSP states outright (`script-src 'none'`).
+The body face is the self-hosted Atkinson Hyperlegible that `site.css`
+serves, for the same reason it is self-hosted there.
+
+**The file is the published page.** There is no second copy anywhere, so
+the committed version and the version a teacher is reading are the same
+thing by construction. That is the whole reason it lives here rather than
+being published somewhere else and kept in step by hand — the keeping in
+step is what fails.
 
 The masthead carries an **Updated &lt;date&gt;** stamp, and moving it is part
 of changing the page: a summary of a moving target is worth only as much as
 the reader's ability to tell how old it is.
 
-Keeping it true is the whole job. Anything a teacher would notice — a new
-mode, a new family, a changed rule about how rounds are drawn or what
+Keeping it true is the rest of the job. Anything a teacher would notice — a
+new mode, a new family, a changed rule about how rounds are drawn or what
 unlocks, a claim about what a number means — belongs in the same commit as
-the code that changed it. Re-publishing means publishing the file with
-`url` set to the address above; without it you get a second artifact and
-the link already sent to somebody quietly goes stale. `CLAUDE.md` carries
-the same instruction, which is what makes it happen.
+the code that changed it. `CLAUDE.md` carries the same instruction, which is
+what makes it happen.
 
 The two documents divide by audience and nothing else. This file explains
 why the code is shaped the way it is; that one explains what the site does

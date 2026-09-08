@@ -1,37 +1,41 @@
-<!-- ============================================================
-     ENGLISH INTENSIVE — OVERVIEW  (the page you hand a colleague)
-
-     A plain-English tour of what the site does, written for a reading
-     teacher rather than for whoever maintains the code. README.md is the
-     other half of that pair: same site, told to whoever is editing it.
-
-     Published as an Artifact at
-       https://claude.ai/code/artifact/a711f0ee-9868-4a7d-a7fd-5923c92b2057
-     and that link is the copy people actually read. To update it, edit
-     THIS file and publish it with `url` set to the address above — a
-     publish without the url makes a second, unrelated artifact and the
-     link already handed out goes stale in silence.
-
-     Deliberately not a page of the site. It carries no CSP header, no
-     auth.js and no doctype, because it is an artifact source, not
-     something served from the root next to the games. It renders fine
-     opened straight off disk if you want to check a change.
-
-     THE DATE IN THE MASTHEAD IS PART OF THE CONTENT. Move it whenever
-     you change anything here — a stale page that looks checked is worse
-     than one that admits its age.
-
-     KEEP IT HONEST. Anything a teacher would notice — a new mode, a new
-     family, a changed rule about how rounds get drawn, a claim about
-     what a number means — changes this file in the same commit as the
-     code. A summary nobody trusts is worse than no summary.
-     ============================================================ -->
-<title>English Intensive</title>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Tighter than the game pages' policy, because this page has no
+     JavaScript at all and should say so: script-src 'none' means an
+     injected <script> is refused rather than merely unlikely. The two
+     Google origins are here for the one display face; the body face is
+     served from fonts/ like everywhere else on the site. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  base-uri 'self';
+  object-src 'none';
+  script-src 'none';
+  img-src 'self' data:;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+">
+<title>English Intensive — What the site does</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
-
+<!-- Display face only. If a school network blocks Google, the headings
+     fall back to Georgia and the page is still the page — which is why
+     the face that carries the running text is the self-hosted one. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&display=swap">
 <style>
+/* The same two files site.css serves, for the same reason: a school
+   network that blocks fonts.gstatic.com must not silently take the
+   legible face away from the reader who needs it. */
+@font-face{
+  font-family:"Atkinson Hyperlegible";font-style:normal;font-weight:400;font-display:swap;
+  src:url(fonts/atkinson-hyperlegible-400-latin.woff2) format("woff2");
+}
+@font-face{
+  font-family:"Atkinson Hyperlegible";font-style:normal;font-weight:700;font-display:swap;
+  src:url(fonts/atkinson-hyperlegible-700-latin.woff2) format("woff2");
+}
 :root{
   --paper:#F1F4F7;
   --surface:#FFFFFF;
@@ -49,7 +53,7 @@
 
   --display:"Zilla Slab", Georgia, "Times New Roman", serif;
   --body:"Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
-  --mono:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --mono:ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -391,6 +395,33 @@ footer p{max-width:66ch}
   *{animation:none!important;transition:none!important}
 }
 </style>
+</head>
+<body>
+<!-- ============================================================
+     ENGLISH INTENSIVE — OVERVIEW  (the page you hand a colleague)
+
+     What the site does, written for a reading teacher rather than for
+     whoever maintains the code. README.md is the other half of that
+     pair: same site, told to whoever is editing it.
+
+     This file IS the published page. It is served straight from the
+     repo, so the committed version and the version a teacher is reading
+     are the same thing by construction — there is no second copy to
+     republish and no way for the two to drift.
+
+     Unlike the game pages it loads no auth.js and no JavaScript at all:
+     it is meant to be opened by somebody without an account, which is
+     the whole point of having it.
+
+     THE DATE IN THE MASTHEAD IS PART OF THE CONTENT. Move it whenever
+     you change anything here — a stale page that looks checked is worse
+     than one that admits its age.
+
+     KEEP IT HONEST. Anything a teacher would notice — a new mode, a new
+     family, a changed rule about how rounds get drawn, a claim about
+     what a number means — changes this file in the same commit as the
+     code. A summary nobody trusts is worse than no summary.
+     ============================================================ -->
 
 <div class="page">
 
@@ -632,3 +663,6 @@ footer p{max-width:66ch}
 </footer>
 
 </div>
+
+</body>
+</html>
