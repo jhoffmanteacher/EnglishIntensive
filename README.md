@@ -1434,6 +1434,18 @@ So the board works it out. Above the grid, when there is anything to say:
 with a button that drops it into the same draft as every other edit and
 waits for the same Save.
 
+The count in the brackets is the **fluent** one — solid *and* at pace,
+`mastered − slow` — because that is the number `Adaptive.listShare`
+measured the bar against. Printing `mastered` there would show "20 of
+20" beside a suggestion that sixteen of them earned, and a teacher who
+has read that slow words never count toward moving up would be right to
+ask which is true. Where any are slow the line names them beside the
+count as *"(16 of 20 solid, 3 more slow)"*: "more", so nobody reads the
+three as part of the sixteen. The per-list cell on the student page keeps
+its own shape, *"20 / 20 (3 slow)"*, where the slow words are counted
+*inside* the twenty — that cell is answering "how many do they own", this
+line is answering "how many did the bar see".
+
 It does not act on its own, on two counts. Auto-advancing would move a
 student on the strength of a scoring heuristic with nobody who has met
 them in the loop — and "solid" here means solid on a screen, which is not

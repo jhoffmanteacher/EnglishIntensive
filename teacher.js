@@ -2284,7 +2284,10 @@
           family: fam.key, famTitle: fam.title,
           mode: m.key, modeIcon: m.icon, modeTitle: m.title,
           from: from, to: from + 1, fromId: fromId, toId: toId,
-          mastered: p.mastered, total: p.total
+          // `fluent` is the number the bar was measured against; the
+          // strip prints THAT, so the evidence it shows is the evidence
+          // that fired it. `mastered` still includes the slow words.
+          mastered: p.mastered, slow: p.slow, fluent: p.fluent, total: p.total
         });
       });
     });
@@ -2316,6 +2319,18 @@
     setScope("s:" + sug.uid, set);
   }
 
+  /* The parenthetical after "finished List 2". The count is the FLUENT
+     one — solid and at pace — because that is what the four-in-five bar
+     was measured against; printing `mastered` here would show a number
+     the bar never saw, and a teacher would rightly ask why 20 of 20
+     needed a nudge. Slow-but-right words are named beside it as "more",
+     so nobody reads them as part of the 18. Where nothing is slow the
+     two counts are the same and the line reads as it always has. */
+  function evidenceText(g){
+    return g.fluent + " of " + g.total + " solid" +
+      (g.slow ? ", " + g.slow + " more slow" : "");
+  }
+
   function suggestionsHtml(sugs){
     if(!sugs.length) return "";
     var rows = sugs.map(function(g, i){
@@ -2323,7 +2338,7 @@
         '<span class="abSugWho">' + esc(g.name) + "</span>" +
         '<span class="abSugWhat">' + esc(g.famTitle + " " + g.modeIcon) +
           " · finished <b>List " + g.from + "</b> " +
-          '<span class="muted tiny">(' + g.mastered + " of " + g.total + " solid)</span></span>" +
+          '<span class="muted tiny">(' + evidenceText(g) + ")</span></span>" +
         '<span class="abSugTo">add <b>List ' + g.to + "</b></span>" +
         '<button type="button" class="btn ghost sm" data-sug="' + i + '">Add it</button>' +
         "</li>";
@@ -3055,6 +3070,7 @@
       colLabel: colLabel,
       columnToggle: columnToggle,
       readyToAdvance: readyToAdvance,
+      evidenceText: evidenceText,
       noteOf: noteOf,
       studentPeriod: studentPeriod,
       csvCell: csvCell,
