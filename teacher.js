@@ -1169,7 +1169,9 @@
       (fluency ? '<div class="panel"><h2>Reading rate</h2>' +
         '<p class="note">Correct words per minute, one point per timed read, oldest on the left. ' +
         "Accuracy stops moving long before this does — a student can be right about every word on a list " +
-        "and still be reading it one word at a time.</p>" +
+        "and still be reading it one word at a time. " +
+        "This is <b>word-list rate</b>, not passage reading: it says nothing about phrasing, or about how " +
+        "a student handles connected text. Those want their own probe.</p>" +
         '<div class="tableScroll"><table class="t"><thead><tr>' +
         '<th>List</th><th>Progress</th><th class="num">Latest</th><th class="num">Best</th><th class="num">Reads</th>' +
         "</tr></thead><tbody>" + fluency + "</tbody></table></div></div>" : "") +
