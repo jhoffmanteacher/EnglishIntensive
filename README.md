@@ -29,6 +29,10 @@ is an artifact source that happens to render fine on its own, and it is in
 `docs/` so that "which HTML files are the site?" stays answerable by
 listing the root.
 
+The masthead carries an **Updated &lt;date&gt;** stamp, and moving it is part
+of changing the page: a summary of a moving target is worth only as much as
+the reader's ability to tell how old it is.
+
 Keeping it true is the whole job. Anything a teacher would notice — a new
 mode, a new family, a changed rule about how rounds are drawn or what
 unlocks, a claim about what a number means — belongs in the same commit as
@@ -575,7 +579,8 @@ student's voice. That counted as a miss, and two of them showed the answer
 to a word nobody had tried to read. `GameCore.isNonAnswer()` now excuses a
 transcript that is **entirely** noise, from a closed set of non-lexical
 sounds (`um`, `uh`, `er`, `hmm`, `huh`, `ah`…). Say It and Blend It both use
-it.
+it, and the fluency run filters the same set out of every transcript before
+aligning it — a cough is not a token the walk should have to explain.
 
 Two things keep that from forgiving real misreads. It fires only when every
 token is noise — "um bled" is an attempt that got the word wrong, and
@@ -913,7 +918,7 @@ ended the minute at nought — and hesitating is exactly what the students
 this measures actually do.
 
 So a token that doesn't match the current word isn't automatically a
-misread. Four rules decide, in order:
+misread. Five rules decide, in order:
 
 1. It matches the word **just read** — a repeat. Saying a word twice is not
    an error and must never cost the next word.
@@ -923,7 +928,11 @@ misread. Four rules decide, in order:
 3. One of the next couple of tokens matches the word we're on, so this one
    was **noise** — a filler, half a self-correction — and the real read is
    coming. Drop the token, hold the pointer.
-4. Otherwise it's a **misread**: mark it wrong and move on.
+4. It matches the **next** word — the student skipped the one we're on.
+   Mark that one wrong and judge this token against the next. This is the
+   mirror of rule 3: a *missing* token must not knock the run out of step
+   any more than an extra one does.
+5. Otherwise it's a **misread**: mark it wrong and move on.
 
 Rule 3 needs to see two tokens after this one before it can rule the
 possibility out, so until those arrive the decision is *held* rather than

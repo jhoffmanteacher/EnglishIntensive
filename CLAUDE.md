@@ -27,6 +27,11 @@ unlocks, a claim about what a number means, a renamed thing they see on the
 dashboard — updates `docs/overview.html` in the same commit as the code.
 Internal refactors, tests and comments do not.
 
+**Bump the date when you change it.** The page carries an "Updated
+&lt;date&gt;" stamp in its masthead, which is how a teacher tells whether what
+they are reading still describes the site. A change that doesn't move the
+date is worse than no change: it makes a stale page look checked.
+
 To republish the overview after editing it, publish `docs/overview.html`
 with `url` set to the artifact address above. Publishing it without the
 `url` creates a second, unrelated artifact, and the link already handed out

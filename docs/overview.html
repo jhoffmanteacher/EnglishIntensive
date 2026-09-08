@@ -17,6 +17,10 @@
      something served from the root next to the games. It renders fine
      opened straight off disk if you want to check a change.
 
+     THE DATE IN THE MASTHEAD IS PART OF THE CONTENT. Move it whenever
+     you change anything here — a stale page that looks checked is worse
+     than one that admits its age.
+
      KEEP IT HONEST. Anything a teacher would notice — a new mode, a new
      family, a changed rule about how rounds get drawn, a claim about
      what a number means — changes this file in the same commit as the
@@ -101,6 +105,14 @@ body{
   padding-bottom:22px;
   margin-bottom:34px;
 }
+.topline{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:10px 24px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
 .eyebrow{
   font-family:var(--body);
   font-weight:700;
@@ -109,6 +121,19 @@ body{
   text-transform:uppercase;
   color:var(--teal);
   margin:0 0 12px;
+}
+.topline .eyebrow{margin-bottom:0}
+/* Provenance, not decoration: a summary of a moving target is worth
+   only as much as the reader's ability to tell how old it is. */
+.updated{
+  margin:0;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--ink-2);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
 }
 h1{
   font-family:var(--display);
@@ -370,7 +395,10 @@ footer p{max-width:66ch}
 <div class="page">
 
 <header class="masthead">
-  <p class="eyebrow">Reading intervention · grades 9–10</p>
+  <div class="topline">
+    <p class="eyebrow">Reading intervention · grades 9–10</p>
+    <p class="updated">Updated 7 September 2026</p>
+  </div>
   <h1>English Intensive</h1>
   <p class="standfirst">A browser-based practice site for <b>older students working on decoding and sight words</b>. Six word families, seven ways to practice each one, a microphone that listens to the student read, and a teacher dashboard that says which students to reteach and what to reteach them.</p>
 </header>
@@ -537,7 +565,7 @@ footer p{max-width:66ch}
   <h2>The one-minute word-rate check</h2>
   <p class="deck">Every other mode asks whether a student knows a word. This one asks how fast — the question that goes on being worth asking long after accuracy has stopped moving.</p>
   <p>Words in rows of five, sixty seconds, the deck cycling so a fast reader never runs out. Scored in <b>correct words per minute</b>, with the change since last time, which is the reason to do it twice. Targets are 60 CWPM on real words and 40 on the nonsense list. The clock starts on the first word actually read, not on the button — a student fumbling with headphones for four seconds has not been reading for four seconds.</p>
-  <p>The listening is built to survive the way these students actually read. A hesitation, a repeated word, a false start, or the recognizer splitting "hubcap" into "hub cap" does not knock the rest of the run out of alignment; a genuine misread still counts as one. Every run is kept — up to a term's worth — and the dashboard draws each list as a small trend line, because a single latest number says nothing about whether anything is changing.</p>
+  <p>The listening is built to survive the way these students actually read. A hesitation, a repeated word, a false start, a skipped word, or the recognizer splitting "hubcap" into "hub cap" does not knock the rest of the run out of alignment; a genuine misread still counts as one. Every run is kept — up to a term's worth — and the dashboard draws each list as a small trend line, because a single latest number says nothing about whether anything is changing.</p>
   <div class="note">
     <span class="tag">It's a rate, not fluency in the full sense</span>
     <p>A list of words measures <b>automaticity of word recognition</b> — whether a word comes back without effort. That's a real construct, and the one timed word-list tests like TOWRE assess. It is not prosody, phrasing, or holding meaning across a sentence, because none of those exist outside connected text.</p>
