@@ -1389,6 +1389,61 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     game-core.js — noise that was never an answer
+
+     A final transcript the matcher can't place is normally a wrong
+     answer, and Say It exists to catch those. But a filler, a cough
+     rendered as "uh", or somebody else in the room was never an attempt
+     at the word, and counting one costs a try — two and the student is
+     shown the answer to a word they never tried to read.
+
+     The load-bearing rules: only when the WHOLE transcript is noise, and
+     no token in the set is a word on any list, so forgiving them can
+     never forgive a real misread.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+
+    eq("a filler on its own is not an answer", C.isNonAnswer("um"), true);
+    eq("…however it was transcribed", C.isNonAnswer("Uhh..."), true);
+    eq("…and a run of them still isn't", C.isNonAnswer("um er hmm"), true);
+    eq("a word is an answer", C.isNonAnswer("crab"), false);
+    eq("a WRONG word is still an answer", C.isNonAnswer("bled"), false);
+    eq("a filler with a word after it is an answer", C.isNonAnswer("um crab"), false);
+    eq("…and a filler with a wrong word after it is a wrong answer",
+       C.isNonAnswer("um bled"), false);
+    eq("silence is not noise — it is handled before this", C.isNonAnswer(""), false);
+    eq("…and neither is punctuation on its own", C.isNonAnswer("!!!"), false);
+    eq("nothing at all is not noise", C.isNonAnswer(null), false);
+
+    /* The set may never contain a word a student could be asked to read.
+       "what" is the one that tempts: a student reading "put" as "what"
+       has misread it, and a transcript cannot tell that from somebody
+       asking a question. */
+    (function(){
+      var onAList = {}, clash = [];
+      window.WordLists.ids.forEach(function(id){
+        window.WordLists.wordsOf(id).forEach(function(w){ onAList[w.toLowerCase()] = id; });
+      });
+      C.nonAnswers.forEach(function(f){ if(onAList[f]) clash.push(f + " (" + onAList[f] + ")"); });
+      eq("no filler is a word on any list", clash.join(", "), "");
+      eq("…and \"what\" is deliberately not one of them", C.isNonAnswer("what"), false);
+    })();
+
+    // The matcher still sees the word wherever it sits in the transcript,
+    // which is why Say It never had the fluency run's alignment problem.
+    (function(){
+      var I2 = window.BlendGame._internals;
+      function m(said, target){ return I2.isMatch(said, target, 0, true, 2, ["crab","bled","bred"], null); }
+      eq("a filler before the word doesn't hide it", m("um crab", "crab"), true);
+      eq("a filler after the word doesn't either", m("crab um", "crab"), true);
+      eq("a self-correction inside one utterance is the correction",
+         m("cram crab", "crab"), true);
+      eq("and a genuinely wrong word is still wrong", m("bled", "bred"), false);
+    })();
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      Say It for the red words: contractions and homophones
 
      Two things stood between an irregular word and a microphone. A

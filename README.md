@@ -525,6 +525,27 @@ an element before the shell exists throws on the first card and passes both
 of the other checks — which is exactly what happened once, and is why this
 one is here.
 
+Say It has no alignment to lose, and that is worth saying next to the
+fluency run, which does. One word is on screen at a time and the matcher
+**searches** the whole transcript for it rather than walking a pointer down
+a list, so a filler, a false start or a self-correction inside one utterance
+costs nothing: "um crab", "crab um" and "cram crab" all match *crab*.
+
+What did cost something was a final transcript with no attempt in it at all
+— a filler on its own, a cough the recogniser rendered as "uh", another
+student's voice. That counted as a miss, and two of them showed the answer
+to a word nobody had tried to read. `GameCore.isNonAnswer()` now excuses a
+transcript that is **entirely** noise, from a closed set of non-lexical
+sounds (`um`, `uh`, `er`, `hmm`, `huh`, `ah`…). Say It and Blend It both use
+it.
+
+Two things keep that from forgiving real misreads. It fires only when every
+token is noise — "um bled" is an attempt that got the word wrong, and
+counts. And no token in the set is a word on any list, which a test checks;
+"what" is deliberately excluded for exactly that reason, since a student
+reading *put* as *what* has misread it and a transcript cannot tell that
+from somebody asking a question.
+
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.

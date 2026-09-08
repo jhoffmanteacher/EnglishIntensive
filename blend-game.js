@@ -905,10 +905,14 @@ window.BlendGame = (function(){
           }
           if(res.isFinal) lastFinal = res[0].transcript;
         }
-        // Only a *final* result we couldn't match counts as a miss — interim
-        // guesses are just the recogniser thinking out loud. Silence never
-        // costs a try, since the mic is always on.
-        if(lastFinal !== null && normalize(lastFinal)) handleWrong(lastFinal);
+        /* Only a *final* result we couldn't match counts as a miss —
+           interim guesses are just the recogniser thinking out loud.
+           Silence never costs a try, since the mic is always on, and
+           neither does noise that was never an attempt at the word: a
+           filler, a cough, somebody else in the room. */
+        if(lastFinal !== null && normalize(lastFinal) && !Core.isNonAnswer(lastFinal)){
+          handleWrong(lastFinal);
+        }
       };
 
       rec.onerror = function(ev){

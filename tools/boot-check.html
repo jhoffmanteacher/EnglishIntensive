@@ -54,6 +54,40 @@
   var GAMES = {
     "say":        { engine: "BlendGame",   list: "initial-blends" },
     "say-red":    { engine: "BlendGame",   list: "red-1-say" },
+
+    /* Noise that was never an attempt at the word must not cost a try —
+       two of them and a student is shown the answer to a word they never
+       tried to read. Driven with a fake recogniser, and the second half
+       matters as much as the first: a genuinely wrong word must still
+       count, or the fix has just switched the check off. */
+    "say-noise": { engine: "BlendGame", list: "initial-blends",
+      fake: true, drive: function(q, click, wait){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;   // the mic check's promise hasn't settled
+        click(q("#btnPlay"));
+        // The click sound holds the mic shut for a beat, so the engine
+        // hasn't opened a recogniser yet.
+        return wait(400).then(function(){
+        var rec = window.FakeSR.last;
+        if(!rec) throw new Error("the engine never opened a recogniser");
+        var word = q("#uiWord").textContent;
+
+        rec.emit(0, "um", true);
+        if(q("#wordCard").className !== "wordcard"){
+          throw new Error("a filler was scored as a miss");
+        }
+        rec.emit(0, "er hmm", true);
+        if(q("#wordCard").className !== "wordcard"){
+          throw new Error("fillers were scored as a miss");
+        }
+
+        // A real wrong answer, which must still land.
+        rec.emit(0, word === "crab" ? "shrimp" : "crab", true);
+        if(q("#wordCard").className.indexOf("wrong") === -1){
+          throw new Error("a wrong word stopped counting as a miss");
+        }
+        });
+      } },
     "spell":      { engine: "SpellGame",   list: "oi-oy-spell", drive: function(q, click){
                       click(q("#btnStart"));
                       // Two wrong answers, to reach the sound-box reveal.
@@ -171,9 +205,16 @@
     return el;
   }
   function click(el){ el.click(); }
-  try{ g.drive(q, click); }
-  catch(e){ say("FAILED: " + name + " drive — " + e.message); return; }
-  say("ok: " + name + " (driven)");
+  /* A drive may return a promise. Some of these games hold the mic shut
+     for a moment after a click sound, and a synchronous drive would fire
+     into that gap and see nothing; --virtual-time-budget lets the timer
+     run before the DOM is read. */
+  function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  say("running: " + name);
+  Promise.resolve()
+    .then(function(){ return g.drive(q, click, wait); })
+    .then(function(){ say("ok: " + name + " (driven)"); })
+    .catch(function(e){ say("FAILED: " + name + " drive — " + e.message); });
 })();
 </script>
 </body>
