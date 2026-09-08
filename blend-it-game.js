@@ -329,6 +329,7 @@ window.BlendItGame = (function(){
     }
 
     function next(){
+      if(!playingNow()) return;   // a feedback timer outliving End game
       tries = 0;
       idx++;
       if(idx >= queue.length){ finish(); return; }

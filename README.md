@@ -76,6 +76,9 @@ come with it:
 | ⌨️ | `spell` | `spell-game.js` | the computer says it, you type it |
 | 🃏 | `cards` | `card-game.js` | read it, flip it, rate yourself |
 | 🎯 | `match` | `match-game.js` | hear it, find it among look-alikes |
+| ⏱ | `fluency` | `fluency-game.js` | read down the list for one minute |
+| 🔊 | `blendit` | `blend-it-game.js` | hear the sounds, blend them, say the word |
+| ✂️ | `split` | `card-game.js` | mark where a long word comes apart |
 
 The red words worked this way first: the same "List 3" as flash cards
 *or* as Match It, because knowing *would* on sight and picking it out of
@@ -90,22 +93,26 @@ The six families:
 
 | family | lists | modes |
 |---|---|---|
-| Starting Blends | 1 | 🎤 🃏 🎯 |
-| Blend Words | 1 | 🎤 🃏 🎯 |
-| Nonsense Words | 1 | 🎤 🃏 |
+| Starting Blends | 1 | 🎤 🃏 🎯 ⏱ 🔊 |
+| Blend Words | 1 | 🎤 🃏 🎯 ⏱ 🔊 |
+| Nonsense Words | 1 | 🎤 🃏 ⏱ 🔊 |
 | oi / oy | 1 | 🎤 ⌨️ 🃏 🎯 |
-| Multisyllable | 1 | 🎤 🃏 🎯 |
-| Red Words | 10 | 🃏 🎯 |
+| Multisyllable | 1 | 🎤 🃏 🎯 ✂️ |
+| Red Words | 10 | 🎤 🃏 🎯 |
 
-Two families are deliberately short of the full set. **Nonsense words**
-have no Match It: that game works by *saying* a word and asking the
-student to find it, and a synthesiser handed "vab" doesn't say "vab", it
-guesses — often enough as "verb" that the answer key would be wrong. A
-list with no meanings can only be read, not heard. Their cards mode runs
-with `speak: false` for the same reason, so the flip shows the word
-without pronouncing it. And the **red words** have no say-it mode: they
-are irregular by definition, so there is nothing for a phoneme matcher to
-check them against.
+Some of the gaps are deliberate. **Nonsense words** have no Match It:
+that game works by *saying* a word and asking the student to find it, and
+a synthesiser handed "vab" doesn't say "vab", it guesses — often enough
+as "verb" that the answer key would be wrong. A list with no meanings can
+only be read, not heard. Their cards mode runs with `speak: false` for
+the same reason, so the flip shows the word without pronouncing it. The
+one-minute run and Blend It live only on the three short-word families,
+because a timed read and a sound-by-sound blend both want words a
+student can get through in a breath. Split It is only for the
+multisyllable list, since it is the only list with syllable dots to check
+against. And the **red words** got a say-it mode late, after the reason
+they didn't have one turned out to be wrong — see *Say It for the red
+words* below.
 
 ### Ids are permanent
 
@@ -131,11 +138,14 @@ name and can change freely.
 - **another red list** — one array in `RED_LISTS`. Nothing else.
 - **another mode on an existing list** — one key in that family's
   `modes`.
-- **a whole new family** — one entry in `LIST_FAMILIES`. Its `cards` and
-  `match` modes need no new page: they share `cards-game.html` and
-  `match-game.html`, which take the list from `?list=`. A `say` or
-  `spell` mode does need its own page, named in `pages`, because its copy
-  is list-specific (the oi/oy rule box, the mic setup).
+- **a whole new family** — one entry in `LIST_FAMILIES`. Every mode has
+  a shared page that takes the list from `?list=` — `cards-game.html`,
+  `match-game.html`, `say-game.html`, `fluency-game.html`,
+  `blend-it-game.html` — so nothing new is needed unless the family wants
+  list-specific coaching on its start screen. The five phonics families
+  name their own say-it page in `pages` for that reason (the oi/oy rule
+  box, the blend explainer), and `spell` has no shared page at all: the
+  only list with a spelling mode carries the oi/oy rule box.
 
 `config` is what every mode of the family passes to its engine;
 `modeConfig[mode]` is what only that mode passes, and it wins on a clash.
@@ -201,11 +211,13 @@ and mark that tile out from its distractors.
 
 ### Pages
 
-`cards-game.html` and `match-game.html` each serve every family, and take
-the list from the query string: `cards-game.html?list=red-3-cards`. They
-call `EIPractice.play()` with no id. The say-it and spell-it pages name
-their one list outright, and `hrefOf` gives them a clean address with no
-`?list=` at all, because a page that serves one list already knows which.
+`cards-game.html`, `match-game.html`, `say-game.html`,
+`fluency-game.html` and `blend-it-game.html` each serve every family that
+has the mode, and take the list from the query string:
+`cards-game.html?list=red-3-cards`. They call `EIPractice.play()` with no
+id. The per-family say-it pages and the spelling page name their one list
+outright, and `hrefOf` gives them a clean address with no `?list=` at
+all, because a page that serves one list already knows which.
 
 `red-words-game.html` and `red-words-match-game.html` are now six-line
 redirects that carry the `?list=` across to the generic pages. They stay
@@ -626,7 +638,7 @@ A wrong answer or a Skip resets the streak and the multiplier; a "×2 combo!"
 badge under the Streak stat shows the current tier. The end screen adds a
 **0–3 star rating** (3 at 90 %+, 2 at 70 %+, 1 at 50 %+) and calls out a
 "Perfect round!" when every word was said right. The scoring math is a pure
-function (`pointsFor()` in `blend-game.js`) covered by `tests.html`.
+function (`Core.pointsFor()` in `game-core.js`) covered by `tests.html`.
 
 ### Correct/wrong feedback
 
@@ -640,7 +652,7 @@ correct answer ("Nice!", "Got it!"…, with a bigger call-out every 5-streak),
 and the word spoken aloud after the second miss. Press **H** any time during
 play to hear the current word read at a slower pace — same as clicking "Hear
 it" — regardless of the Voice setting. All speech picks the best available
-`en-US` voice (`pickVoice()` in `blend-game.js`), preferring Chrome/ChromeOS's
+`en-US` voice (`Core.voice` in `game-core.js`), preferring Chrome/ChromeOS's
 natural voice over the flat default, and re-picks once Chrome finishes
 loading its voice list.
 

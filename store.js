@@ -79,12 +79,13 @@ window.EIStore = (function(){
 
   /* ── which lists is this student supposed to be practicing? ────────
      Pure, so tests.html can pin the precedence rather than trusting a
-     reading of it: the student's own assignment wins, then their period's,
-     then the roster row the teacher imported them on, then their period's,
-     then the class default, then — if the teacher has set nothing at all —
-     everything, because a student who signs in on day one should find the
-     site full rather than empty. An explicit EMPTY list at any level is a
-     real answer and stops the walk; that's how you park a student.
+     reading of it: the student's own assignment wins, then the lists on
+     the roster row the teacher imported them on, then their period's
+     course, then their period's flat list, then the class default, then —
+     if the teacher has set nothing at all — everything, because a student
+     who signs in on day one should find the site full rather than empty.
+     An explicit EMPTY list at any level is a real answer and stops the
+     walk; that's how you park a student.
 
      A missing roster (nothing imported, or the rules not published yet)
      makes the walk exactly what it was before the roster existed, which
@@ -328,7 +329,9 @@ window.EIStore = (function(){
   function mySequence(){
     return sequenceState(assignment, classCfg, rosterRow, stats,
       function(id){ return WordLists.wordsOf(id).length; },
-      function(steps, id){ return WordLists.stepOf(steps, id); });
+      // startStepOf, not stepOf: "Red 3" resolves to the family's first
+      // mode, which a course built from other modes doesn't contain.
+      function(steps, id){ return WordLists.startStepOf(steps, id); });
   }
 
   function myLists(){

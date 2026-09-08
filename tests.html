@@ -70,6 +70,10 @@
 <script src="word-lists.js"></script>
 <script src="auth.js"></script>
 <script src="store.js"></script>
+<!-- practice.js builds the home page, and every one of its entry points
+     waits on EIAuth.ready(), which never resolves here — so loading it
+     runs nothing and leaves its pure helpers reachable. -->
+<script src="practice.js"></script>
 <!-- The Assign board's rules — precedence, copy-on-write, how far a
      column toggle reaches, the shape of the two documents Save writes —
      are pure functions of a class's state, so they're tested here too.
@@ -901,6 +905,35 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     practice.js — the unlock banner's memory
+
+     "A new list opened" is said once, and the fact that it has been said
+     lives in localStorage. These are shared Chromebooks: keyed by period
+     alone, two students in one period at different steps overwrote each
+     other's memory, so one was never told and the other was told every
+     single time they signed in.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var P = window.EIPractice._internals;
+    var realUid = window.EIAuth.uid;
+    function as(uid){ window.EIAuth.uid = function(){ return uid; }; }
+
+    as("u1"); var one = P.stepKey({ period:"3" });
+    as("u2"); var two = P.stepKey({ period:"3" });
+    eq("two students in one period remember separately", one === two, false);
+    as("u1");
+    eq("…and the same student remembers the same thing", P.stepKey({ period:"3" }), one);
+    eq("a different period is a different memory again",
+       P.stepKey({ period:"4" }) === one, false);
+    as(null);
+    eq("no account signed in still produces a usable key",
+       typeof P.stepKey({ period:"3" }), "string");
+    eq("…and no sequence period doesn't throw", typeof P.stepKey(null), "string");
+
+    window.EIAuth.uid = realUid;
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      fluency-game.js — following a reader
 
      The engine can't be played headlessly, so everything that decides
@@ -978,6 +1011,42 @@
        read("soft vest honk cost"), "soft✓ golf✗ honk✓ cost✓");
     eq("a run of misreads is a run of misreads",
        read("vest mink kilt lisp"), "soft✗ golf✗ honk✗ cost✗");
+
+    /* ---- a skipped word costs one word, not the rest of the run ----
+       A reader who jumps a word used to be judged against the word
+       before it for everything that followed, so one skip near the top
+       of a passage read as a whole minute of failure. */
+    eq("a skipped word costs only itself",
+       read("soft honk cost"), "soft✓ golf✗ honk✓ cost✓");
+    (function(){
+      // And it is decided from the tokens either side of the gap, so it
+      // doesn't sit waiting for the recogniser to say it has finished.
+      var r = F.consume(0, ["soft","honk"], LIST, exact, false);
+      eq("a skip is decided without waiting for a flush", r.pending, null);
+      eq("…marking the skipped word wrong and the next one right",
+         r.marks.map(function(m){ return LIST[m.index] + (m.ok ? "✓" : "✗"); }).join(" "),
+         "soft✓ golf✗ honk✓");
+      eq("…and the pointer past all three", r.pointer, 3);
+    })();
+
+    /* The caller resumes from where the walk actually stopped, so a held
+       token has to be reported as not consumed — counting it would drop
+       it from the next utterance entirely. */
+    eq("a held token is not counted as consumed",
+       F.consume(0, ["soft","um"], LIST, exact, false).consumed, 1);
+    eq("…and a decided one is", F.consume(0, ["soft","golf"], LIST, exact, true).consumed, 2);
+
+    /* The run drops non-answers before it aligns, so a list word that is
+       itself a non-answer could never be answered right. */
+    (function(){
+      var bad = [];
+      window.WordLists.ids.forEach(function(id){
+        window.WordLists.wordsOf(id).forEach(function(w){
+          if(GC.isNonAnswer(w)) bad.push(id + ": " + w);
+        });
+      });
+      eq("no word on any list is a word the run throws away", bad.join(", "), "");
+    })();
 
     /* ---- waiting for the rest of the transcript ----
        Noise can only be told from a misread by what comes after it, so
@@ -1239,6 +1308,22 @@
       eq("nothing went wrong", r.errors.length, 0);
     })();
 
+    /* "Class" names a period in some exports and a course title in
+       others. Ranked below the real thing: with both columns present the
+       Period column wins, and on its own Class is still the fallback it
+       has always been. Before this, "English 9 Intensive" became period
+       9 and the actual Period column was ignored. */
+    (function(){
+      var both = P("Student ID,Name,Class,Period\n1,Ana Ruiz,English 9 Intensive,3");
+      eq("a real Period column beats a Class column", both.rows[0].period, "3");
+      eq("…whichever order they come in",
+         P("Student ID,Name,Period,Class\n1,Ana Ruiz,3,English 9 Intensive").rows[0].period, "3");
+      eq("a lone Class column is still the period",
+         P("Student ID,Name,Class\n1,Ana Ruiz,English 9 Intensive").rows[0].period, "9");
+      eq("…and Section loses to Period too",
+         P("Student ID,Name,Section,Period\n1,Ana Ruiz,English 9 Intensive,3").rows[0].period, "3");
+    })();
+
     eq("tabs are sniffed", P("id\tname\tperiod\n1\tA B\t3").delimiter, "\t");
     eq("semicolons are sniffed", P("id;name;period\n1;A B;3").delimiter, ";");
     eq("a BOM doesn't eat the first header", P("\ufeffid,name\n1,A B").columns.id, 0);
@@ -1498,6 +1583,15 @@
     eq("with no groups, nothing is forgiven", sayMatchNoGroups("to", "two"), false);
     eq("a contraction said as two words passes", sayMatch("they would", "they'd"), true);
     eq("a wrong contraction still fails", sayMatch("they will", "they'd"), false);
+
+    /* The target is normalised before it is compared, so a list entry
+       written the way it is written — capitalised, with a full stop —
+       matches the plain thing the microphone reports. */
+    eq("a capitalised target matches what was said",
+       sayMatchNoGroups("wednesday", "Wednesday"), true);
+    eq("a target with a full stop in it does too", sayMatchNoGroups("mrs", "Mrs."), true);
+    eq("…and it is still a comparison, not a free pass",
+       sayMatchNoGroups("mr", "Mrs."), false);
 
     // Every group member has to be a real red word, or the group forgives
     // a word nobody is being asked to read.
@@ -1897,6 +1991,35 @@
          Object.keys(b.assignments).length, 1);
     })();
 
+    /* The import writes `startAt`; the dashboard reads `start`. These two
+       ran under different names for a while, which put every imported
+       student back at step 0 on the board while their own page unlocked
+       from the placed step. */
+    (function(){
+      feed(aClass());
+      var b = T2.importBody(rows(), 1000);
+      eq("what the import wrote is what the dashboard reads back",
+         T2.rosterRowOf("2@seq.org", b.roster["2@seq.org"]).start, "red-3-cards");
+      eq("…and a row with no start reads back empty",
+         T2.rosterRowOf("1@seq.org", b.roster["1@seq.org"]).start, "");
+
+      // …and that start places them in their period's course.
+      var W2 = window.WordLists, course = W2.defaultSequence();
+      var c = aClass();
+      c.roster = { "2@seq.org": T2.rosterRowOf("2@seq.org", b.roster["2@seq.org"]) };
+      c.assignments = { u2: { period:"4" } };
+      c.classCfg = { periods:["4"], sequences: { "4": course } };
+      feed(c);
+      eq("a roster start places the student in the course",
+         T2.sequenceStateFor(T2.studentByUid("u2")).stepIndex,
+         W2.stepOf(course, "red-3-cards"));
+      eq("…and the precedence walk hands back that same position",
+         T2.effectiveLists("u2").seq.stepIndex,
+         W2.stepOf(course, "red-3-cards"));
+      eq("…and says the course is where the lists came from",
+         T2.effectiveLists("u2").from.indexOf("sequence") === 0, true);
+    })();
+
     // The preview's status column.
     (function(){
       var c = aClass();
@@ -1938,6 +2061,61 @@
          T2.effectiveLists("u1").ids.join(","), "nonsense");
     })();
 
+    /* A student's period is read from the assignment first and the roster
+       row second — everywhere. Reading only the assignment put a student
+       imported into period 3 who signed in later under "No period yet" on
+       the board, hidden by the Period 3 filter, and out of that period's
+       Trouble Spots, while the Students tab said Period 3. */
+    (function(){
+      var c = aClass();
+      c.assignments = { u1: { period:"9", lists:["nonsense"] } };   // u2 has none
+      c.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"3" } };
+      feed(c);
+      eq("a student with no assignment gets their period off the roster row",
+         T2.studentPeriod("u2"), "3");
+      eq("…and an assignment still outranks the row", T2.studentPeriod("u1"), "9");
+
+      c.assignments.u2 = { period:"4" };
+      feed(c);
+      eq("an assignment written later moves them", T2.studentPeriod("u2"), "4");
+
+      c.assignments.u2 = { period:"" };
+      feed(c);
+      eq("a blank assignment period falls back to the row", T2.studentPeriod("u2"), "3");
+
+      var c2 = aClass();
+      c2.assignments = {};
+      c2.roster = {};
+      feed(c2);
+      eq("a student in neither place has no period", T2.studentPeriod("u2"), null);
+      eq("…and a pending student reads their own row",
+         (function(){
+           var c3 = aClass();
+           c3.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
+           feed(c3);
+           return T2.studentPeriod("roster:3@seq.org");
+         })(), "5");
+    })();
+
+    /* "Coasting — turn the sequence on" is advice about what this student
+       is doing, not about what their period has. A student whose own
+       lists override the course is not on the course, so the line still
+       applies to them. */
+    (function(){
+      var course = window.WordLists.defaultSequence();
+      var c = aClass();
+      c.assignments = { u2: { period:"4" } };
+      c.classCfg = { periods:["4"], sequences: { "4": course } };
+      feed(c);
+      eq("a student following their period's course is on it",
+         T2.nextStepInfo(T2.studentByUid("u2")).sequenceOn, true);
+
+      c.assignments = { u2: { period:"4", lists:["nonsense"] } };
+      feed(c);
+      eq("…and one whose own lists override it is not",
+         T2.nextStepInfo(T2.studentByUid("u2")).sequenceOn, false);
+    })();
+
     // Board edits for a pending student go to the roster, not assignments.
     (function(){
       var c = aClass();
@@ -1952,6 +2130,39 @@
       eq("the signed-in one is written to assignments", Object.keys(b.students).join(","), "u2");
       eq("…and never to both",
          Object.prototype.hasOwnProperty.call(b.students, "roster:3@seq.org"), false);
+    })();
+
+    /* Releasing a student who was placed on the board while still pending
+       has to clear the roster row too. Nulling only the assignment drops
+       the walk through to the row, which is still an array — and then
+       nothing a teacher can press changes that student's lists again. */
+    (function(){
+      var c = aClass();
+      c.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:["nonsense"] } };
+      feed(c);
+      T2.setScope("s:u2", ["initial-blends"]);
+      T2.releaseScope("s:u2");
+      var b = T2.saveBody(["s:u2"], 500);
+      eq("releasing a signed-in student clears their assignment", b.students.u2.lists, null);
+      eq("…and the roster row they were placed on", b.roster["2@seq.org"].lists, null);
+
+      // A student with no roster lists leaves the roster alone entirely.
+      var c2 = aClass();
+      c2.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:null } };
+      feed(c2);
+      T2.setScope("s:u2", ["initial-blends"]);
+      T2.releaseScope("s:u2");
+      var b2 = T2.saveBody(["s:u2"], 500);
+      eq("a student with nothing on their row gets no roster write",
+         Object.keys(b2.roster).length, 0);
+
+      // Setting lists is not clearing them: the row stays as it was.
+      var c3 = aClass();
+      c3.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:["nonsense"] } };
+      feed(c3);
+      T2.setScope("s:u2", ["initial-blends"]);
+      var b3 = T2.saveBody(["s:u2"], 500);
+      eq("assigning lists doesn't touch the roster row", Object.keys(b3.roster).length, 0);
     })();
   })();
 
@@ -2056,6 +2267,17 @@
       eq("the course ends on the last red list", seq[seq.length-1].join(","), "red-10-match");
       eq("modes that aren't rungs are left out",
          W.stepOf(seq, "oi-oy-spell") === -1 && W.stepOf(seq, "nonsense-1-blendit") === -1, true);
+
+      /* Where a roster's "starts on" lands. "Red 3" resolves to red-3-say,
+         which this course doesn't hold — the student still belongs on
+         List 3 rather than back at step 0. */
+      eq("a start whose mode isn't a rung lands on that list's earliest rung",
+         W.startStepOf(seq, "red-3-say"), W.stepOf(seq, "red-3-cards"));
+      eq("a start the course does hold is left where it is",
+         W.startStepOf(seq, "red-3-cards"), W.stepOf(seq, "red-3-cards"));
+      eq("…and the same for a spelling start",
+         W.startStepOf(seq, "oi-oy-spell"), W.stepOf(seq, "oi-oy-read"));
+      eq("a start that is no list at all is still -1", W.startStepOf(seq, "zz"), -1);
       })();
 
     // ---- store.js: when a sequence applies at all ----
@@ -2080,6 +2302,15 @@
          S.sequenceState({ period:"3" }, cfg, { startAt:"d" }, {}, TOT, W.stepOf).stepIndex, 2);
       eq("a roster start that isn't in the course is ignored",
          S.sequenceState({ period:"3" }, cfg, { startAt:"zz" }, {}, TOT, W.stepOf).stepIndex, 0);
+      /* The same walk against the real course, with the placement rule the
+         student's page actually passes in: "Red 3" is imported as
+         red-3-say, and the course is built from cards and match. */
+      (function(){
+        var real = W.defaultSequence(), rcfg = { sequences: { "3": real } };
+        eq("a start whose mode isn't a rung still places the student",
+           S.sequenceState({ period:"3" }, rcfg, { startAt:"red-3-say" }, {}, TOT, W.startStepOf).stepIndex,
+           W.stepOf(real, "red-3-cards"));
+      })();
       eq("the roster's period counts when the assignment has none",
          S.sequenceState(null, cfg, { period:"3" }, {}, TOT, W.stepOf).period, "3");
 
@@ -2795,6 +3026,21 @@
        [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 0);
     eq("…and the summary keeps up",
        host.querySelector('[data-pk-summary="probe"]').textContent, "nothing");
+
+    /* ---- a period named with a quotation mark ----
+       Periods are free text — "Support", "3", anything a teacher types.
+       The attribute selectors were built by stripping quotes, so a scope
+       whose id held one matched nothing: scopeSelection came back empty
+       and Save wrote an empty list, which parks every student in that
+       period. A backslash made querySelector throw instead. */
+    var odd = 'p:Sup"port';
+    host.innerHTML = T.pickerHtml(odd, ["red-3-cards", "red-3-match"], false);
+    eq("a scope id with a quote still reads its own checkboxes",
+       T.scopeSelection(odd).sort().join(","), "red-3-cards,red-3-match");
+    eq("…and is not confused for a different scope", T.scopeSelection("probe").length, 0);
+    var back = 'p:Sup\\port';
+    host.innerHTML = T.pickerHtml(back, ["red-3-cards"], false);
+    eq("a scope id with a backslash doesn't throw", T.scopeSelection(back).join(","), "red-3-cards");
 
     host.innerHTML = "";
   })();

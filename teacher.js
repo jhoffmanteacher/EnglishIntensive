@@ -74,6 +74,16 @@
       .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
 
+  /* For attribute selectors built from a period name or a scope id. A
+     period may be named anything a teacher types: stripping quotes made
+     the selector match nothing (and Save then wrote an empty list, parking
+     every student in that period), and a backslash made querySelector
+     throw outright. */
+  function cssq(s){
+    s = String(s == null ? "" : s);
+    return (window.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&");
+  }
+
   /* The teacher addresses, for the "not this account" message only. Reads
      the same config auth.js does, and tolerates either shape. */
   function teacherList(){
@@ -160,16 +170,7 @@
       roster = {};
       rosterReadable = !!snaps[4];
       if(snaps[4]) snaps[4].forEach(function(doc){
-        var d = doc.data() || {};
-        roster[String(doc.id).toLowerCase()] = {
-          email: String(doc.id).toLowerCase(),
-          name: d.name || "",
-          id: d.id || "",
-          period: d.period == null ? "" : String(d.period),
-          start: d.start || "",
-          lists: Array.isArray(d.lists) ? d.lists : null,
-          importedAt: d.importedAt || 0
-        };
+        roster[String(doc.id).toLowerCase()] = rosterRowOf(doc.id, doc.data() || {});
       });
       var c = snaps[2].exists ? (snaps[2].data() || {}) : {};
       classCfg = {
@@ -207,6 +208,23 @@
      have to know is that a pending student's assignment is written to
      their roster row instead of to assignments/{uid}; there is no uid to
      write one against yet. */
+  /* One stored roster document as the dashboard holds it. The stored
+     field for a starting list is `startAt` — that is what importBody
+     writes and what store.js reads — while every reader in here calls it
+     `start`. Named so tests can pin the two names against each other. */
+  function rosterRowOf(id, d){
+    d = d || {};
+    return {
+      email: String(id).toLowerCase(),
+      name: d.name || "",
+      id: d.id || "",
+      period: d.period == null ? "" : String(d.period),
+      start: d.startAt || "",
+      lists: Array.isArray(d.lists) ? d.lists : null,
+      importedAt: d.importedAt || 0
+    };
+  }
+
   var PENDING_PREFIX = "roster:";
   function isPending(uid){ return String(uid).indexOf(PENDING_PREFIX) === 0; }
   function emailOfPending(uid){ return String(uid).slice(PENDING_PREFIX.length); }
@@ -472,9 +490,6 @@
     });
   }
 
-  // Same precedence as EIStore.effectiveLists, restated here because the
-  // dashboard runs without store.js loaded. If you change one, change
-  // both — tests.html pins the student-side copy.
   /* The same walk store.js does for the student, with the roster rung in
      the same place: own assignment → roster row → period → class default
      → everything. Kept in step with EIStore.effectiveLists by tests.html,
@@ -570,19 +585,19 @@
      stamp is what keeps two pickers on one screen apart. */
   function scopeSelection(scopeId){
     var ids = [];
-    Array.prototype.forEach.call(document.querySelectorAll('input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
+    Array.prototype.forEach.call(document.querySelectorAll('input[data-scope="' + cssq(scopeId) + '"]'), function(cb){
       if(cb.checked) ids.push(cb.dataset.list);
     });
     return ids;
   }
   function pickerInputs(scopeId, filter){
-    return Array.prototype.filter.call(document.querySelectorAll('input[data-scope="' + scopeId.replace(/"/g,'') + '"]'), function(cb){
+    return Array.prototype.filter.call(document.querySelectorAll('input[data-scope="' + cssq(scopeId) + '"]'), function(cb){
       var l = WordLists.byId(cb.dataset.list);
       return l && (!filter || filter(l));
     });
   }
   function refreshSummary(scopeId){
-    var el = document.querySelector('[data-pk-summary="' + scopeId.replace(/"/g,'') + '"]');
+    var el = document.querySelector('[data-pk-summary="' + cssq(scopeId) + '"]');
     if(el) el.textContent = WordLists.describeAssignment(scopeSelection(scopeId));
   }
   // Tick every input in a group, or untick them all if they're already all on.
@@ -661,7 +676,10 @@
   }
 
   function renderSub(){
-    var n = students.length;
+    // Pending students are folded into `students`, but they have not
+    // signed in — this line said "30 students have signed in" with an
+    // empty class and a freshly imported roster.
+    var n = students.filter(function(s){ return !s.pending; }).length;
     $("tSub").textContent = n
       ? n + (n === 1 ? " student has" : " students have") + " signed in · " + allPeriods().length + " period" + (allPeriods().length === 1 ? "" : "s")
       : "No students have signed in yet.";
@@ -787,7 +805,7 @@
   function wordsCsv(){
     var rows = [["Name","Email","Period","List","Pattern","Mode","Word","Attempts","Correct","Accuracy %","Solid","Slow","Top error","Last practised"]];
     students.forEach(function(s){
-      var period = (assignments[s.uid] || {}).period || "";
+      var period = studentPeriod(s.uid) || "";
       var keys = Object.keys(s.stats).sort();
       keys.forEach(function(key){
         var st = s.stats[key];
@@ -955,7 +973,6 @@
      with worse formatting. */
   function nextStepInfo(s){
     var eff = effectiveLists(s.uid);
-    var seq = sequenceStateFor(s);
     var lists = eff.ids.map(function(id){
       var l = WordLists.byId(id);
       if(!l) return null;
@@ -981,7 +998,10 @@
     return {
       lists: lists,
       lastRound: Adaptive.summarize(s.stats).lastSeen || s.lastSeen || 0,
-      sequenceOn: !!seq,
+      // eff.seq, not seq: the period may run a course while THIS student's
+      // own lists override it, and then the course isn't what they are
+      // doing — the "coasting → turn the sequence on" line still applies.
+      sequenceOn: !!eff.seq,
       now: Date.now()
     };
   }
@@ -1106,8 +1126,11 @@
 
     var picker = pickerHtml("student", eff.ids, true);
 
+    // The period they are actually in, not just the assigned one, so the
+    // box agrees with every other place this student's period is shown.
+    var shownPeriod = studentPeriod(s.uid);
     var periodOpts = ['<option value="">— not set —</option>'].concat(allPeriods().map(function(p){
-      return '<option value="' + esc(p) + '"' + (a.period === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
+      return '<option value="' + esc(p) + '"' + (shownPeriod === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
     })).join("");
 
     $("tBody").innerHTML =
@@ -1158,7 +1181,12 @@
         '<span class="saveNote" id="tRosterNote"></span></div>' +
       "</div>" : "") +
 
-      notePanelHtml(s.uid) +
+      /* Notes are keyed by uid, and a pending student's uid is the
+         made-up roster:<email> — a note written now would be dropped the
+         moment they sign in and got a real one. So don't offer the box. */
+      (s.pending
+        ? '<div class="panel"><h2>Notes</h2><p class="note">Notes open once they have signed in.</p></div>'
+        : notePanelHtml(s.uid)) +
 
       '<div class="panel"><h2>Hardest words</h2>' +
         '<p class="note">Worst first — right answers out of attempts, counting only first-try answers. ' +
@@ -1198,7 +1226,7 @@
     });
     $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
     $("tClearA").addEventListener("click", function(){ saveStudentAssignment(s.uid, true); });
-    $("tNoteSave").addEventListener("click", function(){ saveNote(s.uid, $("tNote").value); });
+    if(!s.pending) $("tNoteSave").addEventListener("click", function(){ saveNote(s.uid, $("tNote").value); });
     bindPickers();
   }
 
@@ -1302,8 +1330,24 @@
     var body = { period: period, lists: lists, updatedAt: Date.now() };
     assignments[uid] = body;
     if(period && classCfg.periods.indexOf(period) === -1) classCfg.periods.push(period);
+
+    /* Clearing a signed-in student's lists has to clear the roster row's
+       too. They were placed on the board while still pending, so the lists
+       went to their roster row; nulling only the assignment drops the walk
+       straight through to that row, and nothing the teacher can press
+       would ever change their lists again. */
+    var rowFor = rosterFor(studentByUid(uid));
+    var clearEmail = (clearLists && rowFor && Array.isArray(rowFor.lists)) ? rowFor.email : null;
+    var rowBefore = clearEmail ? rowFor.lists : null;
+    if(clearEmail) roster[clearEmail].lists = null;
+
     note.className = "saveNote"; note.textContent = "Saving…";
     db.collection("assignments").doc(uid).set(body, { merge:true })
+      .then(function(){
+        if(!clearEmail) return null;
+        return db.collection("roster").doc(clearEmail)
+                 .set({ lists: null, updatedAt: Date.now() }, { merge:true });
+      })
       .then(function(){
         // Keep the named-period list in step, so a period invented in this
         // box shows up in the Periods tab straight away.
@@ -1315,6 +1359,7 @@
       })
       .catch(function(){
         if(before) assignments[uid] = before; else delete assignments[uid];
+        if(clearEmail) roster[clearEmail].lists = rowBefore;
         note.className = "saveNote err"; note.textContent = "Didn't save — check the network and try again.";
       });
   }
@@ -1381,7 +1426,7 @@
   }
 
   function redrawSequence(p){
-    var box = document.querySelector('[data-seqbox="' + p.replace(/"/g, '\\"') + '"]');
+    var box = document.querySelector('[data-seqbox="' + cssq(p) + '"]');
     if(!box) return;
     var holder = document.createElement("div");
     holder.innerHTML = sequenceEditorHtml(p);
@@ -1494,7 +1539,7 @@
   }
 
   function seqNote(p, cls, text){
-    var el = document.querySelector('[data-seqnote="' + p.replace(/"/g, '\\"') + '"]');
+    var el = document.querySelector('[data-seqnote="' + cssq(p) + '"]');
     if(!el) return;
     el.className = "saveNote" + (cls ? " " + cls : "");
     el.textContent = text;
@@ -1556,10 +1601,14 @@
         "</div>";
     }).join("");
 
-    var roster = students.map(function(s){
+    // rosterRows, not roster: naming it `roster` shadowed the module-level
+    // map, and the "N on the roster now" line below counted the characters
+    // of this HTML string.
+    var rosterRows = students.map(function(s){
       var a = assignments[s.uid] || {};
+      var mine = studentPeriod(s.uid);
       var opts = ['<option value="">—</option>'].concat(periods.map(function(p){
-        return '<option value="' + esc(p) + '"' + (a.period === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
+        return '<option value="' + esc(p) + '"' + (mine === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
       })).join("");
       return "<tr><td>" + whoHtml(s) + "</td>" +
         '<td><select class="sel" data-period-for="' + esc(s.uid) + '">' + opts + "</select></td>" +
@@ -1597,7 +1646,7 @@
       (students.length ? '<div class="panel"><h2>Who’s in which period</h2>' +
         '<p class="note">Changes save as soon as you pick.</p>' +
         '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Period</th><th>Lists</th></tr></thead>' +
-        "<tbody>" + roster + "</tbody></table></div></div>" : "");
+        "<tbody>" + rosterRows + "</tbody></table></div></div>" : "");
 
     $("tImport").addEventListener("click", openImport);
     bindSequenceEditors();
@@ -1621,7 +1670,7 @@
      isn't an array. It keeps every write a plain merge, with no
      FieldValue.delete() sentinels to get wrong. */
   function saveScope(scopeId, clear){
-    var note = document.querySelector('#tBody [data-note="' + scopeId.replace(/"/g,'') + '"]');
+    var note = document.querySelector('#tBody [data-note="' + cssq(scopeId) + '"]');
     var lists = clear ? null : scopeSelection(scopeId);
     var body, undo;
     if(scopeId === "default"){
@@ -1646,6 +1695,24 @@
   }
 
   function setStudentPeriod(uid, period){
+    /* Same split as saveStudentAssignment: a student who hasn't signed in
+       has no uid to write an assignment against. Writing one anyway
+       created assignments/roster:<email>, which looked applied on the
+       dashboard and did nothing at sign-in — the real uid's document was
+       somewhere else — while the orphan kept feeding allPeriods(). */
+    if(isPending(uid)){
+      var em = emailOfPending(uid);
+      var wasRow = roster[em] ? JSON.parse(JSON.stringify(roster[em])) : null;
+      roster[em] = roster[em] || { email: em };
+      roster[em].period = period || "";
+      db.collection("roster").doc(em).set({ period: period || "", updatedAt: Date.now() }, { merge:true })
+        .catch(function(){
+          if(wasRow) roster[em] = wasRow; else delete roster[em];
+          render();
+        });
+      return;
+    }
+
     var before = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
     var body = assignments[uid] || {};
     body.period = period;
@@ -1821,8 +1888,15 @@
   /* ── who's on the board ─────────────────────────────────────────── */
   var NO_PERIOD = " none";     // a filter value no real period can collide with
 
+  /* A student's period, read the way every other reader here reads it:
+     the assignment's if there is one, otherwise the roster row's. A
+     student imported into period 3 who signs in later has no assignment
+     at all, and reading only assignments put them in "No period yet" on
+     the board while the Students tab said Period 3. */
   function studentPeriod(uid){
-    var p = (assignments[uid] || {}).period;
+    var a = assignments[uid] || {};
+    var r = rosterFor(studentByUid(uid));
+    var p = a.period || (r && r.period);
     return p == null || p === "" ? null : p;
   }
   function matchesQuery(s){
@@ -2169,7 +2243,9 @@
     if(!steps) return null;
     var startAt = 0;
     if(r && r.start){
-      var at = WordLists.stepOf(steps, r.start);
+      // Same placement rule as the student's own page: a start the course
+      // doesn't literally contain still lands on that list's earliest rung.
+      var at = WordLists.startStepOf(steps, r.start);
       if(at >= 0) startAt = at;
     }
     var res = Adaptive.unlocked(steps, s.stats || {}, startAt, listTotal);
@@ -2650,7 +2726,16 @@
       } else {
         // These two fields and no others: the student's period lives in
         // the same document and must survive the write.
-        out.students[scope.slice(2)] = { lists: val, updatedAt: now };
+        var uid = scope.slice(2);
+        out.students[uid] = { lists: val, updatedAt: now };
+        /* Clearing the lists of a student who was placed while still
+           pending has to clear their roster row as well — the walk falls
+           through to it, so an assignment of null on its own changes
+           nothing they can see. */
+        if(val === null){
+          var row = rosterFor(studentByUid(uid));
+          if(row && Array.isArray(row.lists)) out.roster[row.email] = { lists: null, updatedAt: now };
+        }
       }
     });
     if(touchedCfg){
@@ -2694,6 +2779,14 @@
           var a = assignments[uid] || (assignments[uid] = {});
           a.lists = val;
           a.updatedAt = body.students[uid].updatedAt;
+          /* saveBody clears the roster row too where the student still
+             has one; mirror that locally so the board redraws from the
+             same state the batch is about to write. */
+          var rem = rosterFor(studentByUid(uid));
+          if(rem && body.roster[rem.email]){
+            undo.roster[rem.email] = JSON.parse(JSON.stringify(roster[rem.email]));
+            roster[rem.email].lists = null;
+          }
         }
       }
     });
@@ -2806,7 +2899,7 @@
   function renderTrouble(){
     var periods = allPeriods();
     var pool = students.filter(function(s){
-      return !troublePeriod || (assignments[s.uid] || {}).period === troublePeriod;
+      return !troublePeriod || studentPeriod(s.uid) === troublePeriod;
     });
 
     // Aggregate the same stat keys across the class: attempts, first-try
@@ -2915,6 +3008,8 @@
       sequenceIsOn: sequenceIsOn,
       sequenceStateFor: sequenceStateFor,
       rosterStatus: rosterStatus,
+      rosterRowOf: rosterRowOf,
+      studentByUid: studentByUid,
       isPending: isPending,
       studentUids: function(){ return students.map(function(s){ return s.uid; }); },
       patternRows: patternRows,
@@ -2961,6 +3056,7 @@
       columnToggle: columnToggle,
       readyToAdvance: readyToAdvance,
       noteOf: noteOf,
+      studentPeriod: studentPeriod,
       csvCell: csvCell,
       csvRows: csvRows,
       sparkline: sparkline,
@@ -2980,6 +3076,7 @@
       renderAssign: renderAssign,
       paintCells: paintCells,
       pickerHtml: pickerHtml,
+      scopeSelection: scopeSelection,
       bindPickers: bindPickers
     }
   };

@@ -418,6 +418,7 @@ window.MatchGame = (function(){
     var repeats = 0;       // how many times this word has been replayed
     var mazeLen = null;    // cached path length for the progress runner
     var pending = null;    // the timer that moves on to the next word
+    var replay = null;     // the slow re-say after a first miss; a skip must cancel it
     var pendingList = null;   // a one-off list (comeback / missed words) to run instead of the deck
     var deckIdx = 0;
     // The pool distractors are drawn from. Normally the round's own list, so
@@ -518,7 +519,7 @@ window.MatchGame = (function(){
     /* ---------------- the persistent comeback deck ----------------
        Keyed by pathname so each game page keeps its own deck, and so a deck
        can never be read by a game with a different word list. */
-    var comebackKey = "matchComeback:" + location.pathname;
+    var comebackKey = "matchComeback:" + (cfg.listId || location.pathname);
     var comebackList = [];    // the deck the button will play, built at render time
 
     var comeback = Core.comebackStore(comebackKey);
@@ -610,6 +611,7 @@ window.MatchGame = (function(){
     }
 
     function next(){
+      if(replay){ clearTimeout(replay); replay = null; }
       tries = 0;
       idx++;
       if(idx >= queue.length){ finish(); return; }
@@ -679,7 +681,8 @@ window.MatchGame = (function(){
         }, 420);
         // A beat of silence first, so the replay doesn't collide with the
         // wrong-answer beep the student is still hearing.
-        setTimeout(function(){ speakWord(true); }, 500);
+        if(replay) clearTimeout(replay);
+        replay = setTimeout(function(){ replay = null; speakWord(true); }, 500);
         return;
       }
 
@@ -698,6 +701,7 @@ window.MatchGame = (function(){
 
     function finish(){
       if(pending){ clearTimeout(pending); pending = null; }
+      if(replay){ clearTimeout(replay); replay = null; }
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();

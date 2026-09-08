@@ -16,7 +16,10 @@ Budget about ten minutes. Steps 1–5 are the console; step 6 is this repo.
 
 1. Go to <https://console.firebase.google.com> and sign in as
    **jhoffman@seq.org**.
-2. **Create a project** → name it `english-intensive`.
+2. **Create a project** → name it `english-intensive`. Firebase adds a
+   suffix to make the project *id* unique — ours is
+   `english-intensive-98d00`, and that is the id every command below
+   wants, not the name typed here.
 3. Google Analytics: **turn it off**. Nothing here uses it and it's one
    fewer consent question about student data.
 4. Wait for "Your new project is ready" → **Continue**.
@@ -74,7 +77,7 @@ A machine can do it instead of a person, but only where the Firebase CLI
 has already been logged in:
 
 ```
-firebase deploy --only firestore:rules --project english-intensive
+firebase deploy --only firestore:rules --project english-intensive-98d00
 ```
 
 `firebase projects:list` says whether it is. Logging in needs a browser,

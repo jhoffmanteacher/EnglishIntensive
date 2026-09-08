@@ -120,6 +120,12 @@ roster is stored by email.
   = { period, lists? }` from the row, in the same batch. This is the only
   place the roster writes into assignments, and it only ever fills a
   blank — a manual period move is never overridden by a re-import.
+- What the reconcile copies is the **period only**. A roster row's `lists`
+  stay on the row and are read from there: the precedence walk puts them
+  between the student's own assignment and their period, so an assignment
+  written later outranks them without either one being moved. That means
+  clearing a signed-in student's lists has to clear the row as well, or
+  the walk falls straight back through to it.
 - Students tab: roster rows with no `students` doc yet render greyed as
   "not signed in yet" under their period, so on day one the roster shows
   who is missing. They are excluded from accuracy averages, CSV exports get

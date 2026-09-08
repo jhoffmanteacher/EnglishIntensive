@@ -58,7 +58,7 @@ window.FluencyGame = (function(){
      exactly the students the measure is for.
 
      So a token that doesn't match the current word is not automatically
-     a misread. Three rules decide, in order:
+     a misread. Five rules decide, in order:
 
        1. It matches the word JUST READ — a repeat. Saying a word twice
           is not an error and must never cost the next word.
@@ -69,7 +69,11 @@ window.FluencyGame = (function(){
           so this token was noise (a filler, half a self-correction, or a
           compound the recogniser split) and the real read is coming.
           Drop the token, hold the pointer.
-       4. Otherwise the student genuinely misread it: mark it wrong and
+       4. It matches the NEXT word — the student skipped the one we are
+          on. Mark that one wrong and judge this token against the next,
+          which is the mirror of rule 3: a missing token must not knock
+          the run out of step any more than an extra one does.
+       5. Otherwise the student genuinely misread it: mark it wrong and
           move on, exactly as before.
 
      Rule 3 needs to see NOISE_LOOKAHEAD tokens after this one before it
@@ -112,14 +116,23 @@ window.FluencyGame = (function(){
       }
       if(hit){ i++; continue; }
 
+      // 4. the word we are on was skipped; this token is the next one
+      if(p + 1 < words.length && matches(tok, words[p+1])){
+        marks.push({ index: p, ok: false });
+        p++;
+        continue;
+      }
+
       // Not enough of the transcript yet to tell noise from a misread.
       if(avail < NOISE_LOOKAHEAD && !flush){ pending = tok; break; }
 
-      // 4. a misread
+      // 5. a misread
       marks.push({ index: p, ok: false });
       p++; i++;
     }
-    return { pointer: p, marks: marks, pending: pending };
+    // `consumed` is how far into the tokens the walk got — everything
+    // from there on is still undecided and belongs to the next call.
+    return { pointer: p, marks: marks, pending: pending, consumed: i };
   }
 
   // Correct words per minute. Rounded, never negative, and 0 rather than
@@ -435,8 +448,14 @@ window.FluencyGame = (function(){
     function heardResult(index, text, isFinal){
       if(!running) return;
 
+      /* A filler, a cough rendered as "uh", another voice across the
+         room: not an attempt at any word, so not a token the alignment
+         has to explain. The same closed set Say It excuses. */
+      var tokens = tokenize(text).filter(function(t){ return !Core.isNonAnswer(t); });
+      var skips = [];
+
       if(!snap || snap.index !== index){
-        snap = { index: index, pointer: pointer, ok: okCount, no: noCount, missed: missed.slice() };
+        snap = { index: index, pointer: pointer, ok: okCount, no: noCount, missed: missed.slice(), seen: 0, skips: [] };
       } else {
         // A revision. Undo everything this result did, including the
         // colours it put on the grid, then score it again.
@@ -445,13 +464,39 @@ window.FluencyGame = (function(){
         okCount = snap.ok;
         noCount = snap.no;
         missed = snap.missed.slice();
+        skips = snap.skips;
       }
 
-      var res = consume(pointer, tokenize(text), queue, function(tok, word){
-        return Core.spokenMatch(tok, word, MATCH_OPTS);
-      }, !!isFinal);
+      /* Space pressed while this result was still open moved the pointer
+         in a way no revision may undo — but the tokens read AFTER it
+         belong after it, and scoring the whole transcript from the
+         post-skip pointer would judge the words already read against the
+         ones that followed. So the revision replays the run as it
+         happened: the tokens seen before each skip, the skip, the rest. */
+      var at = 0, any = false;
+      skips.forEach(function(n){
+        var r = consume(pointer, tokens.slice(at, Math.max(at, n)), queue, match, false);
+        any = apply(r, isFinal) || any;
+        at += r.consumed;
+        markSkipped();
+      });
+      var res = consume(pointer, tokens.slice(at), queue, match, !!isFinal);
+      any = apply(res, isFinal) || any;
 
-      if(res.marks.length) startClock();
+      if(any) startClock();
+      if(snap) snap.seen = tokens.length;
+      if(isFinal) snap = null;
+
+      paintPointer();
+      updateHud();
+      if(pointer >= queue.length) finish();
+    }
+
+    function match(tok, word){ return Core.spokenMatch(tok, word, MATCH_OPTS); }
+
+    // Put one walk's verdicts on the grid and the counters. True when it
+    // decided anything, which is what starts the clock.
+    function apply(res, isFinal){
       paint(pointer, null);
       res.marks.forEach(function(m){
         var word = queue[m.index];
@@ -471,25 +516,29 @@ window.FluencyGame = (function(){
         }
       });
       pointer = res.pointer;
-      if(isFinal) snap = null;
-
-      paintPointer();
-      updateHud();
-      if(pointer >= queue.length) finish();
+      return res.marks.length > 0;
     }
 
-    function skip(){
-      if(!running || pointer >= queue.length) return;
-      // The pointer just moved for a reason no revision should undo, so
-      // the result in flight loses its right to be rolled back.
-      snap = null;
-      startClock();
+    // The word under the pointer, given up on. Shared by Space and by the
+    // replay of a Space inside a revised result; `seen` keeps the
+    // scheduler from hearing about it twice.
+    function markSkipped(){
       var word = queue[pointer];
       paint(pointer, "no");
       noCount++;
       if(missed.indexOf(word) === -1) missed.push(word);
       if(!Object.prototype.hasOwnProperty.call(seen, word)){ seen[word] = true; report(word, false); }
       pointer++;
+    }
+
+    function skip(){
+      if(!running || pointer >= queue.length) return;
+      startClock();
+      // The result in flight keeps its right to be revised, but the
+      // revision has to put this skip back where it happened: after the
+      // tokens seen so far. heardResult explains the replay.
+      if(snap) snap.skips.push(snap.seen || 0);
+      markSkipped();
       paintPointer();
       updateHud();
       if(pointer >= queue.length) finish();
@@ -503,8 +552,10 @@ window.FluencyGame = (function(){
 
       // Scored over the minute it was given, even if the student pressed
       // Done early: the number means "words in a minute", and a
-      // forty-second run that stopped early is not a faster reader.
-      var ms = Math.min(RUN_MS, elapsed() || RUN_MS);
+      // forty-second run that stopped early is not a faster reader. The
+      // one shorter divisor is a deck that ran out, which is a reader
+      // who was never given the whole minute.
+      var ms = pointer >= queue.length ? Math.min(RUN_MS, elapsed() || RUN_MS) : RUN_MS;
       var rate = wordsPerMinute(okCount, ms);
       var stars = starsForRate(rate, RATE_TARGET);
       var total = okCount + noCount;
@@ -615,6 +666,9 @@ window.FluencyGame = (function(){
 
       rec.onend = function(){
         listening = false; rec = null;
+        // The next session numbers its results from 0 again, so a
+        // snapshot of this one's must not be mistaken for a revision.
+        snap = null;
         if(wantMic){
           if(restartTimer) clearTimeout(restartTimer);
           restartTimer = setTimeout(function(){ restartTimer = null; armMic(); }, 150);
