@@ -49,7 +49,7 @@
                              `pages`, because its copy is list-specific.
    ════════════════════════════════════════════════════════════════════ */
 
-/* ── The four modes ────────────────────────────────────────────────────
+/* ── The seven modes ───────────────────────────────────────────────────
    A word on the `intro` copy, which is deliberately short and plain: this
    is a phonics class, and the "how to play" text should not itself be a
    decoding challenge. Each intro is one or two short sentences, split on
@@ -453,7 +453,7 @@ window.LIST_FAMILIES = [
     pattern: "irregular",
     icon: "🃏",
     section: "sight",
-    note: "Ten screener lists of twenty sight words. Each list can be assigned as flash cards, Match It, or both.",
+    note: "Ten screener lists of twenty sight words. Each list can be assigned as Say It, flash cards, Match It, or any mix.",
     description: "Words that break the rules — said, would, Wednesday. You learn these by sight.",
     /* Say It was left off these for a long time, on the grounds that a
        phoneme matcher has nothing to check an irregular word against.
