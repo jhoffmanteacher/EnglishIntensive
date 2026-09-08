@@ -120,7 +120,7 @@ window.EIPractice = (function(){
         EIAuth.fail("Game engine missing", "This page didn't load " + (ENGINE_FILES[list.engine] || "its engine") + ".");
         return;
       }
-      var cfg = {};
+      var cfg = { listId: list.id };
       for(var k in list.config){ if(Object.prototype.hasOwnProperty.call(list.config, k)) cfg[k] = list.config[k]; }
       /* Every engine but one gets a weighted DRAW of the list. The
          fluency engine gets the whole thing: its one-minute deck cycles,

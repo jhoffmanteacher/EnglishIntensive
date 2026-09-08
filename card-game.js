@@ -693,7 +693,7 @@ window.CardGame = (function(){
     /* ---------------- the persistent comeback deck ----------------
        Keyed by pathname so each flash-card page keeps its own deck, and so a
        deck can never be read by a game with a different word list. */
-    var comebackKey = "cardComeback:" + location.pathname;
+    var comebackKey = "cardComeback:" + (cfg.listId || location.pathname);
     var comebackList = [];    // the deck the button will play, built at render time
 
     var comeback = Core.comebackStore(comebackKey);
@@ -1284,9 +1284,13 @@ window.CardGame = (function(){
     $("btnSelf").addEventListener("click", function(){
       if(!haveSelf || !selfRec) return;
       $("btnSelf").disabled = true;
+      // The playback outlives a "Not yet" advance. Read back the word
+      // this card showed, and only if it is still the card on screen — a
+      // new card must not be spoken while it is face up.
+      var at = idx, w = queue[idx];
       selfRec.play().then(function(){
         $("btnSelf").disabled = false;
-        sayWord(queue[idx], SLOW_RATE);
+        if(idx === at && queue[idx] === w) sayWord(w, SLOW_RATE);
       });
     });
     // A skipped card counts as missed: the student didn't know it, whatever

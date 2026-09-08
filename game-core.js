@@ -1767,6 +1767,7 @@ window.GameCore = (function(){
     isVowelPhone: isVowelPhone,
     phoneticDistance: phoneticDistance,
     normalize: normalize,
+    numberWords: NUM_WORDS,
     findPhonemeSeq: findPhonemeSeq,
     ACCEPT: ACCEPT,
     homophoneGroup: homophoneGroup,

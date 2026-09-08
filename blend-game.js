@@ -45,7 +45,8 @@ window.BlendGame = (function(){
       phoneticDistance = Core.phoneticDistance,
       normalize        = Core.normalize,
       findPhonemeSeq   = Core.findPhonemeSeq,
-      ACCEPT           = Core.ACCEPT;
+      ACCEPT           = Core.ACCEPT,
+      NUM_WORDS        = Core.numberWords;
 
   function blendPart(word, atStart, blendLength){
     return atStart ? word.slice(0, blendLength) : word.slice(-blendLength);
@@ -79,7 +80,11 @@ window.BlendGame = (function(){
   }
 
   function wordMatchesCore(heard, target, level, atStart, blendLength, wordList, soundSeq, homophones){
-    if(heard === target) return true;
+    /* `heard` arrives normalised (lowercase, no punctuation); the target
+       is the list entry as written. "Mrs." and "Wednesday" never equal
+       "mrs" and "wednesday" unless the target is folded the same way. */
+    var plainTarget = normalize(target);
+    if(heard === plainTarget) return true;
     /* Before the level rules, not after: a homophone is not a near miss
        the game is being generous about, it is the same sound. No listener
        separates "to" from "two" either, and a student who reads the card
@@ -88,7 +93,7 @@ window.BlendGame = (function(){
     if(homophones && Core.sameHomophone(heard, target, homophones)) return true;
     if(level === 0) return false;                              // Challenge: exact only
 
-    if(ACCEPT[target] && ACCEPT[target].indexOf(heard) !== -1) return true;
+    if(ACCEPT[plainTarget] && ACCEPT[plainTarget].indexOf(heard) !== -1) return true;
 
     var hFull = phonemes(heard), tFull = phonemes(target);
     var hBlend, hRest, tRest;
@@ -343,13 +348,14 @@ window.BlendGame = (function(){
           el.classList.remove("playing");
           // The part, then the whole — a piece on its own is only useful
           // next to the thing it is part of.
-          if(ok && revealWord) setTimeout(function(){ say(revealWord, 0.85); }, 200);
+          if(ok && revealWord) setTimeout(function(){ say(revealWord, { rate: 0.85 }); }, 200);
         });
       });
 
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], missKind = {}, tries = 0, busy = false;
+    var advance = null;   // the timer that moves on after feedback; cleared by finish()
 
     var shuffleOn = true;
     try{
@@ -371,7 +377,7 @@ window.BlendGame = (function(){
        would mix them. Both accessors swallow their errors: with storage
        unavailable (private mode, quota, a locked-down profile) the deck is
        simply always empty and the button never appears. */
-    var comebackKey = "blendComeback:" + location.pathname;
+    var comebackKey = "blendComeback:" + (cfg.listId || location.pathname);
     var comebackList = [];    // the deck the button will play, built at render time
     var mastered = [];        // this round's first-try-correct words, written at finish()
     // Which list "Start Playing" on the mic-check screen will use — the full
@@ -650,6 +656,10 @@ window.BlendGame = (function(){
     }
 
     function finish(){
+      // End game can land mid-feedback; the advance timer would otherwise
+      // call next() into an emptied queue and finish() a second time.
+      if(advance){ clearTimeout(advance); advance = null; }
+      busy = false;
       micOn = false;
       stopMicLoop();
       stopListening();
@@ -749,7 +759,7 @@ window.BlendGame = (function(){
         say(phrase, { rate: 1.0, pitch: 1.05 });
       }
       // Give the praise room to finish before the next word's beep cuts it off.
-      setTimeout(function(){ busy = false; next(); }, voiceOn ? 1600 : 1150);
+      advance = setTimeout(function(){ advance = null; busy = false; next(); }, voiceOn ? 1600 : 1150);
     }
 
     function handleWrong(heard){
@@ -815,7 +825,7 @@ window.BlendGame = (function(){
         }
         // The hint is another sentence to get through, so the reveal holds
         // a little longer — but only when there is a voice saying it.
-        setTimeout(function(){ busy = false; next(); }, voiceOn ? (dx ? 3300 : 2600) : 1900);
+        advance = setTimeout(function(){ advance = null; busy = false; next(); }, voiceOn ? (dx ? 3300 : 2600) : 1900);
       } else {
         setTimeout(function(){ busy = false; $("wordCard").className = "wordcard"; }, 900);
       }
@@ -1034,7 +1044,8 @@ window.BlendGame = (function(){
         window.speechSynthesis.cancel();
         var u1 = new SpeechSynthesisUtterance(chunks.join(", "));
         var u2 = new SpeechSynthesisUtterance(word + (tail ? ". " + tail : ""));
-        [u1, u2].forEach(function(u){ u.lang = "en-US"; if(voice) u.voice = voice; });
+        var v = Core.voice();
+        [u1, u2].forEach(function(u){ u.lang = "en-US"; if(v) u.voice = v; });
         u1.rate = 0.7;
         u2.rate = 0.9;
         currentUtterance = u2;
@@ -1120,7 +1131,7 @@ window.BlendGame = (function(){
         $("btnSelf").disabled = false;
         // Always, whatever the Voice setting says: the point of the
         // button is the comparison, and half of it is the correct read.
-        say(queue[idx], 0.85);
+        say(queue[idx], { rate: 0.85 });
       });
     });
 
