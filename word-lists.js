@@ -447,7 +447,7 @@ window.LIST_FAMILIES = [
        word to everything that counts. The cards engine shows the dotted
        form on the BACK of the card, after the student has read it cold. */
     lists: [{ n: 1, ids: { say: "multisyllable" },
-      words: ["soft","pub·lic","gob·lin","fab·ric","gos·sip","nap·kin","sun·lit","sub·mit","an·tic",
+      words: ["pub·lic","gob·lin","fab·ric","gos·sip","nap·kin","sun·lit","sub·mit","an·tic",
               "on·set","sub·set","hub·cap","pic·nic","at·tic","un·til","cab·in","in·dex","mas·cot",
               "un·fit","hab·it","pan·ic","ex·am","hec·tic","com·ic","vic·tim","rob·in","muf·fin",
               "bob·bin","up·set","fan·tas·tic","vol·can·ic","in·hib·it","mag·net·ic","in·hab·it",
