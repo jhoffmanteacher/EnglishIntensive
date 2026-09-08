@@ -146,6 +146,34 @@
           throw new Error("the withdrawn guess left " + q("#uiWrong").textContent + " errors behind");
         }
       } },
+    /* A Space pressed while a result is still in flight. The revision
+       that arrives afterwards has to put the skip back where it
+       happened rather than re-running the whole utterance past it —
+       before that, the two words read counted twice and the skip three
+       times, and the run ended at 2 right and 3 wrong. */
+    "fluency-skip": { engine: "FluencyGame", list: "blends-end-1-fluency",
+      fake: true, drive: function(q, click){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        var rec = window.FakeSR.last;
+        if(!rec) throw new Error("the engine never opened a recogniser");
+        var w = [q("#wg0").textContent, q("#wg1").textContent, q("#wg2").textContent];
+
+        // Two words read, not yet final…
+        rec.emit(0, w[0] + " " + w[1], false);
+        // …then the reader gives up on the third and presses Space…
+        document.dispatchEvent(new KeyboardEvent("keydown", { key:" " }));
+        // …and Chrome finalises the same two words it already sent.
+        rec.emit(0, w[0] + " " + w[1], true);
+
+        if(q("#uiRight").textContent !== "2"){
+          throw new Error("read = " + q("#uiRight").textContent + ", wanted 2");
+        }
+        if(q("#uiWrong").textContent !== "1"){
+          throw new Error("errors = " + q("#uiWrong").textContent + ", wanted 1");
+        }
+      } },
     "blendit":    { engine: "BlendItGame", list: "nonsense-1-blendit" }
   };
 

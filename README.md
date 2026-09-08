@@ -612,7 +612,7 @@ A wrong answer or a Skip resets the streak and the multiplier; a "×2 combo!"
 badge under the Streak stat shows the current tier. The end screen adds a
 **0–3 star rating** (3 at 90 %+, 2 at 70 %+, 1 at 50 %+) and calls out a
 "Perfect round!" when every word was said right. The scoring math is a pure
-function (`pointsFor()` in `blend-game.js`) covered by `tests.html`.
+function (`Core.pointsFor()` in `game-core.js`) covered by `tests.html`.
 
 ### Correct/wrong feedback
 
@@ -626,7 +626,7 @@ correct answer ("Nice!", "Got it!"…, with a bigger call-out every 5-streak),
 and the word spoken aloud after the second miss. Press **H** any time during
 play to hear the current word read at a slower pace — same as clicking "Hear
 it" — regardless of the Voice setting. All speech picks the best available
-`en-US` voice (`pickVoice()` in `blend-game.js`), preferring Chrome/ChromeOS's
+`en-US` voice (`Core.voice` in `game-core.js`), preferring Chrome/ChromeOS's
 natural voice over the flat default, and re-picks once Chrome finishes
 loading its voice list.
 

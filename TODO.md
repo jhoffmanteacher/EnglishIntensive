@@ -79,7 +79,12 @@ Choices the roster plan left open, recorded so the reasoning survives.
 - **"Red 3" in a roster's start column resolves to the family's FIRST
   mode**, which for the red words is now Say It. Whatever a teacher
   meant, the first mode is where a student starts, and every later mode
-  of that list unlocks a step or two behind it.
+  of that list unlocks a step or two behind it. A course need not contain
+  that mode, though — the generated one is built from cards and match, so
+  it has no Say It rung at all. `WordLists.startStepOf` handles that: a
+  start the course doesn't hold lands on the earliest step holding any
+  mode of the same list, so "Red 3" still places a student on List 3
+  rather than back at the beginning.
 
 ## Decided during the reading-feedback build
 

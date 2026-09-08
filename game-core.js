@@ -1288,13 +1288,30 @@ window.GameCore = (function(){
      first one that names a column it hasn't found yet claims it, so a file
      with both "Student ID" and "Number" uses the one that comes first
      rather than whichever the alias list happens to mention first. */
+  /* Aliases that name the period only when nothing better turns up. An
+     SIS export with "Student ID,Name,Class,Period" has Class holding
+     "English 9 Intensive", and a first-match-wins scan claimed it as the
+     period, turned it into "9", and ignored the real Period column —
+     with a preview that looked entirely plausible. A weak claim is held
+     until the whole header row has been read, so a strong alias later in
+     the row can take the column off it. */
+  var WEAK_HEADERS = { period: { section:1, "class":1, block:1 } };
+  function isWeak(k, h){ return !!(WEAK_HEADERS[k] && WEAK_HEADERS[k][h]); }
+
   function mapColumns(header){
-    var out = {}, i, k, h;
+    var out = {}, weak = {}, i, k, h, w;
     for(i=0;i<header.length;i++){
       h = normHeader(header[i]);
       for(k in ROSTER_HEADERS){
-        if(!has(ROSTER_HEADERS, k) || has(out, k)) continue;
-        if(ROSTER_HEADERS[k].indexOf(h) !== -1){ out[k] = i; break; }
+        if(!has(ROSTER_HEADERS, k)) continue;
+        if(ROSTER_HEADERS[k].indexOf(h) === -1) continue;
+        w = isWeak(k, h);
+        // Take the column if the field is free, or if it is only held by
+        // a weak alias and this header is a strong one. Otherwise fall
+        // through to the next field, as a first-match scan always did.
+        if(has(out, k) && !(weak[k] && !w)) continue;
+        out[k] = i; weak[k] = w;
+        break;
       }
     }
     return out;

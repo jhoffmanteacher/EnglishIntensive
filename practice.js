@@ -304,10 +304,14 @@ window.EIPractice = (function(){
      first time the home page is drawn after a step opens, it says which
      list just arrived.
 
-     Once, and only forward. The step number is remembered per device, so
-     a student who reloads doesn't get told again, and a step index that
-     went DOWN (a teacher rebuilt the sequence) is recorded without a
-     banner — "you have gone backwards" is not news anybody needs.
+     Once, and only forward. The step number is remembered per student
+     per device, so a student who reloads doesn't get told again, and a
+     step index that went DOWN (a teacher rebuilt the sequence) is
+     recorded without a banner — "you have gone backwards" is not news
+     anybody needs. Keyed by uid because these are shared Chromebooks:
+     keyed by period alone, two students in the same period at different
+     steps overwrote each other, and one of them never saw a banner while
+     the other was re-told "New:" every time they signed in.
 
      No lock icons anywhere else: a list not yet reached simply isn't on
      the page, exactly as an unassigned list isn't today. A locked tile is
@@ -315,10 +319,16 @@ window.EIPractice = (function(){
      put in front of this class. */
   var STEP_KEY = "eiStep:";
 
+  // Named so tests can pin the one property that matters: two students
+  // on the same Chromebook, in the same period, get different keys.
+  function stepKey(seq){
+    return STEP_KEY + (EIAuth.uid() || "") + ":" + ((seq && seq.period) || "");
+  }
+
   function unlockBanner(){
     var seq = EIStore.sequence && EIStore.sequence();
     if(!seq) return null;
-    var key = STEP_KEY + (seq.period || "");
+    var key = stepKey(seq);
     var was = null;
     try{ was = localStorage.getItem(key); }catch(e){ return null; }
     var now = seq.stepIndex;
@@ -392,5 +402,5 @@ window.EIPractice = (function(){
   }
 
   return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
-           _internals: { queryList: queryList, pageName: pageName } };
+           _internals: { queryList: queryList, pageName: pageName, stepKey: stepKey } };
 })();
