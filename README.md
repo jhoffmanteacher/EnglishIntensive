@@ -15,6 +15,32 @@ require a secure context, so the games will not listen from a `file://` URL.
 python3 -m http.server 8000
 ```
 
+## The overview page
+
+`docs/overview.html` is this same site described for a **reading teacher**
+rather than for whoever is editing it: what students practise, what each
+mode asks of them, what the dashboard reports, and what the site
+deliberately does not do. It is published as an Artifact —
+<https://claude.ai/code/artifact/a711f0ee-9868-4a7d-a7fd-5923c92b2057> —
+and that link, not the file, is the copy anybody actually reads.
+
+It is not a page of the site. No CSP header, no `auth.js`, no doctype: it
+is an artifact source that happens to render fine on its own, and it is in
+`docs/` so that "which HTML files are the site?" stays answerable by
+listing the root.
+
+Keeping it true is the whole job. Anything a teacher would notice — a new
+mode, a new family, a changed rule about how rounds are drawn or what
+unlocks, a claim about what a number means — belongs in the same commit as
+the code that changed it. Re-publishing means publishing the file with
+`url` set to the address above; without it you get a second artifact and
+the link already sent to somebody quietly goes stale. `CLAUDE.md` carries
+the same instruction, which is what makes it happen.
+
+The two documents divide by audience and nothing else. This file explains
+why the code is shaped the way it is; that one explains what the site does
+to a reader who will never open it.
+
 ## Accounts
 
 Every page is behind a Google sign-in wall (`auth.js`), restricted to
@@ -833,7 +859,7 @@ thing to serve a second caller is how it stops being tuned. Both exist; the
 mic is stopped before the card speaks, so the recogniser can never
 transcribe the computer's own read back as the student's answer.
 
-## One minute (fluency)
+## One minute (word-list rate)
 
 Every other mode asks whether a student knows a word. This one asks how
 fast, which is a different question and the one that goes on being worth
@@ -845,6 +871,16 @@ sixty seconds, the deck cycling so a fast reader never runs out. Space
 skips. Score: **correct words per minute**, plus the delta since last time,
 which is the reason to do it twice. On the starting blends, the final
 blends and the nonsense words.
+
+It is called a rate rather than *fluency* on purpose. What a list of words
+measures is **automaticity of word recognition** — whether a word comes back
+without effort — which is a real construct and the one timed word-list tests
+like TOWRE assess. What it cannot measure is prosody, phrasing, or whether a
+student holds meaning across a sentence, because none of those exist outside
+connected text. The two numbers also differ: a passage hands a weak decoder
+context to lean on, and a list takes that away, which is the point here and
+also the reason a good rate on this list is not evidence that a paragraph
+goes well. Passage reading wants its own probe.
 
 The clock starts on the **first word actually read**, not on the button: a
 student fumbling with headphones for four seconds has not been reading for

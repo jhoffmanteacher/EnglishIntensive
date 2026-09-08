@@ -83,7 +83,14 @@ var MODES = {
   /* The fluency mode. Everything above asks whether a student knows a
      word; this asks how fast, which is a different question and the one
      that stops being answered by accuracy long before a student reads
-     comfortably. */
+     comfortably.
+
+     "fluency" is the mode key and the engine name, and it overstates what
+     the run measures: a list of words gets at automaticity of word
+     recognition and nothing else — no prosody, no phrasing, no connected
+     text. The key is load-bearing (it is half of every fluency list id)
+     so it stays; the teacher-facing copy says "reading rate" instead, and
+     the README explains why. */
   fluency: {
     key: "fluency", engine: "fluency", icon: "⏱", title: "One minute", needs: "mic", page: "fluency-game.html",
     intro: "Read as many words out loud as you can in one minute.<br>Don't rush a word you're not sure of — a word read wrong doesn't count."
