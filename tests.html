@@ -2013,6 +2013,11 @@
       eq("a roster start places the student in the course",
          T2.sequenceStateFor(T2.studentByUid("u2")).stepIndex,
          W2.stepOf(course, "red-3-cards"));
+      eq("…and the precedence walk hands back that same position",
+         T2.effectiveLists("u2").seq.stepIndex,
+         W2.stepOf(course, "red-3-cards"));
+      eq("…and says the course is where the lists came from",
+         T2.effectiveLists("u2").from.indexOf("sequence") === 0, true);
     })();
 
     // The preview's status column.
