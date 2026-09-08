@@ -121,7 +121,7 @@
     "convoy","coy","decoy","deploy","destroy","devoid","droid","employ","enjoy",
     "foil","hoist","join","joint","loyal","moist","noise","poison","ploy","royal",
     "soil","soy","spoil","toil","void"];
-  var BIGWORDS = ["soft","public","goblin","fabric","gossip","napkin","sunlit","submit","antic",
+  var BIGWORDS = ["public","goblin","fabric","gossip","napkin","sunlit","submit","antic",
     "onset","subset","hubcap","picnic","attic","until","cabin","index","mascot",
     "unfit","habit","panic","exam","hectic","comic","victim","robin","muffin",
     "bobbin","upset","fantastic","volcanic","inhibit","magnetic","inhabit",
@@ -413,7 +413,7 @@
   // ---- the dotted Big Words config must derive the exact same plain word
   // list as before — proof the matching behavior hasn't changed by adding
   // chunk data to the word list syntax. ----
-  var BIGWORDS_DOTTED = ["soft","pub·lic","gob·lin","fab·ric","gos·sip","nap·kin","sun·lit","sub·mit","an·tic",
+  var BIGWORDS_DOTTED = ["pub·lic","gob·lin","fab·ric","gos·sip","nap·kin","sun·lit","sub·mit","an·tic",
     "on·set","sub·set","hub·cap","pic·nic","at·tic","un·til","cab·in","in·dex","mas·cot",
     "un·fit","hab·it","pan·ic","ex·am","hec·tic","com·ic","vic·tim","rob·in","muf·fin",
     "bob·bin","up·set","fan·tas·tic","vol·can·ic","in·hib·it","mag·net·ic","in·hab·it",
@@ -3219,6 +3219,31 @@
     eq("…where they are", one.from, 3);
     eq("…and where to", one.toId, "red-4-cards");
     eq("…with the evidence", one.mastered + " of " + one.total, "20 of 20");
+    eq("…which reads as it always has when nothing is slow", T.evidenceText(one), "20 of 20 solid");
+
+    /* ---- slow words: the number shown is the number the bar saw ----
+       The bar (Adaptive.listShare) counts a word only when it is solid
+       AND at pace. The strip has to print that same count, or it shows
+       a teacher "20 of 20" next to a suggestion that 16 of them earned
+       — and the overview promises them slow words never count toward
+       moving up. */
+    function slowStats(listId, n, nSlow){
+      var stats = solidStats(listId, n);
+      W.wordsOf(listId).slice(0, nSlow).forEach(function(w){
+        stats[A.keyFor(listId, w)].lat = A._constants.SLOW_MS + 1;
+      });
+      return stats;
+    }
+    var withSlow = T.readyToAdvance(slowStats("red-3-cards", TWENTY, 2), ["red-3-cards"])[0];
+    eq("mastered still counts the slow words", withSlow.mastered, 20);
+    eq("…slow is how many of those are slow", withSlow.slow, 2);
+    eq("…and fluent is what the bar was measured against", withSlow.fluent, 18);
+    eq("…which is the number the strip prints, with the slow ones beside it",
+       T.evidenceText(withSlow), "18 of 20 solid, 2 more slow");
+    eq("all twenty solid but five of them slow is under the bar: no suggestion",
+       T.readyToAdvance(slowStats("red-1-cards", TWENTY, 5), ["red-1-cards"]).length, 0);
+    eq("…and four slow is exactly on it",
+       T.readyToAdvance(slowStats("red-1-cards", TWENTY, 4), ["red-1-cards"]).length, 1);
 
     // ---- it advances from the FURTHEST list they hold ----
     var stats = {};
