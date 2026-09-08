@@ -360,6 +360,38 @@ window.GameCore = (function(){
     }).join(" ");
   }
 
+  /* ---- noise that isn't an answer ----
+     A final result the matcher can't place is normally a wrong answer,
+     and Say It is built to catch those. But some of what comes back was
+     never an attempt at the word: a filler, a cough the recogniser
+     rendered as "uh", somebody else in the room. Counting those costs a
+     try, and two of them show a student the answer to a word they never
+     tried to read.
+
+     A closed set, and deliberately only non-lexical noises: no token
+     here is a word on any list (a test checks that), so forgiving them
+     can never forgive a real misread. Notably absent is "what", which is
+     a red word — a student reading "put" as "what" has misread it, and
+     the fact that they might also have been asking a question is not
+     something a transcript can settle.
+
+     Only when the WHOLE transcript is noise. "um crab" is an attempt at
+     crab, and "um bled" is an attempt that got the word wrong. */
+  var NON_ANSWERS = {
+    um:1, umm:1, uh:1, uhh:1, er:1, erm:1, hmm:1, hm:1, mm:1, mmm:1,
+    mhm:1, huh:1, ah:1, eh:1, oh:1
+  };
+
+  function isNonAnswer(text){
+    var t = normalize(text);
+    if(!t) return false;                 // silence is handled elsewhere
+    var parts = t.split(" ");
+    for(var i=0;i<parts.length;i++){
+      if(parts[i] && !has(NON_ANSWERS, parts[i])) return false;
+    }
+    return true;
+  }
+
   /* The homophone group a word belongs to, from a list's own groups. Used
      by everything that judges a spoken answer: no amount of listening
      separates "to" from "two", so every member of a group is the same
@@ -1740,6 +1772,8 @@ window.GameCore = (function(){
     homophoneGroup: homophoneGroup,
     sameHomophone: sameHomophone,
     spokenMatch: spokenMatch,
+    isNonAnswer: isNonAnswer,
+    nonAnswers: Object.keys(NON_ANSWERS),
     expandPhonemes: expandPhonemes,
     phonemeAudio: phonemeAudio,
     selfRecorder: selfRecorder,

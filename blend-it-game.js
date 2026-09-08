@@ -515,9 +515,11 @@ window.BlendItGame = (function(){
           }
           if(r.isFinal) lastFinal = r[0].transcript;
         }
-        // Only a FINAL result that matched nothing is a miss. Silence
-        // never costs a try; the mic is open the whole time.
-        if(lastFinal !== null && Core.normalize(lastFinal)){
+        /* Only a FINAL result that matched nothing is a miss. Silence
+           never costs a try; the mic is open the whole time. Nor does
+           noise that was never an attempt at the word — see
+           Core.isNonAnswer. */
+        if(lastFinal !== null && Core.normalize(lastFinal) && !Core.isNonAnswer(lastFinal)){
           stopListening();
           handleWrong(lastFinal);
         }
