@@ -1962,6 +1962,61 @@
          T2.effectiveLists("u1").ids.join(","), "nonsense");
     })();
 
+    /* A student's period is read from the assignment first and the roster
+       row second — everywhere. Reading only the assignment put a student
+       imported into period 3 who signed in later under "No period yet" on
+       the board, hidden by the Period 3 filter, and out of that period's
+       Trouble Spots, while the Students tab said Period 3. */
+    (function(){
+      var c = aClass();
+      c.assignments = { u1: { period:"9", lists:["nonsense"] } };   // u2 has none
+      c.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"3" } };
+      feed(c);
+      eq("a student with no assignment gets their period off the roster row",
+         T2.studentPeriod("u2"), "3");
+      eq("…and an assignment still outranks the row", T2.studentPeriod("u1"), "9");
+
+      c.assignments.u2 = { period:"4" };
+      feed(c);
+      eq("an assignment written later moves them", T2.studentPeriod("u2"), "4");
+
+      c.assignments.u2 = { period:"" };
+      feed(c);
+      eq("a blank assignment period falls back to the row", T2.studentPeriod("u2"), "3");
+
+      var c2 = aClass();
+      c2.assignments = {};
+      c2.roster = {};
+      feed(c2);
+      eq("a student in neither place has no period", T2.studentPeriod("u2"), null);
+      eq("…and a pending student reads their own row",
+         (function(){
+           var c3 = aClass();
+           c3.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
+           feed(c3);
+           return T2.studentPeriod("roster:3@seq.org");
+         })(), "5");
+    })();
+
+    /* "Coasting — turn the sequence on" is advice about what this student
+       is doing, not about what their period has. A student whose own
+       lists override the course is not on the course, so the line still
+       applies to them. */
+    (function(){
+      var course = window.WordLists.defaultSequence();
+      var c = aClass();
+      c.assignments = { u2: { period:"4" } };
+      c.classCfg = { periods:["4"], sequences: { "4": course } };
+      feed(c);
+      eq("a student following their period's course is on it",
+         T2.nextStepInfo(T2.studentByUid("u2")).sequenceOn, true);
+
+      c.assignments = { u2: { period:"4", lists:["nonsense"] } };
+      feed(c);
+      eq("…and one whose own lists override it is not",
+         T2.nextStepInfo(T2.studentByUid("u2")).sequenceOn, false);
+    })();
+
     // Board edits for a pending student go to the roster, not assignments.
     (function(){
       var c = aClass();
@@ -1976,6 +2031,39 @@
       eq("the signed-in one is written to assignments", Object.keys(b.students).join(","), "u2");
       eq("…and never to both",
          Object.prototype.hasOwnProperty.call(b.students, "roster:3@seq.org"), false);
+    })();
+
+    /* Releasing a student who was placed on the board while still pending
+       has to clear the roster row too. Nulling only the assignment drops
+       the walk through to the row, which is still an array — and then
+       nothing a teacher can press changes that student's lists again. */
+    (function(){
+      var c = aClass();
+      c.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:["nonsense"] } };
+      feed(c);
+      T2.setScope("s:u2", ["initial-blends"]);
+      T2.releaseScope("s:u2");
+      var b = T2.saveBody(["s:u2"], 500);
+      eq("releasing a signed-in student clears their assignment", b.students.u2.lists, null);
+      eq("…and the roster row they were placed on", b.roster["2@seq.org"].lists, null);
+
+      // A student with no roster lists leaves the roster alone entirely.
+      var c2 = aClass();
+      c2.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:null } };
+      feed(c2);
+      T2.setScope("s:u2", ["initial-blends"]);
+      T2.releaseScope("s:u2");
+      var b2 = T2.saveBody(["s:u2"], 500);
+      eq("a student with nothing on their row gets no roster write",
+         Object.keys(b2.roster).length, 0);
+
+      // Setting lists is not clearing them: the row stays as it was.
+      var c3 = aClass();
+      c3.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:["nonsense"] } };
+      feed(c3);
+      T2.setScope("s:u2", ["initial-blends"]);
+      var b3 = T2.saveBody(["s:u2"], 500);
+      eq("assigning lists doesn't touch the roster row", Object.keys(b3.roster).length, 0);
     })();
   })();
 
@@ -2839,6 +2927,21 @@
        [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 0);
     eq("…and the summary keeps up",
        host.querySelector('[data-pk-summary="probe"]').textContent, "nothing");
+
+    /* ---- a period named with a quotation mark ----
+       Periods are free text — "Support", "3", anything a teacher types.
+       The attribute selectors were built by stripping quotes, so a scope
+       whose id held one matched nothing: scopeSelection came back empty
+       and Save wrote an empty list, which parks every student in that
+       period. A backslash made querySelector throw instead. */
+    var odd = 'p:Sup"port';
+    host.innerHTML = T.pickerHtml(odd, ["red-3-cards", "red-3-match"], false);
+    eq("a scope id with a quote still reads its own checkboxes",
+       T.scopeSelection(odd).sort().join(","), "red-3-cards,red-3-match");
+    eq("…and is not confused for a different scope", T.scopeSelection("probe").length, 0);
+    var back = 'p:Sup\\port';
+    host.innerHTML = T.pickerHtml(back, ["red-3-cards"], false);
+    eq("a scope id with a backslash doesn't throw", T.scopeSelection(back).join(","), "red-3-cards");
 
     host.innerHTML = "";
   })();
