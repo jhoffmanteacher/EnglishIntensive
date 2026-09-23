@@ -67,7 +67,8 @@ service cloud.firestore {
     function isTeacher() {
       return isSchool() && request.auth.token.email in [
         'jhoffman@seq.org',
-        'atalesnick@seq.org'
+        'atalesnick@seq.org',
+        'nstuart@seq.org'
       ];
     }
 

@@ -31,7 +31,8 @@ const firebaseConfig = {
    is a real grant, not a display setting. */
 const TEACHER_EMAILS = [
   'jhoffman@seq.org',
-  'atalesnick@seq.org'
+  'atalesnick@seq.org',
+  'nstuart@seq.org'
 ];
 
 /* Only accounts on this domain may sign in. Enforced twice on purpose:
