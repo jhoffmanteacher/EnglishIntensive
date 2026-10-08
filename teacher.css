@@ -130,35 +130,16 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 .nsWho{font-weight:800;min-width:130px}
 .nsText{flex:1 1 260px;color:var(--ink);font-size:14.5px;line-height:1.5}
 
-/* ---- the sequence editor ----
-   An ordered list of steps, drag-to-reorder with buttons as well: the
-   drag is what everybody reaches for and the buttons are what works on a
-   trackpad, with a keyboard, and past the bottom of a scrolling panel. */
-.seqBox{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
-.seqList{list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:6px}
-.seqStep{
-  display:flex;align-items:center;gap:10px;
-  background:var(--panel2);border:1px solid var(--line);border-radius:12px;
-  padding:8px 12px;cursor:grab;
+/* ---- the "nobody has given them anything" notice ---- */
+.panel.callout{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:space-between;
+  border-color:rgba(255,201,77,.45);background:rgba(255,201,77,.07);
 }
-.seqStep.dragging{opacity:.45}
-.seqStep:hover{border-color:var(--accent)}
-.seqNum{
-  flex:none;width:26px;height:26px;border-radius:50%;
-  background:var(--panel);border:1px solid var(--line);
-  display:flex;align-items:center;justify-content:center;
-  font-size:12px;font-weight:800;color:var(--muted);
-}
-.seqIds{flex:1 1 auto;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
-.seqChip{
-  background:var(--panel);border:1px solid var(--line);border-radius:8px;
-  padding:2px 8px;font-size:12.5px;font-weight:700;white-space:nowrap;
-}
-.seqTools{flex:none;display:inline-flex;gap:4px}
-/* A cell the sequence decided, on the Assign board — dashed like an
-   inherited one, because it is inherited: from the course, not a person. */
-.abCell.seq{border-style:dashed}
-.abCell .seqStepNum{display:block;font-size:10px;color:var(--muted);letter-spacing:.04em}
+.panel.callout p{margin:0;font-size:15.5px;line-height:1.5}
+.panel.callout b{color:var(--accent)}
+ol.steps{margin:0 0 18px;padding-left:22px;line-height:1.7;font-size:15.5px}
+ol.steps li{margin-bottom:6px}
+.periodPills{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
 
 /* A roster row with no account behind it yet. Present, clickable and
    assignable — just visibly not here. */
@@ -281,29 +262,19 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 .abGrid tbody th.abName{padding:8px 12px;font-weight:400}
 .abNameIn{display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0}
 .abLabel{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.abMeta,.abFrom{color:var(--muted);font-size:11.5px;line-height:1.35;max-width:100%}
+.abMeta{color:var(--muted);font-size:11.5px;line-height:1.35;max-width:100%}
+/* "nothing yet" under a name: that student's home page is empty. */
+.abGames.none{color:var(--accent);font-weight:700}
+.abGrid tr.abStudent.pending .abLabel{opacity:.7}
 .abPick{display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0}
 .abPick input{width:15px;height:15px;accent-color:var(--accent);flex:none}
 
-/* The row that says "this one has been pulled out of their group", and
-   the button that puts them back. Hidden on a row that is inheriting. */
-.abPill{
-  font:inherit;font-size:10.5px;font-weight:800;letter-spacing:.03em;
-  color:var(--accent);background:rgba(255,199,89,.12);
-  border:1px solid rgba(255,199,89,.4);border-radius:99px;
-  padding:1px 8px;margin-top:3px;cursor:pointer;
-}
-.abPill:hover{background:rgba(255,199,89,.22)}
-.abPill[hidden]{display:none}
-
-/* The class default and the period rows are the things being inherited
-   FROM, so they read as headers of their group rather than as rows. */
-.abGrid tr.abDefault td{background:rgba(255,255,255,.035)}
-.abGrid tr.abPeriod td,.abGrid tr.abGroup td{background:rgba(255,255,255,.02)}
+/* A period's heading row. Its checkbox selects everyone under it. */
+.abGrid tr.abGroup td{background:rgba(255,255,255,.035)}
 /* background-image, not background: the tint has to sit ON TOP of the
    opaque background-color the sticky column depends on. */
-.abGrid tr.abDefault th.abName{background-image:linear-gradient(rgba(255,255,255,.035),rgba(255,255,255,.035))}
-.abGrid tr.abPeriod th.abName,.abGrid tr.abGroup th.abName{background-image:linear-gradient(rgba(255,255,255,.02),rgba(255,255,255,.02))}
+.abGrid tr.abGroup th.abName{background-image:linear-gradient(rgba(255,255,255,.035),rgba(255,255,255,.035))}
+.abGrid tr.abGroup .abLabel{font-size:15px}
 .abGrid tr.abStudent:hover td{background:rgba(255,255,255,.03)}
 
 .abCell{
@@ -311,13 +282,17 @@ table.t tbody tr.pending .who .nm{font-weight:600}
   border-left:1px solid var(--line);font-size:15px;line-height:1.5;
 }
 .abCell:focus{outline:2px solid var(--accent);outline-offset:-2px}
-/* Gold and solid: a set of this scope's own. Grey and dashed: handed
-   down from the period or the class default, and it will keep changing
-   under them until somebody edits it. */
-.abCell.own{color:var(--accent)}
-.abCell.inherit{color:var(--muted);border-bottom-style:dashed}
 .abCell.empty{color:rgba(140,158,190,.45)}
 .abCell:hover{background:rgba(255,199,89,.09)}
+
+/* The key to the cells, which are icons and nothing else. */
+.abLegend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 16px;font-size:13.5px}
+.abKey{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.abKeyIcon{font-size:17px;line-height:1}
+.abWarn{
+  margin:-4px 0 14px;font-size:14px;color:var(--accent);
+  border-left:3px solid var(--accent);padding:4px 0 4px 10px;
+}
 
 /* ---- the per-cell mode popover ---- */
 .abPop{
@@ -333,14 +308,27 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 /* ---- the bulk dialog ---- */
 .abModal{
   position:fixed;inset:0;z-index:70;background:rgba(6,10,20,.72);
-  display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow:auto;
+  display:flex;align-items:flex-start;justify-content:center;padding:40px 20px 0;overflow:auto;
 }
+/* No bottom padding on the overlay, a bottom margin on the box instead:
+   the sticky button row pins to the overlay's bottom edge, and padding
+   there would leave a strip of picker showing underneath it. */
 .abModalBox{
+  margin-bottom:40px;
   width:100%;max-width:720px;background:var(--panel);
   border:1px solid var(--line);border-radius:20px;padding:24px;
   box-shadow:0 30px 70px rgba(0,0,0,.6);
 }
 .abModalBox h2{font-size:19px;margin:0 0 4px}
+/* The buttons under a long picker, kept in view: the picker runs to six
+   families, and a Save you have to scroll to find is a Save that gets
+   missed. */
+.stickyActions{
+  position:sticky;bottom:0;z-index:2;
+  background:var(--panel);border-top:1px solid var(--line);
+  margin:12px -24px -24px;padding:14px 24px;border-radius:0 0 20px 20px;
+}
+.panel .stickyActions{margin:12px -22px -22px;padding:14px 22px}
 .abModalBox .note{color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 16px}
 
 /* ---- the save bar ---- */

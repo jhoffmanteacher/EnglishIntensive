@@ -14,24 +14,27 @@
 
    ── The four things it does ───────────────────────────────────────────
    Students   roster with accuracy and activity → per-student detail:
-              their worst words, list by list, and their assignment.
-   Assign     every assignment in the class as one grid: students down
-              the side, lists across the top, inherited-versus-own
-              visible in the cell, and one batched Save at the bottom.
-              The picker below is for one student; this is for the class.
-   Periods    which lists each period gets, and which period each student
-              is in. A student's own assignment overrides their period's,
-              which overrides the class default — see
-              EIStore.effectiveLists, which is the one place that
-              precedence is written down.
+              their worst words, list by list, and their games.
+   Assign     every student's games as one grid: students down the side,
+              lists across the top, one batched Save at the bottom.
+   Periods    importing the roster, and which period each student is in.
+              Periods only group students on this page — they never decide
+              what anybody sees.
    Trouble    the same words, aggregated across the class: what to teach
               tomorrow, rather than who to talk to.
 
+   ── The one rule ──────────────────────────────────────────────────────
+   A student sees exactly the lists ticked for them, and nothing else.
+   There is no period list, no class default, and no "everything" when
+   nothing is set — see EIStore.effectiveLists, which is the one place
+   that rule is written down. A student with nothing ticked sees an
+   empty home page, so the dashboard says loudly who that is.
+
    ── The picker ────────────────────────────────────────────────────────
-   Every place a set of lists is chosen one scope at a time — a student's
-   own, a period's, the class default, the board's bulk dialog — uses one
-   component, pickerHtml(). It is one section per family, because that is
-   the only kind of entry the registry has:
+   Every place a set of lists is chosen for one student — their own page,
+   the board's bulk dialog — uses one component, pickerHtml(). It is one
+   section per family, because that is the only kind of entry the
+   registry has:
      one list      a line of mode checkboxes — "Blend Words: 🎤 Say it ·
                    🃏 Cards · 🎯 Match It".
      many lists    a grid: one row per list with a few of its words as a
@@ -41,9 +44,8 @@
    A live summary under the picker (WordLists.describeAssignment) says
    in words what the ticks add up to, and the roster shows that same
    line, so what a student HAS and what you're SETTING read the same way.
-   What gets saved is still a flat array of list ids — the picker and the
-   board are presentation only; store.js, the rules and the precedence
-   never see the grid.
+   What gets saved is a flat array of list ids — the picker and the board
+   are presentation only; store.js and the rules never see the grid.
 
    ── Why assignments live in their own collection ──────────────────────
    The teacher has READ on students/{uid} and no write, deliberately: the
@@ -60,9 +62,9 @@
   var students = [];          // [{uid, name, email, photo, words, totals, recent, lastSeen}]
   var assignments = {};       // uid → { period, lists }
   var notes = {};             // uid → { text, updatedAt } — teacher-only
-  var roster = {};            // email → { name, id, period, start, lists, importedAt }
+  var roster = {};            // email → { name, id, period, lists, importedAt }
   var rosterReadable = false; // false until the roster rules are published
-  var classCfg = { periodLists:{}, defaultLists:null, periods:[], sequences:{}, sequenceOn:{} };
+  var classCfg = { periods:[] };   // config/class: the named periods, nothing else
   var view = "roster";
   var stepsPeriod = "";       // the Students tab's own period filter
   var detailUid = null;
@@ -173,16 +175,7 @@
         roster[String(doc.id).toLowerCase()] = rosterRowOf(doc.id, doc.data() || {});
       });
       var c = snaps[2].exists ? (snaps[2].data() || {}) : {};
-      classCfg = {
-        periodLists: c.periodLists || {},
-        defaultLists: Array.isArray(c.defaultLists) ? c.defaultLists : null,
-        periods: Array.isArray(c.periods) ? c.periods : [],
-        // A period's ordered course, and the switch that turns one off.
-        // Absent means the period has no course and keeps its flat list,
-        // which is every period until somebody builds one.
-        sequences: c.sequences || {},
-        sequenceOn: c.sequenceOn || {}
-      };
+      classCfg = { periods: Array.isArray(c.periods) ? c.periods : [] };
       addPendingStudents();
       // Sort by display name, falling back to the email local part — an
       // account with no display name shouldn't sink to the bottom.
@@ -208,10 +201,7 @@
      have to know is that a pending student's assignment is written to
      their roster row instead of to assignments/{uid}; there is no uid to
      write one against yet. */
-  /* One stored roster document as the dashboard holds it. The stored
-     field for a starting list is `startAt` — that is what importBody
-     writes and what store.js reads — while every reader in here calls it
-     `start`. Named so tests can pin the two names against each other. */
+  // One stored roster document as the dashboard holds it.
   function rosterRowOf(id, d){
     d = d || {};
     return {
@@ -219,7 +209,6 @@
       name: d.name || "",
       id: d.id || "",
       period: d.period == null ? "" : String(d.period),
-      start: d.startAt || "",
       lists: Array.isArray(d.lists) ? d.lists : null,
       importedAt: d.importedAt || 0
     };
@@ -292,14 +281,11 @@
       document.getElementById("riGo").disabled = true;
       return;
     }
-    var warnings = p.rows.filter(function(r){ return r.warning; });
     var body = p.rows.map(function(r){
       var st = rosterStatus(r);
       return "<tr><td>" + esc(r.name || "—") + "</td>" +
         '<td class="muted tiny">' + esc(r.email) + "</td>" +
         "<td>" + (r.period ? '<span class="pill">' + esc(r.period) + "</span>" : '<span class="muted tiny">—</span>') + "</td>" +
-        "<td>" + (r.start ? esc(WordLists.byId(r.start) ? WordLists.byId(r.start).listTitle : r.start)
-                          : '<span class="muted tiny">the beginning</span>') + "</td>" +
         '<td><span class="pill ' + (st.key === "new" ? "good" : st.key === "update" ? "warn" : "") + '">' + esc(st.text) + "</span></td></tr>";
     }).join("");
 
@@ -311,11 +297,8 @@
       (p.errors.length ? '<div class="empty"><b>Left out:</b><br>' + p.errors.map(function(e){
         return "line " + e.line + (e.name ? " (" + esc(e.name) + ")" : "") + " — " + esc(e.message);
       }).join("<br>") + "</div>" : "") +
-      (warnings.length ? '<div class="empty">' + warnings.map(function(r){
-        return esc(r.name || r.email) + " — " + esc(r.warning);
-      }).join("<br>") + "</div>" : "") +
       '<div class="tableScroll" style="max-height:46vh"><table class="t"><thead><tr>' +
-      "<th>Name</th><th>Signs in as</th><th>Period</th><th>Starts on</th><th>Status</th>" +
+      "<th>Name</th><th>Signs in as</th><th>Period</th><th>Status</th>" +
       "</tr></thead><tbody>" + body + "</tbody></table></div>";
     document.getElementById("riGo").disabled = !p.rows.length;
     document.getElementById("riGo").textContent = "Import " + p.rows.length +
@@ -323,7 +306,7 @@
   }
 
   function readImport(text){
-    importParsed = GameCore.parseRoster(text, function(s){ return WordLists.resolveListRef(s); });
+    importParsed = GameCore.parseRoster(text);
     renderImportPreview();
   }
 
@@ -335,9 +318,9 @@
       '<div class="abModalBox riBox" role="dialog" aria-modal="true">' +
         "<h2>Import a roster</h2>" +
         '<p class="note">Whatever your student information system exports — comma, tab or semicolon separated. ' +
-        "It needs an <b>ID number</b> column and a <b>name</b>; a <b>period</b> and a <b>starting list</b> are " +
-        "used if they're there. Students sign in as <b>&lt;ID number&gt;@seq.org</b>, which is how a row and an " +
-        "account find each other.</p>" +
+        "It needs an <b>ID number</b> column and a <b>name</b>; a <b>period</b> is used if it's there. " +
+        "Students sign in as <b>&lt;ID number&gt;@seq.org</b>, which is how a row and an account find each other. " +
+        "You choose their games afterwards, on the Assign tab.</p>" +
         (rosterReadable ? "" : '<div class="empty" style="border-color:rgba(255,107,107,.45)"><b>The roster rules ' +
           "aren't published yet.</b> This import will fail until somebody pastes <code>firestore.rules</code> into " +
           "Firebase console → Firestore → Rules → Publish. See the top of TODO.md.</div>") +
@@ -408,7 +391,6 @@
     allPeriods().forEach(function(p){ known[p] = true; });
     rows.forEach(function(r){
       var doc = { name: r.name, id: r.id, period: r.period, importedAt: now };
-      if(r.start) doc.startAt = r.start;
       out.roster[r.email] = doc;
       if(r.period && !known[r.period]){ known[r.period] = true; out.periods.push(r.period); }
 
@@ -490,24 +472,33 @@
     });
   }
 
-  /* The same walk store.js does for the student, with the roster rung in
-     the same place: own assignment → roster row → period → class default
-     → everything. Kept in step with EIStore.effectiveLists by tests.html,
-     which pins both. */
+  /* What this student sees: the same rule store.js applies for the
+     student, pinned against it by tests.html. Their own assignment, then
+     the lists on their roster row (set here before they had signed in),
+     then nothing. `from` is for the export. */
   function effectiveLists(uid){
     var a = assignments[uid];
     if(a && Array.isArray(a.lists)) return { ids: a.lists, from: "student" };
-    var s = studentByUid(uid);
-    var r = rosterFor(s);
+    var r = rosterFor(studentByUid(uid));
     if(r && Array.isArray(r.lists)) return { ids: r.lists, from: "roster" };
-    // The course, where the period runs one. Same rung, same order and
-    // the same function as store.js — see sequenceStateFor.
-    var seq = sequenceStateFor(s);
-    if(seq) return { ids: seq.ids, from: "sequence · step " + (seq.stepIndex + 1) + " of " + seq.steps, seq: seq };
-    var p = (a && a.period) || (r && r.period) || null;
-    if(p != null && p !== "" && Array.isArray(classCfg.periodLists[p])) return { ids: classCfg.periodLists[p], from: "period " + p };
-    if(Array.isArray(classCfg.defaultLists)) return { ids: classCfg.defaultLists, from: "class default" };
-    return { ids: WordLists.ids, from: "everything (nothing set)" };
+    return { ids: [], from: "nothing" };
+  }
+
+  /* What a student's lists look like in a table cell: the sentence, or a
+     warning when there is none — that student's home page is empty. */
+  function listsCellHtml(ids){
+    return ids.length ? esc(WordLists.describeAssignment(ids))
+                      : '<span class="pill warn">nothing yet</span>';
+  }
+
+  /* The modes, once each, with their icons — the key for the board's
+     cells, which are icons and nothing else. */
+  function legendHtml(){
+    var modes = Object.keys(WordLists.MODES).map(function(k){ return WordLists.MODES[k]; });
+    return '<div class="abLegend">' + modes.map(function(m){
+      return '<span class="abKey"><span class="abKeyIcon">' + esc(m.icon) + "</span>" + esc(m.title) +
+        (m.needs ? ' <span class="muted tiny">(' + esc(m.needs) + ")</span>" : "") + "</span>";
+    }).join("") + "</div>";
   }
 
   /* ---------------- the picker ----------------
@@ -519,14 +510,12 @@
      so it collapses to a line of mode checkboxes: "Blend Words:
      🎤 Say it · 🃏 Cards · 🎯 Match It".
 
-     scopeId  "student" | "default" | "p:<period>" | "bulk" — stamped on
-              every input so scopeSelection() can read one picker on a
-              page carrying several
-     selected the ids currently on (array), or null with allOn deciding
-     allOn    what "nothing set" means here: true for the class default
-              (open site), false for a period following a default */
-  function pickerHtml(scopeId, selected, allOn){
-    var on = function(id){ return selected ? selected.indexOf(id) !== -1 : !!allOn; };
+     scopeId  "student" | "bulk" — stamped on every input so
+              scopeSelection() can read one picker on a page carrying
+              several
+     selected the ids currently on (array) */
+  function pickerHtml(scopeId, selected){
+    var on = function(id){ return (selected || []).indexOf(id) !== -1; };
     var sc = esc(scopeId);
 
     function box(id){
@@ -576,7 +565,7 @@
     }).join("");
 
     return '<div class="picker" data-picker="' + sc + '">' + fams +
-      '<div class="pkSummary">This gives them: <b data-pk-summary="' + sc + '"></b></div>' +
+      '<div class="pkSummary">Ticked: <b data-pk-summary="' + sc + '"></b></div>' +
     "</div>";
   }
 
@@ -598,7 +587,8 @@
   }
   function refreshSummary(scopeId){
     var el = document.querySelector('[data-pk-summary="' + cssq(scopeId) + '"]');
-    if(el) el.textContent = WordLists.describeAssignment(scopeSelection(scopeId));
+    var ids = scopeSelection(scopeId);
+    if(el) el.textContent = ids.length ? WordLists.describeAssignment(ids) : "nothing";
   }
   // Tick every input in a group, or untick them all if they're already all on.
   function toggleGroup(inputs){
@@ -687,23 +677,28 @@
 
   function bindTabs(){
     Array.prototype.forEach.call(document.querySelectorAll("#tTabs .tab"), function(b){
-      b.addEventListener("click", function(){
-        // The Assign board holds its edits in memory until Save, so
-        // walking away from it silently would throw them out.
-        if(view === "assign" && b.dataset.view !== "assign"){
-          var n = dirtyScopes().length;
-          if(n && !window.confirm(n + (n === 1 ? " change hasn't" : " changes haven't") +
-                                  " been saved yet. Leave the board and lose them?")) return;
-          board.draft = {};
-        }
-        view = b.dataset.view;
-        detailUid = null;
-        Array.prototype.forEach.call(document.querySelectorAll("#tTabs .tab"), function(x){
-          x.classList.toggle("on", x === b);
-        });
-        render();
-      });
+      b.addEventListener("click", function(){ switchView(b.dataset.view); });
     });
+  }
+
+  /* Every way of moving between tabs goes through here — the tab bar and
+     the buttons inside a page that say "go and do this over there". */
+  function switchView(v, keepDraft){
+    // The Assign board holds its edits in memory until Save, so walking
+    // away from it silently would throw them out.
+    if(view === "assign" && v !== "assign" && !keepDraft){
+      var n = dirtyScopes().length;
+      if(n && !window.confirm(n + (n === 1 ? " change hasn't" : " changes haven't") +
+                              " been saved yet. Leave the board and lose them?")) return;
+      board.draft = {};
+    }
+    view = v;
+    detailUid = null;
+    Array.prototype.forEach.call(document.querySelectorAll("#tTabs .tab"), function(x){
+      x.classList.toggle("on", x.dataset.view === v);
+    });
+    render();
+    window.scrollTo(0, 0);
   }
 
   function render(){
@@ -774,7 +769,7 @@
   function rosterCsv(){
     var flCols = fluencyColumns();
     var rows = [[
-      "Name","Email","Period","Lists","Lists from",
+      "Name","Email","Period","Lists",
       "Answers","Accuracy %","Words solid","Words shaky","Slow but right","Top error","Last active","Signed in","Note"
     ].concat(flCols.reduce(function(acc, l){
       return acc.concat([l.listTitle + " latest", l.listTitle + " best"]);
@@ -785,7 +780,7 @@
       rows.push([
         s.name, s.email,
         (assignments[s.uid] || {}).period || (rosterFor(s) && rosterFor(s).period) || "",
-        WordLists.describeAssignment(eff.ids), eff.from,
+        eff.ids.length ? WordLists.describeAssignment(eff.ids) : "nothing yet",
         sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
         sum.slowRight,
         (function(){ var k = Adaptive.topKind(sum.kinds); return k ? kindText(k.kind) : ""; })(),
@@ -862,13 +857,18 @@
   /* ---------------- students ---------------- */
   function renderRoster(){
     if(!students.length){
-      $("tBody").innerHTML = '<div class="panel"><h2>Nobody yet</h2>' +
-        '<p class="note">A student appears here the first time they sign in and play a round — or ' +
-        "the moment you import a roster, which is the quicker way round. " +
-        '<b>Periods &amp; Lists → 📋 Import roster</b>.</p></div>';
+      $("tBody").innerHTML = '<div class="panel"><h2>Get started</h2>' +
+        '<ol class="steps">' +
+          "<li><b>Import your roster</b> on the Periods tab. Your students show up here before they ever sign in.</li>" +
+          "<li><b>Give each student their games</b> on the Assign tab. A student sees only what you give them.</li>" +
+          "<li><b>Students sign in</b> with their school account — their ID number @seq.org.</li>" +
+        "</ol>" +
+        '<div class="rowActions"><button class="btn sm" id="tGoGroups">Import a roster →</button></div></div>';
+      $("tGoGroups").addEventListener("click", function(){ switchView("groups"); });
       return;
     }
     var waiting = students.filter(function(s){ return s.pending; }).length;
+    var bare = students.filter(function(s){ return !effectiveLists(s.uid).ids.length; });
     var rows = students.map(function(s){
       var sum = Adaptive.summarize(s.stats);
       var eff = effectiveLists(s.uid);
@@ -882,14 +882,14 @@
         return '<tr class="clickable pending" data-uid="' + esc(s.uid) + '">' +
           "<td>" + whoHtml(s) + "</td>" +
           "<td>" + (period ? '<span class="pill">Period ' + esc(period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
-          '<td class="listsCell">' + esc(WordLists.describeAssignment(eff.ids)) + ' <span class="muted tiny">(' + esc(eff.from) + ")</span></td>" +
+          '<td class="listsCell">' + listsCellHtml(eff.ids) + "</td>" +
           '<td class="muted tiny" colspan="4">on the roster — hasn\u2019t signed in yet</td>' +
           '<td class="muted tiny">—</td></tr>';
       }
       return "<tr class=\"clickable\" data-uid=\"" + esc(s.uid) + "\">" +
         "<td>" + whoHtml(s) + "</td>" +
         '<td>' + (period ? '<span class="pill">Period ' + esc(period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
-        '<td class="listsCell">' + esc(WordLists.describeAssignment(eff.ids)) + ' <span class="muted tiny">(' + esc(eff.from) + ")</span></td>" +
+        '<td class="listsCell">' + listsCellHtml(eff.ids) + "</td>" +
         '<td class="num">' + sum.attempts + "</td>" +
         '<td class="num">' + accCell(sum.accuracy) + "</td>" +
         '<td class="num"><span class="pill good">' + sum.mastered + "</span></td>" +
@@ -912,10 +912,13 @@
     }).join("");
 
     $("tBody").innerHTML =
+      (bare.length ? '<div class="panel callout"><p><b>' + bare.length +
+        (bare.length === 1 ? " student has" : " students have") + " no games yet.</b> " +
+        "They see an empty home page until you give them some.</p>" +
+        '<button class="btn sm" id="tGoAssign">Assign games →</button></div>' : "") +
       '<div class="panel"><h2>What should change</h2>' +
-        '<p class="note">One line per student, at most — the first thing worth doing about them, and nothing ' +
-        "if there isn't one. Everything here is worked out from practice this dashboard has already loaded; " +
-        "no student is listed twice and most days most of the class isn't listed at all.</p>" +
+        '<p class="note">At most one suggestion per student, worked out from their practice. ' +
+        "Most days most of the class isn't listed.</p>" +
         '<div class="rowActions" style="margin-bottom:14px"><select class="sel" id="tStepsPeriod">' + stepOpts + "</select></div>" +
         (stepsHtml ? '<ul class="nsList">' + stepsHtml + "</ul>"
                    : '<div class="empty">Nothing to change right now.</div>') +
@@ -923,9 +926,9 @@
 
       '<div class="panel"><h2>Students</h2>' +
       (waiting ? '<p class="note"><b>' + waiting + (waiting === 1 ? " student on the roster hasn\u2019t" : " students on the roster haven\u2019t") +
-        ' signed in yet</b> — greyed out below. They already have their period and their lists; ' +
-        "the site picks those up the first time they sign in.</p>" : "") +
-      '<p class="note">Click a student for their worst words and their list assignment. ' +
+        ' signed in yet</b> — greyed out below. You can give them games now; ' +
+        "they'll be waiting the first time they sign in.</p>" : "") +
+      '<p class="note">Click a student to see their hardest words and change their games. ' +
       '“Solid” is a word answered right, first try, enough times in a row to have earned a long rest; ' +
       '“shaky” is one under 60&nbsp;% accuracy.</p>' +
       '<div class="rowActions" style="margin-bottom:16px">' +
@@ -943,6 +946,7 @@
       tr.addEventListener("click", function(){ detailUid = tr.dataset.uid; render(); });
     });
     $("tStepsPeriod").addEventListener("change", function(){ stepsPeriod = this.value; render(); });
+    if($("tGoAssign")) $("tGoAssign").addEventListener("click", function(){ switchView("assign"); });
     /* The same one-click apply the Ready to move up strip uses: it feeds
        the board's draft rather than writing, so a teacher can look at
        what it did before committing to it. */
@@ -952,11 +956,7 @@
         var set = liveStudent(parts[0]).slice();
         if(set.indexOf(parts[1]) === -1) set.push(parts[1]);
         setScope("s:" + parts[0], set);
-        view = "assign";
-        Array.prototype.forEach.call(document.querySelectorAll("#tTabs .tab"), function(x){
-          x.classList.toggle("on", x.dataset.view === "assign");
-        });
-        render();
+        switchView("assign", true);
       });
     });
     $("tExportRoster").addEventListener("click", function(){ download(exportName("roster"), rosterCsv()); });
@@ -998,10 +998,6 @@
     return {
       lists: lists,
       lastRound: Adaptive.summarize(s.stats).lastSeen || s.lastSeen || 0,
-      // eff.seq, not seq: the period may run a course while THIS student's
-      // own lists override it, and then the course isn't what they are
-      // doing — the "coasting → turn the sequence on" line still applies.
-      sequenceOn: !!eff.seq,
       now: Date.now()
     };
   }
@@ -1124,7 +1120,7 @@
 
     var rosterRow = rosterFor(s);
 
-    var picker = pickerHtml("student", eff.ids, true);
+    var picker = pickerHtml("student", eff.ids);
 
     // The period they are actually in, not just the assigned one, so the
     // box agrees with every other place this student's period is shown.
@@ -1149,20 +1145,17 @@
         "</div>" +
       "</div>" +
 
-      '<div class="panel"><h2>Assignment</h2>' +
-        '<p class="note">What this student sees on their home page. Every list can be played several ways — tick each way they should get it. ' +
-        'Saving here sets this student\'s OWN set, which overrides their period. ' +
-        'Currently coming from: <b>' + esc(eff.from) + "</b>. " +
-        '“Use my period’s lists” hands them back to the group.</p>' +
+      '<div class="panel"><h2>Games</h2>' +
+        '<p class="note">This student sees exactly what is ticked here, and nothing else. ' +
+        "Each list can be played several ways — tick each way they should get it.</p>" +
         '<div class="rowActions" style="margin-bottom:16px">' +
           '<label class="muted tiny" for="tPeriod">Period</label>' +
           '<select class="sel" id="tPeriod">' + periodOpts + "</select>" +
           '<input class="txt" id="tNewPeriod" placeholder="or type a new one" style="width:170px">' +
         "</div>" +
         picker +
-        '<div class="rowActions">' +
-          '<button class="btn sm" id="tSaveA">Save assignment</button>' +
-          '<button class="btn ghost sm" id="tClearA">Use my period’s lists</button>' +
+        '<div class="rowActions stickyActions">' +
+          '<button class="btn sm" id="tSaveA">Save games and period</button>' +
           '<span class="saveNote" id="tANote"></span>' +
         "</div>" +
       "</div>" +
@@ -1225,7 +1218,6 @@
       });
     });
     $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
-    $("tClearA").addEventListener("click", function(){ saveStudentAssignment(s.uid, true); });
     if(!s.pending) $("tNoteSave").addEventListener("click", function(){ saveNote(s.uid, $("tNote").value); });
     bindPickers();
   }
@@ -1293,10 +1285,10 @@
      stalls on school Wi-Fi — and roll back on failure, because a silent
      failure here means a teacher believes a student was assigned
      something they weren't. */
-  function saveStudentAssignment(uid, clearLists){
+  function saveStudentAssignment(uid){
     var note = $("tANote");
     var period = ($("tNewPeriod").value || "").trim() || $("tPeriod").value || null;
-    var lists = clearLists ? null : checkedLists();
+    var lists = checkedLists();
 
     /* A student who hasn't signed in yet is edited the same way and
        written somewhere else — their roster row, which store.js reads on
@@ -1331,23 +1323,8 @@
     assignments[uid] = body;
     if(period && classCfg.periods.indexOf(period) === -1) classCfg.periods.push(period);
 
-    /* Clearing a signed-in student's lists has to clear the roster row's
-       too. They were placed on the board while still pending, so the lists
-       went to their roster row; nulling only the assignment drops the walk
-       straight through to that row, and nothing the teacher can press
-       would ever change their lists again. */
-    var rowFor = rosterFor(studentByUid(uid));
-    var clearEmail = (clearLists && rowFor && Array.isArray(rowFor.lists)) ? rowFor.email : null;
-    var rowBefore = clearEmail ? rowFor.lists : null;
-    if(clearEmail) roster[clearEmail].lists = null;
-
     note.className = "saveNote"; note.textContent = "Saving…";
     db.collection("assignments").doc(uid).set(body, { merge:true })
-      .then(function(){
-        if(!clearEmail) return null;
-        return db.collection("roster").doc(clearEmail)
-                 .set({ lists: null, updatedAt: Date.now() }, { merge:true });
-      })
       .then(function(){
         // Keep the named-period list in step, so a period invented in this
         // box shows up in the Periods tab straight away.
@@ -1359,339 +1336,71 @@
       })
       .catch(function(){
         if(before) assignments[uid] = before; else delete assignments[uid];
-        if(clearEmail) roster[clearEmail].lists = rowBefore;
         note.className = "saveNote err"; note.textContent = "Didn't save — check the network and try again.";
       });
   }
 
-  /* ---------------- the sequence editor ----------------
-     A period's course, as an ordered list of steps. Edits are held in
-     `seqDraft` until Save, the same way the Assign board holds its cells,
-     because a course is thirty-odd decisions and saving each one as it is
-     made would mean a half-built course reaching students mid-lesson.
-
-     Steps are drag-to-reorder AND have ↑/↓ buttons. The drag is what
-     everybody reaches for; the buttons are what works on a Chromebook
-     trackpad, with a keyboard, and for anybody who has ever tried to drag
-     a row past the bottom of a scrolling panel. */
-  var seqDraft = {};      // period → steps, only while being edited
-
-  function seqSteps(p){
-    if(Object.prototype.hasOwnProperty.call(seqDraft, p)) return seqDraft[p];
-    return sequenceStored(p) || [];
-  }
-  function seqDirty(p){ return Object.prototype.hasOwnProperty.call(seqDraft, p); }
-
-  function stepLabel(ids){
-    return (ids || []).map(function(id){
-      var l = WordLists.byId(id);
-      if(!l) return id;
-      var m = WordLists.modeOf(l.mode);
-      return '<span class="seqChip">' + esc(l.short || l.listTitle) + " " + esc(m ? m.icon : "") + "</span>";
-    }).join("");
-  }
-
-  function sequenceEditorHtml(p){
-    var steps = seqSteps(p);
-    var on = sequenceIsOn(p);
-    var rows = steps.map(function(ids, i){
-      return '<li class="seqStep" draggable="true" data-seq="' + esc(p) + '" data-step="' + i + '">' +
-        '<span class="seqNum">' + (i + 1) + "</span>" +
-        '<span class="seqIds">' + (ids.length ? stepLabel(ids) : '<span class="muted tiny">empty</span>') + "</span>" +
-        '<span class="seqTools">' +
-          '<button class="pkMini" data-seqmove="up" title="Move up">↑</button>' +
-          '<button class="pkMini" data-seqmove="down" title="Move down">↓</button>' +
-          '<button class="pkMini" data-seqmove="drop" title="Remove this step">✕</button>' +
-        "</span></li>";
-    }).join("");
-
-    return '<div class="seqBox" data-seqbox="' + esc(p) + '">' +
-      '<div class="pkHead"><h3>Sequence</h3>' +
-        '<span class="muted tiny">' + (steps.length ? steps.length + " steps" : "none yet") + "</span>" +
-        '<span class="pkTools">' +
-          '<button class="pkMini" data-seqon="' + esc(p) + '">' + (on ? "On" : "Off") + "</button>" +
-          '<button class="pkMini" data-seqdefault="' + esc(p) + '">Reset to default</button>' +
-          '<button class="pkMini" data-seqadd="' + esc(p) + '">Add a step…</button>' +
-        "</span></div>" +
-      '<p class="note" style="margin:0 0 10px">An ordered course. A student sees every step up to and ' +
-      "including the one they are on, and the site opens the next one when the current one is " +
-      Math.round(SOLID_ENOUGH * 100) + "&nbsp;% solid — nothing is written and nobody has to notice. " +
-      "While a sequence is on it replaces this period's flat list.</p>" +
-      (steps.length ? '<ol class="seqList">' + rows + "</ol>"
-                    : '<div class="empty">No sequence yet. <b>Reset to default</b> builds the standard course.</div>') +
-      '<div class="rowActions">' +
-        '<button class="btn sm" data-seqsave="' + esc(p) + '"' + (seqDirty(p) ? "" : " disabled") + ">Save sequence</button>" +
-        '<span class="saveNote" data-seqnote="' + esc(p) + '"></span>' +
-      "</div></div>";
-  }
-
-  function redrawSequence(p){
-    var box = document.querySelector('[data-seqbox="' + cssq(p) + '"]');
-    if(!box) return;
-    var holder = document.createElement("div");
-    holder.innerHTML = sequenceEditorHtml(p);
-    box.parentNode.replaceChild(holder.firstChild, box);
-    bindSequenceEditors();
-  }
-
-  function bindSequenceEditors(){
-    Array.prototype.forEach.call(document.querySelectorAll("[data-seqbox]"), function(box){
-      var p = box.getAttribute("data-seqbox");
-      if(box.dataset.bound) return;
-      box.dataset.bound = "1";
-
-      box.addEventListener("click", function(ev){
-        var t2 = ev.target;
-        if(!t2 || !t2.getAttribute) return;
-
-        if(t2.getAttribute("data-seqdefault") !== null){
-          seqDraft[p] = WordLists.defaultSequence();
-          return redrawSequence(p);
-        }
-        if(t2.getAttribute("data-seqon") !== null){
-          // The switch saves on its own: it is one bit, and holding it in
-          // a draft alongside the steps would mean "Off" not taking
-          // effect until somebody pressed Save on something else.
-          saveSequenceOn(p, !sequenceIsOn(p));
-          return;
-        }
-        if(t2.getAttribute("data-seqadd") !== null){
-          return openStepPicker(p);
-        }
-        if(t2.getAttribute("data-seqsave") !== null){
-          return saveSequence(p);
-        }
-        var move = t2.getAttribute("data-seqmove");
-        if(move){
-          var li = t2;
-          while(li && !li.getAttribute("data-step")) li = li.parentNode;
-          if(!li) return;
-          var i = parseInt(li.getAttribute("data-step"), 10);
-          var steps = seqSteps(p).slice();
-          if(move === "up" && i > 0){ var a = steps[i-1]; steps[i-1] = steps[i]; steps[i] = a; }
-          else if(move === "down" && i < steps.length - 1){ var b = steps[i+1]; steps[i+1] = steps[i]; steps[i] = b; }
-          else if(move === "drop"){ steps.splice(i, 1); }
-          else return;
-          seqDraft[p] = steps;
-          redrawSequence(p);
-        }
-      });
-
-      // Drag to reorder. dataTransfer carries the index; the drop target
-      // works out where it landed.
-      var dragFrom = -1;
-      box.addEventListener("dragstart", function(ev){
-        var li = ev.target;
-        if(!li || !li.getAttribute || li.getAttribute("data-step") === null) return;
-        dragFrom = parseInt(li.getAttribute("data-step"), 10);
-        li.classList.add("dragging");
-        try{ ev.dataTransfer.setData("text/plain", String(dragFrom)); ev.dataTransfer.effectAllowed = "move"; }catch(e){}
-      });
-      box.addEventListener("dragend", function(ev){
-        if(ev.target && ev.target.classList) ev.target.classList.remove("dragging");
-      });
-      box.addEventListener("dragover", function(ev){ ev.preventDefault(); });
-      box.addEventListener("drop", function(ev){
-        ev.preventDefault();
-        var li = ev.target;
-        while(li && li.getAttribute && li.getAttribute("data-step") === null) li = li.parentNode;
-        if(!li || !li.getAttribute) return;
-        var to = parseInt(li.getAttribute("data-step"), 10);
-        var from = dragFrom;
-        try{ from = parseInt(ev.dataTransfer.getData("text/plain"), 10); }catch(e){}
-        if(!isFinite(from) || !isFinite(to) || from === to) return;
-        var steps = seqSteps(p).slice();
-        var moved = steps.splice(from, 1)[0];
-        steps.splice(to, 0, moved);
-        seqDraft[p] = steps;
-        redrawSequence(p);
-      });
-    });
-  }
-
-  // One step, built with the same picker every other assignment uses.
-  function openStepPicker(p){
-    closeBulk();
-    bulkWrap = document.createElement("div");
-    bulkWrap.className = "abModal";
-    bulkWrap.innerHTML =
-      '<div class="abModalBox" role="dialog" aria-modal="true">' +
-        "<h2>Add a step to period " + esc(p) + "</h2>" +
-        '<p class="note">Everything ticked here unlocks together, and stays unlocked. ' +
-        "The step goes on the end; drag it where it belongs.</p>" +
-        pickerHtml("bulk", [], false) +
-        '<div class="rowActions">' +
-          '<button class="btn sm" id="abApply">Add the step</button>' +
-          '<button class="btn ghost sm" id="abCancel">Cancel</button>' +
-        "</div></div>";
-    document.body.appendChild(bulkWrap);
-    bindPickers(bulkWrap);
-    bulkWrap.addEventListener("click", function(e){ if(e.target === bulkWrap) closeBulk(); });
-    document.getElementById("abCancel").addEventListener("click", closeBulk);
-    document.getElementById("abApply").addEventListener("click", function(){
-      var ids = scopeSelection("bulk");
-      if(ids.length){
-        seqDraft[p] = seqSteps(p).slice().concat([ids]);
-      }
-      closeBulk();
-      redrawSequence(p);
-    });
-  }
-
-  function seqNote(p, cls, text){
-    var el = document.querySelector('[data-seqnote="' + cssq(p) + '"]');
-    if(!el) return;
-    el.className = "saveNote" + (cls ? " " + cls : "");
-    el.textContent = text;
-  }
-
-  function saveSequence(p){
-    var steps = seqSteps(p).filter(function(s){ return s && s.length; });
-    var before = classCfg.sequences[p];
-    classCfg.sequences[p] = steps;
-    var patch = {}; patch[p] = steps;
-    seqNote(p, "", "Saving…");
-    db.collection("config").doc("class").set({ sequences: patch }, { merge:true })
-      .then(function(){
-        delete seqDraft[p];
-        redrawSequence(p);
-        seqNote(p, "ok", "Saved.");
-      })
-      .catch(function(){
-        classCfg.sequences[p] = before;
-        seqNote(p, "err", "Didn't save — check the network and try again.");
-      });
-  }
-
-  function saveSequenceOn(p, on){
-    var before = classCfg.sequenceOn[p];
-    classCfg.sequenceOn[p] = on;
-    var patch = {}; patch[p] = on;
-    seqNote(p, "", "Saving…");
-    db.collection("config").doc("class").set({ sequenceOn: patch }, { merge:true })
-      .then(function(){ render(); })
-      .catch(function(){
-        classCfg.sequenceOn[p] = before;
-        seqNote(p, "err", "Didn't save — check the network and try again.");
-      });
-  }
-
-  /* ---------------- periods & lists ---------------- */
+  /* ---------------- periods ----------------
+     Importing the roster, naming periods, and who is in which. A period
+     is a label that groups students on this dashboard; it never decides
+     what a student sees. */
   function renderGroups(){
     var periods = allPeriods();
+    function countIn(p){
+      return students.filter(function(s){ return studentPeriod(s.uid) === p; }).length;
+    }
 
-    var periodPanels = periods.map(function(p){
-      var sel = Array.isArray(classCfg.periodLists[p]) ? classCfg.periodLists[p] : null;
-      var count = students.filter(function(s){
-        var r = rosterFor(s);
-        return ((assignments[s.uid] || {}).period || (r && r.period)) === p;
-      }).length;
-      var live = !!sequenceOf(p);
-      return '<div class="panel"><h2>Period ' + esc(p) + "</h2>" +
-        '<p class="note">' + count + " student" + (count === 1 ? "" : "s") + " · " +
-        (live ? "running a <b>sequence</b> — the flat list below is ignored while it is on"
-              : sel ? "its own list set" : "following the class default") + "</p>" +
-        pickerHtml("p:" + p, sel, Array.isArray(classCfg.defaultLists) ? false : true) +
-        '<div class="rowActions">' +
-          '<button class="btn sm" data-save="p:' + esc(p) + '">Save period ' + esc(p) + "</button>" +
-          '<button class="btn ghost sm" data-clear="p:' + esc(p) + '">Use class default</button>' +
-          '<span class="saveNote" data-note="p:' + esc(p) + '"></span>' +
-        "</div>" +
-        sequenceEditorHtml(p) +
-        "</div>";
-    }).join("");
+    var periodPills = periods.map(function(p){
+      var n = countIn(p);
+      return '<span class="pill">Period ' + esc(p) + ' <span class="muted">· ' + n + "</span></span>";
+    }).join(" ");
 
     // rosterRows, not roster: naming it `roster` shadowed the module-level
     // map, and the "N on the roster now" line below counted the characters
     // of this HTML string.
     var rosterRows = students.map(function(s){
-      var a = assignments[s.uid] || {};
       var mine = studentPeriod(s.uid);
       var opts = ['<option value="">—</option>'].concat(periods.map(function(p){
         return '<option value="' + esc(p) + '"' + (mine === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
       })).join("");
       return "<tr><td>" + whoHtml(s) + "</td>" +
-        '<td><select class="sel" data-period-for="' + esc(s.uid) + '">' + opts + "</select></td>" +
-        '<td class="muted tiny">' + (Array.isArray(a.lists) ? "own set: " + esc(WordLists.describeAssignment(a.lists)) : "follows period") + "</td></tr>";
+        '<td><select class="sel" data-period-for="' + esc(s.uid) + '" aria-label="Period for ' + esc(s.name || s.email) + '">' + opts + "</select></td>" +
+        '<td class="listsCell">' + listsCellHtml(effectiveLists(s.uid).ids) + "</td></tr>";
     }).join("");
 
     $("tBody").innerHTML =
-      '<div class="panel"><h2>Class default</h2>' +
-        '<p class="note">What a student gets when neither they nor their period has a list set. ' +
-        "Leave everything ticked and the whole site is open to everyone.</p>" +
-        pickerHtml("default", classCfg.defaultLists, true) +
-        '<div class="rowActions"><button class="btn sm" data-save="default">Save default</button>' +
-        '<span class="saveNote" data-note="default"></span></div>' +
-      "</div>" +
-
       '<div class="panel"><h2>Import a roster</h2>' +
         '<p class="note">Drop or paste whatever your student information system exports. ' +
-        "Students get their period, and their lists, before they ever sign in — so the first day of term " +
-        "isn't a teacher typing thirty names in. Re-importing updates rows and never deletes one.</p>" +
+        "Every student shows up here with their period before they ever sign in. " +
+        "Re-importing updates rows and never deletes one.</p>" +
         '<div class="rowActions"><button class="btn sm" id="tImport">📋 Import roster</button>' +
         '<span class="muted tiny">' + (Object.keys(roster).length
           ? Object.keys(roster).length + " on the roster now"
           : "nothing imported yet") + "</span></div>" +
       "</div>" +
 
-      '<div class="panel"><h2>Add a period</h2>' +
-        '<p class="note">Periods are just labels — “3”, “5”, “Support”. Add one here, then put students in it below.</p>' +
-        '<div class="rowActions"><input class="txt" id="tAddPeriod" placeholder="e.g. 3"> ' +
-        '<button class="btn sm" id="tAddPeriodBtn">Add</button>' +
+      '<div class="panel"><h2>Periods</h2>' +
+        '<p class="note">Periods are labels — “3”, “5”, “Support” — for grouping and filtering students here. ' +
+        "They don't change what anyone sees.</p>" +
+        (periodPills ? '<p class="periodPills">' + periodPills + "</p>" : "") +
+        '<div class="rowActions"><input class="txt" id="tAddPeriod" placeholder="New period, e.g. 3" aria-label="New period name"> ' +
+        '<button class="btn sm" id="tAddPeriodBtn">Add period</button>' +
         '<span class="saveNote" id="tAddNote"></span></div>' +
       "</div>" +
 
-      periodPanels +
-
       (students.length ? '<div class="panel"><h2>Who’s in which period</h2>' +
         '<p class="note">Changes save as soon as you pick.</p>' +
-        '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Period</th><th>Lists</th></tr></thead>' +
+        '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Period</th><th>Games</th></tr></thead>' +
         "<tbody>" + rosterRows + "</tbody></table></div></div>" : "");
 
     $("tImport").addEventListener("click", openImport);
-    bindSequenceEditors();
-
-    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-save]"), function(b){
-      b.addEventListener("click", function(){ saveScope(b.dataset.save, false); });
-    });
-    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-clear]"), function(b){
-      b.addEventListener("click", function(){ saveScope(b.dataset.clear, true); });
-    });
     Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-period-for]"), function(sel){
       sel.addEventListener("change", function(){ setStudentPeriod(sel.dataset.periodFor, sel.value || null); });
     });
     var addBtn = $("tAddPeriodBtn");
     if(addBtn) addBtn.addEventListener("click", addPeriod);
-    bindPickers();
-  }
-
-  /* `null` rather than a deleted field is how "inherit" is stored — see
-     EIStore.effectiveLists, which walks down the chain on anything that
-     isn't an array. It keeps every write a plain merge, with no
-     FieldValue.delete() sentinels to get wrong. */
-  function saveScope(scopeId, clear){
-    var note = document.querySelector('#tBody [data-note="' + cssq(scopeId) + '"]');
-    var lists = clear ? null : scopeSelection(scopeId);
-    var body, undo;
-    if(scopeId === "default"){
-      undo = classCfg.defaultLists;
-      classCfg.defaultLists = lists;
-      body = { defaultLists: lists };
-    } else {
-      var p = scopeId.slice(2);
-      undo = classCfg.periodLists[p];
-      classCfg.periodLists[p] = lists;
-      var pl = {}; pl[p] = lists;
-      body = { periodLists: pl };
-    }
-    if(note){ note.className = "saveNote"; note.textContent = "Saving…"; }
-    db.collection("config").doc("class").set(body, { merge:true })
-      .then(function(){ if(note){ note.className = "saveNote ok"; note.textContent = "Saved."; } render(); })
-      .catch(function(){
-        if(scopeId === "default") classCfg.defaultLists = undo;
-        else classCfg.periodLists[scopeId.slice(2)] = undo;
-        if(note){ note.className = "saveNote err"; note.textContent = "Didn't save."; }
-      });
+    var addBox = $("tAddPeriod");
+    if(addBox) addBox.addEventListener("keydown", function(e){ if(e.key === "Enter") addPeriod(); });
   }
 
   function setStudentPeriod(uid, period){
@@ -1743,23 +1452,17 @@
   /* ════════════════════════════════════════════════════════════════
      the Assign board
 
-     The picker answers "what should THIS student get?" one scope at a
-     time, which is the right shape for a conversation about one student
-     and the wrong shape for the ten minutes at the start of a unit when
-     a teacher is moving a whole class onto List 4. That is what this is:
-     one grid, students down the side and lists across the top, every
-     assignment in the class visible at once and editable in place.
+     The picker on a student's page answers "what should THIS student
+     get?", which is the wrong shape for the ten minutes at the start of a
+     unit when a teacher is moving a whole class onto List 4. That is what
+     this is: one grid, students down the side and lists across the top,
+     every student's games visible at once and editable in place.
 
-     Three things make it work rather than just look busy:
-
-     · Inheritance is visible. A student who follows their period is
-       drawn dashed and grey; a student with their own set is gold. You
-       can see at a glance who has been pulled out of the group, which is
-       the question a differentiated roster actually raises.
-     · Editing is copy-on-write, and says so. Touching a cell on an
-       inheriting student copies their effective set onto them as their
-       own — the same thing the picker has always done on Save — and the
-       row grows a ↺ to hand them back to the group.
+     · A row is exactly what that student sees. There is nothing above it
+       to inherit from, so there is nothing to explain about where a cell
+       came from.
+     · Many at once: tick names, or a whole period at its header, then
+       "Change games" adds, takes away or replaces lists for all of them.
      · Nothing is written until Save. Every edit lands in `draft`, the
        bar at the bottom counts what's pending, and Save commits the lot
        in ONE db.batch(). A teacher reassigning six students should not
@@ -1767,8 +1470,8 @@
      ════════════════════════════════════════════════════════════════ */
 
   var board = {
-    draft: {},        // scope → ids array, or null meaning "follow the parent"
-    sel: {},          // uid → true, for the bulk picker
+    draft: {},        // "s:<uid>" → ids array
+    sel: {},          // uid → true, for the bulk dialog
     collapsed: {},    // family key → true
     period: null,     // filter; null until read from localStorage
     q: ""             // name search
@@ -1796,94 +1499,29 @@
   }
 
   /* ── live values ──────────────────────────────────────────────────
-     The same precedence effectiveLists walks, but reading through the
-     unsaved draft: edit a period and the students following it must
-     redraw immediately, or the board would be lying about what Save is
-     going to do. "own" is the distinction the colours draw — an array
-     of its own, versus null and inheriting. */
-  /* The class default has the same two states every other scope has: a
-     set of its own, or nothing — and "nothing" is not an empty list, it
-     is the open site. Keeping those apart matters twice over. On a fresh
-     install nothing is set, and a row drawn as though it had been
-     configured would be a lie about the one setting the whole precedence
-     chain rests on. And releasing it has to mean "open the site again",
-     not "park everybody": an empty array is a real answer here, and a
-     very different one. */
-  function liveOwnDefault(){
-    if(hasDraft("default")) return board.draft["default"];
-    return Array.isArray(classCfg.defaultLists) ? classCfg.defaultLists : null;
-  }
-  function liveDefault(){
-    var own = liveOwnDefault();
-    return own === null ? WordLists.ids : own;
-  }
-  function liveOwnPeriod(p){
-    var k = "p:" + p;
-    if(hasDraft(k)) return board.draft[k];
-    return Array.isArray(classCfg.periodLists[p]) ? classCfg.periodLists[p] : null;
-  }
-  function livePeriod(p){
-    var own = liveOwnPeriod(p);
-    return own === null ? liveDefault() : own;
-  }
-  function liveOwnStudent(uid){
-    var k = "s:" + uid;
-    if(hasDraft(k)) return board.draft[k];
-    var a = assignments[uid];
-    if(a && Array.isArray(a.lists)) return a.lists;
-    /* A student who hasn't signed in has their own set on their roster
-       row instead of in an assignment — same rung, same board cell,
-       different document. See saveBody. */
-    var r = rosterFor(studentByUid(uid));
-    return (r && Array.isArray(r.lists)) ? r.lists : null;
-  }
-  /* What this student actually has right now, board drafts included.
-     The same walk store.js runs — own → roster → sequence → period →
-     default — so a cell on this board says what the student's home page
-     will say. */
+     What a student has as stored, and what they will have once Save is
+     pressed. Scopes are "s:<uid>" — the board's draft keys — so a cell
+     can name its row without a lookup. */
+  function storedStudent(uid){ return effectiveLists(uid).ids; }
   function liveStudent(uid){
-    var own = liveOwnStudent(uid);
-    if(own !== null) return own;
-    var s = studentByUid(uid);
-    var seq = sequenceStateFor(s);
-    if(seq) return seq.ids;
-    var r = rosterFor(s);
-    var p = (assignments[uid] || {}).period || (r && r.period) || null;
-    return (p != null && p !== "") ? livePeriod(p) : liveDefault();
+    var k = "s:" + uid;
+    return hasDraft(k) ? board.draft[k] : storedStudent(uid);
   }
+  function scopeView(scope){ return liveStudent(scope.slice(2)); }
 
-  function scopeView(scope){
-    if(scope === "default") return liveDefault();
-    if(scope.slice(0,2) === "p:") return livePeriod(scope.slice(2));
-    return liveStudent(scope.slice(2));
-  }
-  function scopeIsOwn(scope){
-    if(scope === "default") return liveOwnDefault() !== null;
-    if(scope.slice(0,2) === "p:") return liveOwnPeriod(scope.slice(2)) !== null;
-    return liveOwnStudent(scope.slice(2)) !== null;
-  }
-  function scopeStored(scope){
-    if(scope === "default") return Array.isArray(classCfg.defaultLists) ? classCfg.defaultLists : null;
-    if(scope.slice(0,2) === "p:"){
-      var v = classCfg.periodLists[scope.slice(2)];
-      return Array.isArray(v) ? v : null;
-    }
-    var a = assignments[scope.slice(2)];
-    return (a && Array.isArray(a.lists)) ? a.lists : null;
-  }
-
-  // Copy-on-write: the set you start editing is the set they already
-  // had, whether they owned it or inherited it.
   function setScope(scope, ids){ board.draft[scope] = ids; }
-  function releaseScope(scope){ board.draft[scope] = null; }
 
   function scopeDirty(scope){
     if(!hasDraft(scope)) return false;
-    var d = board.draft[scope], stored = scopeStored(scope);
-    if(d === null || stored === null) return d !== stored;
-    return !sameIds(d, stored);
+    return !sameIds(board.draft[scope], storedStudent(scope.slice(2)));
   }
   function dirtyScopes(){ return Object.keys(board.draft).filter(scopeDirty); }
+
+  // "3 games" / "nothing yet" — the line under each name on the board.
+  function countLabel(uid){
+    var n = liveStudent(uid).length;
+    return n ? n + (n === 1 ? " game" : " games") : "nothing yet";
+  }
 
   /* ── who's on the board ─────────────────────────────────────────── */
   var NO_PERIOD = " none";     // a filter value no real period can collide with
@@ -1985,56 +1623,20 @@
       var col = cols[i];
       if(!col) return;
       var txt = cellText(scope, col);
+      var spoken = cellSpoken(scope, col);
       td.textContent = txt;
       td.classList.toggle("empty", txt === "—");
-      var own = scopeIsOwn(scope);
-      /* A cell the course decided rather than a person. Dashed like an
-         inherited one, because it IS inherited — from the sequence — and
-         carrying the step it came from, so a teacher looking at a row can
-         see how far along it is without opening anything. */
-      var seq = scope.slice(0,2) === "s:" && !own ? sequenceStateFor(studentByUid(scope.slice(2))) : null;
-      td.classList.toggle("own", own);
-      td.classList.toggle("inherit", !own);
-      td.classList.toggle("seq", !!seq);
-      if(seq && !own && txt !== "—"){
-        td.innerHTML = esc(txt) + '<span class="seqStepNum">step ' + (seq.stepIndex + 1) + "</span>";
-      }
-      // "Ana, Red Words List 2: Cards, Match It (inherited)" — an em dash
-      // and two emoji are not something to hand a screen reader.
-      td.setAttribute("aria-label",
-        (rowName[scope] || scope) + ", " + colName[i] + ": " + cellSpoken(scope, col) +
-        (seq ? " (from the sequence, step " + (seq.stepIndex + 1) + " of " + seq.steps + ")"
-             : own ? "" : " (inherited)"));
+      td.title = colName[i] + ": " + spoken;
+      // "Ana, Red Words List 2: Cards, Match It" — an em dash and two
+      // emoji are not something to hand a screen reader.
+      td.setAttribute("aria-label", (rowName[scope] || scope) + ", " + colName[i] + ": " + spoken);
     });
-    Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-ownpill]"), function(el){
-      el.hidden = !scopeIsOwn(el.dataset.ownpill);
+    Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-count]"), function(el){
+      var uid = el.dataset.count;
+      el.textContent = countLabel(uid);
+      el.classList.toggle("none", !liveStudent(uid).length);
     });
-    Array.prototype.forEach.call(document.querySelectorAll("#abGrid [data-from]"), function(el){
-      el.textContent = fromLabel(el.dataset.from);
-    });
-    paintSaveBar();
-  }
-  // Where a scope's lists come from when it has none of its own.
-  function inheritLabel(scope){
-    if(scope === "default") return "every list, open to everyone";
-    if(scope.slice(0,2) === "p:") return "the class default";
-    var p = studentPeriod(scope.slice(2));
-    return p ? "period " + p : "the class default";
-  }
-  function releaseTitle(scope){
-    return scope === "default"
-      ? "Clear the class default — back to every list, open to everyone"
-      : "Hand this back to " + inheritLabel(scope);
-  }
-  // The line under a row's name, which has to say something different for
-  // the one scope that has nothing above it to fall back to.
-  function fromLabel(scope){
-    if(scope === "default"){
-      return scopeIsOwn(scope)
-        ? "what everyone gets unless something below overrides it"
-        : "nothing set — everyone gets every list";
-    }
-    return scopeIsOwn(scope) ? "own set" : "follows " + inheritLabel(scope);
+        paintSaveBar();
   }
   function paintSaveBar(){
     var n = dirtyScopes().length;
@@ -2174,17 +1776,13 @@
   // is worth putting on. Not 100%: one stubborn word — a name, a word
   // whose recording is poor — should not be able to hold a student on a
   // list for a term. Four in five, and the fifth keeps coming round.
-  // Aliased, not redefined: the student's own browser decides when a
-  // list is finished using the same number, and two copies of it is two
-  // answers to "has this student moved on".
+  // Aliased, not redefined: adaptive.js owns the number beside the
+  // function that measures against it.
   var SOLID_ENOUGH = Adaptive.solidEnough;
 
   /* How far through one list a student is. `share` comes from
-     Adaptive.listShare — the same function Adaptive.unlocked uses to
-     decide whether a sequence step is finished — so the suggestion this
-     dashboard makes and the advance the student's own browser performs
-     can never disagree about what "done" means. tests.html runs both
-     over the same stats to keep it that way.
+     Adaptive.listShare, so the bar a suggestion is measured against and
+     the numbers printed beside it are the same arithmetic.
 
      Solid AND at pace: a word a student gets right after three seconds
      of decoding is not one they can move on from, and suggesting the
@@ -2206,53 +1804,6 @@
   }
 
   function listTotal(listId){ return WordLists.wordsOf(listId).length; }
-
-  /* ---------------- sequences ----------------
-     A period may run an ordered course instead of a flat list. Where it
-     does, the site advances the student itself — Adaptive.unlocked
-     computes their position from their own stats, here and in their own
-     browser, from the same function. Nothing is written to move anybody
-     on, which is why students can't self-advance: they never write
-     assignments/{uid} at all. */
-  function sequenceOf(period){
-    var steps = classCfg.sequences && classCfg.sequences[period];
-    if(!Array.isArray(steps) || !steps.length) return null;
-    var on = classCfg.sequenceOn || {};
-    if(Object.prototype.hasOwnProperty.call(on, period) && on[period] === false) return null;
-    return steps;
-  }
-
-  // Whether a period has a course at all, on or off — for the editor,
-  // which has to show a switched-off sequence in order to switch it on.
-  function sequenceStored(period){
-    var steps = classCfg.sequences && classCfg.sequences[period];
-    return Array.isArray(steps) && steps.length ? steps : null;
-  }
-  function sequenceIsOn(period){
-    var on = classCfg.sequenceOn || {};
-    if(Object.prototype.hasOwnProperty.call(on, period)) return on[period] !== false;
-    return !!sequenceStored(period);
-  }
-
-  // Where one student is in their period's course, or null.
-  function sequenceStateFor(s){
-    if(!s) return null;
-    var r = rosterFor(s);
-    var period = (assignments[s.uid] && assignments[s.uid].period) || (r && r.period) || null;
-    var steps = sequenceOf(period);
-    if(!steps) return null;
-    var startAt = 0;
-    if(r && r.start){
-      // Same placement rule as the student's own page: a start the course
-      // doesn't literally contain still lands on that list's earliest rung.
-      var at = WordLists.startStepOf(steps, r.start);
-      if(at >= 0) startAt = at;
-    }
-    var res = Adaptive.unlocked(steps, s.stats || {}, startAt, listTotal);
-    res.period = period;
-    res.steps = steps.length;
-    return res;
-  }
 
   /* Pure. Given one student's stats and the lists they actually have,
      which families are they ready to move up in? Only families with more
@@ -2295,15 +1846,10 @@
   }
 
   /* Every suggestion on the board right now, for the students the filter
-     leaves visible — the same bound the column toggles work inside.
-
-     A student whose period runs a sequence is left out: the site has
-     already moved them on, and a strip suggesting what has just happened
-     by itself is a strip nobody reads twice. */
+     leaves visible — the same bound the column toggles work inside. */
   function boardSuggestions(){
     var out = [];
     visibleStudents().forEach(function(s){
-      if(sequenceStateFor(s)) return;   // the site already moves them on
       readyToAdvance(s.stats, liveStudent(s.uid)).forEach(function(sug){
         sug.uid = s.uid;
         sug.name = s.name || s.email || s.uid;
@@ -2350,8 +1896,8 @@
     sugs.forEach(function(g){ if(!who[g.uid]){ who[g.uid] = true; n++; } });
     return '<div class="panel abReady"><h2>Ready to move up</h2>' +
       '<p class="note">' + n + (n === 1 ? " student has" : " students have") +
-      " finished a list and have nothing after it. Adding one puts it in the board below with everything else — " +
-      "it isn't written until you Save, and it leaves the finished list on them so those words keep coming round.</p>" +
+      " finished a list. “Add it” puts the next one on the board below — it isn't saved until you press Save, " +
+      "and the finished list stays so those words keep coming round.</p>" +
       '<ul class="abSugs">' + rows + "</ul>" +
       (sugs.length > 1 ? '<div class="rowActions"><button class="btn sm" id="abSugAll">Add all ' + sugs.length + "</button></div>" : "") +
       "</div>";
@@ -2425,70 +1971,74 @@
         return '<td class="abCell" data-cell="' + esc(scope) + "|" + i + '" tabindex="0"></td>';
       }).join("");
     }
-    function scopeRow(scope, cls, label, meta, canRelease){
-      return '<tr class="' + cls + '" data-row="' + esc(scope) + '">' +
-        '<th class="abName"><div class="abNameIn">' +
-          '<div class="abLabel">' + label + "</div>" +
-          (meta ? '<div class="abMeta">' + meta + "</div>" : "") +
-          (canRelease
-            ? '<button type="button" class="abPill" data-release="' + esc(scope) + '" data-ownpill="' + esc(scope) +
-              '" title="' + esc(releaseTitle(scope)) + '" hidden>own ↺</button>'
-            : "") +
-        "</div></th>" + cellsFor(scope) + "</tr>";
-    }
     function studentRow(s){
       var scope = "s:" + s.uid;
       var n = noteOf(s.uid);
       var name = esc(s.name || s.email || s.uid) +
         (n ? ' <span class="noteDot" title="' + esc(n) + '">✎</span>' : "");
-      var label = '<label class="abPick"><input type="checkbox" data-pick="' + esc(s.uid) + '"' +
-        (board.sel[s.uid] ? " checked" : "") + "><span>" + name + "</span></label>";
-      return scopeRow(scope, "abStudent", label, '<span class="abFrom" data-from="' + esc(scope) + '"></span>', true);
+      return '<tr class="abStudent' + (s.pending ? " pending" : "") + '" data-row="' + esc(scope) + '">' +
+        '<th class="abName"><div class="abNameIn">' +
+          '<label class="abPick"><input type="checkbox" data-pick="' + esc(s.uid) + '"' +
+            (board.sel[s.uid] ? " checked" : "") + '><span class="abLabel">' + name + "</span></label>" +
+          '<div class="abMeta"><span class="abGames" data-count="' + esc(s.uid) + '"></span>' +
+            (s.pending ? ' · <span class="muted">not signed in yet</span>' : "") + "</div>" +
+        "</div></th>" + cellsFor(scope) + "</tr>";
     }
+    /* A period's heading row. Its checkbox ticks every student shown
+       under it, which is how "give period 3 List 4" becomes two clicks
+       and a choice rather than thirty. */
+    function groupRow(key, label, kids){
+      var allOn = kids.length && kids.every(function(s){ return board.sel[s.uid]; });
+      return '<tr class="abGroup"><th class="abName"><div class="abNameIn">' +
+          '<label class="abPick"><input type="checkbox" data-pickgroup="' + esc(key) + '"' + (allOn ? " checked" : "") +
+            ' aria-label="Select everyone in ' + esc(label) + '"><span class="abLabel">' + esc(label) + "</span></label>" +
+          '<div class="abMeta">' + kids.length + (kids.length === 1 ? " student" : " students") + "</div>" +
+        '</div></th><td colspan="' + cols.length + '"></td></tr>';
+    }
+    var groups = [];   // [{ key, kids }] — what each heading's checkbox reaches
 
-    var rows = scopeRow("default", "abDefault", "Class default",
-      '<span class="abFrom" data-from="default"></span>', true);
-
+    var rows = "";
     periods.filter(function(p){
       return boardPeriod() === "" || boardPeriod() === p;
     }).forEach(function(p){
       var kids = vis.filter(function(s){ return studentPeriod(s.uid) === p; });
-      // An empty period is worth a row only if it has a set of its own to
-      // show; otherwise it's a label with nothing under it.
-      if(!kids.length && !Array.isArray(classCfg.periodLists[p]) && boardPeriod() === "") return;
-      rows += scopeRow("p:" + p, "abPeriod", "Period " + esc(p),
-        kids.length + (kids.length === 1 ? " student" : " students"), true);
-      rows += kids.map(studentRow).join("");
+      if(!kids.length) return;
+      groups.push({ key: p, kids: kids });
+      rows += groupRow(p, "Period " + p, kids) + kids.map(studentRow).join("");
     });
 
     var loose = vis.filter(function(s){ return studentPeriod(s.uid) === null; });
     if(loose.length && (boardPeriod() === "" || boardPeriod() === NO_PERIOD)){
-      rows += '<tr class="abGroup"><th class="abName"><div class="abNameIn">' +
-        '<div class="abLabel">No period yet</div>' +
-        '<div class="abMeta">following the class default</div></div></th>' +
-        '<td colspan="' + cols.length + '"></td></tr>';
-      rows += loose.map(studentRow).join("");
+      groups.push({ key: NO_PERIOD, kids: loose });
+      rows += groupRow(NO_PERIOD, "No period yet", loose) + loose.map(studentRow).join("");
+    }
+    if(!rows){
+      rows = '<tr><td colspan="' + (cols.length + 1) + '" class="muted" style="padding:18px">Nobody matches that.</td></tr>';
     }
 
     var nSel = Object.keys(board.sel).filter(function(u){ return board.sel[u] && visUid[u]; }).length;
+    var bare = vis.filter(function(s){ return !liveStudent(s.uid).length; }).length;
     var sugs = boardSuggestions();
 
     $("tBody").innerHTML =
       suggestionsHtml(sugs) +
-      '<div class="panel abPanel"><h2>Assign</h2>' +
-        '<p class="note">Every assignment in the class at once. A <b>dashed grey</b> cell is inherited — the student is following ' +
-        'their period, or the period is following the class default. A <b>gold</b> cell is a set of their own. ' +
-        'Change any cell on someone who is inheriting and they get their own copy of what they already had, ' +
-        'which is exactly what saving the picker on their page has always done; the <b>own ↺</b> button hands them back. ' +
-        "Nothing is written until you press Save.</p>" +
+      '<div class="panel abPanel"><h2>Assign games</h2>' +
+        '<p class="note">Each student sees only what is in their row. ' +
+        "<b>Click a cell</b> to choose how they play that list. " +
+        "To change many students at once, <b>tick their names</b> — or a whole period — and press <b>Change games</b>. " +
+        "Nothing is saved until you press <b>Save</b>.</p>" +
+        legendHtml() +
 
         '<div class="abTools">' +
-          '<select class="sel" id="abPeriod">' + filterOpts + "</select>" +
-          '<input class="txt" id="abQ" placeholder="Find a student" value="' + esc(board.q) + '" style="width:190px">' +
-          '<button class="btn ghost sm" id="abBulk"' + (nSel ? "" : " disabled") + ">Set lists for " + nSel + " selected…</button>" +
-          '<label class="check abAll"><input type="checkbox" id="abSelAll">' +
+          '<select class="sel" id="abPeriod" aria-label="Show period">' + filterOpts + "</select>" +
+          '<input class="txt" id="abQ" placeholder="Find a student" aria-label="Find a student" value="' + esc(board.q) + '" style="width:190px">' +
+          '<label class="check abAll"><input type="checkbox" id="abSelAll"' + (vis.length && nSel === vis.length ? " checked" : "") + ">" +
             "<span>Select all " + vis.length + " shown</span></label>" +
+          '<button class="btn sm" id="abBulk"' + (nSel ? "" : " disabled") + ">Change games for " + nSel + " selected…</button>" +
+          (nSel ? '<button class="btn ghost sm" id="abSelNone">Clear selection</button>' : "") +
         "</div>" +
+        (bare ? '<p class="abWarn">' + bare + (bare === 1 ? " student" : " students") +
+          " shown " + (bare === 1 ? "has" : "have") + " no games yet — their home page is empty.</p>" : "") +
 
         '<div class="abScroll"><table class="abGrid" id="abGrid">' +
           '<thead><tr><th class="abName abCorner" rowspan="2">Student</th>' + famHead + "</tr>" +
@@ -2505,7 +2055,7 @@
       "</div>";
 
     paintCells();
-    bindAssign(cols);
+    bindAssign(cols, groups);
     bindSuggestions(sugs);
   }
 
@@ -2525,7 +2075,7 @@
     });
   }
 
-  function bindAssign(cols){
+  function bindAssign(cols, groups){
     var grid = $("abGrid");
 
     grid.addEventListener("click", function(e){
@@ -2539,13 +2089,8 @@
       }
       var colBtn = t.closest ? t.closest("[data-col]") : null;
       if(colBtn) return columnToggle(cols[Number(colBtn.dataset.col)]);
-      var rel = t.closest ? t.closest("[data-release]") : null;
-      if(rel){
-        releaseScope(rel.dataset.release);
-        closePop();
-        return paintCells();
-      }
-      if(t.dataset && t.dataset.pick !== undefined) return;   // the row's own checkbox
+      // A row's or a period's own checkbox, or the name beside it.
+      if(t.closest && t.closest(".abPick")) return;
       var cell = t.closest ? t.closest("[data-cell]") : null;
       if(!cell) return;
       var parts = cell.dataset.cell.split("|");
@@ -2575,8 +2120,8 @@
         cell.click();
         return;
       }
-      // Rows that actually hold cells: the "No period yet" heading is a
-      // row too, and arrowing down should skip straight over it.
+      // Rows that actually hold cells: a period's heading is a row too,
+      // and arrowing down should skip straight over it.
       var rows = Array.prototype.filter.call(grid.querySelectorAll("tbody tr"), function(tr){
         return !!tr.querySelector("[data-cell]");
       });
@@ -2610,9 +2155,16 @@
 
     grid.addEventListener("change", function(e){
       var cb = e.target;
-      if(!cb.dataset || cb.dataset.pick === undefined) return;
-      board.sel[cb.dataset.pick] = cb.checked;
-      renderAssign();
+      if(!cb.dataset) return;
+      if(cb.dataset.pick !== undefined){
+        board.sel[cb.dataset.pick] = cb.checked;
+        return renderAssign();
+      }
+      if(cb.dataset.pickgroup !== undefined){
+        var g = groups.filter(function(x){ return x.key === cb.dataset.pickgroup; })[0];
+        if(g) g.kids.forEach(function(s){ board.sel[s.uid] = cb.checked; });
+        return renderAssign();
+      }
     });
 
     $("abPeriod").addEventListener("change", function(){ setBoardPeriod(this.value); closePop(); renderAssign(); });
@@ -2642,6 +2194,10 @@
     // somebody else's row.
     document.querySelector(".abScroll").addEventListener("scroll", closePop, { passive:true });
     $("abBulk").addEventListener("click", openBulk);
+    if($("abSelNone")) $("abSelNone").addEventListener("click", function(){
+      board.sel = {};
+      renderAssign();
+    });
     $("abDiscard").addEventListener("click", function(){
       board.draft = {};
       closePop();
@@ -2661,11 +2217,24 @@
     closePop();
   }, true);
 
-  /* ── the bulk picker ──────────────────────────────────────────────
-     Tick a few students, press the button, and set all of them at once
-     with the same picker every other scope uses. Seeded from the first
-     selected student's effective set, because "these four should have
-     what she has" is the request this exists to answer. */
+  /* ── changing many at once ─────────────────────────────────────────
+     Tick students, press the button, tick some lists, and say what to do
+     with them: add them to what each student already has, take them
+     away, or replace each student's games outright. "Add" is the common
+     case — moving a period onto List 4 shouldn't wipe the oi/oy cards
+     half of them are still on — so it comes first and starts from an
+     empty picker rather than from somebody's existing set. */
+  function bulkApply(current, ids, how){
+    var out = (current || []).slice();
+    if(how === "replace") return ids.slice();
+    ids.forEach(function(id){
+      var i = out.indexOf(id);
+      if(how === "add"){ if(i === -1) out.push(id); }
+      else if(how === "remove"){ if(i !== -1) out.splice(i, 1); }
+    });
+    return out;
+  }
+
   var bulkWrap = null;
   function closeBulk(){
     if(bulkWrap && bulkWrap.parentNode) bulkWrap.parentNode.removeChild(bulkWrap);
@@ -2675,38 +2244,45 @@
     var uids = visibleStudents().map(function(s){ return s.uid; }).filter(function(u){ return board.sel[u]; });
     if(!uids.length) return;
     closeBulk();
-    var seed = liveStudent(uids[0]);
     var names = uids.map(function(u){
       var s = studentByUid(u);
       return s ? (s.name || s.email) : u;
     });
+    var who = uids.length + (uids.length === 1 ? " student" : " students");
 
     bulkWrap = document.createElement("div");
     bulkWrap.className = "abModal";
     bulkWrap.innerHTML =
-      '<div class="abModalBox" role="dialog" aria-modal="true">' +
-        "<h2>Set lists for " + uids.length + (uids.length === 1 ? " student" : " students") + "</h2>" +
+      '<div class="abModalBox" role="dialog" aria-modal="true" aria-labelledby="abBulkTitle">' +
+        '<h2 id="abBulkTitle">Change games for ' + who + "</h2>" +
         '<p class="note">' + esc(names.slice(0, 6).join(", ")) + (names.length > 6 ? " and " + (names.length - 6) + " more" : "") +
-        ". Starting from what <b>" + esc(names[0]) + "</b> has now. Applying makes this each of their own set; " +
-        "it still isn't written until you Save the board.</p>" +
-        pickerHtml("bulk", seed, true) +
-        '<div class="rowActions">' +
-          '<button class="btn sm" id="abApply">Apply to ' + uids.length + "</button>" +
+        ". Tick the games, then choose what to do with them.</p>" +
+        pickerHtml("bulk", []) +
+        '<div class="rowActions stickyActions">' +
+          '<button class="btn sm" data-bulk="add">Add to what they have</button>' +
+          '<button class="btn ghost sm" data-bulk="remove">Take these away</button>' +
+          '<button class="btn ghost sm" data-bulk="replace">Replace all their games</button>' +
           '<button class="btn ghost sm" id="abCancel">Cancel</button>' +
+          '<span class="saveNote err" id="abBulkNote"></span>' +
         "</div>" +
+        '<p class="note tiny">This changes the board. Nothing is saved until you press Save.</p>' +
       "</div>";
     document.body.appendChild(bulkWrap);
     bindPickers(bulkWrap);
     bulkWrap.addEventListener("click", function(e){
-      if(e.target === bulkWrap) closeBulk();
+      if(e.target === bulkWrap) return closeBulk();
+      var b = e.target.closest ? e.target.closest("[data-bulk]") : null;
+      if(!b) return;
+      var ids = scopeSelection("bulk");
+      if(!ids.length){
+        document.getElementById("abBulkNote").textContent = "Tick at least one game first.";
+        return;
+      }
+      uids.forEach(function(u){ setScope("s:" + u, bulkApply(liveStudent(u), ids, b.dataset.bulk)); });
+      closeBulk();
+      renderAssign();
     });
     document.getElementById("abCancel").addEventListener("click", closeBulk);
-    document.getElementById("abApply").addEventListener("click", function(){
-      var ids = scopeSelection("bulk");
-      uids.forEach(function(u){ setScope("s:" + u, ids.slice()); });
-      closeBulk();
-      paintCells();
-    });
   }
 
   /* ── saving ───────────────────────────────────────────────────────
@@ -2716,47 +2292,21 @@
      exactly as it was, with the draft intact so they can retry without
      re-ticking anything. */
   /* What the pending edits amount to on the wire, as data rather than as
-     calls: one `assignments/{uid}` merge per changed student, and at most
-     ONE `config/class` merge however many periods and the default were
-     touched. Pure, and separate from saveBoard, because the shape of
-     these two writes is the part that has to be right — a stray field in
-     the student body would overwrite a period, and a second config write
-     would defeat the batch. `now` is a parameter so a test can pin it. */
+     calls: one `assignments/{uid}` merge per changed student, or — for a
+     student who hasn't signed in yet and so has no uid — one merge onto
+     their roster row, which store.js reads on the first sign-in. Pure, and
+     separate from saveBoard, because the shape of these writes is the part
+     that has to be right: a stray field in the student body would
+     overwrite their period. `now` is a parameter so a test can pin it. */
   function saveBody(scopes, now){
-    var out = { students: {}, roster: {}, config: null };
-    var periodPatch = {}, touchedCfg = false;
+    var out = { students: {}, roster: {} };
     scopes.forEach(function(scope){
-      var val = board.draft[scope];
-      if(scope === "default"){
-        out.config = out.config || {};
-        out.config.defaultLists = val;
-        touchedCfg = true;
-      } else if(scope.slice(0,2) === "p:"){
-        periodPatch[scope.slice(2)] = val;
-        touchedCfg = true;
-      } else if(isPending(scope.slice(2))){
-        // No uid yet, so the lists ride on the roster row until there is
-        // one. Same two fields, different collection.
-        out.roster[emailOfPending(scope.slice(2))] = { lists: val, updatedAt: now };
-      } else {
-        // These two fields and no others: the student's period lives in
-        // the same document and must survive the write.
-        var uid = scope.slice(2);
-        out.students[uid] = { lists: val, updatedAt: now };
-        /* Clearing the lists of a student who was placed while still
-           pending has to clear their roster row as well — the walk falls
-           through to it, so an assignment of null on its own changes
-           nothing they can see. */
-        if(val === null){
-          var row = rosterFor(studentByUid(uid));
-          if(row && Array.isArray(row.lists)) out.roster[row.email] = { lists: null, updatedAt: now };
-        }
-      }
+      var uid = scope.slice(2), val = board.draft[scope];
+      if(isPending(uid)) out.roster[emailOfPending(uid)] = { lists: val, updatedAt: now };
+      // These two fields and no others: the period lives in the same
+      // document and must survive the write.
+      else out.students[uid] = { lists: val, updatedAt: now };
     });
-    if(touchedCfg){
-      out.config = out.config || {};
-      if(Object.keys(periodPatch).length) out.config.periodLists = periodPatch;
-    }
     return out;
   }
 
@@ -2764,54 +2314,25 @@
     var scopes = dirtyScopes();
     if(!scopes.length) return;
     var note = $("abNote");
-    var undo = { def: classCfg.defaultLists, periods: {}, students: {}, roster: {} };
+    var undo = { students: {}, roster: {} };
     var body = saveBody(scopes, Date.now());
     var batch = db.batch();
 
     // Local state moves first, so the board redraws without waiting on
     // school Wi-Fi; `undo` is what puts it all back if the batch fails.
-    scopes.forEach(function(scope){
-      var val = board.draft[scope];
-      if(scope === "default"){
-        classCfg.defaultLists = val;
-      } else if(scope.slice(0,2) === "p:"){
-        var p = scope.slice(2);
-        undo.periods[p] = classCfg.periodLists[p];
-        classCfg.periodLists[p] = val;
-      } else {
-        var uid = scope.slice(2);
-        /* A student who hasn't signed in has no uid to write an
-           assignment against, so their lists go on their roster row and
-           store.js reads them from there on the first sign-in. Same
-           board, same cell, different document. */
-        if(isPending(uid)){
-          var em = emailOfPending(uid);
-          undo.roster[em] = roster[em] ? JSON.parse(JSON.stringify(roster[em])) : null;
-          if(!roster[em]) roster[em] = { email: em };
-          roster[em].lists = val;
-        } else {
-          undo.students[uid] = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
-          var a = assignments[uid] || (assignments[uid] = {});
-          a.lists = val;
-          a.updatedAt = body.students[uid].updatedAt;
-          /* saveBody clears the roster row too where the student still
-             has one; mirror that locally so the board redraws from the
-             same state the batch is about to write. */
-          var rem = rosterFor(studentByUid(uid));
-          if(rem && body.roster[rem.email]){
-            undo.roster[rem.email] = JSON.parse(JSON.stringify(roster[rem.email]));
-            roster[rem.email].lists = null;
-          }
-        }
-      }
-    });
     Object.keys(body.students).forEach(function(uid){
+      undo.students[uid] = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
+      var a = assignments[uid] || (assignments[uid] = {});
+      a.lists = body.students[uid].lists;
+      a.updatedAt = body.students[uid].updatedAt;
       batch.set(db.collection("assignments").doc(uid), body.students[uid], { merge:true });
     });
-    Object.keys(body.roster).forEach(function(email){
-      batch.set(db.collection("roster").doc(email), body.roster[email], { merge:true });
+    Object.keys(body.roster).forEach(function(em){
+      undo.roster[em] = roster[em] ? JSON.parse(JSON.stringify(roster[em])) : null;
+      if(!roster[em]) roster[em] = { email: em };
+      roster[em].lists = body.roster[em].lists;
+      batch.set(db.collection("roster").doc(em), body.roster[em], { merge:true });
     });
-    if(body.config) batch.set(db.collection("config").doc("class"), body.config, { merge:true });
 
     if(note){ note.className = "saveNote"; note.textContent = "Saving…"; }
     batch.commit().then(function(){
@@ -2825,8 +2346,6 @@
       if(bar) bar.hidden = false;
       setTimeout(paintSaveBar, 2500);
     }).catch(function(){
-      classCfg.defaultLists = undo.def;
-      for(var p in undo.periods) classCfg.periodLists[p] = undo.periods[p];
       for(var u in undo.students){
         if(undo.students[u]) assignments[u] = undo.students[u]; else delete assignments[u];
       }
@@ -3006,8 +2525,8 @@
   }
 
   /* ── the testing seam ─────────────────────────────────────────────
-     The board's rules — the precedence walk, copy-on-write, what an
-     "all" toggle reaches, the shape of the two writes — are pure
+     The board's rules — what a student sees, what an "all" toggle or a
+     bulk change reaches, the shape of the writes — are pure
      functions of a class's state, and they are the parts that would
      quietly ruin a roster if they were wrong. So they're reachable from
      tests.html, the same way each engine exposes its pure helpers.
@@ -3019,9 +2538,6 @@
       importBody: importBody,
       nextStepInfo: nextStepInfo,
       nextStepRows: nextStepRows,
-      sequenceOf: sequenceOf,
-      sequenceIsOn: sequenceIsOn,
-      sequenceStateFor: sequenceStateFor,
       rosterStatus: rosterStatus,
       rosterRowOf: rosterRowOf,
       studentByUid: studentByUid,
@@ -3033,13 +2549,7 @@
         st = st || {};
         students = st.students || [];
         assignments = st.assignments || {};
-        classCfg = {
-          periodLists: (st.classCfg && st.classCfg.periodLists) || {},
-          defaultLists: (st.classCfg && Array.isArray(st.classCfg.defaultLists)) ? st.classCfg.defaultLists : null,
-          periods: (st.classCfg && st.classCfg.periods) || [],
-          sequences: (st.classCfg && st.classCfg.sequences) || {},
-          sequenceOn: (st.classCfg && st.classCfg.sequenceOn) || {}
-        };
+        classCfg = { periods: (st.classCfg && st.classCfg.periods) || [] };
         notes = st.notes || {};
         roster = st.roster || {};
         rosterReadable = st.rosterReadable !== false;
@@ -3052,17 +2562,13 @@
       },
       board: board,
       effectiveLists: effectiveLists,
-      liveDefault: liveDefault,
-      liveOwnDefault: liveOwnDefault,
-      fromLabel: fromLabel,
-      livePeriod: livePeriod,
       liveStudent: liveStudent,
       scopeView: scopeView,
-      scopeIsOwn: scopeIsOwn,
       scopeDirty: scopeDirty,
       dirtyScopes: dirtyScopes,
       setScope: setScope,
-      releaseScope: releaseScope,
+      bulkApply: bulkApply,
+      countLabel: countLabel,
       visibleStudents: visibleStudents,
       boardColumns: boardColumns,
       cellText: cellText,

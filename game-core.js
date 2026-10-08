@@ -1235,8 +1235,7 @@ window.GameCore = (function(){
     name:   ["name","student","student name","full name"],
     last:   ["last name","last","surname"],
     first:  ["first name","first","given name"],
-    period: ["period","per","pd","section","class","block"],
-    start:  ["start","start at","starting list","starting point","list","begin"]
+    period: ["period","per","pd","section","class","block"]
   };
 
   // Comma, tab or semicolon, whichever the first real line has most of
@@ -1361,15 +1360,10 @@ window.GameCore = (function(){
     return has(cols, key) && row[cols[key]] !== undefined ? String(row[cols[key]]).trim() : "";
   }
 
-  /* parseRoster(text, resolveStart) -> { rows, errors, columns, hadHeader }
-
-     `resolveStart` turns whatever the file says a student starts on into a
-     list id, and is injected rather than imported: this file knows nothing
-     about the list registry, and a test wants to pin the parsing without
-     dragging the whole library in. Unresolvable values are warnings on the
-     row, never errors — a start nobody can read is a student who starts at
-     the beginning, not a student who fails to import. */
-  function parseRoster(text, resolveStart){
+  /* parseRoster(text) -> { rows, errors, columns, hadHeader }
+     ID, name and period. Which lists a student gets is chosen on the
+     dashboard, not in the export. */
+  function parseRoster(text){
     var raw = String(text == null ? "" : text).replace(/^﻿/, "");
     var firstLine = (raw.replace(/\r\n?/g, "\n").split("\n").filter(function(l){ return l.trim(); })[0]) || "";
     var delim = sniffDelimiter(firstLine);
@@ -1407,21 +1401,11 @@ window.GameCore = (function(){
       if(has(seen, id)){ out.errors.push({ line: line, name: name, message: "Duplicate ID: " + id }); return; }
       seen[id] = true;
 
-      var startRaw = cellAt(r, cols, "start");
-      var start = null, warning = "";
-      if(startRaw){
-        start = (typeof resolveStart === "function" ? resolveStart(startRaw) : null) || null;
-        if(!start) warning = "Couldn't work out where “" + startRaw + "” starts — they'll start at the beginning.";
-      }
-
       out.rows.push({
         id: id,
         name: name,
         email: emailForId(id),
         period: normalizePeriod(cellAt(r, cols, "period")),
-        startRaw: startRaw,
-        start: start,
-        warning: warning,
         line: line
       });
     });

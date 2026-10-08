@@ -846,91 +846,29 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
-     store.js — assignment precedence
+     store.js — what a student sees
 
-     Student's own list → their period's → the class default →
-     everything. This is the rule the dashboard's copy has to match, so
-     it's pinned here rather than left to a careful reading of two files.
+     Their own list → the lists on their roster row → nothing. There is
+     no period list, no class default and no "everything": the teacher
+     gives each student their games. This is the rule the dashboard has
+     to match, so it's pinned here rather than left to a careful reading
+     of two files.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
     var E = window.EIStore._internals.effectiveLists;
-    var ALL = ["a","b","c","d"];
-    eq("nothing set anywhere opens the whole site", E(null, null, ALL).join(","), "a,b,c,d");
-    eq("class default applies when nothing else is set",
-       E(null, {defaultLists:["a"]}, ALL).join(","), "a");
-    eq("a period's list beats the class default",
-       E({period:"3"}, {defaultLists:["a"], periodLists:{"3":["b","c"]}}, ALL).join(","), "b,c");
-    eq("a student's own list beats their period's",
-       E({period:"3", lists:["d"]}, {defaultLists:["a"], periodLists:{"3":["b","c"]}}, ALL).join(","), "d");
-    eq("a period with no list of its own falls through to the default",
-       E({period:"9"}, {defaultLists:["a"], periodLists:{"3":["b"]}}, ALL).join(","), "a");
-    eq("an explicit empty student list parks them (and stops the walk)",
-       E({period:"3", lists:[]}, {defaultLists:["a"], periodLists:{"3":["b"]}}, ALL).length, 0);
-    eq("an explicit empty period list parks the period",
-       E({period:"3"}, {defaultLists:["a"], periodLists:{"3":[]}}, ALL).length, 0);
-    eq("a student with no period ignores every period list",
-       E({}, {periodLists:{"3":["b"]}}, ALL).join(","), "a,b,c,d");
+    eq("nothing set anywhere shows nothing", E(null, null).length, 0);
+    eq("a failed roster read looks the same as no roster", E(null, undefined).length, 0);
+    eq("a student's own list is what they see", E({ lists:["d"] }, null).join(","), "d");
+    eq("an explicit empty list is nothing", E({ lists:[] }, { lists:["c"] }).length, 0);
+    eq("a period on its own gives nothing", E({ period:"3" }, { period:"3" }).length, 0);
+    eq("a roster row's lists apply before they've been assigned directly",
+       E(null, { lists:["c"] }).join(","), "c");
+    eq("…and an assignment with a period but no lists still falls to the row",
+       E({ period:"3" }, { lists:["c"] }).join(","), "c");
+    eq("a student's OWN assignment beats the roster", E({ lists:["d"] }, { lists:["c"] }).join(","), "d");
+    eq("a roster row with no lists changes nothing", E(null, { name:"Ana" }).length, 0);
     eq("the returned array is a copy, not the stored one",
-       (function(){ var cfg = {defaultLists:["a"]}; E(null,cfg,ALL).push("x"); return cfg.defaultLists.length; })(), 1);
-
-    /* ---- the roster rung ----
-       Between the student's own assignment and their period. The rule
-       that lets this ship before the rules for it are published: with no
-       roster the walk is byte-for-byte what it was, so a read that fails
-       (permission denied, nothing imported) is indistinguishable from
-       the site as it was yesterday. */
-    eq("no roster at all is exactly the walk as it was",
-       E({period:"3"}, {defaultLists:["a"], periodLists:{"3":["b"]}}, ALL, null).join(","), "b");
-    eq("a roster read that failed looks the same as no roster",
-       E(null, {defaultLists:["a"]}, ALL, undefined).join(","),
-       E(null, {defaultLists:["a"]}, ALL).join(","));
-    eq("a roster row with no lists changes nothing",
-       E(null, {defaultLists:["a"]}, ALL, {name:"Ana"}).join(","), "a");
-    eq("a roster row's lists beat the class default",
-       E(null, {defaultLists:["a"]}, ALL, {lists:["c"]}).join(","), "c");
-    eq("…and beat the period",
-       E({period:"3"}, {periodLists:{"3":["b"]}}, ALL, {lists:["c"]}).join(","), "c");
-    eq("a student's OWN assignment still beats the roster",
-       E({lists:["d"]}, {}, ALL, {lists:["c"]}).join(","), "d");
-    eq("the roster's period is used when the assignment has none",
-       E(null, {periodLists:{"3":["b"]}, defaultLists:["a"]}, ALL, {period:"3"}).join(","), "b");
-    eq("…and the assignment's period wins when it has one",
-       E({period:"4"}, {periodLists:{"3":["b"],"4":["e"]}}, ALL, {period:"3"}).join(","), "e");
-    eq("an empty roster period is no period, not a period called ''",
-       E(null, {defaultLists:["a"], periodLists:{"":["z"]}}, ALL, {period:""}).join(","), "a");
-    eq("an explicit empty roster list parks them too",
-       E(null, {defaultLists:["a"]}, ALL, {lists:[]}).length, 0);
-    eq("nothing anywhere, roster included, still opens the whole site",
-       E(null, null, ALL, null).join(","), "a,b,c,d");
-  })();
-
-  /* ══════════════════════════════════════════════════════════════════
-     practice.js — the unlock banner's memory
-
-     "A new list opened" is said once, and the fact that it has been said
-     lives in localStorage. These are shared Chromebooks: keyed by period
-     alone, two students in one period at different steps overwrote each
-     other's memory, so one was never told and the other was told every
-     single time they signed in.
-     ══════════════════════════════════════════════════════════════════ */
-  (function(){
-    var P = window.EIPractice._internals;
-    var realUid = window.EIAuth.uid;
-    function as(uid){ window.EIAuth.uid = function(){ return uid; }; }
-
-    as("u1"); var one = P.stepKey({ period:"3" });
-    as("u2"); var two = P.stepKey({ period:"3" });
-    eq("two students in one period remember separately", one === two, false);
-    as("u1");
-    eq("…and the same student remembers the same thing", P.stepKey({ period:"3" }), one);
-    eq("a different period is a different memory again",
-       P.stepKey({ period:"4" }) === one, false);
-    as(null);
-    eq("no account signed in still produces a usable key",
-       typeof P.stepKey({ period:"3" }), "string");
-    eq("…and no sequence period doesn't throw", typeof P.stepKey(null), "string");
-
-    window.EIAuth.uid = realUid;
+       (function(){ var a = { lists:["a"] }; E(a, null).push("x"); return a.lists.length; })(), 1);
   })();
 
   /* ══════════════════════════════════════════════════════════════════
@@ -1289,8 +1227,8 @@
      is a student matched to somebody else's record.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
-    var C = window.GameCore, W = window.WordLists;
-    function P(text){ return C.parseRoster(text, function(s){ return W.resolveListRef(s); }); }
+    var C = window.GameCore;
+    function P(text){ return C.parseRoster(text); }
 
     eq("the email is the ID plus the domain", C.emailForId("102345"), "102345@seq.org");
     eq("…lowercased and trimmed", C.emailForId("  102345  "), "102345@seq.org");
@@ -1361,7 +1299,7 @@
       eq("…the short digits are the periods", r.rows[1].period, "4");
     })();
 
-    // ---- what is rejected, and what is only a warning ----
+    // ---- what is rejected ----
     (function(){
       var r = P("id,name\n,Nobody\nabc,Bad Id\n7,Fine\n7,Twin");
       eq("a row with no ID is rejected", r.errors[0].message, "No ID number");
@@ -1371,12 +1309,14 @@
       eq("…the one that was fine", r.rows[0].name, "Fine");
       eq("an error names the line it was on", r.errors[0].line, 2);
     })();
+
+    /* Which games a student gets is chosen on the dashboard, never in the
+       export: an extra column is ignored, not an error. */
     (function(){
       var r = P("id,name,start\n7,A B,Red 3\n8,C D,somewhere else");
-      eq("a start that resolves becomes a list id", r.rows[0].start, "red-3-say");
-      eq("one that doesn't is a warning, not an error", r.errors.length, 0);
-      eq("…on the row", r.rows[1].warning.indexOf("somewhere else") !== -1, true);
-      eq("…and the student still imports", r.rows.length, 2);
+      eq("an extra column doesn't stop an import", r.errors.length, 0);
+      eq("…both students come through", r.rows.length, 2);
+      eq("…with no list attached to them", "start" in r.rows[0], false);
     })();
     eq("a file with nothing usable says so",
        P("colour,shape\nred,round").errors.length > 0, true);
@@ -1387,20 +1327,6 @@
     eq("“ 03 ” is 3", C.normalizePeriod(" 03 "), "3");
     eq("a period with no digits keeps its name", C.normalizePeriod("A"), "A");
     eq("no period is no period", C.normalizePeriod(""), "");
-
-    // ---- what a teacher may write in a "start" column ----
-    eq("a list id is itself", W.resolveListRef("red-3-cards"), "red-3-cards");
-    eq("“Red 3” is the third red list", W.resolveListRef("Red 3"), "red-3-say");
-    eq("“Red Words 3” is the same", W.resolveListRef("Red Words 3"), "red-3-say");
-    eq("“oi/oy” finds the family whatever the spacing", W.resolveListRef("oi/oy"), "oi-oy-read");
-    eq("…and so does “oi oy”", W.resolveListRef("oi oy"), "oi-oy-read");
-    eq("“Starting Blends” is the starting blends", W.resolveListRef("Starting Blends"), "initial-blends");
-    eq("“Blend Words” is the other one", W.resolveListRef("Blend Words"), "final-blends");
-    eq("a family with no number starts at its first list", W.resolveListRef("Red Words"), "red-1-say");
-    eq("a list number that doesn't exist falls back to the first",
-       W.resolveListRef("Red 99"), "red-1-say");
-    eq("nonsense is nonsense", W.resolveListRef("zzz"), null);
-    eq("nothing is nothing", W.resolveListRef(""), null);
   })();
 
   /* ══════════════════════════════════════════════════════════════════
@@ -1949,9 +1875,9 @@
 
     function rows(){
       return [
-        { id:"1", name:"Ana Ruiz",  email:"1@seq.org", period:"3", start:null },
-        { id:"2", name:"Sam Lee",   email:"2@seq.org", period:"4", start:"red-3-cards" },
-        { id:"3", name:"Kai Moore", email:"3@seq.org", period:"",  start:null }
+        { id:"1", name:"Ana Ruiz",  email:"1@seq.org", period:"3" },
+        { id:"2", name:"Sam Lee",   email:"2@seq.org", period:"4" },
+        { id:"3", name:"Kai Moore", email:"3@seq.org", period:"" }
       ];
     }
 
@@ -1976,48 +1902,20 @@
       eq("…carrying the name", b.roster["1@seq.org"].name, "Ana Ruiz");
       eq("…the ID", b.roster["1@seq.org"].id, "1");
       eq("…the period", b.roster["1@seq.org"].period, "3");
-      eq("…and a start where the file gave one", b.roster["2@seq.org"].startAt, "red-3-cards");
-      eq("…and none where it didn't",
-         Object.prototype.hasOwnProperty.call(b.roster["1@seq.org"], "startAt"), false);
+      eq("…and no lists: games are chosen on the dashboard",
+         Object.prototype.hasOwnProperty.call(b.roster["1@seq.org"], "lists"), false);
       eq("a period the class didn't have is created", b.periods.sort().join(","), "3,4");
       eq("…and one it already had isn't", b.periods.indexOf("9"), -1);
 
       eq("a signed-in student with NO assignment gets one filled in",
          Object.keys(b.assignments).join(","), "u2");
       eq("…from the roster row", b.assignments.u2.period, "4");
+      eq("…carrying a period and no lists",
+         Object.prototype.hasOwnProperty.call(b.assignments.u2, "lists"), false);
       eq("a signed-in student who already has one is never touched",
          Object.prototype.hasOwnProperty.call(b.assignments, "u1"), false);
       eq("a student who hasn't signed in gets no assignment at all",
          Object.keys(b.assignments).length, 1);
-    })();
-
-    /* The import writes `startAt`; the dashboard reads `start`. These two
-       ran under different names for a while, which put every imported
-       student back at step 0 on the board while their own page unlocked
-       from the placed step. */
-    (function(){
-      feed(aClass());
-      var b = T2.importBody(rows(), 1000);
-      eq("what the import wrote is what the dashboard reads back",
-         T2.rosterRowOf("2@seq.org", b.roster["2@seq.org"]).start, "red-3-cards");
-      eq("…and a row with no start reads back empty",
-         T2.rosterRowOf("1@seq.org", b.roster["1@seq.org"]).start, "");
-
-      // …and that start places them in their period's course.
-      var W2 = window.WordLists, course = W2.defaultSequence();
-      var c = aClass();
-      c.roster = { "2@seq.org": T2.rosterRowOf("2@seq.org", b.roster["2@seq.org"]) };
-      c.assignments = { u2: { period:"4" } };
-      c.classCfg = { periods:["4"], sequences: { "4": course } };
-      feed(c);
-      eq("a roster start places the student in the course",
-         T2.sequenceStateFor(T2.studentByUid("u2")).stepIndex,
-         W2.stepOf(course, "red-3-cards"));
-      eq("…and the precedence walk hands back that same position",
-         T2.effectiveLists("u2").seq.stepIndex,
-         W2.stepOf(course, "red-3-cards"));
-      eq("…and says the course is where the lists came from",
-         T2.effectiveLists("u2").from.indexOf("sequence") === 0, true);
     })();
 
     // The preview's status column.
@@ -2050,15 +1948,16 @@
          T2.effectiveLists("roster:3@seq.org").ids.join(","), "nonsense,initial-blends");
       eq("…and say where from", T2.effectiveLists("roster:3@seq.org").from, "roster");
 
-      // Precedence, the same walk store.js does.
+      // The same rule store.js applies: own → roster → nothing.
       c.roster["3@seq.org"].lists = null;
-      c.classCfg = { periods:["5"], periodLists: { "5": ["red-1-cards"] } };
       feed(c);
-      eq("with no roster lists, the roster's PERIOD decides",
-         T2.effectiveLists("roster:3@seq.org").ids.join(","), "red-1-cards");
-      eq("…and says so", T2.effectiveLists("roster:3@seq.org").from, "period 5");
-      eq("a signed-in student's own assignment still wins over everything",
+      eq("with no roster lists, a pending student has nothing",
+         T2.effectiveLists("roster:3@seq.org").ids.length, 0);
+      eq("…their period hands them nothing either", T2.effectiveLists("roster:3@seq.org").from, "nothing");
+      eq("a signed-in student's own assignment is what they have",
          T2.effectiveLists("u1").ids.join(","), "nonsense");
+      eq("a signed-in student with nothing anywhere has nothing",
+         T2.effectiveLists("u2").ids.length, 0);
     })();
 
     /* A student's period is read from the assignment first and the roster
@@ -2097,25 +1996,6 @@
          })(), "5");
     })();
 
-    /* "Coasting — turn the sequence on" is advice about what this student
-       is doing, not about what their period has. A student whose own
-       lists override the course is not on the course, so the line still
-       applies to them. */
-    (function(){
-      var course = window.WordLists.defaultSequence();
-      var c = aClass();
-      c.assignments = { u2: { period:"4" } };
-      c.classCfg = { periods:["4"], sequences: { "4": course } };
-      feed(c);
-      eq("a student following their period's course is on it",
-         T2.nextStepInfo(T2.studentByUid("u2")).sequenceOn, true);
-
-      c.assignments = { u2: { period:"4", lists:["nonsense"] } };
-      feed(c);
-      eq("…and one whose own lists override it is not",
-         T2.nextStepInfo(T2.studentByUid("u2")).sequenceOn, false);
-    })();
-
     // Board edits for a pending student go to the roster, not assignments.
     (function(){
       var c = aClass();
@@ -2132,203 +2012,52 @@
          Object.prototype.hasOwnProperty.call(b.students, "roster:3@seq.org"), false);
     })();
 
-    /* Releasing a student who was placed on the board while still pending
-       has to clear the roster row too. Nulling only the assignment drops
-       the walk through to the row, which is still an array — and then
-       nothing a teacher can press changes that student's lists again. */
+    /* A student set up while pending who has since signed in: their
+       roster row's lists are what they have, editing writes an assignment
+       (which outranks the row from then on), and the row is left alone. */
     (function(){
       var c = aClass();
       c.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:["nonsense"] } };
       feed(c);
-      T2.setScope("s:u2", ["initial-blends"]);
-      T2.releaseScope("s:u2");
-      var b = T2.saveBody(["s:u2"], 500);
-      eq("releasing a signed-in student clears their assignment", b.students.u2.lists, null);
-      eq("…and the roster row they were placed on", b.roster["2@seq.org"].lists, null);
-
-      // A student with no roster lists leaves the roster alone entirely.
-      var c2 = aClass();
-      c2.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:null } };
-      feed(c2);
-      T2.setScope("s:u2", ["initial-blends"]);
-      T2.releaseScope("s:u2");
-      var b2 = T2.saveBody(["s:u2"], 500);
-      eq("a student with nothing on their row gets no roster write",
-         Object.keys(b2.roster).length, 0);
-
-      // Setting lists is not clearing them: the row stays as it was.
-      var c3 = aClass();
-      c3.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:["nonsense"] } };
-      feed(c3);
+      eq("their roster lists are what the board shows", T2.liveStudent("u2").join(","), "nonsense");
+      eq("…and nothing is pending until somebody edits", T2.dirtyScopes().length, 0);
       T2.setScope("s:u2", ["initial-blends"]);
       var b3 = T2.saveBody(["s:u2"], 500);
-      eq("assigning lists doesn't touch the roster row", Object.keys(b3.roster).length, 0);
+      eq("an edit writes their assignment", b3.students.u2.lists.join(","), "initial-blends");
+      eq("…and doesn't touch the roster row", Object.keys(b3.roster).length, 0);
+      T2.setScope("s:u2", ["nonsense"]);
+      eq("putting it back the way it was is not a change", T2.dirtyScopes().length, 0);
     })();
   })();
 
   /* ══════════════════════════════════════════════════════════════════
-     Sequences
+     Adaptive.listShare — how far through a list
 
-     A student's position in a course is a pure function of their own
-     stats, computed twice — once in their browser, once on the
-     dashboard — from the same function. These pin the function, and one
-     of them pins that the dashboard's "ready to move up" and the
-     student's auto-advance agree about what "finished" means, because
-     the day they disagree a student is either stuck or two lists ahead.
+     The share of a list's words that are solid AND at pace. It is the
+     number "Ready to move up" is measured against, so it is pinned here
+     along with the dashboard's use of it.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
     var A2 = window.Adaptive, W = window.WordLists;
-    function totals(map){ return function(id){ return map[id] || 0; }; }
     function solid(listId, n){
       // n words of that list, each mastered and at pace.
       var out = {}, i;
       for(i=0;i<n;i++) out[listId + "|w" + i] = A2.sanitizeStat({ n:12, r:12, box:5, last:1, lat:900 });
       return out;
     }
-    function merge(){
-      var out = {}, i, k;
-      for(i=0;i<arguments.length;i++) for(k in arguments[i]) out[k] = arguments[i][k];
-      return out;
-    }
-    var SEQ = [["a"], ["b","c"], ["d"]];
-    var TOT = totals({ a:10, b:10, c:10, d:10 });
+    var TOT = function(id){ return ({ a:10 })[id] || 0; };
 
-    (function(){
-      var u = A2.unlocked(SEQ, {}, 0, TOT);
-      eq("a student with nothing gets the first step", u.ids.join(","), "a");
-      eq("…and is on step 0", u.stepIndex, 0);
-      eq("…and isn't done", u.done, false);
-      eq("…and the step names itself", u.stepIds.join(","), "a");
-    })();
-
-    eq("a step under the bar doesn't open the next one",
-       A2.unlocked(SEQ, solid("a", 7), 0, TOT).ids.join(","), "a");
-    (function(){
-      var u = A2.unlocked(SEQ, solid("a", 8), 0, TOT);
-      eq("a step at the bar opens the next one", u.ids.join(","), "a,b,c");
-      eq("…and the finished list stays in rotation", u.ids.indexOf("a") !== -1, true);
-      eq("…on step 1", u.stepIndex, 1);
-      eq("…which is what just opened", u.stepIds.join(","), "b,c");
-    })();
-    eq("BOTH lists of a step have to be finished",
-       A2.unlocked(SEQ, merge(solid("a",10), solid("b",10)), 0, TOT).ids.join(","), "a,b,c");
-    eq("…and then the last step opens",
-       A2.unlocked(SEQ, merge(solid("a",10), solid("b",10), solid("c",10)), 0, TOT).ids.join(","), "a,b,c,d");
-    (function(){
-      var u = A2.unlocked(SEQ, merge(solid("a",10), solid("b",10), solid("c",10), solid("d",10)), 0, TOT);
-      eq("finishing everything says done", u.done, true);
-      eq("…with the whole course unlocked", u.ids.join(","), "a,b,c,d");
-    })();
-
-    // startAt: the screener put them further along.
-    (function(){
-      var u = A2.unlocked(SEQ, {}, 2, TOT);
-      eq("starting at step 2 unlocks everything up to it", u.ids.join(","), "a,b,c,d");
-      eq("…without pretending they finished it", u.done, false);
-      eq("a startAt past the end is clamped", A2.unlocked(SEQ, {}, 99, TOT).stepIndex, 2);
-      eq("a negative startAt is 0", A2.unlocked(SEQ, {}, -3, TOT).stepIndex, 0);
-    })();
-
-    eq("no sequence, nothing unlocked", A2.unlocked([], {}, 0, TOT).ids.length, 0);
-    eq("…and not 'done' either", A2.unlocked([], {}, 0, TOT).done, false);
-    eq("no totalOf means no evidence, so only step one",
-       A2.unlocked(SEQ, solid("a", 10), 0).ids.join(","), "a");
-    eq("a slow word doesn't count towards finishing", (function(){
+    eq("nothing practised is nothing solid", A2.listShare({}, "a", TOT), 0);
+    eq("8 of 10 solid is 0.8", A2.listShare(solid("a", 8), "a", TOT), 0.8);
+    eq("another list's words don't count", A2.listShare(solid("b", 8), "a", TOT), 0);
+    eq("no totalOf means no evidence", A2.listShare(solid("a", 10), "a"), 0);
+    eq("a slow word doesn't count", (function(){
       var st = {}, i;
       for(i=0;i<10;i++) st["a|w" + i] = A2.sanitizeStat({ n:12, r:12, box:5, last:1, lat:9000 });
-      return A2.unlocked(SEQ, st, 0, TOT).ids.join(",");
-    })(), "a");
+      return A2.listShare(st, "a", TOT);
+    })(), 0);
 
-    // ---- the generated course ----
-    (function(){
-      var seq = W.defaultSequence();
-      eq("the default course has steps", seq.length > 15, true, String(seq.length));
-      eq("every id in it is a real list",
-         seq.reduce(function(acc, s){ return acc.concat(s); }, [])
-            .filter(function(id){ return !W.exists(id); }).join(","), "");
-      eq("no list appears twice", (function(){
-        var seen = {}, dupes = [];
-        seq.forEach(function(s){ s.forEach(function(id){ if(seen[id]) dupes.push(id); seen[id] = true; }); });
-        return dupes.join(",");
-      })(), "");
-      eq("the nonsense words are in the first step, as warm-up",
-         seq[0].indexOf("nonsense") !== -1, true);
-      eq("…alongside the starting blends", seq[0].indexOf("initial-blends") !== -1, true);
-      eq("the blends come before the red words",
-         W.stepOf(seq, "initial-blends") < W.stepOf(seq, "red-1-cards"), true);
-      eq("within a family, say comes before cards",
-         W.stepOf(seq, "initial-blends") < W.stepOf(seq, "blends-start-1-cards"), true);
-      eq("…and cards before match",
-         W.stepOf(seq, "blends-start-1-cards") < W.stepOf(seq, "blends-start-1-match"), true);
-      eq("a red list's cards unlock its Match It and the next list's cards",
-         W.stepOf(seq, "red-1-match") === W.stepOf(seq, "red-2-cards"), true);
-      eq("…one step after its own cards",
-         W.stepOf(seq, "red-1-match") - W.stepOf(seq, "red-1-cards"), 1);
-      eq("the course ends on the last red list", seq[seq.length-1].join(","), "red-10-match");
-      eq("modes that aren't rungs are left out",
-         W.stepOf(seq, "oi-oy-spell") === -1 && W.stepOf(seq, "nonsense-1-blendit") === -1, true);
-
-      /* Where a roster's "starts on" lands. "Red 3" resolves to red-3-say,
-         which this course doesn't hold — the student still belongs on
-         List 3 rather than back at step 0. */
-      eq("a start whose mode isn't a rung lands on that list's earliest rung",
-         W.startStepOf(seq, "red-3-say"), W.stepOf(seq, "red-3-cards"));
-      eq("a start the course does hold is left where it is",
-         W.startStepOf(seq, "red-3-cards"), W.stepOf(seq, "red-3-cards"));
-      eq("…and the same for a spelling start",
-         W.startStepOf(seq, "oi-oy-spell"), W.stepOf(seq, "oi-oy-read"));
-      eq("a start that is no list at all is still -1", W.startStepOf(seq, "zz"), -1);
-      })();
-
-    // ---- store.js: when a sequence applies at all ----
-    (function(){
-      var S = window.EIStore._internals;
-      var cfg = { sequences: { "3": SEQ } };
-      eq("a period with a sequence has one", (S.sequenceStepsFor("3", cfg) || []).length, 3);
-      eq("a period without one doesn't", S.sequenceStepsFor("4", cfg), null);
-      eq("no period, no sequence", S.sequenceStepsFor(null, cfg), null);
-      eq("an empty period name is not a period", S.sequenceStepsFor("", cfg), null);
-      eq("a sequence is on unless somebody turned it off",
-         (S.sequenceStepsFor("3", { sequences:{ "3":SEQ }, sequenceOn:{} }) || []).length, 3);
-      eq("…and off when they did",
-         S.sequenceStepsFor("3", { sequences:{ "3":SEQ }, sequenceOn:{ "3":false } }), null);
-      eq("an empty sequence is no sequence", S.sequenceStepsFor("3", { sequences:{ "3":[] } }), null);
-
-      var st = S.sequenceState({ period:"3" }, cfg, null, {}, TOT, W.stepOf);
-      eq("the state carries the period", st.period, "3");
-      eq("…and how long the course is", st.steps, 3);
-      eq("…and where they are", st.stepIndex, 0);
-      eq("a roster start moves them along", 
-         S.sequenceState({ period:"3" }, cfg, { startAt:"d" }, {}, TOT, W.stepOf).stepIndex, 2);
-      eq("a roster start that isn't in the course is ignored",
-         S.sequenceState({ period:"3" }, cfg, { startAt:"zz" }, {}, TOT, W.stepOf).stepIndex, 0);
-      /* The same walk against the real course, with the placement rule the
-         student's page actually passes in: "Red 3" is imported as
-         red-3-say, and the course is built from cards and match. */
-      (function(){
-        var real = W.defaultSequence(), rcfg = { sequences: { "3": real } };
-        eq("a start whose mode isn't a rung still places the student",
-           S.sequenceState({ period:"3" }, rcfg, { startAt:"red-3-say" }, {}, TOT, W.startStepOf).stepIndex,
-           W.stepOf(real, "red-3-cards"));
-      })();
-      eq("the roster's period counts when the assignment has none",
-         S.sequenceState(null, cfg, { period:"3" }, {}, TOT, W.stepOf).period, "3");
-
-      // The rung, in the walk.
-      var E = S.effectiveLists;
-      eq("a sequence replaces the period's flat list",
-         E({period:"3"}, { periodLists:{ "3":["zz"] } }, ["all"], null, ["a","b"]).join(","), "a,b");
-      eq("…but never the student's own",
-         E({period:"3", lists:["mine"]}, {}, ["all"], null, ["a","b"]).join(","), "mine");
-      eq("…nor their roster set",
-         E({period:"3"}, {}, ["all"], { lists:["ros"] }, ["a","b"]).join(","), "ros");
-      eq("no sequence leaves the period's flat list alone",
-         E({period:"3"}, { periodLists:{ "3":["zz"] } }, ["all"], null, null).join(","), "zz");
-    })();
-
-    /* ---- the two sides agree ----
-       The dashboard's suggestion and the student's auto-advance must call
-       a list finished at the same moment, or one of them is lying. */
+    /* ---- the dashboard measures the same way ---- */
     (function(){
       var T2 = window.EITeacher._internals;
       var stats = solid("red-1-cards", 16);   // 16 of 20 = exactly the bar
@@ -2352,7 +2081,7 @@
     var A2 = window.Adaptive;
     var NOW = 1750000000000;   // a fixed "now"; T0 above is the same idea
     function info(lists, extra){
-      var o = { lists: lists || [], now: NOW, lastRound: NOW, sequenceOn: false };
+      var o = { lists: lists || [], now: NOW, lastRound: NOW };
       for(var k in (extra || {})) o[k] = extra[k];
       return o;
     }
@@ -2409,11 +2138,10 @@
     // 3. coasting
     (function(){
       var done = card({ attempts:60, share:0.95, accuracy:0.95 });
-      eq("everything solid with no course is coasting", A2.nextSteps(info([done])).rule, "coasting");
+      eq("everything solid is coasting", A2.nextSteps(info([done])).rule, "coasting");
       eq("…and there is nothing to one-click",
          A2.nextSteps(info([done])).addId, undefined);
-      eq("a course already running is not coasting",
-         A2.nextSteps(info([done], { sequenceOn:true })), null);
+      eq("nothing assigned is not coasting", A2.nextSteps(info([])), null);
       eq("one unfinished list is not coasting",
          A2.nextSteps(info([done, card({ id:"x", share:0.3, attempts:5 })])), null);
     })();
@@ -2734,9 +2462,9 @@
      teacher.js — the Assign board
 
      The board writes to a whole class at once, so its rules are the ones
-     that would do real damage if they were wrong: who inherits from whom,
-     what an edit copies, how far an "all" toggle reaches, and the shape
-     of the two documents Save writes.
+     that would do real damage if they were wrong: what a student has,
+     what a bulk change does, how far an "all" toggle reaches, and the
+     shape of the documents Save writes.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
     var T = window.EITeacher._internals;
@@ -2752,37 +2480,23 @@
           { uid:"u4", name:"Nadia",  email:"nadi@seq.org", stats:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 }
         ],
         assignments: {
-          u1: { period:"3" },                               // follows period 3
-          u2: { period:"3", lists:["red-1-cards"] },        // own set
-          u3: { period:"5" },                               // follows period 5, which follows the default
-          u4: {}                                            // no period at all
+          u1: { period:"3" },                               // in a period, nothing given
+          u2: { period:"3", lists:["red-1-cards"] },
+          u3: { period:"5", lists:["nonsense"] },
+          u4: {}                                            // no period, nothing given
         },
-        classCfg: {
-          periods: ["3","5"],
-          periodLists: { "3": ["red-2-cards","red-2-match"] },
-          defaultLists: ["nonsense"]
-        }
+        classCfg: { periods: ["3","5"] }
       };
     }
 
-    // ---- the precedence walk, restated on this side of the app ----
+    // ---- what each student has ----
     T.feed(aClass());
-    eq("the dashboard's own precedence copy matches store.js: student wins",
-       T.effectiveLists("u2").ids.join(","), "red-1-cards");
-    eq("…then their period", T.effectiveLists("u1").ids.join(","), "red-2-cards,red-2-match");
-    eq("…then the class default", T.effectiveLists("u3").ids.join(","), "nonsense");
-    eq("…and a student with no period skips straight to the default",
-       T.effectiveLists("u4").ids.join(","), "nonsense");
-
-    // ---- what the board draws before anything is touched ----
-    eq("a class default that has been set reads as its own", T.scopeIsOwn("default"), true);
-    eq("a period with a list of its own says so", T.scopeIsOwn("p:3"), true);
-    eq("a period without one is inheriting", T.scopeIsOwn("p:5"), false);
-    eq("a student with their own set says so", T.scopeIsOwn("s:u2"), true);
-    eq("a student following their period is inheriting", T.scopeIsOwn("s:u1"), false);
-    eq("an inheriting student shows their period's set",
-       T.scopeView("s:u1").join(","), "red-2-cards,red-2-match");
-    eq("an inheriting period shows the class default", T.scopeView("p:5").join(","), "nonsense");
+    eq("a student's own lists are what they have", T.effectiveLists("u2").ids.join(","), "red-1-cards");
+    eq("being in a period gives a student nothing", T.effectiveLists("u1").ids.length, 0);
+    eq("…nor does being in no period", T.effectiveLists("u4").ids.length, 0);
+    eq("the board shows the same", T.scopeView("s:u1").length, 0);
+    eq("the line under a name with nothing says so", T.countLabel("u1"), "nothing yet");
+    eq("…and counts when there is something", T.countLabel("u2"), "1 game");
 
     // ---- cells ----
     var cols = T.boardColumns();
@@ -2791,50 +2505,32 @@
       return null;
     }
     eq("one column per list, families side by side", cols.length, 15);
-    eq("a cell shows the icons of the modes that are on",
-       T.cellText("s:u1", colFor("red", 2)), "🃏🎯");
+    eq("a cell shows the icons of the modes that are on", T.cellText("s:u2", colFor("red", 1)), "🃏");
     eq("a cell with nothing on it is a dash", T.cellText("s:u1", colFor("red", 4)), "—");
-    eq("a cell reads through inheritance", T.cellText("s:u3", colFor("nonsense", 1)), "🎤");
 
-    // ---- copy-on-write ----
+    // ---- editing ----
     T.feed(aClass());
     eq("nothing is dirty on a fresh board", T.dirtyScopes().length, 0);
-    T.setScope("s:u1", T.scopeView("s:u1").concat(["red-4-cards"]));
-    eq("editing an inheriting student gives them their own set", T.scopeIsOwn("s:u1"), true);
-    eq("…and it starts from what they already had",
-       T.scopeView("s:u1").join(","), "red-2-cards,red-2-match,red-4-cards");
-    eq("…and counts as one pending change", T.dirtyScopes().join(","), "s:u1");
-    eq("…while their period is untouched", T.scopeIsOwn("p:3"), true);
-    eq("…and their classmate is untouched", T.scopeIsOwn("s:u2"), true);
-
-    T.releaseScope("s:u1");
-    eq("own ↺ hands them back to the period", T.scopeIsOwn("s:u1"), false);
-    eq("…and they see the period's set again", T.scopeView("s:u1").join(","), "red-2-cards,red-2-match");
-    // They were inheriting when the board loaded and they are inheriting
-    // now, so there is nothing left for Save to write. Undoing your own
-    // edit has to leave the count at zero or the bar cries wolf.
-    eq("…and undoing an edit that way leaves nothing to save", T.dirtyScopes().length, 0);
-
-    // An edit that lands back where it started is not a change to save.
-    T.feed(aClass());
+    T.setScope("s:u1", ["red-4-cards"]);
+    eq("an edit is one pending change", T.dirtyScopes().join(","), "s:u1");
+    eq("…the board shows it before it's saved", T.scopeView("s:u1").join(","), "red-4-cards");
+    eq("…and nobody else moves", T.scopeView("s:u2").join(","), "red-1-cards");
+    T.setScope("s:u1", []);
+    eq("taking it away again leaves nothing to save", T.dirtyScopes().length, 0);
     T.setScope("s:u2", ["red-1-cards"]);
     eq("re-ticking a box back to where it was leaves nothing to save", T.dirtyScopes().length, 0);
     T.setScope("s:u2", ["red-1-cards","red-1-match"]);
     eq("…but a real edit does", T.dirtyScopes().join(","), "s:u2");
-    T.releaseScope("s:u1");
-    eq("releasing a student who was already inheriting is not a change",
-       T.dirtyScopes().join(","), "s:u2");
-    T.feed(aClass());
-    T.releaseScope("s:u2");
-    eq("but releasing one who really had their own set is",
-       T.dirtyScopes().join(","), "s:u2");
 
-    // Editing a period redraws everyone following it, before any save.
-    T.feed(aClass());
-    T.setScope("p:3", ["multi-1-cards"]);
-    eq("a student following a period sees the period's unsaved edit",
-       T.scopeView("s:u1").join(","), "multi-1-cards");
-    eq("…but a student with their own set does not", T.scopeView("s:u2").join(","), "red-1-cards");
+    // ---- changing many at once ----
+    eq("add puts the new lists after what they had",
+       T.bulkApply(["a","b"], ["c"], "add").join(","), "a,b,c");
+    eq("…and never twice", T.bulkApply(["a","b"], ["b","c"], "add").join(","), "a,b,c");
+    eq("take away removes only what was ticked", T.bulkApply(["a","b","c"], ["b","z"], "remove").join(","), "a,c");
+    eq("replace is exactly what was ticked", T.bulkApply(["a","b"], ["c"], "replace").join(","), "c");
+    eq("adding to nothing works", T.bulkApply([], ["c"], "add").join(","), "c");
+    eq("the list it was given is left alone",
+       (function(){ var cur = ["a"]; T.bulkApply(cur, ["b"], "add"); return cur.join(","); })(), "a");
 
     // ---- the filter, and how far "all" reaches ----
     T.feed(aClass());
@@ -2854,7 +2550,7 @@
     eq("'all' ticks every mode of that list for the visible students",
        T.scopeView("s:u1").indexOf("red-7-cards") !== -1 && T.scopeView("s:u1").indexOf("red-7-match") !== -1, true);
     eq("…for all of them", T.scopeView("s:u2").indexOf("red-7-match") !== -1, true);
-    eq("…and for nobody who was filtered out", T.scopeIsOwn("s:u3"), false);
+    eq("…and for nobody who was filtered out", T.scopeView("s:u3").join(","), "nonsense");
     eq("…which is two changes, not four", T.dirtyScopes().length, 2);
     T.columnToggle(colFor("red", 7));
     eq("pressing it again clears what it set", T.scopeView("s:u2").indexOf("red-7-cards"), -1);
@@ -2863,97 +2559,40 @@
     // ---- the shape of the write ----
     T.feed(aClass());
     T.setScope("s:u1", ["nonsense"]);
-    T.setScope("p:5", ["red-9-cards"]);
-    T.setScope("default", ["multi-1-cards"]);
+    T.setScope("s:u3", []);
     var body = T.saveBody(T.dirtyScopes(), 1234);
-    eq("one document per changed student", Object.keys(body.students).join(","), "u1");
+    eq("one document per changed student", Object.keys(body.students).sort().join(","), "u1,u3");
     eq("…carrying the lists and a timestamp", JSON.stringify(body.students.u1), '{"lists":["nonsense"],"updatedAt":1234}');
     eq("…and nothing else, so their period survives the merge",
        Object.keys(body.students.u1).sort().join(","), "lists,updatedAt");
-    eq("one config document however many periods moved",
-       Object.keys(body.config).sort().join(","), "defaultLists,periodLists");
-    eq("…with the period nested under its own key", body.config.periodLists["5"].join(","), "red-9-cards");
-    eq("…and the default alongside it", body.config.defaultLists.join(","), "multi-1-cards");
-
-    T.feed(aClass());
-    T.setScope("s:u1", ["nonsense"]);
-    eq("no config write when only students changed", T.saveBody(T.dirtyScopes(), 1).config, null);
-    T.feed(aClass());
-    T.setScope("default", []);
-    eq("no student writes when only the default changed",
-       Object.keys(T.saveBody(T.dirtyScopes(), 1).students).length, 0);
-    eq("parking everyone with an empty default is a real answer, not a skip",
-       T.saveBody(T.dirtyScopes(), 1).config.defaultLists.length, 0);
-
-    // Handing a student back is stored as null, the same sentinel
-    // EIStore.effectiveLists walks past.
-    T.feed(aClass());
-    T.releaseScope("s:u2");
-    eq("own ↺ writes null, which is what 'inherit' means on the wire",
-       T.saveBody(T.dirtyScopes(), 1).students.u2.lists, null);
-
-    /* ---- the class default has two states, and "nothing" is not empty ----
-       On a fresh install nothing is set and every student gets every
-       list. That is the bottom of the precedence chain, and the row has
-       to say which of the two it is: a board that drew an unset default
-       as though it had been configured would be lying about the one
-       setting everything else falls back to. */
-    var fresh = aClass();
-    fresh.classCfg.defaultLists = null;
-    T.feed(fresh);
-    eq("an unset class default is not 'its own'", T.scopeIsOwn("default"), false);
-    eq("…and says so under its name", T.fromLabel("default"), "nothing set — everyone gets every list");
-    eq("…while still handing every list down", T.liveDefault().length, WordLists.ids.length);
-    eq("…so a student under it gets everything too", T.liveStudent("u3").length, WordLists.ids.length);
-
-    // Editing an unset default pins what it was handing down. That is the
-    // right answer — an edit has to stick — but it IS a state change, and
-    // the row flips to gold to show it happened.
-    T.setScope("default", T.liveDefault().slice(0, 3));
-    eq("editing an unset default makes it a real set", T.scopeIsOwn("default"), true);
-    eq("…and counts as a change", T.dirtyScopes().join(","), "default");
-
-    // Releasing it reopens the site. The bug this pins: a null draft read
-    // as an empty array would have parked every student in the school.
-    T.feed(aClass());
-    T.releaseScope("default");
-    eq("clearing the class default reopens every list", T.liveDefault().length, WordLists.ids.length);
-    eq("…and does not park the class", T.liveDefault().length > 0, true);
-    eq("…and writes null, not []", T.saveBody(T.dirtyScopes(), 1).config.defaultLists, null);
-    // Which is a different thing from deliberately parking everyone.
-    T.feed(aClass());
-    T.setScope("default", []);
-    eq("an empty default is still a real answer, and stays empty", T.liveDefault().length, 0);
-    eq("…and is stored as an empty list, not null",
-       T.saveBody(T.dirtyScopes(), 1).config.defaultLists.length, 0);
+    eq("taking everything away writes an empty list, never null", body.students.u3.lists.length, 0);
+    eq("nothing class-wide is ever written", "config" in body, false);
 
     /* ---- the board actually draws ----
        Everything above tests the rules with no DOM in sight. This is the
        other half: that the markup those rules feed builds the table it
-       claims to, with a row for every scope and a cell for every list.
+       claims to, with a row for every student and a cell for every list.
        A typo in 200 lines of string-built HTML is exactly the kind of
        thing the rest of this file would sail straight past. */
     T.feed(aClass());
     T.renderAssign();
     var grid = document.getElementById("abGrid");
     eq("the board renders a grid", !!grid, true);
-    // 1 class default + 2 periods + 4 students + 1 "no period" heading
-    eq("a row for the default, each period, each student and the strays",
-       grid.querySelectorAll("tbody tr").length, 8);
-    eq("a cell for every scope row × every list column",
-       grid.querySelectorAll("[data-cell]").length, 7 * 15);
+    // 2 period headings + 4 students + 1 "no period" heading
+    eq("a row for each period, each student and the strays",
+       grid.querySelectorAll("tbody tr").length, 7);
+    eq("a cell for every student × every list column",
+       grid.querySelectorAll("[data-cell]").length, 4 * 15);
     eq("two header rows: families over their lists",
        grid.querySelectorAll("thead tr").length, 2);
     eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 6);
     eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 15);
-    eq("a cell drawn from an inheriting row is marked inherited",
-       grid.querySelector('[data-cell="s:u1|0"]').classList.contains("inherit"), true);
-    eq("a cell drawn from a row with its own set is marked own",
-       grid.querySelector('[data-cell="s:u2|0"]').classList.contains("own"), true);
-    eq("the own ↺ pill is hidden on an inheriting row",
-       grid.querySelector('[data-ownpill="s:u1"]').hidden, true);
-    eq("…and shown on a row with its own set",
-       grid.querySelector('[data-ownpill="s:u2"]').hidden, false);
+    eq("a select-everyone box on each period heading", grid.querySelectorAll("[data-pickgroup]").length, 3);
+    eq("a key to the icons", !!document.querySelector("#tBody .abLegend"), true);
+    eq("students with nothing are counted above the grid",
+       document.querySelector("#tBody .abWarn").textContent.indexOf("2 students") === 0, true);
+    eq("…and flagged under their names",
+       grid.querySelector('[data-count="u1"]').classList.contains("none"), true);
     eq("the save bar is out of the way until something changes",
        document.getElementById("abBar").hidden, true);
 
@@ -2962,7 +2601,18 @@
     eq("one edit brings the save bar up", document.getElementById("abBar").hidden, false);
     eq("…counting what is pending", document.getElementById("abCount").textContent, "1 change");
     eq("…and repaints the row it touched, without a re-render",
-       grid.querySelector('[data-ownpill="s:u1"]').hidden, false);
+       grid.querySelector('[data-count="u1"]').textContent, "1 game");
+
+    // A period heading's box selects everyone shown under it.
+    T.feed(aClass());
+    T.renderAssign();
+    var pbox = document.querySelector('#abGrid [data-pickgroup="3"]');
+    pbox.checked = true;
+    pbox.dispatchEvent(new Event("change", { bubbles: true }));
+    eq("ticking a period selects its students",
+       Object.keys(T.board.sel).filter(function(u){ return T.board.sel[u]; }).sort().join(","), "u1,u2");
+    eq("…and the bulk button counts them",
+       document.getElementById("abBulk").textContent.indexOf("2 selected") !== -1, true);
 
     // Folding a family swaps its ten columns for one summary.
     T.feed(aClass());
@@ -2982,20 +2632,17 @@
     T.renderAssign();
     grid = document.getElementById("abGrid");
     eq("a cell names the student, the list and the modes",
-       grid.querySelector('[data-cell="s:u1|6"]').getAttribute("aria-label"),
-       "Ana, Red Words List 2: Cards, Match It (inherited)");
-    eq("an empty cell says 'nothing', not an em dash",
-       grid.querySelector('[data-cell="s:u1|0"]').getAttribute("aria-label"),
-       "Ana, Starting Blends: nothing (inherited)");
-    eq("a row with its own set is not called inherited",
        grid.querySelector('[data-cell="s:u2|5"]').getAttribute("aria-label"),
        "Marcos, Red Words List 1: Cards");
+    eq("an empty cell says 'nothing', not an em dash",
+       grid.querySelector('[data-cell="s:u1|0"]').getAttribute("aria-label"),
+       "Ana, Starting Blends: nothing");
     eq("a one-list family doesn't invent a list number", T.colLabel({ fam: WordLists.familyOf("nonsense") }),
        "Nonsense Words");
     eq("a folded family says how many lists it stands for",
        T.colLabel({ fam: WordLists.familyOf("red"), summary: true }), "Red Words, all 10 lists");
     eq("the spoken form and the icons come from the same answer",
-       T.cellSpoken("s:u1", { fam: WordLists.familyOf("red"), n: 2 }), "Cards, Match It");
+       T.cellSpoken("s:u2", { fam: WordLists.familyOf("red"), n: 1 }), "Cards");
 
     /* ---- the filter can outlive the period it names ----
        It is remembered in localStorage, so a new roster or a renamed
@@ -3027,12 +2674,10 @@
     eq("…and the summary keeps up",
        host.querySelector('[data-pk-summary="probe"]').textContent, "nothing");
 
-    /* ---- a period named with a quotation mark ----
-       Periods are free text — "Support", "3", anything a teacher types.
-       The attribute selectors were built by stripping quotes, so a scope
-       whose id held one matched nothing: scopeSelection came back empty
-       and Save wrote an empty list, which parks every student in that
-       period. A backslash made querySelector throw instead. */
+    /* ---- a scope id with a quotation mark ----
+       Scope ids end up inside attribute selectors. They were once built
+       by stripping quotes, so an id holding one matched nothing and Save
+       wrote an empty list; a backslash made querySelector throw. */
     var odd = 'p:Sup"port';
     host.innerHTML = T.pickerHtml(odd, ["red-3-cards", "red-3-match"], false);
     eq("a scope id with a quote still reads its own checkboxes",
@@ -3095,19 +2740,18 @@
         totals:{n:13,r:12}, recent:[], lastSeen: 1757000000000
       }],
       assignments: { u1: { period:"3", lists:["red-1-cards"] } },
-      classCfg: { periods:["3"], periodLists:{}, defaultLists:[] },
+      classCfg: { periods:["3"] },
       notes: { u1: { text:"Reads well, freezes when timed", updatedAt:1 } }
     });
 
     var roster = T.rosterCsv().split("\r\n");
     eq("the roster has a header and a row per student", roster.length, 3, JSON.stringify(roster));
     eq("the header names the columns",
-       roster[0], "Name,Email,Period,Lists,Lists from,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Signed in,Note");
+       roster[0], "Name,Email,Period,Lists,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Signed in,Note");
     eq("a name with a comma and an apostrophe survives whole",
        roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,3,'), 0);
     eq("the roster carries the same sentence the screen shows",
        roster[1].indexOf("Red Words: 1 🃏") !== -1, true);
-    eq("…and where it came from", roster[1].indexOf("student") !== -1, true);
     eq("…and the note, quoted for its comma",
        roster[1].indexOf('"Reads well, freezes when timed"') !== -1, true);
     eq("…and a date a spreadsheet will sort", roster[1].indexOf("2025-09-04") !== -1, true,
@@ -3127,6 +2771,14 @@
     eq("the filename is dated so a folder of them sorts",
        /^english-intensive-roster-\d{4}-\d{2}-\d{2}\.csv$/.test(T.exportName("roster")), true,
        T.exportName("roster"));
+
+    // A student with nothing assigned says so rather than leaving a blank.
+    T.feed({
+      students: [{ uid:"u9", name:"Kai", email:"kai@seq.org", stats:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 }],
+      assignments: {}, classCfg: { periods:[] }
+    });
+    eq("a student with no games exports 'nothing yet'",
+       T.rosterCsv().split("\r\n")[1].indexOf("nothing yet") !== -1, true);
 
     // A class nobody has signed into yet still produces a valid file.
     T.feed({ students: [], assignments: {}, classCfg: {} });
@@ -3285,7 +2937,7 @@
        The panel reads through the same draft everything else does, so
        adding a suggestion makes it stop being true. */
     function classWith(uid, stats, lists){
-      var st = { students: [], assignments: {}, classCfg: { periods:["3"], periodLists:{}, defaultLists:[] } };
+      var st = { students: [], assignments: {}, classCfg: { periods:["3"] } };
       st.students.push({ uid:uid, name:"Ana", email:"ana@seq.org", stats:stats,
                          totals:{n:0,r:0}, recent:[], lastSeen:0 });
       st.assignments[uid] = { period:"3", lists: lists };
