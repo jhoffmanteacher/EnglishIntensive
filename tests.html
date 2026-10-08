@@ -1330,6 +1330,42 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
+     game-core.js — the recogniser helpers
+
+     resultGate keeps a late result for the last word off the next one;
+     netRetry rides out a dropped second of Wi-Fi. The engines are driven
+     through both in tools/boot-check.html; these pin the arithmetic.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var C = window.GameCore;
+    function ev(resultIndex, length){ var r = []; r.length = length; return { resultIndex: resultIndex, results: r }; }
+
+    var g = C.resultGate();
+    g.see(ev(0, 1));
+    eq("a fresh word scores from where the event starts", g.from(ev(0, 1)), 0);
+    g.nextItem();
+    eq("after the next word appears, a revision of the old result is skipped", g.from(ev(0, 1)), 1);
+    eq("…and a new utterance counts", g.from(ev(1, 2)), 1);
+    g.see(ev(1, 2));
+    g.see(ev(0, 1));
+    eq("seeing a shorter event later doesn't move the mark back", (function(){ g.nextItem(); return g.from(ev(0, 2)); })(), 2);
+    g.session();
+    eq("a new session numbers from 0 again", g.from(ev(0, 1)), 0);
+    eq("a malformed event doesn't throw", C.resultGate().from(null), 0);
+
+    var n = C.netRetry();
+    eq("not failing to begin with", n.failing(), false);
+    eq("the first failure waits a second", n.fail(), 1000);
+    eq("…and says so", n.failing(), true);
+    eq("the second waits two", n.fail(), 2000);
+    eq("the third waits four", n.fail(), 4000);
+    eq("the fourth in a row gives up", n.fail(), -1);
+    n.ok();
+    eq("anything that works resets it", n.fail(), 1000);
+    eq("the limit can be set", C.netRetry({ max: 1, baseMs: 10 }).fail(), 10);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
      game-core.js — the Reading view
 
      Four switches applied as classes on <html>. The parts worth pinning:

@@ -145,7 +145,7 @@
            collection failing means the dashboard is broken; this one
            failing means the roster rules have not been published yet,
            which is a state the site is designed to survive — see
-           firestore.rules and the box at the top of TODO.md. */
+           firestore.rules. */
         db.collection("roster").get().catch(function(){ return null; })
       ]);
     }).then(function(snaps){
@@ -323,7 +323,7 @@
         "You choose their games afterwards, on the Assign tab.</p>" +
         (rosterReadable ? "" : '<div class="empty" style="border-color:rgba(255,107,107,.45)"><b>The roster rules ' +
           "aren't published yet.</b> This import will fail until somebody pastes <code>firestore.rules</code> into " +
-          "Firebase console → Firestore → Rules → Publish. See the top of TODO.md.</div>") +
+          "Firebase console → Firestore → Rules → Publish.</div>") +
         '<div class="riDrop" id="riDrop">' +
           "<b>Drop a file here</b><br><span class=\"muted tiny\">.csv, .tsv or .txt</span><br>" +
           '<input type="file" id="riFile" accept=".csv,.tsv,.txt,text/plain,text/csv">' +
@@ -448,7 +448,7 @@
         note.className = "saveNote err";
         note.textContent = rosterReadable
           ? "Nothing imported — check the network and try again."
-          : "Nothing imported — the roster rules aren't published yet (see TODO.md).";
+          : "Nothing imported — the roster rules aren't published yet (Firebase console → Firestore → Rules).";
       }
     });
   }
@@ -1313,7 +1313,7 @@
           note.className = "saveNote err";
           note.textContent = rosterReadable
             ? "Didn't save — check the network and try again."
-            : "Didn't save — the roster rules aren't published yet (see TODO.md).";
+            : "Didn't save — the roster rules aren't published yet (Firebase console → Firestore → Rules).";
         });
       return;
     }

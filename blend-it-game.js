@@ -455,6 +455,8 @@ window.BlendItGame = (function(){
     var rec = null, listening = false, micOn = false, restartOnEnd = false;
     var holdUntil = 0, loopTimer = null, restartTimer = null, rearmTimer = null;
     var speaking = false;
+    // A dropped second of Wi-Fi is waited out, not fatal — see game-core.js.
+    var net = Core.netRetry(), sessionNetErr = false;
 
     function now(){ return Date.now(); }
     function audioBusy(){ return speaking || now() < holdUntil; }
@@ -475,6 +477,9 @@ window.BlendItGame = (function(){
       if(!micOn){
         b.classList.add("off");
         s.textContent = "Mic is off — click it (or press Space) to turn it back on";
+      } else if(net.failing()){
+        b.classList.add("paused");
+        s.textContent = "Reconnecting to the internet…";
       } else if(listening){
         b.classList.add("listening");
         s.textContent = "Listening — say the word";
@@ -501,8 +506,10 @@ window.BlendItGame = (function(){
       rec.interimResults = true;
       rec.continuous = false;
       restartOnEnd = true;
+      sessionNetErr = false;
 
       rec.onresult = function(ev){
+        net.ok();
         if(busy) return;
         var lastFinal = null, i, j, r;
         for(i = ev.resultIndex; i < ev.results.length; i++){
@@ -532,14 +539,21 @@ window.BlendItGame = (function(){
           micOn = false; stopListening();
           $("uiMic").innerHTML = "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar and allow the mic, then reload.";
         } else if(err === "network"){
-          micOn = false; stopListening();
-          $("uiMic").innerHTML = "<b>No connection.</b> Speech needs the internet. Check wifi and reload.";
+          sessionNetErr = true;
+          var wait = net.fail();
+          if(wait < 0){
+            micOn = false; stopListening();
+            $("uiMic").innerHTML = "<b>No connection.</b> Speech needs the internet. Check wifi and reload.";
+          } else {
+            holdMic(wait);
+          }
         }
         updateMicUI();
       };
 
       rec.onend = function(){
         listening = false; rec = null;
+        if(!sessionNetErr) net.ok();
         updateMicUI();
         if(restartOnEnd && micOn){
           restartTimer = setTimeout(function(){ restartTimer = null; armMic(); }, 200);

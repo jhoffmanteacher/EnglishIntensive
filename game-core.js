@@ -392,6 +392,65 @@ window.GameCore = (function(){
     return true;
   }
 
+  /* ---------------- which results belong to this word ----------------
+     A continuous recogniser numbers its results for the whole session,
+     and a session outlives a word: the beeps don't restart it, only the
+     computer's own voice does. So the recogniser can still be revising
+     what was said for the LAST word — its final version of an utterance
+     arrives well after the interim guess that already matched — when the
+     next word is on screen. Scored there, that late final is a wrong
+     answer the student never gave, and a try they never used.
+
+     The gate remembers how many results the session has produced. When a
+     new word appears, everything up to that point — including a result
+     still being revised — belongs to the old word and is skipped. A new
+     utterance gets a new index and counts.
+
+       gate.session()   a new recogniser session: indices restart at 0
+       gate.see(ev)     every onresult, busy or not, before anything else
+       gate.nextItem()  a new word is on screen
+       gate.from(ev)    the first result index worth scoring */
+  function resultGate(){
+    var seen = 0, floor = 0;
+    return {
+      session: function(){ seen = 0; floor = 0; },
+      see: function(ev){
+        var n = ev && ev.results ? ev.results.length : 0;
+        if(n > seen) seen = n;
+      },
+      nextItem: function(){ floor = seen; },
+      from: function(ev){
+        var i = ev && typeof ev.resultIndex === "number" ? ev.resultIndex : 0;
+        return i > floor ? i : floor;
+      }
+    };
+  }
+
+  /* ---------------- riding out a Wi-Fi blip ----------------
+     Chrome's recogniser sends audio to a server, and a "network" error
+     used to switch the mic off for the rest of the round with "check wifi
+     and reload". On school Wi-Fi most of those are a dropped second, not
+     an outage. So: wait and try again, longer each time, and only give up
+     after several failures in a row. Anything that shows the connection
+     working — a result, or a session that ends without a network error —
+     resets the count.
+
+       net.fail()  a network error: ms to wait before retrying, or -1 to give up
+       net.ok()    the connection worked
+       net.failing() whether the last thing that happened was a failure */
+  function netRetry(opts){
+    var max = (opts && opts.max) || 3, base = (opts && opts.baseMs) || 1000;
+    var fails = 0;
+    return {
+      fail: function(){
+        fails++;
+        return fails > max ? -1 : base * Math.pow(2, fails - 1);
+      },
+      ok: function(){ fails = 0; },
+      failing: function(){ return fails > 0; }
+    };
+  }
+
   /* The homophone group a word belongs to, from a list's own groups. Used
      by everything that judges a spoken answer: no amount of listening
      separates "to" from "two", so every member of a group is the same
@@ -1775,6 +1834,8 @@ window.GameCore = (function(){
     sameHomophone: sameHomophone,
     spokenMatch: spokenMatch,
     isNonAnswer: isNonAnswer,
+    resultGate: resultGate,
+    netRetry: netRetry,
     nonAnswers: Object.keys(NON_ANSWERS),
     expandPhonemes: expandPhonemes,
     phonemeAudio: phonemeAudio,

@@ -38,6 +38,11 @@ window.EIListen = (function(){
   var loopTimer = null, rearmTimer = null;
   var lastText = "";
   var onText = null, onErr = null;
+  // A dropped second of Wi-Fi is waited out, not fatal — see game-core.js.
+  // Guarded: a page that loads this without the core just gives up on the
+  // first network error, as it always did.
+  var net = window.GameCore ? window.GameCore.netRetry() : { fail: function(){ return -1; }, ok: function(){} };
+  var sessionNetErr = false;
 
   function now(){ return Date.now(); }
   function quiet(){ return now() < holdUntil; }
@@ -66,7 +71,9 @@ window.EIListen = (function(){
     rec.continuous = true;
     rec.interimResults = true;   // catch the guess early, don't wait for final
 
+    sessionNetErr = false;
     rec.onresult = function(ev){
+      net.ok();
       var interim = "", final = "";
       for(var i = ev.resultIndex; i < ev.results.length; i++){
         var r = ev.results[i];
@@ -84,6 +91,18 @@ window.EIListen = (function(){
       var name = ev && ev.error;
       // "no-speech" and "aborted" are ordinary here — the mic is open for
       // a whole card and most cards are read in silence.
+      if(name === "network"){
+        sessionNetErr = true;
+        var wait = net.fail();
+        if(wait >= 0){
+          // Quiet for the wait, then the loop re-arms. The page is only
+          // told if it keeps failing.
+          var until = now() + wait;
+          if(until > holdUntil) holdUntil = until;
+          stopRec();
+          return;
+        }
+      }
       if(name === "not-allowed" || name === "service-not-allowed" || name === "network"){
         wanted = false;
         stopRec();
@@ -94,6 +113,7 @@ window.EIListen = (function(){
     rec.onend = function(){
       listening = false;
       rec = null;
+      if(!sessionNetErr) net.ok();
       // Chrome ends a continuous session on its own after a stretch of
       // silence. Coming straight back is what makes the mic feel always-on.
       if(wanted && !quiet()){

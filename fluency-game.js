@@ -386,6 +386,7 @@ window.FluencyGame = (function(){
     function begin(){
       queue = deckFor();
       pointer = 0; okCount = 0; noCount = 0; missed = []; seen = {}; snap = null;
+      heardAny = false; micTrouble = false; net.ok();
       startedAt = 0; endsAt = 0; running = true;
       show("s-play");
       buildGrid();
@@ -574,11 +575,22 @@ window.FluencyGame = (function(){
       $("uiSummary").textContent =
         "You read " + okCount + " words right out of " + total + " (" + acc + "%).";
 
+      /* A run the mic wasn't there for is not a reading rate. Saved, it
+         would put a cliff in the teacher's trend line and a "−40 since
+         last time" in front of the student, for a dropped connection.
+         So it is shown, said plainly, and not kept. */
+      var unsaved = micTrouble || !heardAny;
+      if(unsaved){
+        $("uiSummary").textContent = micTrouble
+          ? "The connection dropped during this run, so it wasn't saved. Try again."
+          : "The mic didn't hear any reading, so this run wasn't saved. Check the mic and try again.";
+      }
+
       /* The delta is the reason to do this twice. A rate on its own is a
          number a student has no way to judge; "+9" is progress they can
          see without anybody explaining it. */
       var d = $("uiDelta");
-      if(lastBefore){
+      if(lastBefore && !unsaved){
         var diff = rate - lastBefore;
         d.hidden = false;
         d.className = "delta " + (diff >= 0 ? "up" : "down");
@@ -606,8 +618,10 @@ window.FluencyGame = (function(){
 
       if(stars >= 2) Core.confettiBurst($("s-end").querySelector(".card"), stars >= 3 ? 26 : 16);
       snd.win();
-      if(onFluency){ try{ onFluency({ cwpm: rate, errors: noCount, n: total, ms: ms }); }catch(e){} }
-      if(onFinish){ try{ onFinish({ right: okCount, total: total || 1 }); }catch(e){} }
+      if(!unsaved){
+        if(onFluency){ try{ onFluency({ cwpm: rate, errors: noCount, n: total, ms: ms }); }catch(e){} }
+        if(onFinish){ try{ onFinish({ right: okCount, total: total || 1 }); }catch(e){} }
+      }
       $("btnAgain").focus();
     }
 
@@ -618,6 +632,12 @@ window.FluencyGame = (function(){
        ends a continuous session on its own after a stretch of silence. */
     var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     var rec = null, listening = false, wantMic = false, restartTimer = null;
+    /* A dropped second of Wi-Fi is waited out (game-core.js explains).
+       But a run the mic wasn't there for is not a reading rate: if the
+       connection dropped at all, or nothing was heard, the run isn't
+       saved — see finish(). */
+    var net = Core.netRetry(), sessionNetErr = false;
+    var heardAny = false, micTrouble = false;
 
     function startListening(){
       wantMic = true;
@@ -635,6 +655,7 @@ window.FluencyGame = (function(){
       if(!SR || !wantMic || listening) return;
       try{ rec = new SR(); }
       catch(e){ rec = null; return; }
+      sessionNetErr = false;
       rec.lang = "en-US";
       rec.continuous = true;
       rec.interimResults = true;
@@ -646,6 +667,8 @@ window.FluencyGame = (function(){
          the screen — and heardResult() scores each result from a snapshot
          so that when Chrome revises one, the revision wins. */
       rec.onresult = function(ev){
+        net.ok();
+        heardAny = true;
         for(var i = ev.resultIndex; i < ev.results.length; i++){
           heardResult(i, ev.results[i][0].transcript, ev.results[i].isFinal);
         }
@@ -654,18 +677,34 @@ window.FluencyGame = (function(){
       rec.onerror = function(ev){
         var err = ev && ev.error;
         if(err === "not-allowed" || err === "service-not-allowed"){
+          micTrouble = true;
           wantMic = false;
           stopListening();
           $("uiState").innerHTML = "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar and allow the mic, then reload.";
         } else if(err === "network"){
-          wantMic = false;
-          stopListening();
-          $("uiState").innerHTML = "<b>No connection.</b> Speech needs the internet. Check wifi and reload.";
+          micTrouble = true;
+          sessionNetErr = true;
+          var wait = net.fail();
+          if(wait < 0){
+            wantMic = false;
+            stopListening();
+            $("uiState").innerHTML = "<b>No connection.</b> Speech needs the internet. Check wifi and reload.";
+          } else {
+            // Drop this session without letting onend re-arm it at once,
+            // and come back when the wait is over.
+            if(rec){ try{ rec.onresult = rec.onerror = rec.onend = null; rec.abort(); }catch(e){} rec = null; }
+            listening = false;
+            snap = null;
+            $("uiState").textContent = "Reconnecting to the internet…";
+            if(restartTimer) clearTimeout(restartTimer);
+            restartTimer = setTimeout(function(){ restartTimer = null; armMic(); }, wait);
+          }
         }
       };
 
       rec.onend = function(){
         listening = false; rec = null;
+        if(!sessionNetErr) net.ok();
         // The next session numbers its results from 0 again, so a
         // snapshot of this one's must not be mistaken for a revision.
         snap = null;

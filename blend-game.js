@@ -402,6 +402,9 @@ window.BlendGame = (function(){
        starts); listening is whether recognition is actually running now. */
     var micOn = false, listening = false, restartOnEnd = false;
     var rec = null, restartTimer = null, tickTimer = null, rearmTimer = null;
+    // Which recogniser results belong to the word on screen, and how to
+    // ride out a dropped second of Wi-Fi. Both explained in game-core.js.
+    var gate = Core.resultGate(), net = Core.netRetry(), sessionNetErr = false;
 
     /* audio-output gate: the mic is held off while the computer makes sound so
        it never hears its own beeps or the "Hear it" voice. */
@@ -622,6 +625,9 @@ window.BlendGame = (function(){
       var w = queue[idx];
       $("uiWord").innerHTML = markup(w);
       Core.markWordCase($("uiWord"), w);
+      // Anything the recogniser is still saying about the last word stays
+      // with the last word.
+      gate.nextItem();
       revealPieces = []; revealWord = "";
       // A new word, a new recording. The old one is dropped rather than
       // kept: nothing here is worth keeping past the card it belongs to.
@@ -860,6 +866,9 @@ window.BlendGame = (function(){
       if(!micOn){
         b.classList.add("off");
         s.textContent = "Mic is off — click it (or press Space) to turn it back on";
+      } else if(net.failing()){
+        b.classList.add("paused");
+        s.textContent = "Reconnecting to the internet…";
       } else if(listening){
         b.classList.add("listening");
         s.textContent = "Listening — say the word (press H to hear it)";
@@ -894,11 +903,15 @@ window.BlendGame = (function(){
 
       listening = true;
       restartOnEnd = true;
+      gate.session();
+      sessionNetErr = false;
 
       rec.onresult = function(ev){
+        gate.see(ev);           // before the busy check: a result seen now is not this word's
+        net.ok();
         if(busy) return;
         var target = queue[idx], lastFinal = null;
-        for(var r = ev.resultIndex; r < ev.results.length; r++){
+        for(var r = gate.from(ev); r < ev.results.length; r++){
           var res = ev.results[r];
           // Only the recogniser's own top-ranked guess counts. Chrome's
           // language model is biased toward common dictionary words, so a
@@ -932,9 +945,17 @@ window.BlendGame = (function(){
           stopListening();
           $("uiMic").innerHTML = "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar and allow the mic, then reload.";
         } else if(err === "network"){
-          micOn = false;
-          stopListening();
-          $("uiMic").innerHTML = "<b>No connection.</b> Speech needs the internet. Check wifi and reload.";
+          sessionNetErr = true;
+          var wait = net.fail();
+          if(wait < 0){
+            micOn = false;
+            stopListening();
+            $("uiMic").innerHTML = "<b>No connection.</b> Speech needs the internet. Check wifi and reload.";
+          } else {
+            // Wait it out rather than give up: holdMic stops this session
+            // and re-arms once the wait is over.
+            holdMic(wait);
+          }
         }
         // "no-speech" and "aborted" are normal here — onend restarts the mic.
         updateMicUI();
@@ -942,6 +963,7 @@ window.BlendGame = (function(){
 
       rec.onend = function(){
         listening = false; rec = null;
+        if(!sessionNetErr) net.ok();
         updateMicUI();
         if(restartOnEnd && micOn){
           restartTimer = setTimeout(function(){ restartTimer = null; armMic(); }, 200);

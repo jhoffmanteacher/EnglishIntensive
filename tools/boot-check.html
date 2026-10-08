@@ -88,6 +88,60 @@
         }
         });
       } },
+    /* A late final for the LAST word. Chrome matches on an interim guess,
+       then sends its final version of the same speech after the next word
+       is on screen. That must not be scored against the new word. The
+       Voice setting is off so nothing restarts the recogniser between
+       words — the case where the bug lived. */
+    "say-late": { engine: "BlendGame", list: "initial-blends",
+      fake: true, drive: function(q, click, wait){
+        if(q("#voiceLbl").textContent === "On") click(q("#btnVoice"));
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        var rec, first;
+        return wait(400).then(function(){
+          rec = window.FakeSR.last;
+          if(!rec) throw new Error("the engine never opened a recogniser");
+          first = q("#uiWord").textContent;
+          rec.emit(0, first, false);               // interim guess: matches
+          if(q("#wordCard").className.indexOf("correct") === -1) throw new Error("the interim match didn't count");
+          return wait(1500);                        // feedback, then the next word
+        }).then(function(){
+          var second = q("#uiWord").textContent;
+          if(second === first) throw new Error("never moved to the next word");
+          if(window.FakeSR.last !== rec) throw new Error("the recogniser restarted, so this proves nothing");
+          rec.emit(0, first, true);                // the late final of the old word
+          if(q("#wordCard").className.indexOf("wrong") !== -1){
+            throw new Error("the last word's late result was scored against the new one");
+          }
+          rec.emit(1, second, true);               // a real answer to the new word still counts
+          if(q("#wordCard").className.indexOf("correct") === -1) throw new Error("the new word's answer was ignored");
+        });
+      } },
+
+    /* A dropped second of Wi-Fi. The mic used to switch off for the
+       round; now it waits and comes back with a fresh recogniser. */
+    "say-net": { engine: "BlendGame", list: "initial-blends",
+      fake: true, drive: function(q, click, wait){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        var rec;
+        return wait(400).then(function(){
+          rec = window.FakeSR.last;
+          if(!rec) throw new Error("the engine never opened a recogniser");
+          rec.onerror({ error: "network" });
+          if(q("#btnMic").classList.contains("off")) throw new Error("one network error switched the mic off");
+          if(q("#uiMicState").textContent.indexOf("Reconnecting") === -1) throw new Error("no reconnecting message");
+          return wait(1400);
+        }).then(function(){
+          if(window.FakeSR.last === rec) throw new Error("it never tried again");
+          window.FakeSR.last.emit(0, q("#uiWord").textContent, true);
+          if(q("#wordCard").className.indexOf("correct") === -1) throw new Error("the reconnected mic didn't score");
+        });
+      } },
+
     "spell":      { engine: "SpellGame",   list: "oi-oy-spell", drive: function(q, click){
                       click(q("#btnStart"));
                       // Two wrong answers, to reach the sound-box reveal.
@@ -174,6 +228,46 @@
           throw new Error("errors = " + q("#uiWrong").textContent + ", wanted 1");
         }
       } },
+    /* A run the connection dropped out of is shown but not saved: a
+       reading rate the mic wasn't there for would put a cliff in the
+       teacher's trend line. */
+    "fluency-net": { engine: "FluencyGame", list: "blends-end-1-fluency",
+      fake: true, cfg: function(c){ c.onFluency = function(){ window.__savedRun = true; }; },
+      drive: function(q, click){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        var rec = window.FakeSR.last;
+        if(!rec) throw new Error("the engine never opened a recogniser");
+        rec.emit(0, q("#wg0").textContent, true);
+        rec.onerror({ error: "network" });
+        if(q("#uiState").textContent.indexOf("Reconnecting") === -1) throw new Error("no reconnecting message");
+        click(q("#btnDone"));
+        if(window.__savedRun) throw new Error("a run with a dropped connection was saved");
+        if(q("#uiSummary").textContent.indexOf("wasn't saved") === -1) throw new Error("the student wasn't told");
+      } },
+    // …and one where the mic heard nothing at all.
+    "fluency-silent": { engine: "FluencyGame", list: "blends-end-1-fluency",
+      fake: true, cfg: function(c){ c.onFluency = function(){ window.__savedRun = true; }; },
+      drive: function(q, click){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        click(q("#btnDone"));
+        if(window.__savedRun) throw new Error("a run with nothing heard was saved");
+        if(q("#uiSummary").textContent.indexOf("didn't hear") === -1) throw new Error("the student wasn't told");
+      } },
+    // A normal run is still saved.
+    "fluency-saved": { engine: "FluencyGame", list: "blends-end-1-fluency",
+      fake: true, cfg: function(c){ c.onFluency = function(){ window.__savedRun = true; }; },
+      drive: function(q, click){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        window.FakeSR.last.emit(0, q("#wg0").textContent + " " + q("#wg1").textContent, true);
+        click(q("#btnDone"));
+        if(!window.__savedRun) throw new Error("a good run wasn't saved");
+      } },
     "blendit":    { engine: "BlendItGame", list: "nonsense-1-blendit" }
   };
 
@@ -219,6 +313,8 @@
   cfg.mastered = window.WordLists.wordsOf(g.list).slice(0, 8);
   if(l.text) cfg.text = l.text;
   if(l.targets) cfg.targets = l.targets;
+
+  if(g.cfg) g.cfg(cfg);
 
   // Before start(), because the engine reads it there.
   if(g.fake){ window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR; }

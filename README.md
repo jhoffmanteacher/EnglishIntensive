@@ -401,6 +401,35 @@ what's shared is visible in one place and the code below reads unchanged.
 as the core — if a local copy is ever reintroduced, that check fails
 immediately.
 
+## Listening: two things every mic mode shares
+
+Both live in `game-core.js`, are pinned in `tests.html`, and are driven
+through the real engines with a fake recogniser in `tools/boot-check.html`.
+
+**A late result stays with its own word** (`resultGate`). Say It's
+recogniser runs for many words at a time — the beeps don't restart it,
+only the computer's voice does — and it scores on an interim guess so a
+right answer lands quickly. Chrome then sends its *final* version of the
+same speech, sometimes after the next word is already up. Scored there,
+it was a wrong answer and a lost try on a word the student hadn't read
+yet. Now everything the session produced before a word appeared belongs
+to the word before it. (`say-late`)
+
+**A dropped second of Wi-Fi is waited out** (`netRetry`). Chrome's
+recogniser runs on a server, and a single "network" error used to switch
+the mic off for the round with "check wifi and reload". Now each mode
+waits 1, 2, then 4 seconds and tries again, shows *Reconnecting…* while
+it does, and only gives up after four failures in a row. A result, or a
+session that ends without a network error, resets the count. Say It,
+Blend it, One minute and the flash cards' listening all use it. (`say-net`)
+
+Chrome 154 also offers on-device recognition (`processLocally`) and
+word boosting (`phrases`). Neither is used yet. On-device would take the
+network out of it entirely but needs testing for accuracy on struggling
+readers and for whether managed Chromebooks allow the language pack.
+Boosting the target word must never touch scoring — it makes the
+recogniser hear the word whether or not it was read.
+
 ## Blend games
 
 `blend-game.js` + `blend-game.css` are a shared engine for the "say the word
@@ -998,6 +1027,14 @@ kilobytes. It is not a stat: a rate belongs to a run, not to a word, and
 nothing in the scheduler reads it. The tail is what makes the dashboard's
 sparkline; a single latest number would say nothing about whether anything
 is changing.
+
+**A run the mic wasn't there for isn't stored.** If the connection
+dropped at any point in the minute, or the recogniser heard nothing at
+all, the end screen shows what happened and says the run wasn't saved —
+no rate, no round, no "since last time". A dropped connection isn't a
+slower reader, and saving it would put a cliff in the trend line. Driven
+in `tools/boot-check.html` (`fluency-net`, `fluency-silent`,
+`fluency-saved`).
 
 The student page draws one inline-SVG sparkline per fluency list (no
 library, no axes, no labels — the question is "is this going up", and the
