@@ -259,9 +259,19 @@ student on a Chromebook with neither finds that out before they open the
 game.
 
 A shared page with no `?list=`, or a stale one, isn't an error: it shows
-a chooser of every list that has that mode, the student's own first and
-the rest under "More", so a bookmarked or hand-typed address still lands
-somewhere useful. A list id belonging to a different page redirects there.
+a chooser of the student's own lists that have that mode, so a bookmarked
+or hand-typed address still lands somewhere useful. A list id belonging to
+a different page redirects there.
+
+A student only ever plays what they were given. Opening a list they
+weren't assigned — an address copied off a neighbour's screen — shows that
+same chooser of their own lists instead, or one line saying the game isn't
+on their list. A student with nothing assigned gets an empty home page
+that says the teacher will add games, not the whole library. The teacher's
+account (and the localhost dev bypass) sees every list, so a game can be
+tried before it's handed out; the teacher's home page says so in one line
+so it isn't mistaken for what the class sees. That switch is
+`EIStore.seesEverything()`.
 
 ## Reading view
 
@@ -1217,24 +1227,44 @@ page for that account. Four tabs:
 
 - **Students** — roster with accuracy, words solid, words shaky, last
   activity, and a **Lists** column that says in words what each student
-  currently gets and where it comes from — *"Red Words: 1–3 🃏 (period
-  3)"*. Click through for a student's hardest words (worst first, with
-  which list each came from), their per-list breakdown, their assignment
-  picker and their **note**. Two CSV exports live here too.
-- **Assign** — every assignment in the class as one grid. This is the
-  section below.
-- **Periods & Lists** — the same picker for the class default and for
-  each period, plus the table that drops students into periods.
+  currently gets — *"Red Words: 1–3 🃏"*, or a *nothing yet* pill. Above
+  it, when it's true, a callout: *"7 students have no games yet"*, with a
+  button to the Assign tab. Click through for a student's hardest words
+  (worst first, with which list each came from), their per-list
+  breakdown, their games picker and their **note**. Two CSV exports live
+  here too. On an empty class the tab is a three-step *Get started*.
+- **Assign** — every student's games as one grid. This is the section
+  below.
+- **Periods** — roster import, naming periods, and the table that drops
+  students into them. Periods group students on the dashboard (the
+  board, the filters, Trouble spots); they never decide what anybody
+  sees.
 - **Trouble spots** — the same words aggregated across the class, sorted
   by *how many students* are struggling with each rather than by raw
   accuracy, so one student's bad day doesn't top the list. Filterable by
   period. This is the "what do I reteach tomorrow" view.
 
-### The picker: one scope at a time
+### One rule: a student sees what they were given
 
-Every place a set of lists is chosen one scope at a time — a student's
-own, a period's, the class default, the board's bulk dialog — uses one
-component, `pickerHtml()` in `teacher.js`. It is one section per family,
+There is no class default, no period list, no course, and no "everything
+when nothing is set". Each student has exactly one set of lists — their
+own — and that set is what their home page shows. `EIStore.effectiveLists`
+is the whole rule: the student's `assignments/{uid}` lists, else the
+lists on their roster row (set on the dashboard before they had signed
+in), else nothing.
+
+This replaced a precedence walk (own → roster → period course → period
+list → class default → everything) with inherited cells drawn dashed,
+copy-on-write edits and an *own ↺* button to hand a student back to their
+group. All of that was correct and all of it needed explaining. With one
+level there is nothing to inherit, so a row on the board is simply what
+that student sees, and "who has nothing" — the only question the old
+default answered — is now asked out loud instead.
+
+### The picker
+
+Every place a set of lists is chosen — a student's own page, the board's
+bulk dialog — uses one component, `pickerHtml()` in `teacher.js`. It is one section per family,
 because that is the only kind of entry the registry has:
 
 - **a family with one list** — a line of mode checkboxes, with *all* /
@@ -1245,10 +1275,11 @@ because that is the only kind of entry the registry has:
   mode, an **all** toggle on each row and each column. "Lists 1–4 as
   flash cards" is four clicks; "everything as Match It" is one.
 
-A live line under the picker — *"This gives them: Starting Blends: 🎤🃏 ·
-Red Words: 1–3 🃏 · 1 🎯"* — says in words what the ticks add up to, and
-it is the same line the roster shows, so what a student *has* and what
-you're *setting* read the same way.
+A live line under the picker — *"Ticked: Starting Blends: 🎤🃏 · Red
+Words: 1–3 🃏 · 1 🎯"* — says in words what the ticks add up to, and it is
+the same line the roster shows, so what a student *has* and what you're
+*setting* read the same way. The button row under a picker is sticky, so
+Save is on screen however far down the six families you've scrolled.
 
 ### The Assign board: the whole class at once
 
@@ -1258,44 +1289,36 @@ ten minutes at the start of a unit when you are moving a class onto List
 4. The **Assign** tab is that: students down the side, lists across the
 top, every assignment in the class visible and editable in place.
 
-Rows are grouped by period, with a period row above each group and the
-class default above everything — the same chain the precedence walks, in
-the order it walks it. Columns are one per list, grouped under a family
+Rows are grouped by period under a heading row whose checkbox selects
+everyone shown under it. Columns are one per list, grouped under a family
 header that can be folded (▾/▸) into a single summary column, which is
 how ten red-word columns get out of the way when you're working on
 blends. Both the first column and the two header rows are sticky, so a
-name and a list stay on screen however far you scroll.
+name and a list stay on screen however far you scroll. Above the grid is
+a key to the mode icons — the cells are icons and nothing else — and,
+when it's true, a line counting the students shown who have nothing.
+Each name carries *"3 games"* or a gold *nothing yet* under it.
 
-Three things make it work rather than just look busy:
-
-- **Inheritance is visible.** A dashed grey cell is inherited — the
-  student is following their period, the period is following the class
-  default, or the class default itself has never been set and everyone is
-  getting every list. A gold cell is a set of that scope's own. Who has
-  been pulled out of their group is the question a differentiated roster
-  actually raises, and it is now answerable at a glance.
-- **Editing is copy-on-write, and says so.** Change any cell on someone
-  who is inheriting and they get their own copy of what they already
-  had — exactly what saving the picker on their page has always done —
-  and the row grows an **own ↺** button that hands them back.
+- **A cell click** opens the modes for that one list, ticked live.
+- **A column's all** sets every mode of that list for every *visible*
+  student — the period filter and the name search are what bound it, and
+  that is the only thing standing between a mis-click and a class's worth
+  of undone assignment.
+- **Change games for N selected…** opens the picker empty and offers
+  three actions: **Add to what they have**, **Take these away**, and
+  **Replace all their games**. Add is the common case and comes first:
+  moving a period onto List 4 shouldn't wipe the oi/oy cards half of them
+  are still on. The arithmetic is `bulkApply()`.
 - **Nothing is written until Save.** Every edit lands in a draft, the bar
   at the bottom counts what's pending, and Save commits the lot in one
-  `db.batch()`: one `assignments/{uid}` merge per changed student, and at
-  most one `config/class` merge however many periods and the default were
-  touched. A teacher reassigning six students should not be able to end
-  up with three of them moved. Discard throws the draft away; leaving the
-  tab with changes pending asks first.
+  `db.batch()`: one `assignments/{uid}` merge per changed student, or a
+  roster-row merge for one who hasn't signed in. A teacher reassigning six
+  students should not be able to end up with three of them moved. An edit
+  put back the way it was is not a change. Discard throws the draft away;
+  leaving the tab with changes pending asks first.
 
-A cell click opens the modes for that one list, ticked live. A column's
-**all** toggle sets every mode of that list for every *visible* student —
-the period filter and the name search are what bound it, and that is the
-only thing standing between a mis-click and a class's worth of undone
-assignment. Ticking several students turns on **Set lists for N
-selected…**, which opens the same picker once, seeded from the first
-selected student's effective set, and applies it to all of them.
-
-The board's rules — the precedence walk, copy-on-write, how far a column
-toggle reaches, and the shape of the two documents Save writes — are pure
+The board's rules — what a student has, how far a column toggle or a bulk
+change reaches, and the shape of the documents Save writes — are pure
 functions of a class's state and are pinned in `tests.html`, along with a
 check that the grid itself renders the rows and cells it claims to.
 
@@ -1303,7 +1326,7 @@ check that the grid itself renders the rows and cells it claims to.
 
 A class only existed on this dashboard once every student had signed in,
 which made the first day of term an empty page and a teacher typing thirty
-names into a period dropdown. **Periods & Lists → 📋 Import roster** takes
+names into a period dropdown. **Periods → 📋 Import roster** takes
 whatever the student information system exports and places the whole class
 before any of them touches the site.
 
@@ -1318,17 +1341,16 @@ quoted fields with commas inside names; a BOM; Windows line endings; `Perm
 ID` or `Local ID` or `Student Number`; one *Name* column or *Last* plus
 *First*; `Period 3` or `P3` or `3rd`. With no header row at all it reads the
 columns by shape — the all-digits column is the ID, the wordy one is the
-name, the one- or two-digit one is the period. An optional *start* column
-takes a list id or the shorthand a teacher actually writes (`Red 3`,
-`oi/oy`, `Blend Words`).
+name, the one- or two-digit one is the period. Any other column is
+ignored: which games a student gets is chosen on the dashboard, not in the
+export.
 
 What it will **not** do is guess an ID. A row without one, or with a
 non-numeric or duplicate one, is listed and left out — a guessed ID is a
-student matched to somebody else's record. An unreadable *start* is a
-warning, not an error: that student starts at the beginning.
+student matched to somebody else's record.
 
 Nothing is written until the preview has been looked at: name, email,
-period, start, and a status of *new*, *update* or *already signed in*.
+period, and a status of *new*, *update* or *already signed in*.
 Then one batch of set-merges (chunks of 400).
 
 Two rules do the rest of the work and both are about not destroying
@@ -1339,8 +1361,9 @@ anything:
   on their page.
 - **The one place the roster writes into `assignments` only ever fills a
   blank.** After an import, a student who has signed in, has a roster row
-  and has *no* assignment document gets one. A period a teacher set by hand
-  in March is never overwritten by a re-import in April.
+  and has *no* assignment document gets one — a period, never lists. A
+  period a teacher set by hand in March is never overwritten by a
+  re-import in April.
 
 A roster row with no account behind it is folded into the class as a
 **pending student** — a real row, greyed, clickable and assignable, with
@@ -1350,52 +1373,6 @@ nothing had to learn about a second kind of student. Their assignments are
 written to their roster row instead of to `assignments/{uid}`, because
 there is no uid to write one against yet; `store.js` picks them up on the
 first sign-in.
-
-### Sequences
-
-A period can run an ordered **course** instead of a flat list of lists.
-Where it does, the site moves students along it: a student sees every step
-up to and including the one they are on, and the next opens when the
-current one is 80 % solid.
-
-Nothing is written to make that happen. A student's position is a pure
-function of their own stats (`Adaptive.unlocked`), computed separately in
-their browser and on this dashboard from the same function, so the two
-cannot disagree — which is what lets `assignments/{uid}` stay teacher-only.
-A student who could advance themselves would be a student who could assign
-themselves anything.
-
-What unlocks is **additive**: a finished list stays in rotation. The
-scheduler already damps a mastered word to near-invisibility, and taking
-the list away as well is how a student loses a word they had.
-
-`WordLists.defaultSequence()` generates the standard course from the
-families, so adding a family puts it in the course without editing a second
-file: the decodable lists in the order they get harder, **say → cards →
-match** within each, then the ten red lists with *cards N* unlocking *match
-N* and *cards N+1*. The nonsense words sit in step one and never leave — a
-warm-up you have to unlock is not a warm-up. Modes that aren't rungs on a
-ladder (spelling, the fluency runs, Blend It, Split it) are left out; those
-are practice a teacher assigns on purpose.
-
-A period with **no stored sequence has no sequence** and keeps its flat
-list, which is every period until somebody presses **Reset to default** in
-the editor. `sequenceOn[period]` only ever turns one *off*.
-
-On the dashboard: a per-period editor (steps drag-to-reorder, and with ↑/↓
-buttons, because a drag past the bottom of a scrolling panel is nobody's
-friend), board cells the course decided marked with the step they came
-from, and those students dropped from the *Ready to move up* strip — the
-site has already done it. `SOLID_ENOUGH` lives in `adaptive.js` now with the
-dashboard aliasing it, so the suggestion and the auto-advance cannot
-disagree about "finished".
-
-On the student's home page: when a step opens, one line saying which list
-just arrived — **once**, and only forward. There are no lock icons on
-anything else. A list not yet reached simply isn't on the page, exactly as
-an unassigned list isn't today; a wall of locked tiles is a list of
-everything a student can't do yet, which is not a thing to put in front of
-this class.
 
 ### What should change
 
@@ -1413,7 +1390,7 @@ twenty numbers and no next action.
 2. **The two in the wrong order** — under 50 % on Match It for a list whose
    cards are under 60 % solid. Picking a word out of six look-alikes is
    harder than reading it, not easier.
-3. **Coasting** — every assigned list 90 %+ solid with no course running.
+3. **Coasting** — every assigned list 90 %+ solid.
 4. **Quiet** — no round in more than 7 **school** days. Counting calendar
    days would say the whole class had gone quiet every weekend.
 
@@ -1534,42 +1511,21 @@ jump to the ends of a row, **Enter** or **Space** opens a cell's modes and
 Tab.
 
 Every cell also carries its answer in words — *"Ana, Red Words List 2:
-Cards, Match It (inherited)"* — because two emoji and an em dash are not
-something to hand a screen reader.
+Cards, Match It"* — as its label and its tooltip, because two emoji and an
+em dash are not something to hand a screen reader.
 
 ### What actually gets stored
 
-Unchanged, and this is the point: a flat array of list ids in
-`assignments/{uid}` (a student's own set) or `config/class` (a period's,
-or the default). The families, the modes, the grid and the board are all
-presentation — `store.js`, the precedence and `firestore.rules` never see
-any of it, so **turning every list into a family needed no rules change
-and no migration**. `null` rather than a missing field is how "inherit"
-is stored, which is what the **own ↺** button writes.
+A flat array of list ids in `assignments/{uid}` — or, for a student who
+hasn't signed in yet, on their `roster/{email}` row. The families, the
+modes, the grid and the board are all presentation — `store.js` and
+`firestore.rules` never see any of it. An empty array and a missing one
+mean the same thing now: nothing.
 
-Two things worth knowing: a student can still open a list they haven't
-been assigned (the chooser lists them under "More", and the game shows an
-"extra practice" note rather than a lock — a hard block would turn every
-mis-assignment into a support request mid-class). And the picker's
-pre-ticked state is the student's *effective* set, so opening a student
-who follows their period and pressing Save copies the period's set onto
-them as their own — use "Use my period's lists", or the board's **own
-↺**, to hand them back.
-
-Assignment precedence, resolved in `EIStore.effectiveLists` (and pinned by
-`tests.html`): **the student's own list → their roster row → their period's
-sequence, or its flat list → the class default → everything**. A student
-with nothing set anywhere sees the whole site, so day one isn't an empty
-page. Setting an explicit empty list at
-any level is a real answer and stops the walk — that's how you park a
-student.
-
-Every level therefore has two distinct "off" states, and the board draws
-the difference: **nothing set** (dashed, falls through to the level below)
-and **set to nothing** (gold, empty, stops the walk). The class default is
-included in that — an unset default reads *"nothing set — everyone gets
-every list"* rather than pretending to be a configured one, and its
-**own ↺** clears it back to that rather than parking the school.
+`config/class` holds only the named periods. Older builds also wrote
+`periodLists`, `defaultLists`, `sequences` and `sequenceOn` there;
+nothing reads them any more, and they can be left or deleted in the
+console.
 
 The teacher has **read** on `students/{uid}` and no write. Everything the
 teacher sets lives in `assignments/{uid}` instead, so a compromised
@@ -1578,9 +1534,9 @@ teacher session can't erase anyone's work.
 The roster adds a fifth path, `roster/{email}`, and it is the one rules
 change in all of this. A student may read **exactly one document** — their
 own, matched on their own token's address — and may not write it at all.
-They need the read (their period and starting list resolve through it on a
-first sign-in, before any teacher has touched their account) and must not
-have the write (the row decides which lists they get). Rules in the repo
+They need the read (their period, and any lists the teacher gave them
+before they had an account, resolve through it on a first sign-in) and
+must not have the write (the row decides which lists they get). Rules in the repo
 are not rules in the console: until `firestore.rules` is pasted in and
 published, every roster read is denied, and the site behaves exactly as it
 did before the roster existed — which is designed, and is also exactly why

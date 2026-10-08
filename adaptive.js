@@ -83,12 +83,10 @@ window.Adaptive = (function(){
   var MAX_KIND = 999;
 
   /* How much of a list has to be solid before it counts as done — for
-     the "ready to move up" suggestion, and now for a sequence that acts
-     on it without being asked. Not 100 %: a list is finished when a
-     student can read it, and there is always one word that isn't the
-     point. It lives here rather than in teacher.js because the dashboard
-     and the student's own browser both have to agree about it, and they
-     are two different files. */
+     the dashboard's "ready to move up" suggestion. Not 100 %: a list is
+     finished when a student can read it, and there is always one word
+     that isn't the point. It lives beside listShare, which measures
+     against it. */
   var SOLID_ENOUGH = 0.8;
 
   var SLOW_MS     = 2500;
@@ -469,26 +467,15 @@ window.Adaptive = (function(){
     return { latest: list[list.length-1].cwpm, best: best, runs: list.length, last: list[list.length-1] };
   }
 
-  /* ── sequences ─────────────────────────────────────────────────────
-     Where a student is in an ordered course of lists, computed from their
-     own stats. Pure, and that is the whole trick: a student's position is
-     a FUNCTION of their practice rather than a fact somebody has to write
-     down, so the student's browser and the teacher's dashboard work it
-     out separately and always agree, and nothing has to write to
-     assignments/{uid} to move anybody on. (Which matters: that
-     collection is teacher-only on purpose, and a student who could
-     advance themselves could assign themselves anything.)
-
-     A `sequence` is an ordered array of STEPS, each an array of list ids
-     that unlock together. What comes back is ADDITIVE — every step up to
-     and including the first unfinished one — because a finished list
-     stays in rotation. The scheduler already damps a mastered word into
-     near-invisibility; taking the list away as well is how a student
-     loses a word they had.
+  /* ── how far through a list ────────────────────────────────────────
+     The share of a list's words that are solid AND at pace. It is what
+     the dashboard's "Ready to move up" measures against SOLID_ENOUGH, so
+     the bar and the number printed beside a suggestion are the same
+     number.
 
      `totalOf(listId)` is injected because this file knows nothing about
-     the word library. Without it nothing is ever done and only the first
-     step unlocks, which is the safe way to be wrong. */
+     the word library. Without it the share is 0, which is the safe way to
+     be wrong: nobody gets moved on by accident. */
   function listShare(stats, listId, totalOf){
     var total = typeof totalOf === "function" ? (totalOf(listId) || 0) : 0;
     if(!total) return 0;
@@ -502,32 +489,6 @@ window.Adaptive = (function(){
       if(isMastered(s) && !isSlow(s)) solid++;
     }
     return solid / total;
-  }
-
-  function unlocked(sequence, stats, startAt, totalOf){
-    var steps = Array.isArray(sequence) ? sequence : [];
-    var from = clamp(Math.floor(num(startAt, 0)), 0, Math.max(0, steps.length - 1));
-    var ids = [], i, j, step, stepDone;
-    for(i=0;i<=from && i<steps.length;i++){
-      // Everything up to the starting step is unlocked outright: a
-      // student placed at step four by the screener has not "finished"
-      // steps one to three, and must not have to.
-      for(j=0;j<(steps[i] || []).length;j++) if(ids.indexOf(steps[i][j]) === -1) ids.push(steps[i][j]);
-    }
-    var index = from;
-    for(i=from;i<steps.length;i++){
-      step = steps[i] || [];
-      for(j=0;j<step.length;j++) if(ids.indexOf(step[j]) === -1) ids.push(step[j]);
-      stepDone = step.length > 0 && step.every(function(id){
-        return listShare(stats, id, totalOf) >= SOLID_ENOUGH;
-      });
-      index = i;
-      // `stepIds` is what the CURRENT step opened, which is what a
-      // "new list" message has to name — the whole unlocked set would
-      // announce everything the student has ever been given.
-      if(!stepDone) return { ids: ids, stepIndex: i, stepIds: step.slice(), done: false };
-    }
-    return { ids: ids, stepIndex: index, stepIds: (steps[index] || []).slice(), done: steps.length > 0 };
   }
 
   /* ── what should change ────────────────────────────────────────────
@@ -545,14 +506,13 @@ window.Adaptive = (function(){
          lists: [{ id, title, mode, family, attempts, share, accuracy,
                    hasSay, hasMatch, sayId, cardsId, cardsShare }],
          lastRound,        // epoch ms of their last finished round
-         sequenceOn,       // is their period running a course
          now
        })
        -> { rule, text, listId, addId } | null
 
      `addId` is the list the one-click apply would add, where there is
-     one; a line about turning a sequence on or about a student who has
-     stopped practising has nothing to add and says so by leaving it out. */
+     one; a line about a student who has finished everything or stopped
+     practising has nothing to add and says so by leaving it out. */
   var STUCK_ATTEMPTS = 30;
   var STUCK_SHARE    = 0.4;
   var MATCH_ACC      = 0.5;
@@ -619,14 +579,14 @@ window.Adaptive = (function(){
               Math.round(m.cardsShare * 100) + "% solid. Cards first." };
     }
 
-    /* 3. Coasting. Everything they have is finished, and nothing is
-          arriving, because nobody has turned the course on. */
-    if(lists.length && !info.sequenceOn){
+    /* 3. Coasting. Everything they have is finished, and nothing new
+          arrives unless the teacher adds it. */
+    if(lists.length){
       var allSolid = lists.every(function(x){ return x.share >= COASTING; });
       if(allSolid){
         return { rule: "coasting",
           text: "Everything on their list is " + Math.round(COASTING * 100) +
-                "%+ solid. Turn their period's sequence on, or add the next list." };
+                "%+ solid. Time to add the next list." };
       }
     }
 
@@ -685,7 +645,6 @@ window.Adaptive = (function(){
     isSlow: isSlow,
     solidEnough: SOLID_ENOUGH,
     listShare: listShare,
-    unlocked: unlocked,
     nextSteps: nextSteps,
     schoolDaysBetween: schoolDaysBetween,
     errorKinds: ERROR_KINDS.slice(),

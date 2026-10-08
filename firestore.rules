@@ -133,8 +133,8 @@ service cloud.firestore {
        of a first sign-in, which makes it the only possible join.
 
        A student may read exactly one document: their own. They need it —
-       store.js resolves their period and starting list through it on the
-       first sign-in, before any teacher has touched their account — and
+       store.js resolves their period, and any lists the teacher set up
+       before they had an account, through it on the first sign-in — and
        the row holds their own name, ID and period, which they already
        know. They may not read anyone else's, so the collection can hold
        the whole class without being a class list any student can pull.
@@ -142,9 +142,7 @@ service cloud.firestore {
        A student may not WRITE it, and that is the load-bearing half. The
        row decides which lists they get; a writable row is a student
        assigning themselves whatever they like. Same reasoning as
-       assignments/{uid} above, and the reason Phase 5's sequences are
-       computed in the browser from the student's own stats rather than
-       written anywhere.
+       assignments/{uid} above.
 
        `.lower()` on the token, not on the id: the document id is written
        lowercased by the import, and a comparison that lowercased only one

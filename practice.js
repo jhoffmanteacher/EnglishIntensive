@@ -58,17 +58,6 @@ window.EIPractice = (function(){
     });
   }
 
-  /* A one-line note under the game title when a student opens a list that
-     isn't currently assigned to them. Deliberately not a lock: a student
-     who found their way to extra practice should not be stopped, and a
-     hard block would turn every mis-assignment into a support request in
-     the middle of class. */
-  function assignmentNote(list){
-    var mine = EIStore.myLists();
-    if(mine.indexOf(list.id) !== -1) return "";
-    return '<span class="ei-extra">Extra practice — this one isn\'t on your list right now.</span>';
-  }
-
   /* ── which list does this page play? ──────────────────────────────
      A page that serves exactly one list names it outright:
      play("final-blends"). The two shared pages — cards-game.html and
@@ -77,7 +66,10 @@ window.EIPractice = (function(){
      the home page links to "cards-game.html?list=red-3-cards".
      Landing on a shared page with no (or a stale) ?list= is not an error:
      the page shows a chooser of the lists this student has for that mode,
-     so a bookmarked or hand-typed URL still lands somewhere useful. */
+     so a bookmarked or hand-typed URL still lands somewhere useful. The
+     same chooser catches a list the student wasn't given: the teacher
+     decides what each student plays, so an address copied off a
+     neighbour's screen shows their own lists instead. */
   function queryList(){
     var m = /[?&]list=([^&#]+)/.exec(location.search || "");
     try{ return m ? decodeURIComponent(m[1]) : null; }catch(e){ return null; }
@@ -115,6 +107,10 @@ window.EIPractice = (function(){
     EIAuth.ready().then(function(){
       return EIStore.ready();
     }).then(function(){
+      if(EIStore.myLists().indexOf(list.id) === -1){
+        chooser(here.length ? here : [list]);
+        return;
+      }
       var engine = engineFor(list);
       if(!engine){
         EIAuth.fail("Game engine missing", "This page didn't load " + (ENGINE_FILES[list.engine] || "its engine") + ".");
@@ -135,8 +131,6 @@ window.EIPractice = (function(){
         cfg.words = drawRound(list);
       }
       cfg.mastered = masteredOf(list);
-      var note = assignmentNote(list);
-      if(note) cfg.intro = (cfg.intro || engineIntro(list)) + "<br>" + note;
 
       /* The 4th argument is an options bag: the flash cards put a time in
          it, Say It puts the kind of error in it, and the engines that
@@ -159,22 +153,12 @@ window.EIPractice = (function(){
     });
   }
 
-  // The engines' own default intros, repeated here only so the
-  // not-assigned note can be appended to one without blanking it.
-  function engineIntro(list){
-    if(list.engine === "fluency") return "Read out loud. The computer follows along and times you.";
-    if(list.engine === "blendit") return "Hear the sounds one at a time, then say the word.";
-    if(list.engine === "spell") return "The computer says a word — you spell it.<br>Two tries each. Build a streak: every 5 in a row is bonus points!";
-    if(list.engine === "card")  return "Read the word out loud, then flip the card to check yourself.<br>Build a streak: every 5 in a row is bonus points!";
-    if(list.engine === "match") return "The computer says a word — click the one that matches.<br>Every 5 right in a row is bonus points!";
-    return "Read the word out loud. The computer listens and tells you if you said it right.<br>Build a streak — every 5 in a row is bonus points!";
-  }
-
   /* ── the list chooser ─────────────────────────────────────────────
-     Shown on a family page that wasn't told which list to play. Lists
-     this student is assigned come first; the rest are still reachable
-     under "More" — the same no-lock rule as the extra-practice note
-     above, so a wrong URL never dead-ends a student mid-class. */
+     Shown on a family page that wasn't told which list to play, and in
+     place of any list this student wasn't given. Only their own lists
+     are offered: the teacher decides what each student plays. With none
+     for this game, it says so plainly and points at the page's Home
+     button, so a wrong address never dead-ends a student mid-class. */
   var CHOOSER_STYLE = "ei-chooser-style";
   var CHOOSER_CSS = [
     ".eiChooser{max-width:720px;margin:40px auto;padding:0 20px}",
@@ -186,8 +170,7 @@ window.EIPractice = (function(){
     ".eiChooser a.opt:hover{border-color:var(--accent);transform:translateY(-2px)}",
     ".eiChooser a.opt b{display:block;font-size:19px;margin-bottom:6px}",
     ".eiChooser a.opt small{color:var(--muted);font-size:13px}",
-    ".eiChooser a.opt small em{color:var(--accent);font-style:normal;font-weight:700}",
-    ".eiChooser .home{display:inline-block;margin-top:26px;color:var(--muted)}"
+    ".eiChooser a.opt small em{color:var(--accent);font-style:normal;font-weight:700}"
   ].join("\n");
 
   function chooser(lists){
@@ -209,7 +192,6 @@ window.EIPractice = (function(){
         return (a.listNum || 0) - (b.listNum || 0);
       });
       var assigned = sorted.filter(function(l){ return mine.indexOf(l.id) !== -1; });
-      var others   = sorted.filter(function(l){ return mine.indexOf(l.id) === -1; });
 
       function opt(l){
         var sum = Adaptive.summarize(EIStore.statsFor(l.id));
@@ -224,13 +206,11 @@ window.EIPractice = (function(){
       mount.innerHTML =
         '<div class="eiChooser">' +
           "<h1>" + esc(mode.icon + " " + mode.title) + "</h1>" +
-          '<p class="sub">Which list do you want to practice?</p>' +
           (assigned.length
-            ? "<h2>Your lists</h2>" + '<div class="pick">' + assigned.map(opt).join("") + "</div>"
-            : '<p class="sub">Nothing on your list for this game yet — pick any to practice.</p>') +
-          (others.length
-            ? "<h2>" + (assigned.length ? "More" : "All lists") + "</h2>" + '<div class="pick">' + others.map(opt).join("") + "</div>"
-            : "") +
+            ? '<p class="sub">Which list do you want to practice?</p>' +
+              '<div class="pick">' + assigned.map(opt).join("") + "</div>"
+            : '<p class="sub">This game is not on your list. Your teacher picks your games. ' +
+              'Tap Home to see yours.</p>') +
         "</div>";
       EIAuth.unlock();
     }).catch(function(){
@@ -247,8 +227,8 @@ window.EIPractice = (function(){
      Tiles for the lists this student is assigned, grouped into the two
      shelves sectionsOf() names — words you sound out, and words you
      can't — each tile carrying a row per mode with its own progress. A
-     student with no assignment at all gets everything (see
-     EIStore.effectiveLists) rather than an empty page. */
+     student with nothing assigned gets one line saying so, not the whole
+     library (see EIStore.effectiveLists). */
   function renderHome(mountId){
     var mount = document.getElementById(mountId);
     if(!mount) return;
@@ -257,8 +237,15 @@ window.EIPractice = (function(){
       var sections = WordLists.sectionsOf();
       mount.innerHTML = "";
       var shown = 0;
-      var banner = unlockBanner();
-      if(banner) mount.appendChild(banner);
+      /* The teacher's own home page shows every game, so they can try one
+         before assigning it. Said out loud, or it reads as what the class
+         sees. */
+      if(EIAuth.isTeacher()){
+        var tv = document.createElement("p");
+        tv.className = "teacherView";
+        tv.textContent = "Teacher view: you see every game. Each student sees only what you assign them on the dashboard.";
+        mount.appendChild(tv);
+      }
 
       sections.forEach(function(sec){
         var lists = WordLists.all.filter(function(l){
@@ -291,63 +278,11 @@ window.EIPractice = (function(){
       if(!shown){
         var empty = document.createElement("div");
         empty.className = "empty";
-        empty.textContent = "Nothing assigned to you yet — check with your teacher.";
+        empty.textContent = "No games for you yet. Your teacher will add them soon.";
         mount.appendChild(empty);
       }
       EIAuth.unlock();
     });
-  }
-
-  /* ── the unlock banner ────────────────────────────────────────────
-     A period running a sequence moves a student on by itself, and a
-     thing that happens silently might as well not have happened. So the
-     first time the home page is drawn after a step opens, it says which
-     list just arrived.
-
-     Once, and only forward. The step number is remembered per student
-     per device, so a student who reloads doesn't get told again, and a
-     step index that went DOWN (a teacher rebuilt the sequence) is
-     recorded without a banner — "you have gone backwards" is not news
-     anybody needs. Keyed by uid because these are shared Chromebooks:
-     keyed by period alone, two students in the same period at different
-     steps overwrote each other, and one of them never saw a banner while
-     the other was re-told "New:" every time they signed in.
-
-     No lock icons anywhere else: a list not yet reached simply isn't on
-     the page, exactly as an unassigned list isn't today. A locked tile is
-     a list of everything a student can't do yet, which is not a thing to
-     put in front of this class. */
-  var STEP_KEY = "eiStep:";
-
-  // Named so tests can pin the one property that matters: two students
-  // on the same Chromebook, in the same period, get different keys.
-  function stepKey(seq){
-    return STEP_KEY + (EIAuth.uid() || "") + ":" + ((seq && seq.period) || "");
-  }
-
-  function unlockBanner(){
-    var seq = EIStore.sequence && EIStore.sequence();
-    if(!seq) return null;
-    var key = stepKey(seq);
-    var was = null;
-    try{ was = localStorage.getItem(key); }catch(e){ return null; }
-    var now = seq.stepIndex;
-    try{ localStorage.setItem(key, String(now)); }catch(e){}
-    if(was === null) return null;                 // first visit: nothing to compare
-    var before = parseInt(was, 10);
-    if(!isFinite(before) || now <= before) return null;
-
-    // Exactly what the step that just opened contains — not the whole
-    // unlocked set, which would announce everything they have ever had.
-    var names = (seq.stepIds || []).map(function(id){
-      var l = WordLists.byId(id);
-      return l ? l.listTitle + " · " + (WordLists.modeOf(l.mode) || { title:l.mode }).title : id;
-    });
-    if(!names.length) return null;
-    var div = document.createElement("div");
-    div.className = "unlockBanner";
-    div.innerHTML = "🔓 <b>New:</b> " + names.map(esc).join(" · ");
-    return div;
   }
 
   /* One list — "Red Words · List 3", or just "Blend Words" for a family
@@ -402,5 +337,5 @@ window.EIPractice = (function(){
   }
 
   return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
-           _internals: { queryList: queryList, pageName: pageName, stepKey: stepKey } };
+           _internals: { queryList: queryList, pageName: pageName } };
 })();

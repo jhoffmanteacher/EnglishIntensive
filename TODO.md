@@ -21,9 +21,7 @@ with the reasoning, so they don't get re-proposed every few months.
 ## Next
 
 *(The three items that were here — progression rules, per-student notes and
-export — are all done, and progression is no longer a suggestion: a period
-can run a sequence and the site advances students along it by itself. See
-the Teacher dashboard section of the README.)*
+export — are all done. See the Teacher dashboard section of the README.)*
 
 Nothing outstanding from the assignment-board work. The reading-feedback
 build (sound-level feedback, fluency, phoneme clips, sound boxes, patterns)
@@ -50,6 +48,17 @@ Two things worth watching once it has had one:
 
 ## Reversed
 
+- **Period lists, the class default, and sequences** — removed on
+  2026-10-08, before anyone had used the site. A student now sees exactly
+  the lists the teacher gave them, and nothing when nothing is given; the
+  teacher asked for the dashboard to control what each student sees, one
+  student at a time. The layered walk (own → roster → period course →
+  period list → class default → everything) was correct but needed a
+  paragraph of explanation on every screen that showed it. Bulk changes
+  (tick a period, add / take away / replace) cover what the period
+  levels were for. The roster's *start* column went with the courses it
+  placed students in. If auto-advancing courses come back, they should
+  come back as a per-student setting, not a period one.
 - **A say-it mode for the red words** — previously "not doing", on the
   grounds that a phoneme matcher has nothing to check an irregular word
   against. The reason didn't survive a second look: Say It accepts an
@@ -71,20 +80,6 @@ Choices the roster plan left open, recorded so the reasoning survives.
   against. Thirty answers on one list at under 40 % solid is the same
   student by any other route — at eighteen words a round that is a
   fortnight of it — and it is a number the data actually has.
-- **A period with no stored sequence has no sequence.** The plan says a
-  default one is "generated on first use"; generating it silently for
-  every period would switch auto-advance on across a school without
-  anybody asking for it. **Reset to default** in the sequence editor is
-  the first use, and it is a button somebody presses.
-- **"Red 3" in a roster's start column resolves to the family's FIRST
-  mode**, which for the red words is now Say It. Whatever a teacher
-  meant, the first mode is where a student starts, and every later mode
-  of that list unlocks a step or two behind it. A course need not contain
-  that mode, though — the generated one is built from cards and match, so
-  it has no Say It rung at all. `WordLists.startStepOf` handles that: a
-  start the course doesn't hold lands on the earliest step holding any
-  mode of the same list, so "Red 3" still places a student on List 3
-  rather than back at the beginning.
 
 ## Decided during the reading-feedback build
 
@@ -136,14 +131,6 @@ survives the commit that made them.
   and it guesses "verb" often enough that the answer key would be wrong. A
   list with no meanings can only be read, not heard. Same reason their
   cards mode runs with `speak: false`.
-- **Making "everything" a stored sentinel.** Editing an unset class
-  default pins the 35 lists it was handing down, so a family added later
-  wouldn't reach students who were on the old "everything". Tempting to
-  store a marker instead — but that would put a value in
-  `config/class.defaultLists` that `store.js`, `firestore.rules` and every
-  existing document would have to learn about, to fix a case the board now
-  makes visible (an unset default reads *"nothing set"*, and **own ↺**
-  puts it back). Not worth the model change.
 - **Splitting `word-lists.js`.** It's ~500 lines, most of it word arrays
   and the prose explaining where they came from. Splitting the families
   into their own files would mean six files to open to answer "what is

@@ -1,5 +1,11 @@
 # PLAN — Roster import, sequences, and next steps
 
+> **Partly superseded (2026-10-08).** The roster import stands. Sequences,
+> period lists, the class default and the roster's *start* column were
+> removed: a student now sees only the lists the teacher assigned them.
+> See *Reversed* in `TODO.md` and the Teacher dashboard section of the
+> README. This file is kept as the record of what was planned.
+
 Status: **approved 2026-09-04 for unattended execution**, as a follow-on to
 `PLAN-reading-feedback.md`. Written for an opusplan session; nobody is
 watching. Repo: `jhoffmanteacher/EnglishIntensive`.
