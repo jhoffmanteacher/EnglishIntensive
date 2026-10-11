@@ -748,25 +748,17 @@ window.MatchGame = (function(){
        the intro with .textContent used to swallow its <br>, welding two
        sentences into a run-on, and joining fragments that already end in
        full stops doubled the punctuation up. Core.directionParts does the
-       walk for all four engines now, so a fix lands in one place. */
-    function sayParts(parts){
-      if(!window.speechSynthesis) return;
-      parts = (parts || []).filter(function(p){ return p; });
-      if(!parts.length) return;
-      try{
-        window.speechSynthesis.cancel();
-        parts.forEach(function(text){
-          var u = new SpeechSynthesisUtterance(text);
-          u.lang = "en-US";
-          u.rate = NORMAL_RATE;
-          var v = Core.voice();
-          if(v) u.voice = v;
-          window.speechSynthesis.speak(u);
-        });
-      }catch(e){}
-    }
+       walk for all four engines now, so a fix lands in one place.
+
+       This goes through the ONE sayParts above, as [text, rate] pairs.
+       There used to be a second `function sayParts` here that took plain
+       strings. Two declarations of one name in one scope means the later
+       one wins everywhere, so every word in the game was being spoken as
+       its own pair turned into text — "you,0.95". */
     function readDirections(){
-      sayParts(Core.directionParts($("s-start")));
+      sayParts(Core.directionParts($("s-start"))
+        .filter(function(t){ return t; })
+        .map(function(t){ return [t, NORMAL_RATE]; }));
     }
 
     /* ---------------- events ---------------- */
@@ -875,8 +867,11 @@ window.MatchGame = (function(){
     document.addEventListener("keydown", function(e){
       if(!playing()) return;
       // A focused button handles Enter and Space natively — stepping in
-      // there would fire the same action twice.
-      if(e.target && e.target.tagName === "BUTTON") return;
+      // there would fire the same action twice. Only those two keys,
+      // though: after a click on "Hear it again" that button holds the
+      // focus, and H and the number keys must go on working.
+      if(e.target && e.target.tagName === "BUTTON" && (e.key === "Enter" || e.key === " ")) return;
+      if(e.ctrlKey || e.metaKey || e.altKey) return;
       if(e.key === "h" || e.key === "H"){
         e.preventDefault();
         if(busy) return;
