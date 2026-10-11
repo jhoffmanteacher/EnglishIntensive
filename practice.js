@@ -131,6 +131,11 @@ window.EIPractice = (function(){
         cfg.words = drawRound(list);
       }
       cfg.mastered = masteredOf(list);
+      /* The whole list, beside the round. Say it's by-sound judging (the
+         nonsense words) must not pass a reading that is closer to
+         ANOTHER word on the list — and "the list" is all 40, not the 18
+         in this draw. */
+      cfg.allWords = list.words.slice();
 
       /* The 4th argument is an options bag: the flash cards put a time in
          it, Say It puts the kind of error in it, and the engines that

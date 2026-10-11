@@ -382,6 +382,15 @@ window.GameCore = (function(){
     mhm:1, huh:1, ah:1, eh:1, oh:1
   };
 
+  // The transcript with its fillers taken out: "um no" -> "no". For the
+  // two judgements that look at the WHOLE of what was said, where an
+  // "um" in front must not turn one word into two.
+  function stripNoise(text){
+    return normalize(text).split(" ").filter(function(t){
+      return t && !has(NON_ANSWERS, t);
+    }).join(" ");
+  }
+
   function isNonAnswer(text){
     var t = normalize(text);
     if(!t) return false;                 // silence is handled elsewhere
@@ -483,10 +492,11 @@ window.GameCore = (function(){
      `map` is { word: [other spellings of the same sound] }. `said` must
      be the WHOLE transcript, and that is deliberate: "no", "I", "so",
      "for" and "by" turn up in anything a student says out loud, and
-     "I don't know" must not count as reading the word "eye". */
+     "I don't know" must not count as reading the word "eye". Fillers
+     are dropped first, so "um, no" is still "no". */
   function soundsLike(said, word, map){
     if(!map) return false;
-    var t = normalize(said), w = normalize(word);
+    var t = stripNoise(said), w = normalize(word);
     if(!t || !w || !has(map, w)) return false;
     var alts = map[w] || [];
     for(var i=0;i<alts.length;i++) if(normalize(alts[i]) === t) return true;
@@ -1859,6 +1869,7 @@ window.GameCore = (function(){
     soundsLike: soundsLike,
     spokenMatch: spokenMatch,
     isNonAnswer: isNonAnswer,
+    stripNoise: stripNoise,
     resultGate: resultGate,
     netRetry: netRetry,
     nonAnswers: Object.keys(NON_ANSWERS),

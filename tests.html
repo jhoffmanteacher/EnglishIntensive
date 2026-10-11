@@ -1533,7 +1533,8 @@
     /* One word the recogniser wrote as two. Its split, not the
        student's, so the halves are closed up before judging. */
     (function(){
-      function sayIt(heard, target){ return I2.isMatch(heard, target, 0, true, 0, [], null, null); }
+      function sayIt(heard, target){ return I2.isMatch(heard, target, 0, true, 0, [], null, null, { join:true }); }
+      function noJoin(heard, target){ return I2.isMatch(heard, target, 0, true, 0, [], null, null); }
       eq("\"up set\" is upset", sayIt("up set", "upset"), true);
       eq("\"hub cap\" is hubcap", sayIt("hub cap", "hubcap"), true);
       eq("\"sun lit\" is sunlit", sayIt("sun lit", "sunlit"), true);
@@ -1543,6 +1544,16 @@
       eq("two halves that don't make the word still miss", sayIt("up sat", "upset"), false);
       eq("a different word is still a miss", sayIt("upside", "upset"), false);
       eq("one half alone is not the word", sayIt("up", "upset"), false);
+      /* Only where the list asks, and only the multisyllable list does.
+         On the red words the parts said apart are NOT the word: closing
+         them up would forgive the classic misreadings. */
+      eq("without the switch, \"up set\" is still two words", noJoin("up set", "upset"), false);
+      eq("the multisyllable list sets it", window.WordLists.byId("multisyllable").config.join, true);
+      eq("no other Say it list does", ["initial-blends","final-blends","nonsense","oi-oy-read","red-1-say","red-6-say"]
+        .filter(function(id){ return window.WordLists.byId(id).config.join; }).length, 0);
+      eq("so \"is land\" is not island", noJoin("is land", "island"), false);
+      eq("…\"fat her\" is not father", noJoin("fat her", "father"), false);
+      eq("…\"no thing\" is not nothing", noJoin("no thing", "nothing"), false);
       eq("the multisyllable directions no longer say to say each part out loud",
          /Say each part/.test(window.WordLists.byId("multisyllable").config.intro), false);
     })();
@@ -1591,7 +1602,7 @@
       var SA = window.WordLists.familyOf("red").modeConfig.say.soundalikes;
       var RED_G2 = window.WordLists.familyOf("red").modeConfig.say.homophones;
       var I3 = window.BlendGame._internals;
-      function say(heard, target){ return I3.isMatch(heard, target, 0, true, 0, [], null, RED_G2, SA); }
+      function say(heard, target){ return I3.isMatch(heard, target, 0, true, 0, [], null, RED_G2, { soundalikes: SA }); }
       eq("Say it has the sound-alike map", !!SA && typeof SA === "object", true);
       eq("the cards' Listen has it too", window.WordLists.familyOf("red").modeConfig.cards.soundalikes === SA, true);
       eq("Match It does NOT — it would need a sentence for every one",
@@ -1608,6 +1619,9 @@
       eq("\"no idea\" is not a reading of know", say("no idea", "know"), false);
       eq("\"so what\" is not a reading of sew", say("so what is it", "sew"), false);
       eq("the word itself inside a phrase still counts, as before", say("um know", "know"), true);
+      eq("a filler in front of a sound-alike is still that sound-alike", say("um no", "know"), true);
+      eq("stripNoise takes the fillers out", window.GameCore.stripNoise("Um, no… uh"), "no");
+      eq("…and leaves real words alone", window.GameCore.stripNoise("no idea"), "no idea");
       eq("a sound-alike of some OTHER word doesn't count", say("no", "now"), false);
       eq("a near miss is still a miss: shore for sure", say("shore", "sure"), false);
 
@@ -2506,6 +2520,19 @@
       eq("a different consonant is still a miss", say("fab", "vab", 1), false);
       eq("another word ON the list never passes: rit for ret", say("rit", "ret", 1), false);
       eq("…sig for sug", say("sig", "sug", 1), false);
+      /* …and "the list" has to be the list. A round is 18 of the 40; the
+         engine is given allWords so the guard can see a twin that wasn't
+         drawn. Without it, this is what happened: */
+      eq("judged against a round without its twin, rit DID pass for ret",
+         window.BlendGame._internals.isMatch("rit", "ret", 1, true, 0, ["ret","vab","jag"], null, null), true);
+      /* By sound means the whole transcript, once — not any word in it.
+         Every one of these was a correct first-try reading for a while. */
+      [["hmm","hom"],["i give up","tup"],["i'm done","lim"],["it","rit"],["on","pon"],["in","din"],["ed","ted"],
+       ["what is it","wat"],["come on","com"],["oh my god","gud"],["say it again","rit"]].forEach(function(p){
+        eq("\"" + p[0] + "\" is not a reading of " + p[1], say(p[0], p[1], 1), false);
+      });
+      eq("a filler in front of the attempt costs nothing", say("um verb", "vab", 1), true);
+      eq("the word itself inside a phrase still counts", say("i think vab", "vab", 1), true);
       // x is two sounds. As one token, the only real word a recogniser
       // can return for "tix" was 2.5 away from it.
       eq("ticks passes for tix", say("ticks", "tix", 1), true);

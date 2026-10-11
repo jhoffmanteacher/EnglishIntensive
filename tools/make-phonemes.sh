@@ -23,8 +23,8 @@
 #
 # The third column is that trim, in seconds (0 = keep the whole clip).
 # And because a silent clip is invisible until a student hears a word
-# with a hole in it, the script now REFUSES to finish if any clip peaks
-# below -40 dB.
+# with a hole in it, the script now names any clip that peaks below
+# -40 dB and exits 1 (the files are still written, so you can listen).
 set -euo pipefail
 OUT="${1:-audio/ph}"
 mkdir -p "$OUT"

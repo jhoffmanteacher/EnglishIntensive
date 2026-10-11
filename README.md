@@ -489,8 +489,9 @@ were misses, and the reveal then told the student they had dropped a sound.
 `{ know: ["no"], eye: ["i", "aye"], … }` — passed to Say It and to the
 cards' Listen as `soundalikes`, and never to Match It, which would need a
 sentence for every entry. `GameCore.soundsLike` accepts one **only as the
-whole transcript**: "no", "I", "so" and "for" are in everything a student
-says, and "I don't know" must not count as reading *eye*. Tests pin that
+whole transcript** (fillers aside — "um, no" is "no"): "no", "I", "so" and
+"for" are in everything a student says, and "I don't know" must not count
+as reading *eye*. Tests pin that
 no entry is itself a list word and that every key is one. It wants one
 check on a Chromebook: the map is built from which words sound the same,
 not from a log of what Chrome returned.
@@ -619,13 +620,30 @@ answer.
 handed "vab" has no dictionary entry to return, so it returns the nearest
 real word — "verb" — and a letter-perfect match is a bar no student could
 clear. A list that sets `phonetic: true` is judged by sound: within one
-sound of the word, and (in Say It) not closer to another word on the same
-list, so "rit" still never passes for "ret". Say It, One minute, Blend It
-and the cards' Listen all set it for the nonsense words and for nothing
-else; `tests.html` pins both halves. Say It and One minute went without the
-switch for a while, and marked correct readings wrong. `x` and `qu` are
-opened out into two sounds for this comparison, or "ticks" could never
-match *tix*.
+sound of the word. Say It, One minute and Blend It set it for the nonsense
+words and for nothing else (the cards' Listen gets the same rule from
+`speak: false`). Say It and One minute went without the switch for a while,
+and marked correct readings wrong. `x` and `qu` are opened out into two
+sounds for this comparison, or "ticks" could never match *tix*.
+
+In Say It, "by sound" is fenced three ways, because one sound is a wide
+margin on a three-sound word:
+
+- **Once, on the whole transcript** with its fillers out — not on each word
+  of it, the way an exact match is. "it" is one sound from *rit*, "on" from
+  *pon*, "hmm" from *hom*; asked of every word, "I give up" was a correct
+  reading of *tup*.
+- **No pure deletions.** "ed" is one sound from *ted* and is not it.
+- **Not closer to another word on the list**, so "rit" never passes for
+  *ret*. "The list" is all 40: `practice.js` passes `allWords` beside the
+  18-word round, because judged against the round alone the twin was
+  usually not there to be seen.
+
+What it still forgives is a wrong short vowel said as a real word — "pin"
+for *pon* — because that is also exactly what the recogniser returns for a
+correct reading. A transcript can't tell those apart; the cards can.
+`say-nonsense` and `say-nonsense-twin` in `tools/boot-check.html` drive
+this through the real engine and the list's real config.
 
 `ACCEPT` is **not** read by Say It on real words — it is "accepted at
 Regular, never Challenge", and Say It runs at Challenge. It is used by the
@@ -660,14 +678,21 @@ fluency run, which does. One word is on screen at a time and the matcher
 a list, so a filler, a false start or a self-correction inside one utterance
 costs nothing: "um crab", "crab um" and "cram crab" all match *crab*.
 
-The same search closes up a word the recogniser wrote as two. Chrome
-returns *upset* as "up set" and *hubcap* as "hub cap" when it likes — its
-split, not the student's — so the whole transcript with the spaces out, and
-each neighbouring pair, are candidates as well (the rule the one-minute run
-already had). That also makes "nap… kin" a reading of *napkin* rather than
-two wrong answers. The multisyllable directions used to *ask* for that —
-"Say each part, then say the whole word" — with the mic live from the first
-sound; they now say to break the word up in your head and say it whole.
+**On the multisyllable list only** (`join: true`), the same search closes
+up a word the recogniser wrote as two. Chrome returns *upset* as "up set"
+and *hubcap* as "hub cap" when it likes — its split, not the student's — so
+the whole transcript with the spaces out, and each neighbouring pair, are
+candidates as well (the rule the one-minute run already had). It works
+inside one result: "nap kin" said in a breath is *napkin*, but a pause long
+enough for Chrome to finalise "nap" on its own is still a miss. That is why
+the directions changed too. They used to say "Say each part, then say the
+whole word", with the mic live from the first sound; they now say to break
+the word up in your head and say it whole.
+
+It is off everywhere else on purpose. Those words are closed syllables, so
+the parts said apart are the same sounds as the word. On the red words they
+are not, and closing up would forgive the classic misreadings: "is land"
+for *island*, "fat her" for *father*, "no thing" for *nothing*.
 
 What did cost something was a final transcript with no attempt in it at all
 — a filler on its own, a cough the recogniser rendered as "uh", another
@@ -1107,9 +1132,9 @@ machine gets to a pure /b/ without saying "buh". **/r/ and /j/** get the
 same treatment for a different reason: espeak renders either one on its own
 as pure silence, and for a while `R.mp3` and `J.mp3` were two identical
 empty files — Blend It played *crab* as /k/ … /a/ /b/. They are built from
-the sound plus a schwa and trimmed back to the sound. The script now refuses
-to finish if any clip peaks below −40 dB, and `tools/boot-check.sh` fails on
-a clip too small to hold a sound. The script is a build-time
+the sound plus a schwa and trimmed back to the sound. The script now exits
+with an error naming any clip that peaks below −40 dB, and
+`tools/boot-check.sh` reports a clip too small to hold a sound. The script is a build-time
 tool; the clips are committed, and nothing on the site needs it.
 
 `GameCore.phonemeAudio()` fetches `audio/ph/manifest.json` once per page and

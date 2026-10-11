@@ -15,7 +15,7 @@ if [ -z "$CHROME" ]; then
   done
 fi
 PORT="${PORT:-8000}"
-GAMES="say say-red say-noise say-quiet say-late say-net spell cards cards-nonsense cards-keys split match match-say fluency fluency-revision fluency-skip fluency-net fluency-silent fluency-saved blendit"
+GAMES="say say-red say-nonsense say-nonsense-twin say-join say-red-island say-red-alike say-red-reveal say-noise say-quiet say-late say-net spell cards cards-nonsense cards-keys split match match-say fluency fluency-revision fluency-skip fluency-net fluency-silent fluency-saved blendit"
 fail=0
 for g in $GAMES; do
   out=$("$CHROME" --headless=new --disable-gpu --no-sandbox --enable-logging=stderr --v=1 \

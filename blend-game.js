@@ -138,11 +138,27 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq, homophones, soundalikes){
+  /* opts = { soundalikes, join } — both off unless a list asks.
+
+     Two different questions are asked of a transcript here, and they are
+     kept apart on purpose.
+
+     1. Is THE WORD in it? Exact, or a homophone the list names. Asked of
+        every word of the transcript, so a filler, a false start or a
+        self-correction costs nothing: "um crab", "cram crab".
+
+     2. (Made-up words only — level 1.) Does it SOUND like the word?
+        Asked once, of the whole transcript with its fillers out, and
+        only if that is a single word at least as long as the target.
+        Asking it of every word would let chatter read the card: "it" is
+        one sound from "rit", "on" from "pon", "hmm" from "hom", and
+        "I give up" would be a correct reading of "tup". */
+  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq, homophones, opts){
+    opts = opts || {};
     var said = normalize(heardText);
     // A sound-alike that is on no list ("no" for "know") — the whole
     // transcript only. See Core.soundsLike for why not its words.
-    if(soundalikes && Core.soundsLike(said, target, soundalikes)) return true;
+    if(opts.soundalikes && Core.soundsLike(said, target, opts.soundalikes)) return true;
     // The whole transcript is a candidate before it is split, because
     // normalize folds "they would" into "they'd" and splitting undoes it.
     var tokens = said.indexOf(" ") === -1 ? [] : said.split(" ");
@@ -151,17 +167,27 @@ window.BlendGame = (function(){
        "up set" and "hubcap" as "hub cap" when it likes — its split, not
        the student's — and neither half is the word. So the transcript
        closed up, and each neighbouring pair closed up, are candidates
-       too. (The one-minute run has always joined pairs; this is the same
-       rule, here.) It is also what makes "nap… kin" a reading of napkin
-       rather than two wrong answers. */
-    if(tokens.length > 1){
+       too. (The one-minute run has always joined pairs.)
+
+       Only where the list asks (`join`), and only the multisyllable list
+       does: its words are closed syllables, so the parts said apart are
+       the same sounds as the word. On the red words that is false, and
+       closing up would forgive the classic misreadings — "is land" for
+       island, "fat her" for father, "no thing" for nothing. */
+    if(opts.join && tokens.length > 1){
       parts.push(tokens.join(""));
       for(var k=0;k+1<tokens.length;k++) parts.push(tokens[k] + tokens[k+1]);
     }
     for(var i=0;i<parts.length;i++){
-      if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList, soundSeq, homophones)) return true;
+      if(parts[i] && wordMatchesCore(parts[i], target, 0, atStart, blendLength, wordList, soundSeq, homophones)) return true;
     }
-    return false;
+    if(!level) return false;
+
+    var attempt = Core.stripNoise(said);
+    if(!attempt || attempt.indexOf(" ") !== -1) return false;
+    // No pure deletions: "ed" is one sound from "ted" and is not it.
+    if(Core.expandPhonemes(phonemes(attempt)).length < Core.expandPhonemes(phonemes(target)).length) return false;
+    return wordMatchesCore(attempt, target, level, atStart, blendLength, wordList, soundSeq, homophones);
   }
 
   /* ---------------- syllable chunk parsing ----------------
@@ -373,7 +399,7 @@ window.BlendGame = (function(){
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], missKind = {}, tries = 0, busy = false;
     // Right-word-but-unsure results on the word now on screen. See onresult.
-    var quietReads = 0;
+    var quietReads = 0, quietIdx = -1;
     var advance = null;   // the timer that moves on after feedback; cleared by finish()
 
     var shuffleOn = true;
@@ -471,10 +497,18 @@ window.BlendGame = (function(){
     // ("verb") and an exact match is a bar no student could clear. A list
     // that sets `phonetic: true` is judged by sound instead: within one
     // sound of the target, and not closer to another word on the list
-    // (so "rit" still never passes for "ret"). Only the nonsense list sets
-    // it — the same switch, for the same reason, as Blend it, the cards'
-    // Listen and the one-minute run.
+    // (so "rit" never passes for "ret"). Only the nonsense list sets it —
+    // the same switch, for the same reason, as Blend it and the
+    // one-minute run. See isMatchCore for what is and isn't forgiven.
     var level = cfg.phonetic ? 1 : 0;
+    /* "Another word on the list" has to mean the LIST. cfg.words is one
+       round — 18 of the 40 — and judged against that alone, "rit" passed
+       for "ret" in every round "rit" hadn't been drawn into. practice.js
+       passes the whole list as allWords; a page that calls start()
+       directly falls back to the words it gave. */
+    var GUARD_WORDS = (cfg.allWords && cfg.allWords.length)
+      ? cfg.allWords.map(function(e){ return parseWordEntry(e).word; })
+      : null;
 
     /* The phoneme clips, if they are on the server. The reveal uses them
        to make the word pressable; without them it just shows the word,
@@ -551,7 +585,8 @@ window.BlendGame = (function(){
     }
 
     function isMatch(heardText, target){
-      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq, HOMOPHONES, SOUNDALIKES);
+      return isMatchCore(heardText, target, level, atStart, blendLength, GUARD_WORDS || WORDS, soundSeq, HOMOPHONES,
+                         { soundalikes: SOUNDALIKES, join: !!cfg.join });
     }
 
     /* ---------------- mic check + level meter ----------------
@@ -937,6 +972,7 @@ window.BlendGame = (function(){
       listening = true;
       restartOnEnd = true;
       gate.session();
+      quietIdx = -1;          // result indexes start again with the session
       sessionNetErr = false;
 
       rec.onresult = function(ev){
@@ -962,8 +998,10 @@ window.BlendGame = (function(){
                was told "Not quite — I heard: crab". Now it costs nothing
                and asks for the word again; the same thing twice on one
                word is taken as read. */
-            if(level === 0 && alt.confidence > 0 && alt.confidence < 0.35){
-              if(res.isFinal) unsure = true;
+            if(alt.confidence > 0 && alt.confidence < 0.35){
+              // Once per result: a later event can carry the same final
+              // again, and that is one read, not two.
+              if(res.isFinal && r !== quietIdx){ quietIdx = r; unsure = true; }
               continue;
             }
             handleCorrect();

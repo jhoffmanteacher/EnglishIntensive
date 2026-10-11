@@ -423,9 +423,9 @@ window.LIST_FAMILIES = [
     modeConfig: {
       /* phonetic: judged by sound, not by spelling. A recogniser handed
          "vab" returns the nearest real word, so a letter-perfect match is
-         a bar no student could clear. Every mic mode of this list sets
-         it; Say it and One minute went without for a while, and marked
-         correct readings wrong. */
+         a bar no student could clear. Blend it has always set it; Say it
+         and One minute went without for a while, and marked correct
+         readings wrong. */
       say: {
         blend: "start", blendLength: 0, theme: "race", phonetic: true,
         intro: "These are made-up words. Sound out the letters in your head. Then say the whole word out loud.<br>The computer listens and tells you if you're right."
@@ -500,6 +500,8 @@ window.LIST_FAMILIES = [
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
+        // "up set" is upset: see isMatchCore. This list only.
+        join: true,
         /* "In your head", because the mic is live from the first sound.
            The old line — "Say each part, then say the whole word" — told
            the student to do the one thing that gets marked wrong: "nap…

@@ -51,8 +51,71 @@
      other's screens, and tearing one down would leave its timers firing
      at elements that are gone. A page load each is the only honest
      isolation, and tools/check-pages.sh runs them in a loop. */
+  /* Say it on ONE chosen word, through the list's real config — the
+     switches a list sets (phonetic, join, irregular, soundalikes) only
+     mean anything if they reach the engine, and tests.html calls the
+     matcher directly and so can't tell. `steps(rec, card, mic, wait)`
+     gets the fake recogniser and the two things worth asserting on. */
+  function sayOne(list, word, steps){
+    return { engine: "BlendGame", list: list, fake: true,
+      cfg: function(c){ c.words = [word]; },
+      drive: function(q, click, wait){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;   // the mic check's promise hasn't settled
+        click(q("#btnPlay"));
+        return wait(400).then(function(){
+          var rec = window.FakeSR.last;
+          if(!rec) throw new Error("the engine never opened a recogniser");
+          return steps(rec, function(){ return q("#wordCard").className; }, q("#uiMic"), wait);
+        });
+      } };
+  }
+  function must(cond, msg){ if(!cond) throw new Error(msg); }
+
   var GAMES = {
     "say":        { engine: "BlendGame",   list: "initial-blends" },
+
+    /* A made-up word is judged by sound — but once, on the whole of what
+       was said, so chatter doesn't read the card. */
+    "say-nonsense": sayOne("nonsense", "tup", function(rec, card, mic, wait){
+      rec.emit(0, "i give up", true);   // "up" is one sound from "tup"
+      must(card().indexOf("correct") === -1, "\"I give up\" was taken as a reading of tup");
+      return wait(1000).then(function(){
+        rec.emit(1, "top", true);
+        must(card().indexOf("correct") !== -1, "\"top\" didn't count for tup — the list's phonetic switch isn't reaching Say it");
+      });
+    }),
+    /* …and never a reading that is another word on the list, even when
+       that word isn't in this round. The round here is one word. */
+    "say-nonsense-twin": sayOne("nonsense", "ret", function(rec, card){
+      rec.emit(0, "rit", true);
+      must(card().indexOf("wrong") !== -1, "\"rit\" passed for ret because rit wasn't in the round");
+    }),
+    // One word the recogniser wrote as two — the multisyllable list only.
+    "say-join": sayOne("multisyllable", "up·set", function(rec, card){
+      rec.emit(0, "up set", true);
+      must(card().indexOf("correct") !== -1, "\"up set\" didn't count for upset");
+    }),
+    "say-red-island": sayOne("red-6-say", "i{s}land", function(rec, card){
+      rec.emit(0, "is land", true);
+      must(card().indexOf("wrong") !== -1, "\"is land\" was taken as a reading of island");
+    }),
+    // A sound-alike that is on no list, with a filler in front of it.
+    "say-red-alike": sayOne("red-10-say", "know", function(rec, card){
+      rec.emit(0, "um no", true);
+      must(card().indexOf("correct") !== -1, "\"no\" didn't count for know");
+    }),
+    /* The reveal of a red word names no part: the part-namer sounds
+       words out by rule, and these are the words the rules get wrong. */
+    "say-red-reveal": sayOne("red-1-say", "s{ai}d", function(rec, card, mic, wait){
+      rec.emit(0, "sayed", true);
+      return wait(1000).then(function(){
+        rec.emit(1, "sayed", true);
+        must(mic.textContent.indexOf("The word was") !== -1, "no reveal after two misses");
+        must(!mic.querySelector(".dxmsg"), "the reveal of a red word named a part: " + mic.textContent);
+      });
+    }),
+
     "say-red":    { engine: "BlendGame",   list: "red-1-say" },
 
     /* Noise that was never an attempt at the word must not cost a try —
@@ -240,7 +303,7 @@
                       click(q("#btnStart"));
                       return wait(900).then(function(){
                         click(q("#btnDirections"));
-                        if(!window.speechSynthesis) return;
+                        if(!window.speechSynthesis) throw new Error("no speechSynthesis here, so this checked nothing");
                         if(!window.__said.length) throw new Error("nothing was spoken");
                         window.__said.forEach(function(t){
                           if(/,\s*[01](\.\d+)?$/.test(t) || !t) throw new Error("spoke \"" + t + "\"");
@@ -388,6 +451,7 @@
   var cfg = { mount: "app", title: l.title, intro: l.config.intro || "x" };
   for(var k in l.config){ if(Object.prototype.hasOwnProperty.call(l.config, k)) cfg[k] = l.config[k]; }
   cfg.words = l.words.slice(0, 8);
+  cfg.allWords = l.words.slice();          // as practice.js does
   cfg.mastered = window.WordLists.wordsOf(g.list).slice(0, 8);
   if(l.text) cfg.text = l.text;
   if(l.targets) cfg.targets = l.targets;
