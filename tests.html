@@ -2418,6 +2418,33 @@
     // ask, and the flip has to stay silent.
     eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards,fluency,blendit");
     eq("nonsense cards run with the read-aloud off", W.byId("nonsense-1-cards").config.speak, false);
+
+    /* Every mic mode of the nonsense list is judged by sound. Say it and
+       One minute went without the switch, so "verb" for "vab" — the only
+       thing a recogniser CAN return for it — was a miss. */
+    ["nonsense", "nonsense-1-fluency", "nonsense-1-blendit"].forEach(function(id){
+      eq(id + " is judged by sound, not spelling", W.byId(id).config.phonetic, true);
+    });
+    eq("the nonsense one-minute target is 40, as the README says", W.byId("nonsense-1-fluency").config.target, 40);
+    eq("…and real words keep the default", W.byId("blends-end-1-fluency").config.target, undefined);
+    eq("no real-word Say it is judged by sound", ["initial-blends","final-blends","oi-oy-read","multisyllable","red-1-say"]
+      .filter(function(id){ return W.byId(id).config.phonetic; }).length, 0);
+    (function(){
+      var NW = W.wordsOf("nonsense");
+      function say(heard, target, level){ return window.BlendGame._internals.isMatch(heard, target, level, true, 0, NW, null, null); }
+      eq("Say it, by sound: verb passes for vab", say("verb", "vab", 1), true);
+      eq("…limb for lim", say("limb", "lim", 1), true);
+      eq("…and exact-only still refuses it, which is what real words get", say("verb", "vab", 0), false);
+      eq("a different consonant is still a miss", say("fab", "vab", 1), false);
+      eq("another word ON the list never passes: rit for ret", say("rit", "ret", 1), false);
+      eq("…sig for sug", say("sig", "sug", 1), false);
+      // x is two sounds. As one token, the only real word a recogniser
+      // can return for "tix" was 2.5 away from it.
+      eq("ticks passes for tix", say("ticks", "tix", 1), true);
+      eq("…in the one-minute run and Blend it too", window.GameCore.spokenMatch("ticks", "tix", { phonetic:true }), true);
+      eq("hucks passes for hux", window.GameCore.spokenMatch("hucks", "hux", { phonetic:true }), true);
+      eq("a real word is never judged that way", window.GameCore.spokenMatch("ticks", "tix", {}), false);
+    })();
     eq("every other family's cards still speak", W.byId("red-1-cards").config.speak, undefined);
 
     eq("idFor() finds a real entry", W.idFor("red", 3, "match"), "red-3-match");

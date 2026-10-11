@@ -74,7 +74,7 @@ window.BlendGame = (function(){
       if(wBlend.join(" ") !== hBlend.join(" ")) continue;
       var wFull = phonemes(w);
       var wRest = atStart ? wFull.slice(wBlend.length) : wFull.slice(0, wFull.length - wBlend.length);
-      if(phoneticDistance(hRest, wRest) < distToTarget) return true;
+      if(phoneticDistance(Core.expandPhonemes(hRest), Core.expandPhonemes(wRest)) < distToTarget) return true;
     }
     return false;
   }
@@ -127,7 +127,9 @@ window.BlendGame = (function(){
       tRest = atStart ? tFull.slice(hBlend.length) : tFull.slice(0, tFull.length - hBlend.length);
     }
 
-    var distToTarget = phoneticDistance(hRest, tRest);
+    // x and qu opened out into the two sounds they are, so "ticks" can
+    // match "tix" — see spokenMatch in game-core.js.
+    var distToTarget = phoneticDistance(Core.expandPhonemes(hRest), Core.expandPhonemes(tRest));
     if(distToTarget <= 1){
       if(!soundSeq && wordList && closerToAnotherWord(hRest, hBlend, target, distToTarget, wordList, atStart, blendLength)) return false;
       return true;
@@ -446,11 +448,18 @@ window.BlendGame = (function(){
     }
 
     /* ---------------- helpers ---------------- */
-    // The word has to come back exactly right to be marked correct — no
-    // forgiving near-misses. (wordMatchesCore/isMatchCore still support a
-    // more forgiving level for the phonetic-matching internals exercised
-    // by tests.html; the game itself just never asks for it.)
-    var level = 0;
+    // A real word has to come back exactly right to be marked correct —
+    // no forgiving near-misses, since saying the word is the whole point.
+    //
+    // A made-up word can't be held to that. "vab" has no dictionary entry
+    // for the recogniser to return, so it returns the nearest real word
+    // ("verb") and an exact match is a bar no student could clear. A list
+    // that sets `phonetic: true` is judged by sound instead: within one
+    // sound of the target, and not closer to another word on the list
+    // (so "rit" still never passes for "ret"). Only the nonsense list sets
+    // it — the same switch, for the same reason, as Blend it, the cards'
+    // Listen and the one-minute run.
+    var level = cfg.phonetic ? 1 : 0;
 
     /* The phoneme clips, if they are on the server. The reveal uses them
        to make the word pressable; without them it just shows the word,

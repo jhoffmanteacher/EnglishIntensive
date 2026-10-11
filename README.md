@@ -589,9 +589,9 @@ used to fall through to the miss and tell a student who had read *crab*
 once more, a little louder; the same word twice is taken as read.
 (`say-quiet` in `tools/boot-check.html`.)
 
-The word has to come back exactly right to be marked correct — there's no
-forgiving near-misses, since the student actually saying the word correctly
-is the whole point. A more forgiving phonetic matcher lives in
+A real word has to come back exactly right to be marked correct — there's
+no forgiving near-misses, since the student actually saying the word
+correctly is the whole point. A more forgiving phonetic matcher lives in
 `game-core.js` (`phonemes()`, `phoneticDistance()`, the `ACCEPT` table of
 known recogniser mishearings); it compares **sounds** rather than letters,
 so "krab" would pass for "crab". The games don't expose it as a level any
@@ -599,6 +599,22 @@ more, but it is not dead code: the encoder underneath it is what tells a
 student which part of a word went wrong (below), what the phoneme clips in
 `audio/ph/` are named after, and what the flash cards use to judge a spoken
 answer.
+
+**The nonsense list is the one exception, in every mic mode.** A recogniser
+handed "vab" has no dictionary entry to return, so it returns the nearest
+real word — "verb" — and a letter-perfect match is a bar no student could
+clear. A list that sets `phonetic: true` is judged by sound: within one
+sound of the word, and (in Say It) not closer to another word on the same
+list, so "rit" still never passes for "ret". Say It, One minute, Blend It
+and the cards' Listen all set it for the nonsense words and for nothing
+else; `tests.html` pins both halves. Say It and One minute went without the
+switch for a while, and marked correct readings wrong. `x` and `qu` are
+opened out into two sounds for this comparison, or "ticks" could never
+match *tix*.
+
+`ACCEPT` is **not** read by Say It on real words — it is "accepted at
+Regular, never Challenge", and Say It runs at Challenge. It is used by the
+cards' Listen, One minute and Blend It.
 
 Run `tests.html` (served the same way as the games) to check the matcher
 itself, along with everything shared in `game-core.js` (scoring, stars, the

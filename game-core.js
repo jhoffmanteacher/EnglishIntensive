@@ -497,7 +497,11 @@ window.GameCore = (function(){
     if(opts.homophones && sameHomophone(t, w, opts.homophones)) return true;
     var accepted = ACCEPT[w] || ACCEPT[word];
     if(accepted && accepted.indexOf(t) !== -1) return true;
-    if(opts.phonetic && phoneticDistance(phonemes(t), phonemes(w)) <= 1) return true;
+    /* Compared as SOUNDS, so x and qu are opened out first. As single
+       tokens, "tix" (T IH KS) and "ticks" (T IH K S) were 2.5 apart and
+       the only real word a recogniser can return for "tix" could never
+       match it. */
+    if(opts.phonetic && phoneticDistance(expandPhonemes(phonemes(t)), expandPhonemes(phonemes(w))) <= 1) return true;
     return false;
   }
 

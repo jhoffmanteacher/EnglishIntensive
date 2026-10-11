@@ -351,10 +351,18 @@ window.LIST_FAMILIES = [
     modes: ["say", "cards", "fluency", "blendit"],
     pages: { say: "nonsense-words-game.html" },
     modeConfig: {
+      /* phonetic: judged by sound, not by spelling. A recogniser handed
+         "vab" returns the nearest real word, so a letter-perfect match is
+         a bar no student could clear. Every mic mode of this list sets
+         it; Say it and One minute went without for a while, and marked
+         correct readings wrong. */
       say: {
-        blend: "start", blendLength: 0, theme: "race",
+        blend: "start", blendLength: 0, theme: "race", phonetic: true,
         intro: "These are made-up words. Sound out the letters, then say the word out loud.<br>The computer listens and tells you if you're right."
       },
+      // 40, not the 60 real words get: there is no sight-reading a word
+      // nobody has seen before, so every one of these is decoded.
+      fluency: { phonetic: true, target: 40 },
       // Same reason again: the reveal plays the sounds, and then has
       // nothing to say — a synthesiser handed "vab" guesses "verb".
       blendit: { speak: false, phonetic: true, theme: "race" },
