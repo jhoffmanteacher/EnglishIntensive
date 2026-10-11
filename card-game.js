@@ -556,6 +556,9 @@ window.CardGame = (function(){
     var listenOn = false, heardText = "";
     var HOMOPHONES = cfg.homophones || null;
     var SOUNDALIKES = cfg.soundalikes || null;
+    // A list the spelling rules get wrong: no sounding-out by machine.
+    // See `irregular` on the red family in word-lists.js.
+    var IRREGULAR = !!cfg.irregular;
     var SENTENCES = cfg.sentences || null;
     /* Split it: the same deck and the same scoring, but the card asks
        where the word comes apart instead of whether it was read. The
@@ -795,7 +798,13 @@ window.CardGame = (function(){
          then the whole word. A student who has been told a word twice and
          still can't read it usually can't hear which part they are
          getting wrong, and this is the cheapest way to find out. */
-      if(phAudio){
+      /* Not on an irregular list. tapPieces sounds a word out by rule,
+         and by rule "said" is S·EY·D — pressing the card played "sayed",
+         next to the red letters saying that is exactly the part you
+         can't sound out. Those cards show the heart letters and nothing
+         to press. */
+      var canTap = !!phAudio && !IRREGULAR;
+      if(canTap){
         tapWord = w;
         tapList = Core.tapPieces(w, chunks);
         $("uiWordBack").innerHTML = Core.tapMarkup(tapList, heart, chunks ? Core.chunkSep : "");
@@ -805,7 +814,7 @@ window.CardGame = (function(){
       else $("uiWordBack").textContent = w;
       $("uiBackHint").textContent = heart && !chunks
         ? "In red: the part to remember by heart."
-        : phAudio ? "Tap a part of the word to hear it."
+        : canTap ? "Tap a part of the word to hear it."
         : "Did you read it right?";
       $("uiScore").textContent = score;
       $("uiStreak").textContent = streak;

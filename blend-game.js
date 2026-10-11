@@ -483,6 +483,11 @@ window.BlendGame = (function(){
        minimal pairs ("sled"/"bled") whose difference is the whole exercise. */
     var HOMOPHONES = cfg.homophones || null;
     var SOUNDALIKES = cfg.soundalikes || null;
+    /* A list of words the spelling rules get wrong (the red words). The
+       reveal's two helpers — "which part went wrong" and the pressable
+       sounds — both run on phonemes(), which sounds "said" out as
+       "sayed". On such a list they are switched off rather than wrong. */
+    var IRREGULAR = !!cfg.irregular;
 
     function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }
 
@@ -802,7 +807,7 @@ window.BlendGame = (function(){
          the student gets the transcript and nothing else: they are about
          to try again, and a hint they haven't asked for yet just slows
          the retry down. */
-      var dx = tries >= 2 ? Core.diagnose(heard, target, {
+      var dx = (tries >= 2 && !IRREGULAR) ? Core.diagnose(heard, target, {
         atStart: atStart, blendLength: blendLength,
         soundSeq: soundSeq, highlight: highlightRe
       }) : null;
@@ -827,7 +832,7 @@ window.BlendGame = (function(){
            has just been told a word twice usually cannot hear which part
            they were getting wrong, and this is where they can find out
            without anyone standing over them. */
-        if(phAudio){
+        if(phAudio && !IRREGULAR){
           revealWord = target;
           revealPieces = Core.tapPieces(target, targetChunks);
           $("uiWord").innerHTML = Core.tapMarkup(revealPieces, null, targetChunks ? CHUNK_SEP : "");

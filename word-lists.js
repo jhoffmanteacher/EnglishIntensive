@@ -540,6 +540,16 @@ window.LIST_FAMILIES = [
     section: "sight",
     note: "Ten screener lists of twenty sight words. Each list can be assigned as Say It, flash cards, Match It, or any mix.",
     description: "Words that break the rules — said, would, Wednesday. You learn these by sight.",
+    /* irregular: nothing on these lists is to be SOUNDED OUT by the
+       machine. phonemes() is a set of regular spelling rules, and these
+       are the words the rules get wrong: it reads "said" as S·EY·D
+       ("sayed" — the very mistake the note on the start screen warns
+       about), "one" as "own", "have" as "hayv". So on these lists the
+       engines don't offer tap-to-hear on the word's sounds, and Say it
+       doesn't name "which part went wrong" — both would be the encoder's
+       guess presented as the answer. The heart letters, marked by hand,
+       are what these words get instead. */
+    config: { irregular: true },
     /* Say It was left off these for a long time, on the grounds that a
        phoneme matcher has nothing to check an irregular word against.
        That reason didn't hold: Say It takes an EXACT transcript first and

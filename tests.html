@@ -2498,6 +2498,17 @@
     })();
     eq("every other family's cards still speak", W.byId("red-1-cards").config.speak, undefined);
 
+    /* The red words are the ones the spelling rules get wrong, so nothing
+       built on phonemes() is offered on them: no pressable sounds, no
+       "which part went wrong". The first two lines are the reason. */
+    eq("by rule, said sounds out as \"sayed\"", window.GameCore.phonemes("said").join(" "), "S EY D");
+    eq("…and one as \"own\"", window.GameCore.phonemes("one").join(" "), "OW N");
+    ["say","cards","match"].forEach(function(m){
+      eq("red " + m + " is marked irregular", W.byId("red-1-" + m).config.irregular, true);
+    });
+    eq("no other family is", ["initial-blends","final-blends","nonsense","oi-oy-read","multisyllable","multi-1-cards","oi-oy-1-cards"]
+      .filter(function(id){ return W.byId(id).config.irregular; }).length, 0);
+
     eq("idFor() finds a real entry", W.idFor("red", 3, "match"), "red-3-match");
     eq("idFor() is null for a list that doesn't exist", W.idFor("red", 11, "cards"), null);
     eq("idFor() is null for a mode the family doesn't have", W.idFor("nonsense", 1, "match"), null);

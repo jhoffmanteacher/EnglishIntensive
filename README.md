@@ -1144,6 +1144,17 @@ A student who has been told a word twice and still can't read it usually
 can't hear *which part* they are getting wrong. Pressing "tas" and hearing
 /t/ /a/ /s/ answers that without anybody having to explain it.
 
+**Not on the red words.** `tapPieces` and `diagnose()` both stand on
+`phonemes()`, which is a set of regular spelling rules — and the red words
+are the ones the rules get wrong. By rule *said* is S·EY·D, so pressing the
+back of that card played "sayed", beside the red letters marking exactly the
+part that can't be sounded out; *one* played as "own". The red family sets
+`config: { irregular: true }`, and on such a list the cards show the heart
+letters with nothing to press and Say It reveals the word without naming a
+part (so those misses carry no error kind to the dashboard — an encoder's
+guess is worse than a blank). Bringing the taps back for these words means
+hand-written sounds per word, the way the heart letters are hand-marked.
+
 Press-only on purpose (`tabindex="-1"`): these sit inside games where 1 and
 2 are the answer keys, and a tab stop on every syllable would put a dozen
 new stops between the student and the button they need.
