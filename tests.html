@@ -1529,6 +1529,23 @@
 
     // Homophones, through the matcher Say It actually calls.
     var I2 = window.BlendGame._internals;
+
+    /* One word the recogniser wrote as two. Its split, not the
+       student's, so the halves are closed up before judging. */
+    (function(){
+      function sayIt(heard, target){ return I2.isMatch(heard, target, 0, true, 0, [], null, null); }
+      eq("\"up set\" is upset", sayIt("up set", "upset"), true);
+      eq("\"hub cap\" is hubcap", sayIt("hub cap", "hubcap"), true);
+      eq("\"sun lit\" is sunlit", sayIt("sun lit", "sunlit"), true);
+      eq("…with a filler in front", sayIt("um up set", "upset"), true);
+      eq("…and across three pieces", sayIt("fan tas tic", "fantastic"), true);
+      eq("the parts said one by one are a reading of the word", sayIt("nap kin", "napkin"), true);
+      eq("two halves that don't make the word still miss", sayIt("up sat", "upset"), false);
+      eq("a different word is still a miss", sayIt("upside", "upset"), false);
+      eq("one half alone is not the word", sayIt("up", "upset"), false);
+      eq("the multisyllable directions no longer say to say each part out loud",
+         /Say each part/.test(window.WordLists.byId("multisyllable").config.intro), false);
+    })();
     function sayMatch(heard, target){
       return I2.isMatch(heard, target, 0, true, 0, [], null, RED_G);
     }

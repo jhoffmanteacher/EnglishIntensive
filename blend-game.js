@@ -145,7 +145,19 @@ window.BlendGame = (function(){
     if(soundalikes && Core.soundsLike(said, target, soundalikes)) return true;
     // The whole transcript is a candidate before it is split, because
     // normalize folds "they would" into "they'd" and splitting undoes it.
-    var parts = [said].concat(said.indexOf(" ") === -1 ? [] : said.split(" "));
+    var tokens = said.indexOf(" ") === -1 ? [] : said.split(" ");
+    var parts = [said].concat(tokens);
+    /* One word that came back as two. The recogniser writes "upset" as
+       "up set" and "hubcap" as "hub cap" when it likes — its split, not
+       the student's — and neither half is the word. So the transcript
+       closed up, and each neighbouring pair closed up, are candidates
+       too. (The one-minute run has always joined pairs; this is the same
+       rule, here.) It is also what makes "nap… kin" a reading of napkin
+       rather than two wrong answers. */
+    if(tokens.length > 1){
+      parts.push(tokens.join(""));
+      for(var k=0;k+1<tokens.length;k++) parts.push(tokens[k] + tokens[k+1]);
+    }
     for(var i=0;i<parts.length;i++){
       if(parts[i] && wordMatchesCore(parts[i], target, level, atStart, blendLength, wordList, soundSeq, homophones)) return true;
     }

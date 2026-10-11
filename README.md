@@ -660,6 +660,15 @@ fluency run, which does. One word is on screen at a time and the matcher
 a list, so a filler, a false start or a self-correction inside one utterance
 costs nothing: "um crab", "crab um" and "cram crab" all match *crab*.
 
+The same search closes up a word the recogniser wrote as two. Chrome
+returns *upset* as "up set" and *hubcap* as "hub cap" when it likes — its
+split, not the student's — so the whole transcript with the spaces out, and
+each neighbouring pair, are candidates as well (the rule the one-minute run
+already had). That also makes "nap… kin" a reading of *napkin* rather than
+two wrong answers. The multisyllable directions used to *ask* for that —
+"Say each part, then say the whole word" — with the mic live from the first
+sound; they now say to break the word up in your head and say it whole.
+
 What did cost something was a final transcript with no attempt in it at all
 — a filler on its own, a cough the recogniser rendered as "uh", another
 student's voice. That counted as a miss, and two of them showed the answer

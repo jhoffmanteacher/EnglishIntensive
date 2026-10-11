@@ -428,7 +428,7 @@ window.LIST_FAMILIES = [
          correct readings wrong. */
       say: {
         blend: "start", blendLength: 0, theme: "race", phonetic: true,
-        intro: "These are made-up words. Sound out the letters, then say the word out loud.<br>The computer listens and tells you if you're right."
+        intro: "These are made-up words. Sound out the letters in your head. Then say the whole word out loud.<br>The computer listens and tells you if you're right."
       },
       // 40, not the 60 real words get: there is no sight-reading a word
       // nobody has seen before, so every one of these is decoded.
@@ -500,7 +500,12 @@ window.LIST_FAMILIES = [
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
-        intro: "Break the word into syllables. Say each part, then say the whole word.<br>The computer listens and tells you if you're right."
+        /* "In your head", because the mic is live from the first sound.
+           The old line — "Say each part, then say the whole word" — told
+           the student to do the one thing that gets marked wrong: "nap…
+           kin… napkin" reaches the recogniser as an attempt, not as
+           thinking out loud. */
+        intro: "Break the word into parts in your head. Then say the whole word out loud.<br>The computer listens and tells you if you're right."
       },
       split: {
         split: true,
