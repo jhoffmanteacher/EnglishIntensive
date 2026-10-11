@@ -133,11 +133,14 @@ window.CardGame = (function(){
      way, so the rule lives in one place); this is the part that is only
      the cards': try the whole transcript before its words, because
      normalize folds "they would" into "they'd" and splitting undoes it. */
-  function judgeHeard(heardText, word, groups, allowPhonetic){
+  function judgeHeard(heardText, word, groups, allowPhonetic, soundalikes){
     var said = Core.normalize(heardText);
     if(!said) return false;
     var target = Core.normalize(word);
     if(!target) return false;
+    // "no" for "know": a sound-alike that is on no list, so no group
+    // holds it. Whole transcript only — see Core.soundsLike.
+    if(soundalikes && Core.soundsLike(said, target, soundalikes)) return true;
     var opts = { homophones: groups, phonetic: !!allowPhonetic };
     // The whole transcript first: normalize folds "they would" into
     // "they'd", and that fold is undone the moment it is split on spaces.
@@ -552,6 +555,7 @@ window.CardGame = (function(){
     // while the card was face up; it is cleared with every new card.
     var listenOn = false, heardText = "";
     var HOMOPHONES = cfg.homophones || null;
+    var SOUNDALIKES = cfg.soundalikes || null;
     var SENTENCES = cfg.sentences || null;
     /* Split it: the same deck and the same scoring, but the card asks
        where the word comes apart instead of whether it was read. The
@@ -752,7 +756,7 @@ window.CardGame = (function(){
       // Nonsense words have no dictionary entry to come back as, so the
       // recogniser returns the nearest real word and only a phonetic
       // comparison is fair. Real words are judged on the word.
-      var ok = judgeHeard(heardText, word, HOMOPHONES, !SPEAK);
+      var ok = judgeHeard(heardText, word, HOMOPHONES, !SPEAK, SOUNDALIKES);
       $(ok ? "btnGot" : "btnMiss").classList.add("suggest");
     }
 

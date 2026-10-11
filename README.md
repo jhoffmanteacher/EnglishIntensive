@@ -480,6 +480,21 @@ game is being generous about. The phonics lists deliberately have no groups:
 their near-misses are minimal pairs (*sled* / *bled*), and telling those
 apart is the exercise.
 
+**Sound-alikes that aren't on a list.** `RED_HOMOPHONES` holds only pairs
+with both words on a list, because that is what Match It needs. A
+recogniser has no such limit: say *know* and it is at least as likely to
+write "no"; *eye* comes back as "I", *buy* as "by", *hour* as "our". Those
+were misses, and the reveal then told the student they had dropped a sound.
+`RED_SOUNDALIKES` in `word-lists.js` is a second, say-only map —
+`{ know: ["no"], eye: ["i", "aye"], … }` — passed to Say It and to the
+cards' Listen as `soundalikes`, and never to Match It, which would need a
+sentence for every entry. `GameCore.soundsLike` accepts one **only as the
+whole transcript**: "no", "I", "so" and "for" are in everything a student
+says, and "I don't know" must not count as reading *eye*. Tests pin that
+no entry is itself a list word and that every key is one. It wants one
+check on a Chromebook: the map is built from which words sound the same,
+not from a log of what Chrome returned.
+
 **Contractions.** "they'd" said out loud *is* "they would", and the
 recogniser writes down whichever it likes. `GameCore.normalize` folds the
 expansion to the contraction so both are the same string — but only when

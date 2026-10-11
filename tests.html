@@ -1567,6 +1567,57 @@
       eq("Say It's homophone groups only name words on the say lists", bad.join(","), "");
     })();
 
+    /* Sound-alikes that are on NO list. The recogniser writes "no" for
+       "know" at least as often as it writes "know", and the student who
+       read the card right was marked wrong. */
+    (function(){
+      var SA = window.WordLists.familyOf("red").modeConfig.say.soundalikes;
+      var RED_G2 = window.WordLists.familyOf("red").modeConfig.say.homophones;
+      var I3 = window.BlendGame._internals;
+      function say(heard, target){ return I3.isMatch(heard, target, 0, true, 0, [], null, RED_G2, SA); }
+      eq("Say it has the sound-alike map", !!SA && typeof SA === "object", true);
+      eq("the cards' Listen has it too", window.WordLists.familyOf("red").modeConfig.cards.soundalikes === SA, true);
+      eq("Match It does NOT — it would need a sentence for every one",
+         window.WordLists.familyOf("red").modeConfig.match.soundalikes, undefined);
+      [["no","know"],["I","eye"],["by","buy"],["our","hour"],["for","four"],["so","sew"],["too","to"],["too","two"],
+       ["wood","would"],["hear","here"],["sun","son"],["write","right"],["who's","whose"],["brake","break"],
+       ["in to","into"],["any one","anyone"],["all ready","already"]].forEach(function(p){
+        eq("\"" + p[0] + "\" is a correct reading of " + p[1], say(p[0], p[1]), true);
+      });
+      eq("…and it was a miss without the map", I3.isMatch("no", "know", 0, true, 0, [], null, RED_G2), false);
+      // Whole transcript only: these little words are in everything a
+      // student says, and chatter must not read the card for them.
+      eq("\"I don't know\" is not a reading of eye", say("I don't know that one", "eye"), false);
+      eq("\"no idea\" is not a reading of know", say("no idea", "know"), false);
+      eq("\"so what\" is not a reading of sew", say("so what is it", "sew"), false);
+      eq("the word itself inside a phrase still counts, as before", say("um know", "know"), true);
+      eq("a sound-alike of some OTHER word doesn't count", say("no", "now"), false);
+      eq("a near miss is still a miss: shore for sure", say("shore", "sure"), false);
+
+      var J2 = window.CardGame._internals.judgeHeard;
+      eq("cards, Listen on: no for know", J2("no", "know", RED_G2, false, SA), true);
+      eq("…and not inside chatter", J2("no idea", "know", RED_G2, false, SA), false);
+      eq("…and still a miss with no map, as before", J2("wood", "would", RED_G2, false), false);
+
+      // Nothing in the map may be a list word (that is RED_HOMOPHONES'
+      // job, with a sentence each), a noise the games ignore, or a key
+      // that isn't on a list at all — a typo there is a rule that never fires.
+      var onList = {};
+      for(var n=1;n<=10;n++) window.WordLists.wordsOf("red-" + n + "-say").forEach(function(w){ onList[window.GameCore.normalize(w)] = true; });
+      var noise = {};
+      window.GameCore.nonAnswers.forEach(function(t){ noise[t] = true; });
+      var badKey = [], badAlt = [];
+      Object.keys(SA).forEach(function(k){
+        if(!onList[k]) badKey.push(k);
+        SA[k].forEach(function(a){
+          var t = window.GameCore.normalize(a);
+          if(onList[t] || noise[t] || !t) badAlt.push(a);
+        });
+      });
+      eq("every sound-alike key is a red word, as written on its list", badKey.join(","), "");
+      eq("no sound-alike is itself a list word or a filler", badAlt.join(","), "");
+    })();
+
     // The mode itself.
     eq("every red list has a say-it entry",
        window.WordLists.listNumsOf("red").filter(function(n){

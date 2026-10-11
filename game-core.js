@@ -473,6 +473,26 @@ window.GameCore = (function(){
     return false;
   }
 
+  /* Sound-alikes that are NOT on any list. homophoneGroup above only
+     knows pairs a list holds both halves of ("to"/"two"), because Match
+     It needs both to keep them off the screen together. But a recogniser
+     that hears "know" is at least as likely to write "no", and "no" is
+     on no list — so the student who read the card correctly was marked
+     wrong, and then told they had dropped a sound.
+
+     `map` is { word: [other spellings of the same sound] }. `said` must
+     be the WHOLE transcript, and that is deliberate: "no", "I", "so",
+     "for" and "by" turn up in anything a student says out loud, and
+     "I don't know" must not count as reading the word "eye". */
+  function soundsLike(said, word, map){
+    if(!map) return false;
+    var t = normalize(said), w = normalize(word);
+    if(!t || !w || !has(map, w)) return false;
+    var alts = map[w] || [];
+    for(var i=0;i<alts.length;i++) if(normalize(alts[i]) === t) return true;
+    return false;
+  }
+
   /* One spoken thing against one written word. Four ways to be right, in
      order of how sure they are: it is the word; it is a homophone of the
      word (the list has to say so — no recogniser separates "to" from
@@ -1836,6 +1856,7 @@ window.GameCore = (function(){
     ACCEPT: ACCEPT,
     homophoneGroup: homophoneGroup,
     sameHomophone: sameHomophone,
+    soundsLike: soundsLike,
     spokenMatch: spokenMatch,
     isNonAnswer: isNonAnswer,
     resultGate: resultGate,

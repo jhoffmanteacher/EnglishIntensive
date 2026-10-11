@@ -166,6 +166,76 @@ var RED_HOMOPHONES = [
   ["resumé", "resume"]
 ];
 
+/* Sound-alikes that are NOT on the lists, for the two places a microphone
+   judges a red word: Say it, and the cards with Listen on.
+
+   RED_HOMOPHONES above is for Match It, which is why it holds only pairs
+   with both words on a list. A recogniser has no such limit. Say "know"
+   and it is at least as likely to write "no"; "eye" comes back as "I",
+   "buy" as "by", "hour" as "our", "four" as "for". The student read the
+   card correctly, was marked wrong, and was then told "You dropped a
+   sound: h".
+
+   Three rules keep this from forgiving a real misread:
+     · only words that sound the SAME in ordinary American speech. A near
+       miss ("shore" for "sure", "watt" for "what") is not here.
+     · nothing here is a word on any of the ten lists — those belong in
+       RED_HOMOPHONES, with a sentence each. A test checks.
+     · it counts only when it is the whole transcript (Core.soundsLike),
+       because "no", "I", "so" and "for" are in everything a student says.
+
+   Kept apart from RED_HOMOPHONES on purpose: Match It must never see
+   these, or it would need a sentence for "nun". Add one when the
+   dashboard's "most often heard as" shows a correct reading coming back
+   as another spelling. Keys are the list word, lowercase. */
+var RED_SOUNDALIKES = {
+  "would":    ["wood"],
+  "to":       ["too"],
+  "two":      ["too"],
+  "do":       ["due", "dew"],
+  "into":     ["in to"],
+  "whose":    ["who's"],
+  "here":     ["hear"],
+  "some":     ["sum"],
+  "where":    ["wear", "ware"],
+  "right":    ["write", "rite"],
+  "great":    ["grate"],
+  "very":     ["vary"],
+  "been":     ["bin"],
+  "none":     ["nun"],
+  "buy":      ["by", "bye"],
+  "straight": ["strait"],
+  "worn":     ["warn"],
+  "clothes":  ["close"],
+  "break":    ["brake"],
+  "steak":    ["stake"],
+  "tough":    ["tuff"],
+  "rough":    ["ruff"],
+  "anyone":   ["any one"],
+  "through":  ["threw", "thru"],
+  "almost":   ["all most"],
+  "always":   ["all ways"],
+  "though":   ["tho"],
+  "build":    ["billed"],
+  "carrot":   ["carat", "karat", "caret"],
+  "roll":     ["role"],
+  "sew":      ["so", "sow"],
+  "shoe":     ["shoo"],
+  "heart":    ["hart"],
+  "forward":  ["foreword"],
+  "son":      ["sun"],
+  "four":     ["for", "fore"],
+  "hour":     ["our"],
+  "wore":     ["war"],
+  "already":  ["all ready"],
+  "fair":     ["fare"],
+  "pair":     ["pear", "pare"],
+  "eye":      ["i", "aye"],
+  "mall":     ["maul"],
+  "air":      ["heir"],
+  "know":     ["no"]
+};
+
 // Spoken between two reads of the word in Match It, spelling-bee style,
 // only for the words that genuinely need it: every member of a homophone
 // group, and heteronyms the synthesiser could read the wrong way cold.
@@ -482,13 +552,13 @@ window.LIST_FAMILIES = [
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
-        note: RED_NOTE_SAY, homophones: RED_HOMOPHONES,
+        note: RED_NOTE_SAY, homophones: RED_HOMOPHONES, soundalikes: RED_SOUNDALIKES,
         intro: "Read each word out loud. The computer listens and tells you if you're right.<br>No sounding out — you either know these or you don't."
       },
       // The homophone groups are here for the same reason Match It has
       // them: with the Listen toggle on, the cards judge a spoken answer,
       // and no recogniser separates "to" from "two".
-      cards: { note: RED_NOTE_CARDS, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES },
+      cards: { note: RED_NOTE_CARDS, homophones: RED_HOMOPHONES, soundalikes: RED_SOUNDALIKES, sentences: RED_SENTENCES },
       match: { note: RED_NOTE_MATCH, choices: 6, homophones: RED_HOMOPHONES, sentences: RED_SENTENCES }
     },
     lists: RED_LISTS.map(function(words, i){ return { n: i + 1, words: words }; })

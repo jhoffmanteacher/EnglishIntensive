@@ -138,8 +138,11 @@ window.BlendGame = (function(){
     return false;
   }
 
-  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq, homophones){
+  function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq, homophones, soundalikes){
     var said = normalize(heardText);
+    // A sound-alike that is on no list ("no" for "know") — the whole
+    // transcript only. See Core.soundsLike for why not its words.
+    if(soundalikes && Core.soundsLike(said, target, soundalikes)) return true;
     // The whole transcript is a candidate before it is split, because
     // normalize folds "they would" into "they'd" and splitting undoes it.
     var parts = [said].concat(said.indexOf(" ") === -1 ? [] : said.split(" "));
@@ -479,6 +482,7 @@ window.BlendGame = (function(){
        identical ("to"/"two"), while the phonics lists' near-misses are
        minimal pairs ("sled"/"bled") whose difference is the whole exercise. */
     var HOMOPHONES = cfg.homophones || null;
+    var SOUNDALIKES = cfg.soundalikes || null;
 
     function blendOf(word){ return atStart ? word.slice(0,blendLength) : word.slice(-blendLength); }
 
@@ -530,7 +534,7 @@ window.BlendGame = (function(){
     }
 
     function isMatch(heardText, target){
-      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq, HOMOPHONES);
+      return isMatchCore(heardText, target, level, atStart, blendLength, WORDS, soundSeq, HOMOPHONES, SOUNDALIKES);
     }
 
     /* ---------------- mic check + level meter ----------------
