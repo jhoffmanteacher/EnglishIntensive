@@ -1054,7 +1054,13 @@ So the sounds come from files. `audio/ph/<TOKEN>.mp3`, one per token
 espeak-ng's phoneme input — the one way to get a synthesiser to say a sound
 in isolation. Stops (b d g k p t) have no sound at all without a release, so
 they get a tiny schwa that is then trimmed back to the burst: the closest a
-machine gets to a pure /b/ without saying "buh". The script is a build-time
+machine gets to a pure /b/ without saying "buh". **/r/ and /j/** get the
+same treatment for a different reason: espeak renders either one on its own
+as pure silence, and for a while `R.mp3` and `J.mp3` were two identical
+empty files — Blend It played *crab* as /k/ … /a/ /b/. They are built from
+the sound plus a schwa and trimmed back to the sound. The script now refuses
+to finish if any clip peaks below −40 dB, and `tools/boot-check.sh` fails on
+a clip too small to hold a sound. The script is a build-time
 tool; the clips are committed, and nothing on the site needs it.
 
 `GameCore.phonemeAudio()` fetches `audio/ph/manifest.json` once per page and

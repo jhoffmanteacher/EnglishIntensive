@@ -28,5 +28,19 @@ for g in $GAMES; do
     fail=1
   fi
 done
+# The phoneme clips are real. phonemeAudio() believes the manifest, so an
+# empty file plays as a gap in the word: R.mp3 and J.mp3 once shipped as
+# 331 bytes of silence each and Blend it said "crab" as /k/ /a/ /b/. A
+# clip with sound in it is over a kilobyte; an empty MP3 frame is not.
+# (tools/make-phonemes.sh checks the loudness itself when it builds them.)
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+for f in "$ROOT"/audio/ph/*.mp3; do
+  [ -e "$f" ] || { echo "--- clips: none found in audio/ph"; fail=1; break; }
+  n=$(wc -c < "$f" | tr -d ' ')
+  if [ "$n" -lt 800 ]; then
+    echo "--- clips: $(basename "$f") is $n bytes — that is silence, not a sound"
+    fail=1
+  fi
+done
 [ $fail = 0 ] && echo "engines ok: $GAMES"
 exit 0
