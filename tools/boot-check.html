@@ -160,14 +160,66 @@
                       click(q("#btnFlip"));
                       click(q("#btnMiss"));
                     } },
+    /* Got it sits one key away from the flip. After a flip the focus
+       must not be ON it — Space, the key that flipped the card, would
+       then be a click on "Got it" — and 1 / 2 have to work from wherever
+       the focus did land. */
+    "cards-keys": { engine: "CardGame",    list: "red-1-cards", drive: function(q, click){
+                      click(q("#btnStart"));
+                      click(q("#btnFlip"));
+                      var at = document.activeElement;
+                      if(at && (at.id === "btnGot" || at.id === "btnMiss")){
+                        throw new Error("the flip left the focus on " + at.id + ", so Space would rate the card");
+                      }
+                      // A click on "Hear it again" leaves the focus on a button.
+                      q("#btnMiss").focus();
+                      q("#btnMiss").dispatchEvent(new KeyboardEvent("keydown", { key:"1", bubbles:true }));
+                      if(q("#flipCard").className.indexOf("rated-yes") === -1){
+                        throw new Error("the 1 key did nothing while a button had the focus");
+                      }
+                    } },
+    /* The gaps are buttons inside the card, and the card used to check
+       the answer on any click — so the first split placed was also the
+       last, and a three-syllable word could not be got right. One click
+       must place a split and nothing else; Enter from the gap that was
+       just clicked must check, not un-split it. */
     "split":      { engine: "CardGame",    list: "multi-1-split", drive: function(q, click){
                       click(q("#btnStart"));
-                      click(q("#uiWord .gap"));   // place a divider
-                      click(q("#btnFlip"));       // check it
+                      var gap = q("#uiWord .gap");
+                      click(gap);                 // place a divider
+                      if(q("#flipCard").className.indexOf("flipped") !== -1){
+                        throw new Error("one click on a gap checked the answer");
+                      }
+                      if(!gap.classList.contains("on")) throw new Error("the click didn't place a split");
+                      gap.dispatchEvent(new KeyboardEvent("keydown", { key:"Enter", bubbles:true, cancelable:true }));
+                      if(q("#flipCard").className.indexOf("flipped") === -1){
+                        throw new Error("Enter from a gap didn't check the split");
+                      }
                     } },
     "match":      { engine: "MatchGame",   list: "oi-oy-1-match", drive: function(q, click){
                       click(q("#btnStart"));
                       click(q(".tile"));
+                    } },
+    /* What the game actually says. Each word goes to the synthesiser as
+       a [text, rate] pair; a second sayParts that took plain strings once
+       shadowed the first, and every word was spoken as "coin,0.95". */
+    "match-say":  { engine: "MatchGame",   list: "red-1-match",
+                    cfg: function(){
+                      window.__said = [];
+                      if(window.speechSynthesis){
+                        window.speechSynthesis.speak = function(u){ window.__said.push(String(u.text)); };
+                      }
+                    },
+                    drive: function(q, click, wait){
+                      click(q("#btnStart"));
+                      return wait(900).then(function(){
+                        click(q("#btnDirections"));
+                        if(!window.speechSynthesis) return;
+                        if(!window.__said.length) throw new Error("nothing was spoken");
+                        window.__said.forEach(function(t){
+                          if(/,\s*[01](\.\d+)?$/.test(t) || !t) throw new Error("spoke \"" + t + "\"");
+                        });
+                      });
                     } },
     "fluency":    { engine: "FluencyGame", list: "blends-end-1-fluency" },
 
