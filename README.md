@@ -580,6 +580,15 @@ computer is actually speaking words out loud (the coach's praise, "The word
 was...", or "Hear it") — never for the short feedback beeps, so it doesn't
 have to reconnect between words. Silence never counts as a wrong answer.
 
+Neither does **the right word heard faintly**. Chrome reports how sure it
+is of a transcript, and Say It doesn't take an exact match as right when
+that confidence is under 0.35 — a quiet read is where the recogniser fills
+in a likely word. But "not sure it was right" is not "wrong": that result
+used to fall through to the miss and tell a student who had read *crab*
+"Not quite — I heard: crab". Now it costs no try and asks for the word
+once more, a little louder; the same word twice is taken as read.
+(`say-quiet` in `tools/boot-check.html`.)
+
 The word has to come back exactly right to be marked correct — there's no
 forgiving near-misses, since the student actually saying the word correctly
 is the whole point. A more forgiving phonetic matcher lives in

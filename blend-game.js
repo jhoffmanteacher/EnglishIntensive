@@ -355,6 +355,8 @@ window.BlendGame = (function(){
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], missKind = {}, tries = 0, busy = false;
+    // Right-word-but-unsure results on the word now on screen. See onresult.
+    var quietReads = 0;
     var advance = null;   // the timer that moves on after feedback; cleared by finish()
 
     var shuffleOn = true;
@@ -628,6 +630,7 @@ window.BlendGame = (function(){
       // Anything the recogniser is still saying about the last word stays
       // with the last word.
       gate.nextItem();
+      quietReads = 0;
       revealPieces = []; revealWord = "";
       // A new word, a new recording. The old one is dropped rather than
       // kept: nothing here is worth keeping past the card it belongs to.
@@ -910,7 +913,7 @@ window.BlendGame = (function(){
         gate.see(ev);           // before the busy check: a result seen now is not this word's
         net.ok();
         if(busy) return;
-        var target = queue[idx], lastFinal = null;
+        var target = queue[idx], lastFinal = null, unsure = false;
         for(var r = gate.from(ev); r < ev.results.length; r++){
           var res = ev.results[r];
           // Only the recogniser's own top-ranked guess counts. Chrome's
@@ -921,8 +924,18 @@ window.BlendGame = (function(){
           // alternative defeats the pronunciation check entirely. The
           // phonetic engine already supplies the intended tolerance.
           var alt = res[0];
-          if(isMatch(alt.transcript, target) &&
-             !(level === 0 && alt.confidence > 0 && alt.confidence < 0.35)){
+          if(isMatch(alt.transcript, target)){
+            /* The right word, but the recogniser isn't sure of it — a
+               quiet or mumbled read. That is not a right answer yet, and
+               it is certainly not a wrong one: it used to fall through
+               to the miss below, so a student who read "crab" correctly
+               was told "Not quite — I heard: crab". Now it costs nothing
+               and asks for the word again; the same thing twice on one
+               word is taken as read. */
+            if(level === 0 && alt.confidence > 0 && alt.confidence < 0.35){
+              if(res.isFinal) unsure = true;
+              continue;
+            }
             handleCorrect();
             return;
           }
@@ -935,6 +948,10 @@ window.BlendGame = (function(){
            filler, a cough, somebody else in the room. */
         if(lastFinal !== null && normalize(lastFinal) && !Core.isNonAnswer(lastFinal)){
           handleWrong(lastFinal);
+        } else if(unsure){
+          quietReads++;
+          if(quietReads >= 2){ handleCorrect(); return; }
+          $("uiMic").innerHTML = "I think I heard it. <b>Say it one more time, a little louder.</b>";
         }
       };
 

@@ -88,6 +88,32 @@
         }
         });
       } },
+    /* The right word at low confidence — a quiet read. It used to be
+       marked WRONG and shown back as "I heard: crab". It must cost
+       nothing and ask again; said twice, it counts. */
+    "say-quiet": { engine: "BlendGame", list: "initial-blends",
+      fake: true, drive: function(q, click, wait){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        return wait(400).then(function(){
+          var rec = window.FakeSR.last;
+          if(!rec) throw new Error("the engine never opened a recogniser");
+          var word = q("#uiWord").textContent;
+          rec.emit(0, word, true, 0.2);
+          if(q("#wordCard").className.indexOf("wrong") !== -1){
+            throw new Error("a quiet but correct read was marked wrong");
+          }
+          if(q("#wordCard").className.indexOf("correct") !== -1){
+            throw new Error("one unsure result was taken as right");
+          }
+          if(q("#uiMic").textContent.indexOf("louder") === -1) throw new Error("the student wasn't asked to say it again");
+          rec.emit(1, word, true, 0.2);
+          if(q("#wordCard").className.indexOf("correct") === -1){
+            throw new Error("the same word twice still didn't count");
+          }
+        });
+      } },
     /* A late final for the LAST word. Chrome matches on an interim guess,
        then sends its final version of the same speech after the next word
        is on screen. That must not be scored against the new word. The
@@ -330,10 +356,10 @@
   FakeSR.prototype.start = function(){};
   FakeSR.prototype.stop = function(){};
   FakeSR.prototype.abort = function(){};
-  FakeSR.prototype.emit = function(index, text, isFinal){
+  FakeSR.prototype.emit = function(index, text, isFinal, confidence){
     var results = [];
     results.length = index + 1;
-    results[index] = [{ transcript: text }];
+    results[index] = [{ transcript: text, confidence: confidence || 0 }];
     results[index].isFinal = !!isFinal;
     if(this.onresult) this.onresult({ resultIndex: index, results: results });
   };
