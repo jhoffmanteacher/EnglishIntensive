@@ -378,7 +378,7 @@ window.CardGame = (function(){
       </div>
     </div>
 
-    <div class="rate" id="rateRow">
+    <div class="rate" id="rateRow" tabindex="-1" role="group" aria-label="Rate yourself" style="outline:none">
       <button class="btn" id="btnFlip" type="button">🔄 Flip the card</button>
       <button class="btn yes" id="btnGot" type="button" style="display:none">✓ Got it<span class="key">1</span></button>
       <button class="btn no" id="btnMiss" type="button" style="display:none">✗ Not yet<span class="key">2</span></button>
@@ -892,7 +892,13 @@ window.CardGame = (function(){
       // The word is spoken only now, on the way over — before the flip it
       // would be the answer, after it it's the check.
       sayWord(queue[idx], NORMAL_RATE);
-      $("btnGot").focus();
+      /* Focus goes to the row, not to "Got it". With the button focused,
+         Space — the key that just flipped the card, and the key a student
+         is still pressing when a speed-round card turns itself over — was
+         a click on "Got it", so Space-Space rated every word as known.
+         From the row, Space does nothing, 1 and 2 rate, and Tab lands on
+         "Got it" next. */
+      $("rateRow").focus();
     }
 
     /* Checking a split. The answer is the entry's own syllable marks, so
@@ -1269,7 +1275,11 @@ window.CardGame = (function(){
     // The card itself is the biggest target on the screen, so it flips too —
     // but only on the way over. Once it's face-up, clicking it must not
     // count as a rating.
-    $("flipCard").addEventListener("click", function(){ if(!flipped) flip(); });
+    // Not in Split it. There the gaps between the letters are buttons
+    // INSIDE this card, so a click on one bubbled up to here and checked
+    // the answer after the first split — a three-syllable word could not
+    // be got right. In Split it only the button and Enter check.
+    $("flipCard").addEventListener("click", function(){ if(!SPLIT && !flipped) flip(); });
     $("btnGot").addEventListener("click", function(){ rate(true); });
     $("btnMiss").addEventListener("click", function(){ rate(false); });
 
@@ -1325,9 +1335,18 @@ window.CardGame = (function(){
     document.addEventListener("keydown", function(e){
       if(!playing()) return;
       // A focused button handles Space and Enter natively — stepping in there
-      // would fire the same action twice.
-      if(e.target && e.target.tagName === "BUTTON") return;
+      // would fire the same action twice. Only those two keys: 1, 2 and H
+      // are the game's own and have to work wherever the focus is, or a
+      // click on "Hear it again" leaves the answer keys dead.
+      var onButton = e.target && e.target.tagName === "BUTTON";
+      if(e.ctrlKey || e.metaKey || e.altKey) return;
       if(e.key === " " || e.key === "Enter"){
+        /* In Split it the gaps between the letters are buttons, and the
+           one just clicked keeps the focus. Space toggles it, as a button
+           should; Enter is "check the word", as the hint under the card
+           says — left to the button it would un-split the last gap. */
+        var onGap = onButton && SPLIT && e.target.getAttribute("data-gap") !== null;
+        if(onButton && !(onGap && e.key === "Enter")) return;
         e.preventDefault();
         if(SPLIT && flipped){ if(pending){ clearTimeout(pending); pending = null; busy = false; next(); } return; }
         if(!flipped) flip();
