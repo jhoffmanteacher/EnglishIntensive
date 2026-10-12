@@ -91,6 +91,17 @@
       rec.emit(0, "rit", true);
       must(card().indexOf("wrong") !== -1, "\"rit\" passed for ret because rit wasn't in the round");
     }),
+    /* A mishearing in the ACCEPT table counts in Say It — it didn't, and
+       an entry a teacher added changed nothing here. A dropped sound is
+       not a mishearing and still misses. */
+    "say-accept": sayOne("final-blends", "tent", function(rec, card){
+      rec.emit(0, "tenth", true);
+      must(card().indexOf("correct") !== -1, "\"tenth\" didn't count for tent — ACCEPT isn't reaching Say it");
+    }),
+    "say-accept-not": sayOne("final-blends", "gasp", function(rec, card){
+      rec.emit(0, "gas", true);
+      must(card().indexOf("wrong") !== -1, "\"gas\" was taken as a reading of gasp");
+    }),
     // One word the recogniser wrote as two — the multisyllable list only.
     "say-join": sayOne("multisyllable", "up·set", function(rec, card){
       rec.emit(0, "up set", true);

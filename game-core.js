@@ -548,14 +548,25 @@ window.GameCore = (function(){
     return -1;
   }
 
-  // Known-good transcripts the recogniser returns for specific target words,
-  // seeded from mishearings actually observed in class — not a guess at
-  // every possible mishearing. Accepted at Regular, never Challenge.
-  // Add more here as they turn up; keep it short and commented — and see
-  // the teacher dashboard's "most often heard as" column, which is where a
-  // mishearing worth adding shows itself.
+  /* Transcripts the recogniser returns for a word that was READ RIGHT,
+     seeded from mishearings actually observed in class — not a guess at
+     every possible one. Every mode that listens accepts them: Say It, the
+     cards' Listen, One minute and Blend it.
+
+     The test for adding a line: the student said the word correctly and
+     the microphone wrote something else. The dashboard's "most often
+     heard as" line is where that shows itself — one word coming back the
+     same wrong way from students who can read it.
+
+     What must NOT go in: a transcript that is what a real misreading
+     sounds like. An entry forgives that reading for every student, on
+     every list, for good. A dropped or swapped sound is the error these
+     lists exist to catch — which is why gasp <- "gas" was taken out. It
+     is the final blend with its last sound missing, on the final-blend
+     list, and diagnose() has a message for exactly that.
+
+     Keys are the word as normalize() leaves it: lowercase, no dots. */
   var ACCEPT = {
-    gasp: ["gas"],     // final consonant dropped
     tent: ["tenth"]    // recogniser adds a trailing "th" sound
   };
 

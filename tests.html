@@ -348,9 +348,19 @@
   eq("crop <- cropped, Regular (too far)", match("cropped","crop",1,START), false);
   eq("lisp <- lisped, never (final blend + suffix)", match("lisped","lisp",1,END), false);
 
-  // ---- curated table only fires at Regular ----
-  eq("gasp <- gas, Regular (curated)", match("gas","gasp",1,END), true);
-  eq("gasp <- gas, Challenge, never", match("gas","gasp",0,END), false);
+  // ---- the curated table: the recogniser's mistakes, at every level ----
+  // It used to fire only at Regular, and Say It runs at Challenge — so an
+  // entry did nothing in the one mode a teacher adds entries for.
+  eq("tent <- tenth, Challenge (curated) — what Say It runs at", match("tenth","tent",0,END), true);
+  eq("…with a filler round it, through the whole-transcript matcher", I.isMatch("um tenth","tent",0,END.atStart,END.blendLength,[],null,null), true);
+  eq("…and only for the word it was recorded against", match("tenth","tend",0,END), false);
+  // gasp <- gas is NOT in the table any more: it is a dropped sound, the
+  // error the final-blend list exists to catch.
+  eq("gasp <- gas is a miss in Say It", match("gas","gasp",0,END), false);
+  eq("…at Regular too: the blend has to be there", match("gas","gasp",1,END), false);
+  eq("no entry in the table is a dropped final sound", Object.keys(window.GameCore.ACCEPT).filter(function(w){
+    return window.GameCore.ACCEPT[w].some(function(h){ return h.length < w.length && w.indexOf(h) === 0; });
+  }).join(","), "");
 
   // ---- distinct real words in the same list must not be conflated at
   // Regular — a wrong consonant means a different word, not a mishearing.
@@ -372,7 +382,7 @@
 
   // ---- the list-aware guard must not break legitimate accommodations ----
   eq("crab <- krab, Regular, still passes with list", matchInList("krab","crab",1,START,STARTWORDS), true);
-  eq("gasp <- gas, Regular curated, still passes with list", matchInList("gas","gasp",1,END,ENDWORDS), true);
+  eq("tent <- tenth, curated, still passes with list", matchInList("tenth","tent",1,END,ENDWORDS), true);
 
   // ---- exhaustive: with the list passed in, no word should ever be
   // confusable with a different word from its own list, at any level.
@@ -1787,8 +1797,9 @@
     eq("a homophone of some OTHER word doesn't", J("won", "to", GROUPS, false), false);
     eq("no groups given, no homophones accepted", J("two", "to", null, false), false);
 
-    eq("a known mishearing counts (ACCEPT)", J("gas", "gasp", null, false), true);
-    eq("…but only for the word it was recorded against", J("gas", "gasp", null, false) && !J("gas", "grasp", null, false), true);
+    eq("a known mishearing counts (ACCEPT)", J("tenth", "tent", null, false), true);
+    eq("…but only for the word it was recorded against", J("tenth", "tent", null, false) && !J("tenth", "tend", null, false), true);
+    eq("a dropped sound is not a mishearing: gas for gasp", J("gas", "gasp", null, false), false);
 
     eq("a made-up word is judged by sound", J("vab", "vab", null, true), true);
     // Vowel drift is what a recogniser handed a non-word actually does,

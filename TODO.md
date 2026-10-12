@@ -21,8 +21,12 @@ is done and described in the README; what it wants now is a term of use.
 Two things worth watching once it has had one:
 
 - **`ACCEPT` is still hand-edited.** The dashboard's "most often heard as"
-  column now shows which mishearings are common across the class, which is
-  the signal for adding one. Nobody has added one yet.
+  line shows which mishearings are common across the class, which is the
+  signal for adding one. An entry now counts in Say It too — it didn't
+  before, which made this item impossible to act on. The rule for adding
+  one is in the comment above the table in `game-core.js`: only when the
+  word was read right and the mic wrote something else, never a dropped
+  or swapped sound. It holds one entry (*tent* ← "tenth").
 
 ## Smaller
 

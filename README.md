@@ -645,9 +645,20 @@ correct reading. A transcript can't tell those apart; the cards can.
 `say-nonsense` and `say-nonsense-twin` in `tools/boot-check.html` drive
 this through the real engine and the list's real config.
 
-`ACCEPT` is **not** read by Say It on real words — it is "accepted at
-Regular, never Challenge", and Say It runs at Challenge. It is used by the
-cards' Listen, One minute and Blend It.
+**`ACCEPT` is the other exception, and it is one for every list.** It
+holds transcripts the recogniser returns for a word that was read right —
+*tent* comes back as "tenth" — and every mode that listens accepts them:
+Say It, the cards' Listen, One minute and Blend It. It used to be checked
+only at the forgiving level, which Say It never runs at, so adding an entry
+did nothing in the one mode whose transcripts reach the dashboard.
+
+An entry forgives that reading for every student, so the bar for adding one
+is narrow: the student said the word correctly and the microphone wrote
+something else. A transcript that is what a real misreading sounds like
+does not belong there. *gasp* ← "gas" was in the table and has been taken
+out for that reason — it is the final blend with its last sound dropped,
+which is the error that list exists to catch (and the example used under
+*Which part went wrong*, below).
 
 Run `tests.html` (served the same way as the games) to check the matcher
 itself, along with everything shared in `game-core.js` (scoring, stars, the

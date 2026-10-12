@@ -91,9 +91,15 @@ window.BlendGame = (function(){
        correctly must not be marked wrong because the recogniser guessed
        the other spelling. Accepted at Challenge for the same reason. */
     if(homophones && Core.sameHomophone(heard, target, homophones)) return true;
-    if(level === 0) return false;                              // Challenge: exact only
-
+    /* Also before the level rules, for the same reason. An ACCEPT entry
+       is a transcript the recogniser returns when the word WAS read
+       right ("tenth" for "tent") — its mistake, not the student's, and
+       not a near miss either. This used to sit below the line under it,
+       which made the table dead in Say It: the one mode whose misheard
+       transcripts reach the dashboard, and so the one place a teacher
+       adding an entry expects it to work. */
     if(ACCEPT[plainTarget] && ACCEPT[plainTarget].indexOf(heard) !== -1) return true;
+    if(level === 0) return false;                              // Challenge: exact only
 
     var hFull = phonemes(heard), tFull = phonemes(target);
     var hBlend, hRest, tRest;
