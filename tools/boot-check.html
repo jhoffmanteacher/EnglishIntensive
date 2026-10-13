@@ -85,6 +85,41 @@
         must(card().indexOf("correct") !== -1, "\"top\" didn't count for tup — the list's phonetic switch isn't reaching Say it");
       });
     }),
+    /* The computer never says a made-up word: it would guess, and read
+       the student a wrong answer. No Hear it, no H key, nothing in the
+       reveal — though the coach still talks, which is what proves the
+       stub was listening. */
+    "say-nonsense-quiet": { engine: "BlendGame", list: "nonsense", fake: true,
+      cfg: function(c){
+        c.words = ["vab"];
+        window.__said = [];
+        if(window.speechSynthesis){
+          window.speechSynthesis.speak = function(u){ window.__said.push(String(u.text)); };
+        }
+      },
+      drive: function(q, click, wait){
+        if(!window.speechSynthesis) throw new Error("no speechSynthesis here, so this checked nothing");
+        // The coach is off by default; on, it would say the reveal.
+        if(q("#voiceLbl").textContent !== "On") click(q("#btnVoice"));
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        return wait(400).then(function(){
+          must(q("#btnHear").style.display === "none", "Hear it is showing on a word the computer can't say");
+          document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyH", bubbles: true }));
+          var rec = window.FakeSR.last;
+          rec.emit(0, "fab", true);
+          return wait(1200).then(function(){
+            rec.emit(1, "fab", true);
+            return wait(600);
+          });
+        }).then(function(){
+          must(window.__said.length, "nothing was spoken, so this checked nothing");
+          window.__said.forEach(function(t){
+            must(!/\bvab\b/i.test(t), "said \"" + t + "\" — the word itself");
+          });
+        });
+      } },
     /* …and never a reading that is another word on the list, even when
        that word isn't in this round. The round here is one word. */
     "say-nonsense-twin": sayOne("nonsense", "ret", function(rec, card){
@@ -408,6 +443,24 @@
         click(q("#btnDone"));
         if(window.__savedRun) throw new Error("a run with nothing heard was saved");
         if(q("#uiSummary").textContent.indexOf("didn't hear") === -1) throw new Error("the student wasn't told");
+      } },
+    // The missed words on a list the computer can't say are shown, not
+    // offered as buttons that would read them out.
+    "fluency-nonsense-quiet": { engine: "FluencyGame", list: "nonsense-1-fluency", fake: true,
+      drive: function(q, click){
+        click(q("#btnStart"));
+        q("#btnPlay").disabled = false;
+        click(q("#btnPlay"));
+        var rec = window.FakeSR.last;
+        rec.emit(0, q("#wg0").textContent, true);
+        document.dispatchEvent(new KeyboardEvent("keydown", { key:" " }));   // gives up on the second
+        click(q("#btnDone"));
+        var chips = q("#uiMissed").children;
+        must(chips.length, "no missed words were listed, so this checked nothing");
+        Array.prototype.forEach.call(chips, function(c){
+          must(c.tagName !== "BUTTON", "a missed nonsense word is a button that reads it aloud");
+        });
+        must(q("#uiMissHint").style.display === "none", "the results still say \"Click one to hear it\"");
       } },
     // A normal run is still saved.
     "fluency-saved": { engine: "FluencyGame", list: "blends-end-1-fluency",

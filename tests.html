@@ -2511,6 +2511,13 @@
     // ask, and the flip has to stay silent.
     eq("nonsense words have no Match It", W.modesOf("nonsense").map(function(m){ return m.key; }).join(","), "say,cards,fluency,blendit");
     eq("nonsense cards run with the read-aloud off", W.byId("nonsense-1-cards").config.speak, false);
+    // …and so does every other mode of the list. Say it and One minute
+    // read the word aloud for a while — Hear it, the reveal, the results.
+    ["nonsense", "nonsense-1-fluency", "nonsense-1-blendit"].forEach(function(id){
+      eq(id + " runs with the read-aloud off", W.byId(id).config.speak, false);
+    });
+    eq("no real-word Say it has the read-aloud off", ["initial-blends","final-blends","oi-oy-read","multisyllable","red-1-say"]
+      .filter(function(id){ return W.byId(id).config.speak === false; }).length, 0);
 
     /* Every mic mode of the nonsense list is judged by sound. Say it and
        One minute went without the switch, so "verb" for "vab" — the only

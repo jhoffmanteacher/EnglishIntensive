@@ -279,7 +279,7 @@ window.FluencyGame = (function(){
       </div>
       <div id="missBlock" style="display:none">
         <h3>Words to look at again</h3>
-        <p class="sub" style="font-size:15px;margin:0 0 10px">Click one to hear it.</p>
+        <p class="sub" id="uiMissHint" style="font-size:15px;margin:0 0 10px">Click one to hear it.</p>
         <div class="grid" id="uiMissed"></div>
       </div>
       <div class="row" style="margin-top:26px">
@@ -294,6 +294,10 @@ window.FluencyGame = (function(){
   function start(cfg){
     var WORDS = (cfg.words || []).map(function(e){ return Core.parseEntry(e).word; });
     var MATCH_OPTS = { homophones: cfg.homophones || null, phonetic: !!cfg.phonetic };
+    /* speak: false (the nonsense list) — the missed words are shown, not
+       read back. A synthesiser handed "vab" guesses, so tapping one would
+       play the student a wrong answer. */
+    var SPEAK = cfg.speak !== false;
     var RATE_TARGET = cfg.target || DEFAULT_TARGET;
 
     Core.injectStyle(STYLE_ID, STYLE);
@@ -603,13 +607,16 @@ window.FluencyGame = (function(){
       grid.innerHTML = "";
       if(missed.length){
         block.style.display = "block";
+        $("uiMissHint").style.display = SPEAK ? "" : "none";
         missed.slice(0, 24).forEach(function(w){
-          var b = document.createElement("button");
-          b.type = "button";
+          // A word that can't be said is a plain chip, not a button that
+          // does nothing.
+          var b = document.createElement(SPEAK ? "button" : "div");
+          if(SPEAK) b.type = "button";
           b.className = "chip";
           b.textContent = w;
           Core.markWordCase(b, w);
-          b.addEventListener("click", function(){ say(w, 0.8); });
+          if(SPEAK) b.addEventListener("click", function(){ say(w, 0.8); });
           grid.appendChild(b);
         });
       } else {

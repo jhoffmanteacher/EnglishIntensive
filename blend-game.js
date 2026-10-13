@@ -328,6 +328,13 @@ window.BlendGame = (function(){
     // touching this file.
     var blendLength = cfg.blendLength === undefined ? 2 : cfg.blendLength;
     var theme = cfg.theme === "maze" ? "maze" : "race";
+    /* speak: false (the nonsense list) — the computer never says the word.
+       A synthesiser handed "vab" guesses at it, so every place this game
+       says the word — Hear it, the H key, the reveal, the tap-to-hear,
+       "Yes — vab!", the replay after Hear yourself — would read the
+       student a wrong answer. The coach still talks; it just never says
+       the word. Same switch, same reason, as the cards and Blend it. */
+    var SPEAK = cfg.speak !== false;
     // "race" is a car on a dashed track; "maze" is a vault run — a ninja
     // threading a laser corridor toward a vault of diamonds.
     var prog = Core.progress(theme);
@@ -397,7 +404,9 @@ window.BlendGame = (function(){
           el.classList.remove("playing");
           // The part, then the whole — a piece on its own is only useful
           // next to the thing it is part of.
-          if(ok && revealWord) setTimeout(function(){ say(revealWord, { rate: 0.85 }); }, 200);
+          // (Not on a list the computer can't say: the sounds are recorded
+          // clips and stay; only the synthesised whole word goes.)
+          if(ok && revealWord && SPEAK) setTimeout(function(){ say(revealWord, { rate: 0.85 }); }, 200);
         });
       });
 
@@ -899,7 +908,10 @@ window.BlendGame = (function(){
         // these per word, and Say It is the only mode that can name one.
         report(target, false, tries, dx ? { kind: dx.kind } : null);
         // Never on the first miss — that stays fast so the retry isn't slowed down.
-        if(voiceOn){
+        if(voiceOn && !SPEAK){
+          // The hint names letters, not the word, so it can still be said.
+          if(dx) say(spokenHint(dx.message), { rate: 0.9 });
+        } else if(voiceOn){
           if(targetChunks) sayChunked(targetChunks, target, dx ? spokenHint(dx.message) : null);
           else say("The word was, " + target + ". " + (dx ? spokenHint(dx.message) : ""), { rate: 0.9 });
         }
@@ -945,13 +957,13 @@ window.BlendGame = (function(){
         s.textContent = "Reconnecting to the internet…";
       } else if(listening){
         b.classList.add("listening");
-        s.textContent = "Listening — say the word (press H to hear it)";
+        s.textContent = "Listening — say the word" + (SPEAK ? " (press H to hear it)" : "");
       } else if(audioBusy()){
         b.classList.add("paused");
         s.textContent = "Mic paused while the computer talks…";
       } else {
         b.classList.add("paused");
-        s.textContent = "Mic is on — just say the word (press H to hear it)";
+        s.textContent = "Mic is on — just say the word" + (SPEAK ? " (press H to hear it)" : "");
       }
     }
 
@@ -1094,7 +1106,7 @@ window.BlendGame = (function(){
     // often enough by chance to sound broken.
     var lastPraise = -1;
     function praisePhrase(word){
-      var options = ["Nice!", "Got it!", "You said it!", "Nailed it!", "Yes — " + word + "!", "Perfect!"];
+      var options = ["Nice!", "Got it!", "You said it!", "Nailed it!", SPEAK ? "Yes — " + word + "!" : "Well read!", "Perfect!"];
       var i;
       do { i = Math.floor(Math.random() * options.length); } while(i === lastPraise);
       lastPraise = i;
@@ -1143,6 +1155,7 @@ window.BlendGame = (function(){
       // 0.75 sounded noticeably more robotic/stretched than a lighter
       // slowdown — 0.85 still gives a struggling reader a clear, unhurried
       // word without pushing the synthesis into its worst-sounding range.
+      if(!SPEAK) return;
       say(queue[idx], { rate: 0.85 });
     }
 
@@ -1244,7 +1257,9 @@ window.BlendGame = (function(){
         $("btnSelf").disabled = false;
         // Always, whatever the Voice setting says: the point of the
         // button is the comparison, and half of it is the correct read.
-        say(queue[idx], { rate: 0.85 });
+        // A list the computer can't say has no correct read to offer, so
+        // there the recording plays on its own.
+        if(SPEAK) say(queue[idx], { rate: 0.85 });
       });
     });
 
@@ -1308,6 +1323,7 @@ window.BlendGame = (function(){
       updateMicUI();
     });
     $("btnHear").addEventListener("click", hearIt);
+    if(!SPEAK) $("btnHear").style.display = "none";
     $("btnSkip").addEventListener("click", function(){
       if(busy) return;
       var t = queue[idx];

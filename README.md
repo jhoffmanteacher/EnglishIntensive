@@ -116,8 +116,13 @@ Some of the gaps are deliberate. **Nonsense words** have no Match It:
 that game works by *saying* a word and asking the student to find it, and
 a synthesiser handed "vab" doesn't say "vab", it guesses — often enough
 as "verb" that the answer key would be wrong. A list with no meanings can
-only be read, not heard. Their cards mode runs with `speak: false` for
-the same reason, so the flip shows the word without pronouncing it. The
+only be read, not heard. Every one of its modes runs with `speak: false`
+for the same reason: the cards' flip shows the word without pronouncing
+it; Say It has no Hear it button or H key, its reveal shows the word and
+says only the hint, and tap-to-hear plays the sounds but not the word;
+One minute lists the missed words without reading them back; Blend It's
+reveal plays the sounds and stops. The student reads, the computer only
+listens. Say It and One minute read the word aloud for a while. The
 one-minute run and Blend It live only on the three short-word families,
 because a timed read and a sound-by-sound blend both want words a
 student can get through in a breath. Split It is only for the

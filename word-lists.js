@@ -425,14 +425,19 @@ window.LIST_FAMILIES = [
          "vab" returns the nearest real word, so a letter-perfect match is
          a bar no student could clear. Blend it has always set it; Say it
          and One minute went without for a while, and marked correct
-         readings wrong. */
+         readings wrong.
+         speak: false, for the reason Match It is missing: a synthesiser
+         handed "vab" guesses, so "Hear it", the spoken reveal and the
+         tap-to-hear would read the student the wrong answer. The student
+         reads; the computer only listens. */
       say: {
-        blend: "start", blendLength: 0, theme: "race", phonetic: true,
+        blend: "start", blendLength: 0, theme: "race", phonetic: true, speak: false,
         intro: "These are made-up words. Sound out the letters in your head. Then say the whole word out loud.<br>The computer listens and tells you if you're right."
       },
       // 40, not the 60 real words get: there is no sight-reading a word
       // nobody has seen before, so every one of these is decoded.
-      fluency: { phonetic: true, target: 40 },
+      // No read-back on the results either (speak: false, as above).
+      fluency: { phonetic: true, target: 40, speak: false },
       // Same reason again: the reveal plays the sounds, and then has
       // nothing to say — a synthesiser handed "vab" guesses "verb".
       blendit: { speak: false, phonetic: true, theme: "race" },
