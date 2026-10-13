@@ -183,8 +183,8 @@ prints the list numbers per mode, as ranges, so ten ticked boxes read as
 A red word is irregular, but it is rarely irregular all the way through.
 "said" is s + d with one impossible middle; "could" is c + d with one. The
 lists mark that middle with braces — `"s{ai}d"`, `"c{oul}d"` — and the
-flash cards show it in red on the **back** of the card, under "In red: the
-part to remember by heart". The front stays plain: the card has to be read
+flash cards show it in red on the **back** of the card, under "Remember the red
+letters. They don't sound the way they look." The front stays plain: the card has to be read
 cold first.
 
 The point is the size of the thing being memorised. "Learn s-a-i-d" is four
@@ -571,7 +571,7 @@ Each game page keeps its own deck of not-yet-mastered words in
 `"matchComeback:"` for the two sight-word games): a word joins the
 deck when it's missed twice or skipped in a round, and **leaves the deck the
 moment it's read correctly on the first try** in any later round. When the deck has
-words, the start screen grows a "🔁 Comeback words (N)" button that runs just
+words, the start screen grows a "🔁 Words you missed (N)" button that runs just
 those words — most-missed first, capped at 15 so it stays a warm-up. The
 storage layer treats localStorage as untrusted (versioned, sanitized on
 read, silently absent if storage is unavailable), and the pure deck logic

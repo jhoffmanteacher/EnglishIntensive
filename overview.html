@@ -280,7 +280,7 @@ tbody tr:last-child td{border-bottom:0}
   margin-bottom:7px;
 }
 
-/* ---- the red-word specimen ---- */
+/* ---- the red-word card example ---- */
 .specimen{
   display:flex;
   flex-wrap:wrap;
@@ -304,7 +304,7 @@ tbody tr:last-child td{border-bottom:0}
   line-height:1.1;
   letter-spacing:.01em;
 }
-.card .face .heart{color:var(--red)}
+.card .face .irr{color:var(--red)}
 .card .cap{
   font-size:11px;
   font-weight:700;
@@ -431,95 +431,99 @@ footer p{max-width:66ch}
     <p class="updated">Updated 13 October 2026</p>
   </div>
   <h1>English Intensive</h1>
-  <p class="standfirst">A browser-based practice site for <b>older students working on decoding and sight words</b>. Six word families, seven ways to practice them, a microphone that listens to the student read, and a teacher dashboard that says who to reteach and what.</p>
+  <p class="standfirst">A practice website for <b>high school students who are still learning to read words</b>. Students practice sounding out words and reading common irregular words on sight. A microphone listens to them read, and a teacher dashboard shows which students and which words need reteaching.</p>
 </header>
 
 <dl class="facts">
-  <div><dt>Where</dt><dd>Any Chromebook</dd></div>
+  <div><dt>Device</dt><dd>Any Chromebook</dd></div>
   <div><dt>Browser</dt><dd>Chrome</dd></div>
   <div><dt>Sign-in</dt><dd>School Google account</dd></div>
   <div><dt>Install</dt><dd>Nothing to install</dd></div>
 </dl>
 
 <section>
-  <h2>The basic shape</h2>
-  <p class="deck">Each student has their own lists, and each list can be practiced more than one way.</p>
-  <p>A student signs in and sees only the games their teacher has given them — nothing else, and nothing until the teacher gives them something. Two students in the same room can be working on different things. Each mode is <b>tracked as its own skill</b>: reading <i>moist</i> cold, spelling it, and picking it out of a row of look-alikes are three separate things to be good at, and the site keeps them apart.</p>
-  <p>A round is 18 words chosen for that student, not the whole list (see <i>How a round gets picked</i>). One minute is the exception: it runs the whole list.</p>
+  <h2>How it works</h2>
+  <p class="deck">Each student practices only what their teacher assigns.</p>
+  <ul class="tight">
+    <li>A student signs in and sees <b>only the activities their teacher assigned</b>. Until the teacher assigns something, the home page is empty.</li>
+    <li>Students in the same room can work on different lists.</li>
+    <li>Each activity is <b>scored separately</b>. Reading <i>moist</i> aloud, spelling it, and finding it among similar words count as three different skills.</li>
+    <li>A round is <b>18 words</b> picked for that student, not the whole list (see <i>Which words come up</i>). The one-minute reading check is the exception: it uses the whole list.</li>
+  </ul>
 </section>
 
 <hr class="rule">
 
 <section>
-  <h2>What students practice</h2>
-  <p class="deck">Five decodable families plus ten lists of irregular high-frequency words.</p>
+  <h2>The word lists</h2>
+  <p class="deck">Five kinds of words students sound out, plus ten lists of irregular words they learn on sight.</p>
   <div class="scroller">
     <table>
       <thead>
-        <tr><th scope="col">Family</th><th scope="col">What's in it</th><th scope="col">Practiced as</th></tr>
+        <tr><th scope="col">List</th><th scope="col">What's in it</th><th scope="col">Activities</th></tr>
       </thead>
       <tbody>
-        <tr><td class="famName">Starting Blends</td><td>Words beginning with a consonant blend — <i>blip, crop, clam</i>.</td><td class="plays">Say it · Cards · Match It · One minute · Blend it</td></tr>
-        <tr><td class="famName">Blend Words</td><td>Words ending with a consonant blend — <i>soft, pond, risk, milk</i>.</td><td class="plays">Say it · Cards · Match It · One minute · Blend it</td></tr>
-        <tr><td class="famName">Nonsense Words</td><td>Made-up CVC words with no meaning to lean on — pure sounding-out.</td><td class="plays">Say it · Cards · One minute · Blend it</td></tr>
-        <tr><td class="famName">oi / oy</td><td>The oi/oy vowel team anywhere in the word — <i>coin, join, annoy, royal</i>.</td><td class="plays">Say it · Spell it · Cards · Match It</td></tr>
-        <tr><td class="famName">Multisyllable</td><td>Two- and three-syllable real words — <i>napkin, picnic, fan·tas·tic</i>.</td><td class="plays">Say it · Cards · Match It · Split it</td></tr>
-        <tr><td class="famName">Red Words</td><td>Ten lists of irregular words learned by sight — <i>said, would, Wednesday</i>.</td><td class="plays">Say it · Cards · Match It</td></tr>
+        <tr><td class="famName">Starting Blends</td><td>Real words that start with two consonants said together — <i>blip, crop, clam</i>.</td><td class="plays">Say it · Cards · Match It · One minute · Blend it</td></tr>
+        <tr><td class="famName">Blend Words</td><td>Real words that end with two consonants said together — <i>soft, pond, risk, milk</i>.</td><td class="plays">Say it · Cards · Match It · One minute · Blend it</td></tr>
+        <tr><td class="famName">Nonsense Words</td><td>Made-up three-letter words (consonant-vowel-consonant) — <i>vab, taf, raz</i>. There is no meaning to guess from, so every word has to be sounded out.</td><td class="plays">Say it · Cards · One minute · Blend it</td></tr>
+        <tr><td class="famName">oi / oy</td><td>Words with the <i>oi</i> or <i>oy</i> spelling — <i>coin, join, annoy, royal</i>.</td><td class="plays">Say it · Spell it · Cards · Match It</td></tr>
+        <tr><td class="famName">Multisyllable</td><td>Real words with two or three syllables — <i>napkin, picnic, fan·tas·tic</i>.</td><td class="plays">Say it · Cards · Match It · Split it</td></tr>
+        <tr><td class="famName">Red Words</td><td>Ten lists of common words that don't follow spelling rules — <i>said, would, Wednesday</i>.</td><td class="plays">Say it · Cards · Match It</td></tr>
       </tbody>
     </table>
   </div>
   <div class="note">
-    <span class="tag">Why the nonsense list has no Match It</span>
-    <p>Match It <i>says</i> a word and asks the student to find it. Handed "vab", a speech synthesizer guesses — often "verb" — so the answer key would be wrong. A list with no meanings can be read, not heard.</p>
-    <p>The microphone has the same problem in the other direction: it writes down the nearest real word. So a nonsense word read aloud is judged <b>by sound</b> — within one sound of the word counts — while every real word has to come back exactly.</p>
-    <p>For the same reason the computer never says a nonsense word, in any mode. There is no Hear it button. After two misses the word is shown, and the sounds can be tapped, but the whole word is not read out. The student reads; the computer only listens.</p>
+    <span class="tag">Made-up words: the computer never says them</span>
+    <p><b>No Match It.</b> Match It says a word out loud and the student finds it. A computer voice can't reliably say a made-up word — given <i>vab</i>, it often says "verb" — so the answer would be wrong.</p>
+    <p><b>No spoken word in any activity.</b> There is no Hear it button. After two misses the word is shown and the student can tap its sounds, but the whole word is never read aloud. The student reads; the computer only listens.</p>
+    <p><b>Graded by sound.</b> Speech recognition always writes down the closest real word. So a made-up word counts as right if it is within one sound of the target. Real words must match exactly.</p>
   </div>
 </section>
 
 <hr class="rule">
 
 <section>
-  <h2>The seven ways to practice</h2>
-  <p class="deck">All but One minute score the same way — points, streaks, and 0–3 stars — so a student moving between modes meets one game asking different questions.</p>
+  <h2>The seven activities</h2>
+  <p class="deck">Every activity except One minute is scored the same way: points, streaks, and 0–3 stars.</p>
   <div class="scroller">
     <table>
       <thead>
-        <tr><th scope="col">Mode</th><th scope="col">What it asks the student to do</th><th scope="col">Needs</th></tr>
+        <tr><th scope="col">Activity</th><th scope="col">What the student does</th><th scope="col">Needs</th></tr>
       </thead>
       <tbody>
         <tr>
           <td class="modeName"><span class="ic">🎤</span>Say it</td>
-          <td>The word appears; the student reads it aloud and the computer listens. Two tries, then it reveals the word and names the part that went wrong.</td>
+          <td>Reads the word aloud. The computer listens. After two misses it shows the word and points out the part that was wrong.</td>
           <td class="needs">mic</td>
         </tr>
         <tr>
           <td class="modeName"><span class="ic">⌨️</span>Spell it</td>
-          <td>Encoding. The computer says the word and the student types it, never seeing it first. A second miss shows the spelling with the missed letters lit up. On the oi/oy list the answer goes into <b>sound boxes</b>, one per <i>sound</i> rather than per letter, so a student putting one letter in each box has already found what they were about to get wrong.</td>
+          <td>Hears the word and types it, without seeing it first. After a second miss it shows the right spelling with the missed letters highlighted. On the oi/oy list, students type into boxes: <b>one box per sound, not per letter</b>, so <i>oi</i> goes in one box.</td>
           <td class="needs">headphones</td>
         </tr>
         <tr>
           <td class="modeName"><span class="ic">🃏</span>Cards</td>
-          <td>Sight recognition. Read the card, flip it, rate yourself <i>Got it</i> or <i>Not yet</i>. The word is spoken only <i>after</i> the flip — hearing it first would turn the drill into repeat-after-me.</td>
+          <td>Flash cards. Reads the word, flips the card, and marks it <i>Got it</i> or <i>Not yet</i>. The computer says the word only <i>after</i> the flip, so the student has to read it first.</td>
           <td class="needs">—</td>
         </tr>
         <tr>
           <td class="modeName"><span class="ic">🎯</span>Match It</td>
-          <td>The computer says a word; the student picks it out of six deliberately confusable ones — <i>should / could / would / said</i>. Getting it right means reading to the end of the word.</td>
+          <td>Hears a word and picks it from six similar-looking words — <i>should / could / would / said</i>. Students have to read to the end of each word.</td>
           <td class="needs">headphones</td>
         </tr>
         <tr>
           <td class="modeName"><span class="ic">⏱</span>One minute</td>
-          <td>Reading rate. Sixty seconds of reading down a list aloud, scored in correct words per minute, with the change since last time.</td>
+          <td>Reads down a list aloud for 60 seconds. Scored in correct words per minute, with the change since last time.</td>
           <td class="needs">mic</td>
         </tr>
         <tr>
           <td class="modeName"><span class="ic">🔊</span>Blend it</td>
-          <td>Oral blending with nothing to read off. The student hears /k/ /r/ /a/ /b/ spaced out, then closer together, then says the word. The printed word appears only after the attempt.</td>
+          <td>Hears the separate sounds — /k/ /r/ /a/ /b/ — spaced out, then closer together, then says the word. Nothing is on screen to read; the word appears after the attempt.</td>
           <td class="needs">mic</td>
         </tr>
         <tr>
           <td class="modeName"><span class="ic">✂️</span>Split it</td>
-          <td>Syllable division. The word shows with a clickable gap between every pair of letters; the student marks where it comes apart. Extra splits go red and the right places light up gold.</td>
+          <td>Clicks between letters to mark where a long word breaks into syllables. Wrong splits turn red, and the right places are highlighted gold.</td>
           <td class="needs">—</td>
         </tr>
       </tbody>
@@ -530,135 +534,149 @@ footer p{max-width:66ch}
 <hr class="rule">
 
 <section>
-  <h2>When a student gets it wrong</h2>
-  <p class="deck">A red ✗ says they were wrong. It doesn't say which part — and for a reader guessing at blends or sliding off vowels, that is the only part worth knowing.</p>
-  <p>On the reveal, Say it lines up what the microphone heard against the word on screen, sound by sound, and names <b>one</b> thing. Never three, because a wrong reading usually has one cause. The letters that spell that sound light up gold.</p>
+  <h2>When a student reads a word wrong</h2>
+  <p class="deck">A red ✗ shows the word was wrong, but not which part. Say it also shows which part.</p>
+  <p>After a miss, Say it compares what the microphone heard with the word on screen, sound by sound. It points out <b>one</b> problem — the most likely cause — and highlights those letters in gold. The messages are:</p>
   <dl class="kinds">
-    <div><dt>The blend</dt><dd>Look at the blend: <em>bl</em></dd></div>
-    <div><dt>The target sound</dt><dd>The <em>oi</em> sound is the key</dd></div>
-    <div><dt>A swapped vowel</dt><dd>Check the vowel: <em>e</em></dd></div>
-    <div><dt>A swapped consonant</dt><dd>Listen to the <em>s</em> sound</dd></div>
-    <div><dt>A dropped sound</dt><dd>You dropped a sound: <em>st</em></dd></div>
-    <div><dt>An added sound</dt><dd>That's one sound too many</dd></div>
+    <div><dt>Wrong blend</dt><dd>Look at the blend: <em>bl</em></dd></div>
+    <div><dt>Missed the sound the list teaches</dt><dd>The <em>oi</em> sound is the key</dd></div>
+    <div><dt>Wrong vowel</dt><dd>Check the vowel: <em>e</em></dd></div>
+    <div><dt>Wrong consonant</dt><dd>Listen to the <em>s</em> sound</dd></div>
+    <div><dt>Left out a sound</dt><dd>You dropped a sound: <em>st</em></dd></div>
+    <div><dt>Added a sound</dt><dd>That's one sound too many</dd></div>
     <div><dt>Right sounds, wrong word</dt><dd>Read it slowly, left to right</dd></div>
   </dl>
 
-  <h3>Real phoneme audio, not "buh"</h3>
-  <p>A speech synthesizer asked for /b/ says <b>"buh"</b>, and "buh-a-tuh" does not blend into <i>bat</i>. So every sound the site plays is its own clip, one for each of the 37 sounds it can name, with the stop consonants trimmed back to the burst.</p>
-  <p>On the back of a card and on the Say it reveal, each syllable — or each sound of a one-syllable word — is pressable: it plays itself, then the whole word. A student who has been told a word twice and still can't read it usually can't hear <i>which part</i> is wrong. Pressing "tas" and hearing /t/ /a/ /s/ answers that without anyone having to explain it.</p>
-  <p><b>Not on the red words.</b> Sounding a word out by rule is exactly what fails on <i>said</i> and <i>one</i>, so those cards show the heart letters and nothing to press, and Say it reveals a red word without naming a part.</p>
+  <h3>Recorded speech sounds</h3>
+  <p>A computer voice asked to say /b/ says <b>"buh,"</b> and "buh-a-tuh" does not blend into <i>bat</i>. So the site plays a recording of each speech sound — 37 in all — with sounds like /b/ and /t/ cut short so there is no extra "uh."</p>
+  <p>On the back of a card, and after a missed word in Say it, students can <b>tap each syllable</b> (or each sound, in a one-syllable word) to hear it, then the whole word. This helps a student find which part they are getting wrong.</p>
+  <p><b>Red words don't have this.</b> Their spelling doesn't match their sounds, so sounding them out would teach the wrong thing. Red word cards have no tap-to-hear, and Say it doesn't point out a wrong part on a red word. Instead, the card shows which letters to memorize (see <i>Red words</i> below).</p>
 
   <h3>Hear yourself</h3>
-  <p>After any word, a button plays back the last few seconds of the student's own reading, then reads the word properly. There is no arguing with the recording. <b>The clip is never stored or uploaded.</b> It exists in memory while that card is on screen and is gone when the next one arrives.</p>
+  <p>After any word, a button plays back the last few seconds of the student reading, then reads the word correctly. <b>The recording is never saved or uploaded.</b> It is deleted when the next word appears.</p>
 </section>
 
 <hr class="rule">
 
 <section>
-  <h2>Red words and heart letters</h2>
-  <p class="deck">A word is irregular, but it is rarely irregular all the way through.</p>
-  <p><i>said</i> is s + d with one impossible middle. <i>could</i> is c + d with one. The back of the card marks that middle in red, under <i>"In red: the part to remember by heart"</i>. The front stays plain, because the card has to be read cold first.</p>
+  <h2>Red words: the letters to memorize</h2>
+  <p class="deck">Most irregular words are irregular in only one spot.</p>
+  <p><i>said</i> is a regular s and d with an unexpected <b>ai</b> in the middle. <i>could</i> is a regular c and d with an unexpected <b>oul</b>. On the back of the card those letters are <b>red</b>, with the note <i>"Remember the red letters. They don't sound the way they look."</i> The front of the card is plain, so the student tries to read it first.</p>
   <div class="specimen">
     <div class="card">
       <div class="face">said</div>
-      <div class="cap">Front — read it cold</div>
+      <div class="cap">Front — student reads it</div>
     </div>
     <div class="card">
-      <div class="face">s<span class="heart">ai</span>d</div>
-      <div class="cap">Back — the part to know by heart</div>
+      <div class="face">s<span class="irr">ai</span>d</div>
+      <div class="cap">Back — red letters to memorize</div>
     </div>
   </div>
-  <p>The point is the size of the thing being memorized. "Learn s-a-i-d" is four letters with no pattern. "<i>said</i> has an <b>ai</b> in the middle" is one chunk, and the s and the d are just reading. Which part can't be sounded out is marked by hand: that is a teaching judgement, not something software should guess.</p>
+  <p>This makes the job smaller. Memorizing s-a-i-d is four letters with no pattern. Remembering "<i>said</i> has <b>ai</b> in the middle" is one thing; the s and the d are regular. The red letters were chosen by hand for each word, not by software.</p>
 </section>
 
 <hr class="rule">
 
 <section>
-  <h2>How a round gets picked</h2>
-  <p class="deck">Eighteen words drawn from the list, weighted by how that student is actually doing.</p>
+  <h2>Which words come up</h2>
+  <p class="deck">Each round is 18 words from the list, picked by how that student is doing.</p>
   <ul class="tight">
-    <li><b>How badly it's going.</b> A word missed every time is about six times as likely to come up as one that's solid. Accuracy is smoothed, so one lucky guess isn't mastery and one slip isn't a crisis.</li>
-    <li><b>Whether it's had its rest.</b> Each word sits in a spaced-repetition box earning breaks of 0, 1, 2, 4, 8 or 16 days. Inside its break a word is quieted rather than banned, so short sessions don't loop the same handful.</li>
-    <li><b>First tries only.</b> Getting a word right after being told it isn't knowing it. A miss drops a word one box rather than back to zero, because a reset turns one fumble into a week of that word every session.</li>
-    <li><b>Speed, on the cards.</b> A word decoded in three seconds is not a sight word, however reliably it comes back right. Flips are timed; over 2.5 seconds a word counts as slow and keeps coming round after its accuracy has stopped moving.</li>
+    <li><b>Missed words come up more.</b> A word missed every time is about six times as likely to come up as a word the student knows well. One lucky guess or one slip doesn't change much.</li>
+    <li><b>Known words wait longer.</b> After each right answer, a word waits longer before it comes back: 1, 2, 4, 8, then 16 days. A miss shortens the wait by one step instead of starting over. During its wait a word can still come up, just less often, so short sessions don't repeat the same few words.</li>
+    <li><b>Only the first try counts.</b> Getting a word right after being shown the answer doesn't count as knowing it.</li>
+    <li><b>Speed counts on Cards.</b> Card flips are timed. A word that takes more than 2.5 seconds is marked <b>slow</b>, and slow words keep coming back even when the student gets them right.</li>
   </ul>
   <div class="note">
-    <span class="tag">Slow is the scheduler's business, and yours</span>
-    <p>Students see a "⚡ fast" pill for a quick flip and no slow pill, because being told you were slow makes the next card slower. Slow shows up on <i>your</i> screen instead: the per-list breakdown reads "12 / 20 (4 slow)", and nobody is suggested for the next list on the strength of words they can decode but not read.</p>
+    <span class="tag">Students are never told a word was slow</span>
+    <p>Students see <b>⚡ fast</b> when they flip a card quickly, but never "slow" — being told you were slow tends to make the next card slower. Slow words show on the teacher dashboard instead, for example "12 / 20 (4 slow)". A student isn't suggested for the next list based on words they read right but slowly.</p>
   </div>
-  <p>Say it, Cards and Match It also offer a <b>🔁 Comeback words</b> warm-up of whatever this student has been missing lately. Cards adds a <b>⚡ Speed round</b> once eight words are solid: nothing but words they already own, flipping themselves after two seconds. Useless as practice, and the only thing on the site that asks whether a word can be read without thinking about it.</p>
+  <p>Say it, Cards and Match It also have a <b>🔁 Words you missed</b> button, which practices only the words this student has missed recently. Cards adds a <b>⚡ Speed round</b> once eight words are solid: only words the student already knows, and each card flips by itself after two seconds. It checks whether the student can read those words instantly.</p>
 </section>
 
 <hr class="rule">
 
 <section>
-  <h2>The one-minute word-rate check</h2>
-  <p class="deck">Every other mode asks whether a student knows a word. This one asks how fast — the question still worth asking after accuracy has stopped moving.</p>
-  <p>Words in rows of five, sixty seconds, the deck cycling so a fast reader never runs out. Scored in <b>correct words per minute</b> against a target of 60 — 40 on the nonsense list, where every word has to be decoded — with the change since last time. The clock starts on the first word actually read, not on the button, so fumbling with headphones doesn't count against anyone.</p>
-  <p>The listening is built for the way these students actually read. A hesitation, a repeated word, a false start, a skipped word, or the recognizer splitting "hubcap" into "hub cap" does not knock the rest of the run out of alignment; a genuine misread still counts as one. Every run is kept, up to a term's worth — except one where the connection dropped or the microphone heard nothing, which is shown to the student but not saved — and the dashboard draws each list as a small trend line, because one number says nothing about whether anything is changing.</p>
-  <div class="note">
-    <span class="tag">It's a rate, not fluency in the full sense</span>
-    <p>A word list measures <b>automaticity of word recognition</b> — whether a word comes back without effort — which is what timed word-list tests like TOWRE assess. It is not prosody, phrasing, or holding meaning across a sentence. A passage hands a weak decoder context to lean on and a list takes it away, so a good rate here is not evidence that a paragraph goes well. Passage reading wants its own probe.</p>
-  </div>
-</section>
-
-<hr class="rule">
-
-<section>
-  <h2>Built for these readers specifically</h2>
-  <p class="deck">The audience is 9th and 10th graders practicing skills usually taught much younger.</p>
+  <h2>The one-minute reading check</h2>
+  <p class="deck">The other activities check whether a student knows a word. This one checks how quickly they read words.</p>
   <ul class="tight">
-    <li><b>Nothing is coded elementary.</b> No grade labels, no cartoon imagery, no "Big Words" — the list is called Multisyllable. The progress graphics are a race car and a neon vault run.</li>
-    <li><b>👁 Reading view, on every start screen.</b> Four switches: font (site default, <b>Lexend</b>, or <b>Atkinson Hyperlegible</b>, drawn so b/d/p/q and I/l/1 can be told apart), wide letter spacing, all-lowercase, and cream cards instead of dark. The fonts ship with the site, so a network that blocks Google Fonts can't take them away from the one student who needs them.</li>
-    <li><b>🔊 Read directions aloud</b> on every game, in the same voice as the words. The directions are short and plain on purpose: this is a phonics class, and the instructions should not themselves be a decoding challenge.</li>
-    <li><b>Right and wrong are shown, not just heard</b> — a green ✓ or red ✗ over the word — so nothing depends on hearing. The spoken coach is off by default.</li>
-    <li><b>Silence is never a wrong answer</b>, and neither is a cough or an "um". The mic modes excuse a response that is all noise rather than marking a word nobody tried to read.</li>
-    <li><b>Mic-free options everywhere.</b> Cards and Match It work in a loud room and on a Chromebook with a dead microphone.</li>
+    <li>Words are shown in rows of five. The student reads aloud for 60 seconds; the list starts over if they reach the end.</li>
+    <li>The score is <b>correct words per minute</b>. The target is 60, or 40 on the made-up words, where every word has to be sounded out. The student also sees the change since last time.</li>
+    <li>The timer starts when the student reads the first word, not when they press Start.</li>
+    <li>Normal reading doesn't throw off the scoring: a pause, a repeated word, a false start, a skipped word, or the microphone hearing "hubcap" as "hub cap." A misread word counts as one miss.</li>
+    <li>Every run is saved, up to a term's worth. A run where the internet dropped or the microphone heard nothing is shown to the student but not saved.</li>
+    <li>The dashboard shows each list's runs as a small trend line.</li>
+  </ul>
+  <div class="note">
+    <span class="tag">This measures word reading speed, not reading fluency</span>
+    <p>A word list shows how quickly a student recognizes single words — what timed word-list tests like the TOWRE measure. It does not measure expression, phrasing, or understanding. A passage gives a struggling reader context to help them; a list doesn't. So a good score here doesn't mean passage reading is going well. Check passage reading separately.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section>
+  <h2>Made for older students</h2>
+  <p class="deck">The students are 9th and 10th graders practicing skills usually taught in elementary school.</p>
+  <ul class="tight">
+    <li><b>Nothing looks like elementary school.</b> No grade labels, no cartoons, no "Big Words" — the list is called Multisyllable. The progress graphics are a race track and a maze.</li>
+    <li><b>👁 Reading view on every start screen.</b> Four settings: font (site default, <b>Lexend</b>, or <b>Atkinson Hyperlegible</b>, where b/d/p/q and I/l/1 look clearly different), wider letter spacing, all lowercase, and cream cards instead of dark ones. The fonts are stored on the site, so a school network that blocks Google Fonts can't remove them.</li>
+    <li><b>🔊 Read directions aloud</b> on every activity, in the same voice as the words. Directions are short and plain so they aren't a reading challenge themselves.</li>
+    <li><b>Right and wrong are shown, not only heard</b> — a green ✓ or red ✗ over the word — so nothing depends on hearing. The spoken coach is off by default.</li>
+    <li><b>Silence is never wrong</b>, and neither is a cough or an "um." The microphone activities ignore noise instead of marking the word wrong.</li>
+    <li><b>Activities without a microphone.</b> Cards and Match It work in a loud room or on a Chromebook with a broken microphone.</li>
   </ul>
 </section>
 
 <hr class="rule">
 
 <section>
-  <h2>What the teacher side does</h2>
-  <p class="deck">One dashboard, four tabs, and a bias toward showing you the next action rather than every number.</p>
+  <h2>The teacher dashboard</h2>
+  <p class="deck">Four tabs — Students, Assign, Periods, Trouble Spots — built to show what to do next rather than every number.</p>
 
   <h3>Setting up a class</h3>
-  <p>Import whatever your student information system exports — comma, tab, or semicolon; <i>Perm ID</i> or <i>Local ID</i>; one name column or last-plus-first; <i>Period 3</i> or <i>P3</i> or <i>3rd</i>. Students appear on the roster with their period <b>before any of them has signed in</b>. A row with no ID number is listed and skipped rather than guessed at, and re-importing never removes anyone.</p>
+  <p>Import the roster file your student information system exports. It can be comma, tab, or semicolon separated; use <i>Perm ID</i> or <i>Local ID</i>; have one name column or separate last and first; and write periods as <i>Period 3</i>, <i>P3</i>, or <i>3rd</i>. Students appear with their period <b>before they ever sign in</b>. A row with no ID number is listed and skipped. Importing again never removes anyone.</p>
 
   <h3>Assigning work</h3>
-  <p>Every student gets their own games, chosen by you. There is no class-wide or period-wide setting to fall back on: a student with nothing assigned sees an empty home page, and the dashboard tells you who that is. Periods are only for grouping students on the dashboard.</p>
-  <p>The <b>Assign</b> board shows the class as one grid, students down the side and lists across the top, with a key to the icons. Click a cell to choose how one student plays one list. To change many at once, tick their names — or a whole period at its heading — and choose <b>Add to what they have</b>, <b>Take these away</b>, or <b>Replace all their games</b>. You can also set up students from an imported roster before they ever sign in. Nothing is written until you press Save, and the bar at the bottom counts what's pending.</p>
-  <p>A student can't open a game they weren't given, even from a copied link — they're shown their own games instead.</p>
+  <p>You choose each student's activities. There is no class-wide default: a student with nothing assigned sees an empty home page, and the dashboard tells you who. Periods are only for grouping students on the dashboard.</p>
+  <p>The <b>Assign</b> tab shows the class as a grid — students down the side, lists across the top. Click a cell to choose which activities one student gets for one list. To change many students at once, check their names (or a whole period) and choose <b>Add to what they have</b>, <b>Take these away</b>, or <b>Replace all their games</b>. You can assign work to students from the roster before they sign in. Nothing is saved until you press Save; the bar at the bottom shows how many changes are waiting.</p>
+  <p>A student can't open an activity they weren't assigned, even from a copied link. They're sent to their own activities instead.</p>
 
-  <h3>What it tells you</h3>
+  <h3>What it shows</h3>
   <ul class="tight">
-    <li><b>What should change</b> — at most one line per student, and nothing for most of them. Stuck on a card list — thirty answers and still under 40% solid — with a one-click switch to Say it on the same words. Match It assigned before the cards are solid. Everything solid and nowhere to go. No round in more than seven <i>school</i> days, so the whole class doesn't go quiet every weekend.</li>
-    <li><b>Ready to move up</b> — <i>"Marcos · Red Words 🃏 · finished List 2 (18 of 20 solid) · add List 3"</i>, with a button that stages it. The bar is four words in five, so one stubborn word doesn't hold a student on a list for a term. The count in brackets is words solid <i>and</i> at pace, the same count the bar is measured against, with any slow-but-right words named beside it: <i>"(16 of 20 solid, 3 more slow)"</i>. It never advances anyone on its own.</li>
-    <li><b>Trouble spots</b> — the same words across the class, ranked by <i>how many students</i> are struggling with each rather than by raw accuracy, so one student's bad day doesn't top the list. This is the "what do I reteach tomorrow" view.</li>
-    <li><b>By pattern</b> — thirty words all failing on the same vowel team is one problem with one lesson behind it. A second table groups by <i>initial blend, final blend, vowel team oi/oy, multisyllable, irregular, nonsense CVC</i>, with the most common error beside each — except <i>irregular</i>, where no part is named.</li>
-    <li><b>Per student</b> — hardest words worst-first, each list as solid / total with the slow count, reading-rate trend lines, and the last few things the microphone heard for each missed word. A word that keeps coming back as "bread" is a lesson.</li>
-    <li><b>Notes</b> — a private line per student for what the numbers can't say: <i>"reads well, freezes when timed"</i>. The one thing on the site a student cannot read about themselves.</li>
-    <li><b>Two CSV exports</b> — a roster row per student, and the long file: one row per student, list, and word attempted.</li>
+    <li><b>What should change</b> — at most one suggestion per student, and none for most students. For example: stuck on a card list (thirty answers and still under 40% solid), with a one-click switch to Say it on the same words; Match It assigned before the cards are solid; every word solid with nothing next; or no practice in more than seven <i>school</i> days, so weekends don't count.</li>
+    <li><b>Ready to move up</b> — a student who has 4 of every 5 words on a list solid, e.g. <i>"Marcos · Red Words 🃏 · finished List 2 (18 of 20 solid) · add List 3"</i>. <b>Add it</b> puts the next list on the Assign tab; it isn't saved until you press Save. The count only includes words that are solid <i>and</i> not slow; slow words are listed beside it: <i>"(16 of 20 solid, 3 more slow)"</i>. The site never moves a student up by itself.</li>
+    <li><b>Trouble Spots</b> — the words the class is missing, ranked by <i>how many students</i> are struggling with each, so one student's bad day doesn't top the list. Use it to decide what to reteach tomorrow.</li>
+    <li><b>By pattern</b> — the same results grouped by what each list teaches: starting blends, ending blends, oi/oy, multisyllable, irregular words, and made-up words. Each row shows the most common error, except irregular words, where no error is named. Thirty words all missed on the same vowel is one problem with one lesson.</li>
+    <li><b>Per student</b> — hardest words first, each list as solid / total with the slow count, reading-speed trend lines, and the last few things the microphone heard for each missed word. A word that keeps being heard as "bread" tells you what to teach.</li>
+    <li><b>Notes</b> — a private note per student for what the numbers don't show, e.g. <i>"reads well, freezes when timed."</i> Students never see it.</li>
+    <li><b>Two spreadsheet downloads (CSV)</b> — one row per student, and a detailed file with one row per student, list, and word attempted.</li>
   </ul>
+
+  <div class="note">
+    <span class="tag">Terms on the dashboard</span>
+    <p><b>Solid</b> — the student reads the word right at least 9 times in 10, with enough recent first-try right answers that it has reached the longest wait between practices.</p>
+    <p><b>Shaky</b> — right less than 60% of the time.</p>
+    <p><b>Slow but right</b> — right, but card flips average more than 2.5 seconds.</p>
+    <p><b>Answers</b> and <b>accuracy</b> count first tries only.</p>
+  </div>
 </section>
 
 <hr class="rule">
 
 <section class="limits">
-  <h2>What it deliberately doesn't do</h2>
+  <h2>What it doesn't do, on purpose</h2>
   <ul class="tight">
-    <li><b>No passages.</b> This is word-level practice. An earlier build had connected text, but the vocabulary rule that kept the passages honest also made them read like nothing anyone would write.</li>
-    <li><b>No stored recordings.</b> A recording of a fifteen-year-old struggling to read is not a thing to keep. The moment it's kept, somebody has to decide who may hear it.</li>
-    <li><b>No automatic promotion.</b> Moving a student to the next list is always a teacher's click. "Solid on a screen" is not always solid on paper.</li>
-    <li><b>No score next to a name.</b> A student's list reads "12 of 20 solid", not a percentage, because a percentage there reads as a grade. The only percent a student sees is for the round they just played.</li>
-    <li><b>The card score is a self-rating.</b> It measures honesty as much as reading. Nothing can watch a student read <i>Wednesday</i> and tell whether they knew it on sight or worked it out, so the game asks them, and frames the payoff as the deck shrinking rather than the score going up. Match It is the checked version of the same skill.</li>
-    <li><b>Chrome only</b> for anything that uses the microphone, and the whole site is behind a school Google sign-in. There's no guest mode, because per-student tracking is the point.</li>
+    <li><b>No reading passages.</b> This is practice with single words. An earlier version had passages, but limiting them to words students had practiced made them read unnaturally.</li>
+    <li><b>No saved recordings.</b> A recording of a teenager struggling to read should not be kept. Once it's kept, someone has to decide who may hear it.</li>
+    <li><b>No automatic move-up.</b> Moving a student to the next list is always the teacher's choice. Solid on screen isn't always solid on paper.</li>
+    <li><b>No percentage next to a student's name.</b> A student's list shows "12 of 20 solid," not a percentage, because a percentage looks like a grade. The only percentage a student sees is for the round they just finished.</li>
+    <li><b>Card scores are self-reported.</b> On Cards, the student marks whether they read the word right. Software can't tell whether a student knew <i>Wednesday</i> on sight or sounded it out, so it asks. The reward is a shrinking pile of cards, not a higher score. Match It checks the same skill without relying on the student's word.</li>
+    <li><b>Chrome only</b> for anything that uses the microphone. The whole site requires a school Google sign-in; there is no guest mode, because the point is tracking each student.</li>
   </ul>
 </section>
 
 <footer>
-  <p>The quickest way to see it is to have a student open one list two ways — Cards and Match It on the same words — and watch how differently the two go.</p>
+  <p>The quickest way to see the site: have a student practice one list two ways — Cards and Match It on the same words — and compare how differently they go.</p>
 </footer>
 
 </div>

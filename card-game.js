@@ -346,7 +346,7 @@ window.CardGame = (function(){
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
         <button class="btn ghost" id="btnListen" style="display:none">🎤 Listen: <span id="lisLbl">Off</span></button>
-        <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
+        <button class="btn ghost" id="btnComeback" style="display:none">🔁 Words you missed (<span id="cbCount">0</span>)</button>
         <button class="btn ghost" id="btnSpeed" style="display:none">⚡ Speed round (<span id="spCount">0</span>)</button>
       </div>
       <p class="listennote" id="listenNote" hidden></p>
@@ -813,7 +813,7 @@ window.CardGame = (function(){
       else if(heart) $("uiWordBack").innerHTML = Core.heartMarkup(w, heart);
       else $("uiWordBack").textContent = w;
       $("uiBackHint").textContent = heart && !chunks
-        ? "In red: the part to remember by heart."
+        ? "Remember the red letters. They don't sound the way they look."
         : canTap ? "Tap a part of the word to hear it."
         : "Did you read it right?";
       $("uiScore").textContent = score;

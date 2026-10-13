@@ -237,7 +237,7 @@ window.BlendGame = (function(){
         <!-- Only rendered once there's actually a deck to practise — see
              renderComeback(). Sits next to Start Game because it's another
              way to start a round, not a setting. -->
-        <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
+        <button class="btn ghost" id="btnComeback" style="display:none">🔁 Words you missed (<span id="cbCount">0</span>)</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
         <button class="btn ghost" id="btnVoice">Voice: <span id="voiceLbl">On</span></button>
       </div>

@@ -411,8 +411,8 @@ window.LIST_FAMILIES = [
     pattern: "nonsense CVC",
     icon: "🤖",
     section: "decode",
-    note: "Made-up CVC words with no meaning to lean on — pure sounding-out practice.",
-    description: "Made-up CVC words with no meaning to lean on — pure sounding-out practice.",
+    note: "Made-up three-letter words (consonant-vowel-consonant) like vab and taf. There is no meaning to guess from, so every word has to be sounded out.",
+    description: "Made-up words like vab and taf. Sound out every letter.",
     /* No Match It, deliberately. That game works by SAYING the word and
        asking the student to find it, and a synthesiser handed "vab" does
        not say "vab" — it guesses, and it guesses "verb" often enough that

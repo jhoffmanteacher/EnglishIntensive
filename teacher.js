@@ -929,8 +929,8 @@
         ' signed in yet</b> — greyed out below. You can give them games now; ' +
         "they'll be waiting the first time they sign in.</p>" : "") +
       '<p class="note">Click a student to see their hardest words and change their games. ' +
-      '“Solid” is a word answered right, first try, enough times in a row to have earned a long rest; ' +
-      '“shaky” is one under 60&nbsp;% accuracy.</p>' +
+      '<b>Solid</b> means the student reads the word right at least 9 times in 10, with enough recent first-try right answers that the site now shows it only rarely. ' +
+      '<b>Shaky</b> means right less than 60&nbsp;% of the time.</p>' +
       '<div class="rowActions" style="margin-bottom:16px">' +
         '<button class="btn ghost sm" id="tExportRoster">⬇ Roster CSV</button>' +
         '<button class="btn ghost sm" id="tExportWords">⬇ Every word CSV</button>' +
@@ -1192,7 +1192,7 @@
         "Accuracy stops moving long before this does — a student can be right about every word on a list " +
         "and still be reading it one word at a time. " +
         "This is <b>word-list rate</b>, not passage reading: it says nothing about phrasing, or about how " +
-        "a student handles connected text. Those want their own probe.</p>" +
+        "a student handles connected text. Check passage reading separately.</p>" +
         '<div class="tableScroll"><table class="t"><thead><tr>' +
         '<th>List</th><th>Progress</th><th class="num">Latest</th><th class="num">Best</th><th class="num">Reads</th>' +
         "</tr></thead><tbody>" + fluency + "</tbody></table></div></div>" : "") +
@@ -1942,7 +1942,7 @@
       famHead += '<th colspan="' + mine.length + '" class="abFam">' +
         '<span class="abFamIn">' +
           '<button type="button" class="abFold" data-fold="' + esc(fam.key) + '" title="' +
-            (folded ? "Show every list in this family" : "Fold this family into one column") + '">' +
+            (folded ? "Show every list in this group" : "Collapse this group into one column") + '">' +
             (folded ? "▸" : "▾") + "</button>" +
           esc(fam.icon + " " + fam.title) +
         "</span></th>";
@@ -1960,7 +1960,7 @@
           (name ? '<span class="abColName">' + esc(name) + "</span>" : "") +
           (c.summary ? "" : '<span class="abColWords">' + esc(preview) + "</span>") +
           '<button type="button" class="pkMini" data-col="' + i + '" title="Tick or untick ' +
-            (c.summary ? "every list in this family" : "this list") + ' for every student shown">all</button>' +
+            (c.summary ? "every list in this group" : "this list") + ' for every student shown">all</button>' +
           "</th>";
       });
     });

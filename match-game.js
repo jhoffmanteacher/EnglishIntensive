@@ -307,7 +307,7 @@ window.MatchGame = (function(){
       <div class="row" style="margin-top:26px">
         <button class="btn" id="btnStart">Start Game</button>
         <button class="btn ghost" id="btnShuffle">Shuffle: <span id="shufLbl">On</span></button>
-        <button class="btn ghost" id="btnComeback" style="display:none">🔁 Comeback words (<span id="cbCount">0</span>)</button>
+        <button class="btn ghost" id="btnComeback" style="display:none">🔁 Words you missed (<span id="cbCount">0</span>)</button>
       </div>
     </div>
   </section>
