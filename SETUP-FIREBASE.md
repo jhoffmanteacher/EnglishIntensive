@@ -66,17 +66,6 @@ These rules run on Google's servers and cannot.
 Re-paste them any time `firestore.rules` changes in the repo. GitHub Pages
 does not deploy rules; nothing does but this box.
 
-> **Waiting to be published.** `firestore.rules` in the repo is ahead of
-> the console. Two things changed that the console may not have yet:
-> the `roster/{email}` block the roster import needs, and a tightening of
-> `students/{uid}` (read and write now separate statements) and
-> `config/class` (now teacher-only; students never read it). Until the
-> file is pasted in and published, roster writes fail and every student's
-> roster read comes back denied — which is handled (the site behaves
-> exactly as it did before the roster existed), but nothing about the
-> roster works. Two minutes: copy the file, paste, Publish. Once you have,
-> delete this note and the matching box at the top of `TODO.md`.
-
 A machine can do it instead of a person, but only where the Firebase CLI
 has already been logged in:
 

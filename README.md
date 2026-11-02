@@ -1695,9 +1695,9 @@ is null on a read, so one combined `allow read, write` that mentions
 teacher's read clause masked it for a while, because a teacher testing
 passes.
 
-**These rules changed recently and the console does not update itself.**
-Re-publish `firestore.rules` in the Firebase console (Firestore Database
-→ Rules → Publish) or the old rules are still the ones enforcing.
+The console does not update itself: whenever `firestore.rules` changes,
+re-publish it (Firestore Database → Rules → Publish) or the old rules are
+still the ones enforcing.
 
 The roster adds a fifth path, `roster/{email}`, and it is the one rules
 change in all of this. A student may read **exactly one document** — their
@@ -1707,8 +1707,8 @@ before they had an account, resolve through it on a first sign-in) and
 must not have the write (the row decides which lists they get). Rules in the repo
 are not rules in the console: until `firestore.rules` is pasted in and
 published, every roster read is denied, and the site behaves exactly as it
-did before the roster existed — which is designed, and is also exactly why
-there is a boxed reminder at the top of `TODO.md`.
+did before the roster existed. That is designed, and it is also why an
+unpublished rules change fails quietly rather than loudly.
 
 The `heard` map added with the sound-level feedback needed no rules change
 either: `students/{uid}` is write-your-own-document, not a whitelist of
