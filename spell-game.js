@@ -308,6 +308,7 @@ window.SpellGame = (function(){
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], tries = 0, busy = false;
+    var replay = null;   // the slow re-read after a first miss; cleared by next() and finish()
     var repeats = 0;       // how many times this word has been replayed
     var pending = null;    // the timer that moves on to the next word
 
@@ -442,9 +443,10 @@ window.SpellGame = (function(){
         b.setAttribute("autocorrect", "off");
         b.setAttribute("autocapitalize", "off");
         b.setAttribute("spellcheck", "false");
-        // Four is room for "eigh" and no room for a whole word — a box
-        // that accepted the answer would stop being a sound box.
-        b.maxLength = 4;
+        // Exactly as long as the sound's spelling ("c", "oi", "eigh"): a
+        // box that took more would stop being a sound box, and a student
+        // could type the whole word into one.
+        b.maxLength = Math.max(1, (boxGraphemes(word)[i] || "").length);
         b.setAttribute("aria-label", "Sound " + (i+1) + " of " + boxSpans.length);
         row.appendChild(b);
       });
@@ -557,6 +559,7 @@ window.SpellGame = (function(){
     }
 
     function next(){
+      if(replay){ clearTimeout(replay); replay = null; }
       tries = 0;
       idx++;
       if(idx >= queue.length){ finish(); return; }
@@ -565,6 +568,9 @@ window.SpellGame = (function(){
 
     function finish(){
       if(pending){ clearTimeout(pending); pending = null; }
+      // The slow replay after a first miss: End game inside its 0.4s wait
+      // would otherwise have it speak a card that is no longer there.
+      if(replay){ clearTimeout(replay); replay = null; }
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       show("s-end");
@@ -597,7 +603,7 @@ window.SpellGame = (function(){
       }
       if(pct >= 70) Core.confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
       snd.win();
-      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
+      if(onFinish && queue.length){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
       // Enter should keep working without touching the mouse — the round is
       // over, so the obvious next action takes the focus.
       $("btnAgain").focus();
@@ -661,7 +667,8 @@ window.SpellGame = (function(){
         // wrong-answer beep the student is still hearing.
         // The sentence comes back too — a student who misheard the word
         // needs the context again more than anyone.
-        setTimeout(function(){ speakWord(true, true); }, 420);
+        if(replay) clearTimeout(replay);
+        replay = setTimeout(function(){ replay = null; speakWord(true, true); }, 420);
         if(BOXES){
           var firstBad = $("sbox" + (bad.length ? bad[0] : 0));
           if(firstBad){ firstBad.focus(); firstBad.select(); }
@@ -734,7 +741,12 @@ window.SpellGame = (function(){
         speakWord(repeats >= 2);
         return;
       }
-      if(isCorrect(raw, queue[idx])) handleCorrect();
+      /* In sound boxes every box has to be right, not just the joined
+         letters: "ci" + "on" would spell the word and still be wrong. */
+      var target = queue[idx];
+      var ok = isCorrect(raw, target) &&
+               (!BOXES || /'/.test(target) || wrongBoxes(target).length === 0);
+      if(ok) handleCorrect();
       else handleWrong(raw);
     }
 
@@ -796,7 +808,9 @@ window.SpellGame = (function(){
       next();
     });
     $("btnQuit").addEventListener("click", function(){
-      queue = queue.slice(0, idx);
+      // A word answered a moment ago (busy, waiting to advance) is already
+      // in right/score, so it stays in the total.
+      queue = queue.slice(0, busy ? idx + 1 : idx);
       finish();
     });
     // With a scheduler attached, "Play again" asks it for a fresh set.

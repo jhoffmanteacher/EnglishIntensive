@@ -74,14 +74,28 @@ window.EIPractice = (function(){
     var m = /[?&]list=([^&#]+)/.exec(location.search || "");
     try{ return m ? decodeURIComponent(m[1]) : null; }catch(e){ return null; }
   }
+  /* GitHub Pages serves /cards-game as well as /cards-game.html, and the
+     registry only ever spells the second. A name with no extension gets
+     ".html" so both forms match the same lists. */
   function pageName(){
     var p = location.pathname || "";
-    return p.slice(p.lastIndexOf("/") + 1) || "index.html";
+    var name = p.slice(p.lastIndexOf("/") + 1) || "index.html";
+    return name.indexOf(".") === -1 ? name + ".html" : name;
   }
   // Every registry entry served by the page we're on.
   function listsForThisPage(){
     var here = pageName();
     return WordLists.all.filter(function(l){ return l.page === here; });
+  }
+
+  /* A progress read that failed leaves myLists() empty, which would read
+     as "your teacher hasn't given you anything" when the truth is the
+     network. Say the true thing. The teacher and the dev bypass see every
+     list regardless, so they are never held up by it. */
+  var LOAD_FAIL_TITLE = "Couldn't load your games";
+  var LOAD_FAIL_BODY = "Check the Wi-Fi and reload.";
+  function loadBlocked(){
+    return EIStore.failed() && !EIStore.seesEverything();
   }
 
   function play(listId){
@@ -107,6 +121,10 @@ window.EIPractice = (function(){
     EIAuth.ready().then(function(){
       return EIStore.ready();
     }).then(function(){
+      if(loadBlocked()){
+        EIAuth.fail(LOAD_FAIL_TITLE, LOAD_FAIL_BODY);
+        return;
+      }
       if(EIStore.myLists().indexOf(list.id) === -1){
         chooser(here.length ? here : [list]);
         return;
@@ -154,6 +172,7 @@ window.EIPractice = (function(){
       EIAuth.unlock();
       engine.start(cfg);
     }).catch(function(e){
+      console.error(e);
       EIAuth.fail("Something went wrong", "The page couldn't start. Reload and try again.");
     });
   }
@@ -180,6 +199,10 @@ window.EIPractice = (function(){
 
   function chooser(lists){
     EIAuth.ready().then(function(){ return EIStore.ready(); }).then(function(){
+      if(loadBlocked()){
+        EIAuth.fail(LOAD_FAIL_TITLE, LOAD_FAIL_BODY);
+        return;
+      }
       if(!document.getElementById(CHOOSER_STYLE)){
         var st = document.createElement("style"); st.id = CHOOSER_STYLE; st.textContent = CHOOSER_CSS;
         document.head.appendChild(st);
@@ -218,7 +241,8 @@ window.EIPractice = (function(){
               'Tap Home to see yours.</p>') +
         "</div>";
       EIAuth.unlock();
-    }).catch(function(){
+    }).catch(function(e){
+      console.error(e);
       EIAuth.fail("Something went wrong", "The page couldn't start. Reload and try again.");
     });
   }
@@ -238,6 +262,15 @@ window.EIPractice = (function(){
     var mount = document.getElementById(mountId);
     if(!mount) return;
     EIAuth.ready().then(function(){ return EIStore.ready(); }).then(function(){
+      if(loadBlocked()){
+        mount.innerHTML = "";
+        var bad = document.createElement("div");
+        bad.className = "empty";
+        bad.textContent = LOAD_FAIL_TITLE + ". " + LOAD_FAIL_BODY;
+        mount.appendChild(bad);
+        EIAuth.unlock();
+        return;
+      }
       var mine = EIStore.myLists();
       var sections = WordLists.sectionsOf();
       mount.innerHTML = "";
@@ -287,6 +320,15 @@ window.EIPractice = (function(){
         mount.appendChild(empty);
       }
       EIAuth.unlock();
+    }).catch(function(e){
+      // Without this a throw leaves the page on its loading state for good.
+      console.error(e);
+      EIAuth.unlock();
+      mount.innerHTML = "";
+      var bad = document.createElement("div");
+      bad.className = "empty";
+      bad.textContent = "Something went wrong. Reload and try again.";
+      mount.appendChild(bad);
     });
   }
 

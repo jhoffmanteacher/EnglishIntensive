@@ -428,7 +428,7 @@ footer p{max-width:66ch}
 <header class="masthead">
   <div class="topline">
     <p class="eyebrow">Reading intervention · grades 9–10</p>
-    <p class="updated">Updated 13 October 2026</p>
+    <p class="updated">Updated 1 November 2026</p>
   </div>
   <h1>English Intensive</h1>
   <p class="standfirst">A practice website for <b>high school students who are still learning to read words</b>. Students practice sounding out words and reading common irregular words on sight. A microphone listens to them read, and a teacher dashboard shows which students and which words need reteaching.</p>
@@ -476,7 +476,7 @@ footer p{max-width:66ch}
     <span class="tag">Made-up words: the computer never says them</span>
     <p><b>No Match It.</b> Match It says a word out loud and the student finds it. A computer voice can't reliably say a made-up word — given <i>vab</i>, it often says "verb" — so the answer would be wrong.</p>
     <p><b>No spoken word in any activity.</b> There is no Hear it button. After two misses the word is shown and the student can tap its sounds, but the whole word is never read aloud. The student reads; the computer only listens.</p>
-    <p><b>Graded by sound.</b> Speech recognition always writes down the closest real word. So a made-up word counts as right if it is within one sound of the target. Real words must match exactly.</p>
+    <p><b>Graded by sound.</b> Speech recognition always writes down the closest real word. So a made-up word counts as right if it is within one sound of the target. Real words must match what was written, apart from words that sound alike (<i>to</i> and <i>two</i>) and a few mishearings the site has learned to allow. A dropped or swapped sound is still a miss.</p>
   </div>
 </section>
 
@@ -503,8 +503,8 @@ footer p{max-width:66ch}
         </tr>
         <tr>
           <td class="modeName"><span class="ic">🃏</span>Cards</td>
-          <td>Flash cards. Reads the word, flips the card, and marks it <i>Got it</i> or <i>Not yet</i>. The computer says the word only <i>after</i> the flip, so the student has to read it first.</td>
-          <td class="needs">—</td>
+          <td>Flash cards. Reads the word, flips the card, and marks it <i>Got it</i> or <i>Not yet</i>. The computer says the word only <i>after</i> the flip, so the student has to read it first. An optional <b>Listen</b> switch turns the microphone on and shows what it heard, but the student still marks the card.</td>
+          <td class="needs">— (mic if Listen is on)</td>
         </tr>
         <tr>
           <td class="modeName"><span class="ic">🎯</span>Match It</td>
@@ -643,7 +643,7 @@ footer p{max-width:66ch}
 
   <h3>What it shows</h3>
   <ul class="tight">
-    <li><b>What should change</b> — at most one suggestion per student, and none for most students. For example: stuck on a card list (thirty answers and still under 40% solid), with a one-click switch to Say it on the same words; Match It assigned before the cards are solid; every word solid with nothing next; or no practice in more than seven <i>school</i> days, so weekends don't count.</li>
+    <li><b>What should change</b> — at most one suggestion per student, and none for most students. For example: stuck on a card list (thirty answers and still under 40% solid), with a one-click switch to Say it on the same words; Match It assigned before the cards are solid; nearly every word solid with nothing next; or no practice in more than seven <i>school</i> days, so weekends don't count.</li>
     <li><b>Ready to move up</b> — a student who has 4 of every 5 words on a list solid, e.g. <i>"Marcos · Red Words 🃏 · finished List 2 (18 of 20 solid) · add List 3"</i>. <b>Add it</b> puts the next list on the Assign tab; it isn't saved until you press Save. The count only includes words that are solid <i>and</i> not slow; slow words are listed beside it: <i>"(16 of 20 solid, 3 more slow)"</i>. The site never moves a student up by itself.</li>
     <li><b>Trouble Spots</b> — the words the class is missing, ranked by <i>how many students</i> are struggling with each, so one student's bad day doesn't top the list. Use it to decide what to reteach tomorrow.</li>
     <li><b>By pattern</b> — the same results grouped by what each list teaches: starting blends, ending blends, oi/oy, multisyllable, irregular words, and made-up words. Each row shows the most common error, except irregular words, where no error is named. Thirty words all missed on the same vowel is one problem with one lesson.</li>
@@ -655,7 +655,7 @@ footer p{max-width:66ch}
   <div class="note">
     <span class="tag">Terms on the dashboard</span>
     <p><b>Solid</b> — the student reads the word right at least 9 times in 10, with enough recent first-try right answers that it has reached the longest wait between practices.</p>
-    <p><b>Shaky</b> — right less than 60% of the time.</p>
+    <p><b>Shaky</b> — not solid, and right less than 60% of the time. The <i>By pattern</i> view is a little looser: it counts a student once for a pattern if any word in it is under 70%, so its numbers can run higher than the shaky counts elsewhere.</p>
     <p><b>Slow but right</b> — right, but card flips average more than 2.5 seconds.</p>
     <p><b>Answers</b> and <b>accuracy</b> count first tries only.</p>
   </div>
@@ -670,7 +670,7 @@ footer p{max-width:66ch}
     <li><b>No saved recordings.</b> A recording of a teenager struggling to read should not be kept. Once it's kept, someone has to decide who may hear it.</li>
     <li><b>No automatic move-up.</b> Moving a student to the next list is always the teacher's choice. Solid on screen isn't always solid on paper.</li>
     <li><b>No percentage next to a student's name.</b> A student's list shows "12 of 20 solid," not a percentage, because a percentage looks like a grade. The only percentage a student sees is for the round they just finished.</li>
-    <li><b>Card scores are self-reported.</b> On Cards, the student marks whether they read the word right. Software can't tell whether a student knew <i>Wednesday</i> on sight or sounded it out, so it asks. The reward is a shrinking pile of cards, not a higher score. Match It checks the same skill without relying on the student's word.</li>
+    <li><b>Card scores are self-reported.</b> On Cards, the student marks whether they read the word right. Software can't tell whether a student knew <i>Wednesday</i> on sight or sounded it out, so it asks (with Listen on, the microphone offers a guess, but the student still decides). The reward is a shrinking pile of cards, not a higher score. Match It checks the same skill without relying on the student's word.</li>
     <li><b>Chrome only</b> for anything that uses the microphone. The whole site requires a school Google sign-in; there is no guest mode, because the point is tracking each student.</li>
   </ul>
 </section>

@@ -51,6 +51,7 @@ window.EIStore = (function(){
   var dirtyFluency = {};        // fluency lists changed since the last write
   var dirtyMeta = false;
   var saveTimer = null, inFlight = null;
+  var retryMs = 0;              // 0 = last save worked; else the next retry's wait
 
   var readyResolve = null;
   var readyPromise = new Promise(function(res){ readyResolve = res; });
@@ -106,17 +107,20 @@ window.EIStore = (function(){
     return EIAuth.db().then(function(db){
       if(!db){ loadFailed = true; readyResolve({ offline:true }); return readyPromise; }
       var mine = db.collection("students").doc(uid);
-      /* The student's own document is the only read whose failure is a
-         failure. The other two are optional by design: a student with no
-         assignment and no roster row is a student nobody has given
-         anything yet, and effectiveLists has an answer for that. The
-         roster read in particular fails outright until the rules for it
-         are published — see firestore.rules — and that must look exactly
-         like "not imported yet", never like a broken account. */
+      /* The student's own document and their assignment are the reads
+         whose failure is a failure. A missing assignment DOCUMENT comes
+         back as exists:false, not as an error, so a rejection here is a
+         real one (offline, blocked) — swallowing it would show a student
+         "no games yet" for what is really a dead network. The roster is
+         the optional one: a student with no roster row is a student
+         nobody has imported, and effectiveLists has an answer for that.
+         The roster read in particular fails outright until the rules for
+         it are published — see firestore.rules — and that must look
+         exactly like "not imported yet", never like a broken account. */
       var email = String((u && u.email) || "").toLowerCase();
       return Promise.all([
         mine.get(),
-        db.collection("assignments").doc(uid).get().catch(function(){ return null; }),
+        db.collection("assignments").doc(uid).get(),
         email ? db.collection("roster").doc(email).get().catch(function(){ return null; })
               : Promise.resolve(null)
       ]).then(function(snaps){
@@ -188,18 +192,42 @@ window.EIStore = (function(){
     var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
     var body = payload();
     dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false;
-    inFlight = EIAuth.db().then(function(db){
+    /* Chained behind whatever is already on the wire, never alongside it:
+       two overlapping writes could land out of order, and the older
+       one's cleanup must not make inFlight look empty while this one is
+       still pending — signOut waits on inFlight and would reload
+       mid-write. */
+    var prev = inFlight || Promise.resolve();
+    var me = prev.then(function(){
+      return EIAuth.db();
+    }).then(function(db){
       if(!db) throw new Error("no db");
       return db.collection("students").doc(uid).set(body, { merge:true });
-    }).catch(function(){
+    }).then(function(){
+      retryMs = 0;
+    }, function(err){
       // Put the unsent keys back so the next save retries them rather than
       // dropping a round of practice on one bad request.
       for(var k in sending){ if(has(sending, k)) dirty[k] = true; }
       for(k in sendingHeard){ if(has(sendingHeard, k)) dirtyHeard[k] = true; }
       for(k in sendingFluency){ if(has(sendingFluency, k)) dirtyFluency[k] = true; }
       if(sendingMeta) dirtyMeta = true;
-    }).then(function(){ inFlight = null; });
-    return inFlight;
+      console.warn("EIStore: save failed", err);
+      /* A denied write will be denied again; the next round's own flush
+         can still try, but a timer hammering the rules would not help.
+         Anything else (a dropped connection) is retried with a modest
+         backoff, so a student who never records another answer still
+         gets their last round saved once the Wi-Fi is back. */
+      if(!(err && err.code === "permission-denied")){
+        retryMs = Math.min(retryMs ? retryMs * 2 : 5000, 60000);
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(function(){ flush(); }, retryMs);
+      }
+    }).then(function(){
+      if(inFlight === me) inFlight = null;
+    });
+    inFlight = me;
+    return me;
   }
 
   /* ── the two things a game calls ──────────────────────────────────── */
@@ -303,7 +331,12 @@ window.EIStore = (function(){
     // The assignment's period, or the roster's where the teacher hasn't
     // set one — which on day one is the only one there is.
     period: function(){
-      return (assignment && assignment.period) || (rosterRow && rosterRow.period) || null;
+      // A string on the assignment is the teacher's word, including "" —
+      // that is how the dashboard says "no period", and it has to beat the
+      // roster's period or a cleared student snaps back on reload. Only a
+      // missing/null period defers to the roster.
+      if(assignment && typeof assignment.period === "string") return assignment.period || null;
+      return (rosterRow && rosterRow.period) || null;
     },
     roster: function(){ return rosterRow; },
     failed: function(){ return loadFailed; },

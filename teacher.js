@@ -89,12 +89,19 @@
   /* The teacher addresses, for the "not this account" message only. Reads
      the same config auth.js does, and tolerates either shape. */
   function teacherList(){
+    var v = teacherEmails();
+    return v.length ? v.join(" or ") : "the teacher account";
+  }
+
+  /* Lowercased, from the same config auth.js reads. Teachers play the
+     games too (store.js writes students/{their uid}), so without this
+     filter they show up in loadAll as students with "no games yet". */
+  function teacherEmails(){
     var v = (typeof TEACHER_EMAILS !== "undefined") ? TEACHER_EMAILS
           : (typeof TEACHER_EMAIL  !== "undefined") ? TEACHER_EMAIL
           : null;
-    if(v == null) return "the teacher account";
-    if(typeof v === "string") return v;
-    return v.join(" or ");
+    if(v == null) return [];
+    return (typeof v === "string" ? [v] : v).map(function(e){ return String(e).toLowerCase(); });
   }
 
   /* ---------------- boot ---------------- */
@@ -150,8 +157,10 @@
       ]);
     }).then(function(snaps){
       students = [];
+      var teachers = teacherEmails();
       snaps[0].forEach(function(doc){
         var d = doc.data() || {};
+        if(d.email && teachers.indexOf(String(d.email).toLowerCase()) !== -1) return;
         students.push({
           uid: doc.id,
           name: d.name || "",
@@ -632,8 +641,20 @@
     });
   }
 
+  /* The photo field is written by the student's own browser, so it can
+     hold any URL, and an <img> pointing at a host they control tells them
+     when a teacher opens the dashboard. Google account photos are the only
+     thing it is meant to hold. */
+  function safePhoto(u){
+    try{
+      var x = new URL(String(u || ""));
+      return x.protocol === "https:" &&
+             (x.hostname === "googleusercontent.com" || /\.googleusercontent\.com$/.test(x.hostname));
+    }catch(e){ return false; }
+  }
+
   function whoHtml(s){
-    var av = s.photo
+    var av = safePhoto(s.photo)
       ? '<img src="' + esc(s.photo) + '" alt="" referrerpolicy="no-referrer">'
       : '<span class="init">' + esc((s.name || s.email || "?")[0].toUpperCase()) + "</span>";
     // A note is worth nothing if you have to open a student to find out
@@ -779,7 +800,7 @@
       var eff = effectiveLists(s.uid);
       rows.push([
         s.name, s.email,
-        (assignments[s.uid] || {}).period || (rosterFor(s) && rosterFor(s).period) || "",
+        periodOf(assignments[s.uid], rosterFor(s)),
         eff.ids.length ? WordLists.describeAssignment(eff.ids) : "nothing yet",
         sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
         sum.slowRight,
@@ -874,7 +895,7 @@
       var eff = effectiveLists(s.uid);
       var a = assignments[s.uid] || {};
       var r = rosterFor(s);
-      var period = a.period || (r && r.period) || "";
+      var period = periodOf(a, r);
       /* A student on the roster who hasn't signed in yet is a real row
          with nothing in it. Greyed rather than hidden: on day one the
          useful thing this table can tell a teacher is who is MISSING. */
@@ -1010,7 +1031,7 @@
       // not a next step, it is the roster table saying the same thing.
       if(s.pending) return;
       var r = rosterFor(s);
-      var period = (assignments[s.uid] || {}).period || (r && r.period) || "";
+      var period = periodOf(assignments[s.uid], r);
       if(stepsPeriod && period !== stepsPeriod) return;
       var step = Adaptive.nextSteps(nextStepInfo(s));
       if(step) out.push({ uid: s.uid, name: s.name || s.email || s.uid, period: period, step: step });
@@ -1424,10 +1445,11 @@
 
     var before = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
     var body = assignments[uid] || {};
-    body.period = period;
+    // "" rather than null for "not set": see periodOf.
+    body.period = period || "";
     body.updatedAt = Date.now();
     assignments[uid] = body;
-    db.collection("assignments").doc(uid).set({ period: period, updatedAt: body.updatedAt }, { merge:true })
+    db.collection("assignments").doc(uid).set({ period: body.period, updatedAt: body.updatedAt }, { merge:true })
       .catch(function(){
         if(before) assignments[uid] = before; else delete assignments[uid];
         render();
@@ -1532,10 +1554,17 @@
      at all, and reading only assignments put them in "No period yet" on
      the board while the Students tab said Period 3. */
   function studentPeriod(uid){
-    var a = assignments[uid] || {};
-    var r = rosterFor(studentByUid(uid));
-    var p = a.period || (r && r.period);
-    return p == null || p === "" ? null : p;
+    var p = periodOf(assignments[uid], rosterFor(studentByUid(uid)));
+    return p === "" ? null : p;
+  }
+  /* A string on the assignment, even "", is the teacher's word and wins;
+     only a missing or null one defers to the roster. That is what lets
+     "— not set —" stick for a roster-imported student: clearing writes ""
+     rather than null, because null would just fall back to the roster
+     period again on the next load. */
+  function periodOf(a, r){
+    if(a && typeof a.period === "string") return a.period;
+    return (r && r.period) || "";
   }
   function matchesQuery(s){
     var q = board.q.trim().toLowerCase();

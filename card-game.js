@@ -522,8 +522,27 @@ window.CardGame = (function(){
     // ALL holds the list's ENTRIES, which may carry syllable dots; the
     // scheduler speaks in plain words. parseEntry is the bridge, same as
     // everywhere else in this engine.
+    // The pool is the WHOLE list when the scheduler hands it over
+    // (cfg.allWords): cfg.words is only the weighted draw, and a draw that
+    // damps solid words would starve this deck. Pages that pass decks have
+    // no scheduler, and ALL is already everything there.
+    var POOL = (cfg.allWords && cfg.allWords.length) ? dedupeWords(cfg.allWords) : ALL;
     function masteredDeck(){
-      return ALL.filter(function(e){ return MASTERED[Core.parseEntry(e).word]; });
+      return POOL.filter(function(e){ return MASTERED[Core.parseEntry(e).word]; });
+    }
+    // The set is read once at page load, so it goes stale as the student
+    // plays. When the scheduler's own pieces are on the page, re-read it.
+    function refreshMastered(){
+      if(!(window.EIStore && window.Adaptive && cfg.listId)) return;
+      try{
+        var stats = window.EIStore.statsFor(cfg.listId);
+        var fresh = {};
+        POOL.forEach(function(e){
+          var w = Core.parseEntry(e).word;
+          if(window.Adaptive.isMastered(stats[w])) fresh[w] = true;
+        });
+        MASTERED = fresh;
+      }catch(e){}
     }
 
     // A car running a dashed track toward the checkered flag.
@@ -1069,7 +1088,9 @@ window.CardGame = (function(){
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();
-      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
+      if(onFinish && queue.length){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
+      refreshMastered();
+      renderSpeed();
       show("s-end");
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
@@ -1222,6 +1243,14 @@ window.CardGame = (function(){
           listenOn = false;
           renderListen();
           listenNote("<b>No connection.</b> Listening needs the internet. The cards work fine without it.", true);
+        } else if(name === "audio-capture"){
+          listenOn = false;
+          renderListen();
+          listenNote("<b>No microphone found.</b> The cards work fine without it.", true);
+        } else if(name === "language-not-supported"){
+          listenOn = false;
+          renderListen();
+          listenNote("<b>This browser can't listen in this language.</b> The cards work fine without it.", true);
         }
       });
       if(listenOn) window.EIListen.start();
@@ -1329,7 +1358,9 @@ window.CardGame = (function(){
     $("btnQuit").addEventListener("click", function(){
       // Only the cards actually seen count toward the round's total, so
       // ending early doesn't score as a pile of misses.
-      queue = queue.slice(0, idx);
+      // A card rated a moment ago (busy, waiting to advance) is already
+      // in right/score, so it stays in the total.
+      queue = queue.slice(0, busy ? idx + 1 : idx);
       finish();
     });
     // With a scheduler attached, "Play again" asks it for a fresh set;

@@ -455,11 +455,11 @@ window.LIST_FAMILIES = [
       }
     },
     lists: [{ n: 1, ids: { say: "nonsense" },
-      words: ["jag","baz","wat","gan","vab","sab","raz","taf",
-              "sem","ted","ret","heg","peb","yed","leb","ren",
-              "lif","vip","pid","tix","rit","sig","lim","din",
-              "bop","pon","com","fod","hom","rof","jom","loz",
-              "fug","tup","sug","lun","sud","hux","gud","muv"] }]
+      words: ["pab","baz","wat","gan","vab","sab","raz","taf",
+              "sem","ted","bem","heg","peb","yed","leb","ren",
+              "lif","vip","pid","tix","rit","sig","lim","zid",
+              "vop","pon","com","fod","hom","rof","jom","loz",
+              "bup","rup","sug","lun","sud","hux","gud","muv"] }]
   },
 
   {

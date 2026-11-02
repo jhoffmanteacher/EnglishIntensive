@@ -305,9 +305,13 @@ h3{font-size:18px;color:var(--muted);margin:26px 0 2px;font-weight:600;letter-sp
 /* Respect users with animation turned off — every animated effect here is
    decorative; correctness is always also shown by color and text. */
 @media (prefers-reduced-motion: reduce){
-  .screen.on,.wordcard.wrong,.mic.listening,.runner-icon,.maze-runner,.maze-trail,.maze-goal,
-  .car-svg .wheel,.speedline,.popup.go,.star,.dust{animation:none}
-  .popup.go{opacity:1}
+  .screen.on,.wordcard.wrong,.mic.listening,.track-race .runner-icon,.track-race .runner-icon.boost,
+  .maze-runner,.maze-runner.boost,.maze-trail,.maze-goal,
+  .car-svg .wheel,.speedline,.star{animation:none}
+  /* The cheer still shows, but as a plain fade: no travel, no scale. */
+  .popup.go,.popup.big.go{animation:popfade 1s ease forwards}
+  .popup.big.go{animation-duration:1.4s}
+  @keyframes popfade{0%,100%{opacity:0}20%,70%{opacity:1}}
   .star{opacity:1;transform:none}
-  .confetti-piece{display:none}
+  .confetti-piece,.track-race .dust{display:none}
 }

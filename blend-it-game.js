@@ -202,6 +202,7 @@ window.BlendItGame = (function(){
     /* ---------------- state ---------------- */
     var queue = [], idx = 0, score = 0, streak = 0, best = 0, right = 0;
     var missed = [], tries = 0, busy = true, playing = false;
+    var answered = false;   // this word already counted (right, or revealed): End game must keep it
     var audio = null;                 // the clip player, or null
     var snd = Core.sounds({ onPlay: function(ms){ holdMic(ms + 120); } });
 
@@ -285,12 +286,14 @@ window.BlendItGame = (function(){
       $("uiWord").innerHTML = "";
       var word = queue[idx];
       renderDots(spansOf(word).length);
-      return playSounds(word, SLOW_GAP, false).then(function(){
-        if(!playingNow()) return false;
+      // play() resolves false when something else cut it off; that other
+      // caller owns the dots now, so this prompt stops rather than racing it.
+      return playSounds(word, SLOW_GAP, false).then(function(ok){
+        if(ok === false || !playingNow()) return false;
         $("uiMic").textContent = "…and again, together.";
         return playSounds(word, FAST_GAP, false);
-      }).then(function(){
-        if(!playingNow()) return false;
+      }).then(function(ok){
+        if(ok === false || !playingNow()) return false;
         $("uiHint").textContent = "Say the word";
         $("uiMic").textContent = "Say the whole word out loud.";
         busy = false;
@@ -310,6 +313,7 @@ window.BlendItGame = (function(){
       prog.update(idx / queue.length * 100);
       $("wordCard").className = "wordcard";
       $("uiWord").className = "revealword";
+      answered = false;
       promptWord();
     }
 
@@ -338,6 +342,7 @@ window.BlendItGame = (function(){
 
     function handleRight(){
       busy = true;
+      answered = true;
       right++;
       streak++;
       if(streak > best) best = streak;
@@ -394,6 +399,7 @@ window.BlendItGame = (function(){
          light with them — which is the join the whole game exists to
          make: THAT sound is spelled by THOSE letters. */
       if(missed.indexOf(word) === -1) missed.push(word);
+      answered = true;
       report(word, false, tries);
       $("uiHint").textContent = "The word was";
       $("uiMic").innerHTML = (said ? '<span class="heard">I heard: ' + Core.escapeHtml(said) + "</span>" : "") ;
@@ -412,6 +418,8 @@ window.BlendItGame = (function(){
       micOn = false;
       stopMicLoop();
       stopListening();
+      // Sound clips would otherwise keep playing over the end screen.
+      if(audio) audio.cancel();
       show("s-end");
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
@@ -442,7 +450,7 @@ window.BlendItGame = (function(){
       }
       if(pctv >= 70) Core.confettiBurst($("s-end").querySelector(".card"), pctv >= 90 ? 26 : 16);
       snd.win();
-      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
+      if(onFinish && queue.length){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
       $("btnAgain").focus();
     }
 
@@ -645,7 +653,9 @@ window.BlendItGame = (function(){
       }
     }
 
+    var checkToken = 0;   // a stream that resolves after Back is dropped, not leaked
     function startMicCheck(){
+      var myCheck = ++checkToken;
       show("s-check");
       meterPeak = 0; meterState = "";
       $("btnPlay").disabled = true;
@@ -658,6 +668,10 @@ window.BlendItGame = (function(){
         return;
       }
       navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+        if(myCheck !== checkToken){
+          try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+          return;
+        }
         micStream = stream;
         var C = window.AudioContext || window.webkitAudioContext;
         if(!C){ $("btnPlay").disabled = false; return; }
@@ -684,6 +698,7 @@ window.BlendItGame = (function(){
     }
 
     function stopMicCheck(){
+      checkToken++;
       if(meterRAF){ cancelAnimationFrame(meterRAF); meterRAF = null; }
       if(meterSrc){ try{ meterSrc.disconnect(); }catch(e){} meterSrc = null; }
       analyser = null;
@@ -731,7 +746,7 @@ window.BlendItGame = (function(){
     $("btnBack").addEventListener("click", function(){ stopMicCheck(); show("s-start"); });
     $("btnPlay").addEventListener("click", function(){ stopMicCheck(); startGame(WORDS); });
     $("btnHear").addEventListener("click", function(){
-      if(!playingNow()) return;
+      if(!playingNow() || busy) return;
       playSounds(queue[idx], SLOW_GAP, false);
     });
     $("btnSkip").addEventListener("click", function(){
@@ -743,7 +758,7 @@ window.BlendItGame = (function(){
       next();
     });
     $("btnQuit").addEventListener("click", function(){
-      queue = queue.slice(0, idx);
+      queue = queue.slice(0, answered ? idx + 1 : idx);
       finish();
     });
     $("btnMic").addEventListener("click", function(){
@@ -760,7 +775,7 @@ window.BlendItGame = (function(){
     document.addEventListener("keydown", function(e){
       if(!playingNow()) return;
       if(e.target && e.target.tagName === "BUTTON") return;
-      if(e.key === "h" || e.key === "H"){ e.preventDefault(); playSounds(queue[idx], SLOW_GAP, false); }
+      if(e.key === "h" || e.key === "H"){ e.preventDefault(); if(busy) return; playSounds(queue[idx], SLOW_GAP, false); }
       else if(e.key === " "){ e.preventDefault(); micOn = !micOn; if(!micOn) stopListening(); else armMic(); updateMicUI(); }
     });
 

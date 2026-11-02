@@ -211,7 +211,9 @@ window.EIAuth = (function(){
       '<div class="ei-wall-logo" aria-hidden="true">⚠️</div>' +
       "<h1>" + esc(title) + "</h1>" +
       '<p class="ei-wall-note">' + esc(body) + "</p>" +
-      '<button class="btn ghost" onclick="location.reload()">Try again</button>';
+      '<button class="btn ghost" id="ei-wall-retry">Try again</button>';
+    // Not an inline onclick: teacher.html's CSP has no 'unsafe-inline' script.
+    wall.querySelector("#ei-wall-retry").addEventListener("click", function(){ location.reload(); });
     showWall();
   }
 

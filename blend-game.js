@@ -158,7 +158,7 @@ window.BlendGame = (function(){
         only if that is a single word at least as long as the target.
         Asking it of every word would let chatter read the card: "it" is
         one sound from "rit", "on" from "pon", "hmm" from "hom", and
-        "I give up" would be a correct reading of "tup". */
+        "I give up" would be a correct reading of "rup". */
   function isMatchCore(heardText, target, level, atStart, blendLength, wordList, soundSeq, homophones, opts){
     opts = opts || {};
     var said = normalize(heardText);
@@ -512,13 +512,13 @@ window.BlendGame = (function(){
     // ("verb") and an exact match is a bar no student could clear. A list
     // that sets `phonetic: true` is judged by sound instead: within one
     // sound of the target, and not closer to another word on the list
-    // (so "rit" never passes for "ret"). Only the nonsense list sets it —
+    // (so "sig" never passes for "sug"). Only the nonsense list sets it —
     // the same switch, for the same reason, as Blend it and the
     // one-minute run. See isMatchCore for what is and isn't forgiven.
     var level = cfg.phonetic ? 1 : 0;
     /* "Another word on the list" has to mean the LIST. cfg.words is one
        round — 18 of the 40 — and judged against that alone, "rit" passed
-       for "ret" in every round "rit" hadn't been drawn into. practice.js
+       for "sug" in every round "sig" hadn't been drawn into. practice.js
        passes the whole list as allWords; a page that calls start()
        directly falls back to the words it gave. */
     var GUARD_WORDS = (cfg.allWords && cfg.allWords.length)
@@ -642,7 +642,11 @@ window.BlendGame = (function(){
       }
     }
 
+    // getUserMedia can resolve after the student has already left the check
+    // screen; the token lets that late stream be dropped, not leaked.
+    var checkToken = 0;
     function startMicCheck(){
+      var myCheck = ++checkToken;
       show("s-check");
       meterPeak = 0; meterState = "";
       $("btnPlay").disabled = true;
@@ -657,6 +661,10 @@ window.BlendGame = (function(){
       }
 
       navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+        if(myCheck !== checkToken){
+          try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+          return;
+        }
         micStream = stream;
         var C = window.AudioContext || window.webkitAudioContext;
         if(!C){ $("btnPlay").disabled = false; return; }
@@ -685,6 +693,7 @@ window.BlendGame = (function(){
 
     // Release the mic before the game starts — speech recognition opens its own.
     function stopMicCheck(){
+      checkToken++;
       if(meterRAF){ cancelAnimationFrame(meterRAF); meterRAF = null; }
       if(meterSrc){ try{ meterSrc.disconnect(); }catch(e){} meterSrc = null; }
       analyser = null;
@@ -795,7 +804,8 @@ window.BlendGame = (function(){
       }
       if(pct >= 70) Core.confettiBurst($("s-end").querySelector(".card"), pct >= 90 ? 26 : 16);
       snd.win();
-      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
+      if(onFinish && queue.length){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
+      $("btnAgain").focus();
     }
 
     // A one-shot burst of falling confetti pieces on a good finish — pure CSS
@@ -1332,7 +1342,9 @@ window.BlendGame = (function(){
       streak = 0; next();
     });
     $("btnQuit").addEventListener("click", function(){
-      queue = queue.slice(0, idx);
+      // A word answered a moment ago (feedback showing, advance pending) is
+      // already in right/score, so it stays in the total.
+      queue = queue.slice(0, advance ? idx + 1 : idx);
       finish();
     });
     // With a scheduler attached, "Play again" asks it for a fresh set —
@@ -1349,6 +1361,8 @@ window.BlendGame = (function(){
 
     document.addEventListener("keydown", function(e){
       if(e.code === "Space" && playing()){
+        // A focused button (Skip, End game…) takes Space as a click.
+        if(e.target && e.target.tagName === "BUTTON") return;
         e.preventDefault();
         micOn = !micOn;
         if(!micOn) stopListening(); else armMic();

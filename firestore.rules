@@ -23,8 +23,8 @@ rules_version = '2';
                          totals, recent rounds, name/email/photo
      assignments/{uid}   teacher-written: period + assigned list ids
                          (student reads their own)
-     config/class        one shared doc: periodLists, defaultLists,
-                         periods (teacher writes, everyone reads)
+     config/class        one shared doc: the named periods
+                         (teacher-only; students never read it)
      notes/{uid}         teacher-written and TEACHER-READ: the teacher's
                          private note about a student
      roster/{email}      teacher-written: the class list as imported, keyed
@@ -88,7 +88,13 @@ service cloud.firestore {
        present" because store.js sends merge-writes that often carry only
        the changed words. */
     match /students/{userId} {
-      allow read, write: if isSchool()
+      /* Read and write are separate statements on purpose.
+         `request.resource` is null on a read, so a single
+         `allow read, write` that mentions request.resource.data errors on
+         every get — and an error is a deny. The teacher rule below
+         masked that, because a teacher testing passes it. */
+      allow read: if isSchool() && request.auth.uid == userId;
+      allow create, update: if isSchool()
                          && request.auth.uid == userId
                          && (!('email' in request.resource.data)
                              || request.resource.data.email == request.auth.token.email);
@@ -153,20 +159,16 @@ service cloud.firestore {
       allow read, write: if isTeacher();
     }
 
-    /* Class-wide list assignment. Every signed-in student must read this
-       doc — store.js resolves their lists through periodLists and
-       defaultLists — so it cannot be teacher-only.
+    /* The named periods, and nothing else. Only the teacher dashboard
+       reads or writes this: store.js resolves a student's lists through
+       assignments/{uid} and roster/{email}, never through here. (An
+       earlier design had students read periodLists / defaultLists from
+       this doc; that is gone, so the student-read grant went with it.)
 
-       What that exposes: the period→list-ids map and the list of period
-       names. Neither is sensitive; list ids already ship to every client
-       in word-lists.js, and no student names appear here (they live in
-       assignments/{uid}, which is per-student and locked down above).
-
-       Scoped to the specific "class" doc — config/{doc} would let any
-       signed-in user read every future document under config/. */
+       Scoped to the specific "class" doc — config/{doc} would cover every
+       future document under config/. */
     match /config/class {
-      allow read:  if isSchool();
-      allow write: if isTeacher();
+      allow read, write: if isTeacher();
     }
   }
 }

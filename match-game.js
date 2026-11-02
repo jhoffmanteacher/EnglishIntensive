@@ -295,7 +295,7 @@ window.MatchGame = (function(){
       ${cfg.note ? `<div class="note"><div class="tag">Good to know</div>${cfg.note}</div>` : ""}
       <button class="btn ghost" id="btnDirections" type="button" style="margin-bottom:16px">🔊 Read directions aloud</button>
       <ol class="steps">
-        <li>Put your <b>headphones</b> on. This game listens to nothing, so a loud room is fine.</li>
+        <li>Put your <b>headphones</b> on. No microphone is used, so a loud room is fine.</li>
         <li>The computer <b>says a word</b>. <b>🔊 Hear it again</b> repeats it, slower the second time.</li>
         <li><b>Click the word you heard</b> — or press its number. The wrong ones look close on purpose, so read all the way to the end.</li>
         <li>Two tries each. Every 5 right in a row is bonus points.</li>
@@ -705,7 +705,7 @@ window.MatchGame = (function(){
       busy = false;
       if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
       persistComeback();
-      if(onFinish){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
+      if(onFinish && queue.length){ try{ onFinish({ right: right, total: queue.length }); }catch(e){} }
       show("s-end");
       $("uiFScore").textContent = score;
       $("uiFRight").textContent = right + "/" + queue.length;
@@ -848,7 +848,9 @@ window.MatchGame = (function(){
     $("btnQuit").addEventListener("click", function(){
       // Only the words actually seen count toward the round's total, so
       // ending early doesn't score as a pile of misses.
-      queue = queue.slice(0, idx);
+      // A word answered a moment ago (busy, waiting to advance) is already
+      // in right/score, so it stays in the total.
+      queue = queue.slice(0, busy ? idx + 1 : idx);
       finish();
     });
     // With a scheduler attached, "Play again" asks it for a fresh set;

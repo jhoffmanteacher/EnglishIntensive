@@ -112,11 +112,11 @@
   var STARTWORDS = ["blip","crop","clam","grab","flub","grin","glad","prop","plop","trip",
     "plum","trot","sled","bled","slug","fled","scam","glen","skip","spin",
     "snip","spot","stem","drum","bran","drag","crab","frog"];
-  var NONSENSEWORDS = ["jag","baz","wat","gan","vab","sab","raz","taf",
-    "sem","ted","ret","heg","peb","yed","leb","ren",
-    "lif","vip","pid","tix","rit","sig","lim","din",
-    "bop","pon","com","fod","hom","rof","jom","loz",
-    "fug","tup","sug","lun","sud","hux","gud","muv"];
+  var NONSENSEWORDS = ["pab","baz","wat","gan","vab","sab","raz","taf",
+    "sem","ted","bem","heg","peb","yed","leb","ren",
+    "lif","vip","pid","tix","rit","sig","lim","zid",
+    "vop","pon","com","fod","hom","rof","jom","loz",
+    "bup","rup","sug","lun","sud","hux","gud","muv"];
   var OIOYWORDS = ["annoy","appoint","avoid","boyish","broil","choice","cloying","coil","coin",
     "convoy","coy","decoy","deploy","destroy","devoid","droid","employ","enjoy",
     "foil","hoist","join","joint","loyal","moist","noise","poison","ploy","royal",
@@ -2107,9 +2107,13 @@
       feed(c);
       eq("an assignment written later moves them", T2.studentPeriod("u2"), "4");
 
+      c.assignments.u2 = { period:null };
+      feed(c);
+      eq("a missing assignment period falls back to the row", T2.studentPeriod("u2"), "3");
+
       c.assignments.u2 = { period:"" };
       feed(c);
-      eq("a blank assignment period falls back to the row", T2.studentPeriod("u2"), "3");
+      eq("a cleared period (\"\") is the teacher's word and beats the row", T2.studentPeriod("u2") || null, null);
 
       var c2 = aClass();
       c2.assignments = {};
@@ -2536,16 +2540,16 @@
       eq("…limb for lim", say("limb", "lim", 1), true);
       eq("…and exact-only still refuses it, which is what real words get", say("verb", "vab", 0), false);
       eq("a different consonant is still a miss", say("fab", "vab", 1), false);
-      eq("another word ON the list never passes: rit for ret", say("rit", "ret", 1), false);
-      eq("…sig for sug", say("sig", "sug", 1), false);
+      eq("another word ON the list never passes: sig for sug", say("sig", "sug", 1), false);
+      eq("…and rup for rit", say("rup", "rit", 1), false);
       /* …and "the list" has to be the list. A round is 18 of the 40; the
          engine is given allWords so the guard can see a twin that wasn't
          drawn. Without it, this is what happened: */
-      eq("judged against a round without its twin, rit DID pass for ret",
-         window.BlendGame._internals.isMatch("rit", "ret", 1, true, 0, ["ret","vab","jag"], null, null), true);
+      eq("judged against a round without its twin, sig DID pass for sug",
+         window.BlendGame._internals.isMatch("sig", "sug", 1, true, 0, ["sug","vab","pab"], null, null), true);
       /* By sound means the whole transcript, once — not any word in it.
          Every one of these was a correct first-try reading for a while. */
-      [["hmm","hom"],["i give up","tup"],["i'm done","lim"],["it","rit"],["on","pon"],["in","din"],["ed","ted"],
+      [["hmm","hom"],["i give up","rup"],["i'm done","lim"],["it","rit"],["on","pon"],["id","zid"],["ed","ted"],
        ["what is it","wat"],["come on","com"],["oh my god","gud"],["say it again","rit"]].forEach(function(p){
         eq("\"" + p[0] + "\" is not a reading of " + p[1], say(p[0], p[1], 1), false);
       });

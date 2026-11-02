@@ -196,7 +196,9 @@ window.FluencyGame = (function(){
   }
   .wgw.now{color:var(--ink);background:var(--panel2);box-shadow:inset 0 0 0 2px var(--accent)}
   .wgw.ok{color:var(--good)}
-  .wgw.no{color:var(--bad)}
+  /* A line through it as well as the red, so right and missed don't
+     rest on color alone. */
+  .wgw.no{color:var(--bad);text-decoration:line-through;text-decoration-thickness:2px}
 
   .bignum{font-size:clamp(44px,9vw,78px);font-weight:800;line-height:1;letter-spacing:-2px}
   .bignum small{display:block;font-size:15px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:8px}
@@ -390,7 +392,7 @@ window.FluencyGame = (function(){
     function begin(){
       queue = deckFor();
       pointer = 0; okCount = 0; noCount = 0; missed = []; seen = {}; snap = null;
-      heardAny = false; micTrouble = false; net.ok();
+      heardAny = false; micTrouble = false; micBlocked = false; net.ok();
       startedAt = 0; endsAt = 0; running = true;
       show("s-play");
       buildGrid();
@@ -585,7 +587,9 @@ window.FluencyGame = (function(){
          So it is shown, said plainly, and not kept. */
       var unsaved = micTrouble || !heardAny;
       if(unsaved){
-        $("uiSummary").textContent = micTrouble
+        $("uiSummary").textContent = micBlocked
+          ? "The mic was blocked, so this run wasn't saved. Allow the mic and try again."
+          : micTrouble
           ? "The connection dropped during this run, so it wasn't saved. Try again."
           : "The mic didn't hear any reading, so this run wasn't saved. Check the mic and try again.";
       }
@@ -644,7 +648,7 @@ window.FluencyGame = (function(){
        connection dropped at all, or nothing was heard, the run isn't
        saved — see finish(). */
     var net = Core.netRetry(), sessionNetErr = false;
-    var heardAny = false, micTrouble = false;
+    var heardAny = false, micTrouble = false, micBlocked = false;
 
     function startListening(){
       wantMic = true;
@@ -685,6 +689,7 @@ window.FluencyGame = (function(){
         var err = ev && ev.error;
         if(err === "not-allowed" || err === "service-not-allowed"){
           micTrouble = true;
+          micBlocked = true;
           wantMic = false;
           stopListening();
           $("uiState").innerHTML = "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar and allow the mic, then reload.";
@@ -792,7 +797,9 @@ window.FluencyGame = (function(){
       }
     }
 
+    var checkToken = 0;   // a stream that resolves after Back is dropped, not leaked
     function startMicCheck(){
+      var myCheck = ++checkToken;
       show("s-check");
       meterPeak = 0; meterState = "";
       $("btnPlay").disabled = true;
@@ -807,6 +814,10 @@ window.FluencyGame = (function(){
       }
 
       navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+        if(myCheck !== checkToken){
+          try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+          return;
+        }
         micStream = stream;
         var C = window.AudioContext || window.webkitAudioContext;
         if(!C){ $("btnPlay").disabled = false; return; }
@@ -834,6 +845,7 @@ window.FluencyGame = (function(){
 
     // Release the mic before the run starts — speech recognition opens its own.
     function stopMicCheck(){
+      checkToken++;
       if(meterRAF){ cancelAnimationFrame(meterRAF); meterRAF = null; }
       if(meterSrc){ try{ meterSrc.disconnect(); }catch(e){} meterSrc = null; }
       analyser = null;

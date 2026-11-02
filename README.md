@@ -335,8 +335,9 @@ page loads it before its engine:
 <script src="blend-game.js"></script>
 ```
 
-There are four engines — blend (say it), spell (type it), card (flip it),
-match (find it) — and they deliberately share a look, a scoring system and a
+There are six engines — blend (say it), spell (type it), card (flip it, and
+Split it), match (find it), fluency (one minute) and blend-it (hear the
+sounds, blend them) — and they deliberately share a look, a scoring system and a
 set of habits, so a student moving between them sees one game asking
 different questions. That agreement used to be kept by copying code between
 engines with "keep this in step" written on top of each copy. At two copies
@@ -509,7 +510,7 @@ would destroy tokens the matcher needs: "they have" is the expansion of
 "they've" and also a student reading the word *have* with a run-up.
 
 The mode runs on a generic `say-game.html?list=red-3-say`, the way
-`cards-game.html` already works. The four phonics families keep their own
+`cards-game.html` already works. The five phonics families keep their own
 pages, because each carries a rule box or a mic note that only makes sense
 for that list.
 
@@ -637,10 +638,10 @@ margin on a three-sound word:
 - **Once, on the whole transcript** with its fillers out — not on each word
   of it, the way an exact match is. "it" is one sound from *rit*, "on" from
   *pon*, "hmm" from *hom*; asked of every word, "I give up" was a correct
-  reading of *tup*.
+  reading of *rup*.
 - **No pure deletions.** "ed" is one sound from *ted* and is not it.
-- **Not closer to another word on the list**, so "rit" never passes for
-  *ret*. "The list" is all 40: `practice.js` passes `allWords` beside the
+- **Not closer to another word on the list**, so "sig" never passes for
+  *sug*. "The list" is all 40: `practice.js` passes `allWords` beside the
   18-word round, because judged against the round alone the twin was
   usually not there to be seen.
 
@@ -1293,9 +1294,11 @@ word every session.
 A word decoded in three seconds is not a sight word, however reliably it
 comes back right. The flash cards time the flip (`performance.now()` when
 the card lands, again when it turns) and pass the milliseconds along with
-the rating; the other three engines can't measure anything meaningful — a
+the rating; the other engines can't measure anything meaningful per word — a
 mic answer's clock includes the recogniser and a typed one includes the
-typing — and simply don't pass it.
+typing — and simply don't pass it. (The one-minute run measures speed a
+different way: correct words per minute across the whole run, kept in its own
+`fluency` record, not as a per-word `lat`.)
 
 The stat gains `lat`, a running average of how long a **correct** answer
 took. Wrong answers aren't timed: that clock is measuring how long a
@@ -1598,6 +1601,14 @@ first.
 with six words of one pattern counts once, because the question the table
 answers is how many people to reteach.
 
+It is also a slightly **looser** line than the one on the Students table.
+`adaptive.js` calls a word shaky when it is not solid and first-try accuracy
+is under 60 %; `patternRows()` in `teacher.js` counts a word as one to
+reteach at under 70 %. The two were never unified, so a word at 65 % is
+uncounted in a student's "shaky" total and counted in the by-pattern
+table. `overview.html` tells teachers the same thing in one sentence; if you
+ever move one threshold, move both and update both documents.
+
 The **Most common error** column comes from the seven kinds `diagnose()` can
 name, counted per miss on the stat as `k: {blend:3, vowel:1}`. Only Say It
 writes them — it is the only mode that hears what the student actually said
@@ -1666,14 +1677,27 @@ modes, the grid and the board are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.
 
-`config/class` holds only the named periods. Older builds also wrote
-`periodLists`, `defaultLists`, `sequences` and `sequenceOn` there;
-nothing reads them any more, and they can be left or deleted in the
-console.
+`config/class` holds only the named periods, and it is **teacher-only,
+read and write**: students never read it, because `store.js` resolves a
+student's lists through `assignments/{uid}` and `roster/{email}`. (An
+earlier design had students read `periodLists` and `defaultLists` from
+it; those fields are gone and the student-read grant went with them.
+Older builds also wrote `sequences` and `sequenceOn` there. Nothing reads
+any of them now, and they can be left or deleted in the console.)
 
-The teacher has **read** on `students/{uid}` and no write. Everything the
-teacher sets lives in `assignments/{uid}` instead, so a compromised
-teacher session can't erase anyone's work.
+A student reads and writes only their own `students/{uid}`. The teacher
+has **read** on it and no write. Everything the teacher sets lives in
+`assignments/{uid}` instead, so a compromised teacher session can't erase
+anyone's work. In `firestore.rules` the student's read and their
+create/update are **separate statements** on purpose: `request.resource`
+is null on a read, so one combined `allow read, write` that mentions
+`request.resource.data` errors on every get, and an error is a deny. The
+teacher's read clause masked it for a while, because a teacher testing
+passes.
+
+**These rules changed recently and the console does not update itself.**
+Re-publish `firestore.rules` in the Firebase console (Firestore Database
+→ Rules → Publish) or the old rules are still the ones enforcing.
 
 The roster adds a fifth path, `roster/{email}`, and it is the one rules
 change in all of this. A student may read **exactly one document** — their

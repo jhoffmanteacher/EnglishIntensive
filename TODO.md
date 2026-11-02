@@ -1,5 +1,14 @@
 # TODO
 
+> **Open: re-publish `firestore.rules` in the Firebase console.**
+> Rules in the repo are not rules in the console, and nothing deploys them
+> but pasting the file in and clicking Publish. The repo copy is ahead:
+> `students/{uid}` read/write were split, and `config/class` is now
+> teacher-only. If the `roster/{email}` block was never published either,
+> every roster read is denied and the site quietly behaves as it did
+> before the roster existed. Steps: SETUP-FIREBASE.md, "Waiting to be
+> published". Delete this box once it is done.
+
 What's left after the assignment-board work, roughly in the order it's
 worth doing. Nothing here is blocking: the site is complete and tested as
 it stands. Items are written so they can be picked up cold.

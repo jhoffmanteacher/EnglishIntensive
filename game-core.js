@@ -1,7 +1,8 @@
 /* Shared core for the game engines.
  *
- * There are four engines on this site — blend-game.js (say it), spell-game.js
- * (type it), card-game.js (flip it), match-game.js (find it) — and they
+ * There are six engines on this site — blend-game.js (say it), spell-game.js
+ * (type it), card-game.js (flip it), match-game.js (find it),
+ * blend-it-game.js (blend it) and fluency-game.js (one minute) — and they
  * deliberately share a look, a scoring system and a set of habits, so a
  * student moving between them sees one game with different questions. That
  * agreement used to be maintained by copying code between the engines and
@@ -1048,6 +1049,12 @@ window.GameCore = (function(){
 
     var stream = null, rec = null, parts = [], url = null, armed = false;
     var audio = null;
+    /* getUserMedia can resolve long after the caller has moved on. The
+       epoch moves on every release(); a stream that arrives under an old
+       epoch belongs to nobody and is shut on arrival, or the mic light
+       stays on with no one holding it. `pending` makes a second enable()
+       share the first request instead of opening (and leaking) another. */
+    var epoch = 0, pending = null;
 
     function drop(){
       if(url){ try{ URL.revokeObjectURL(url); }catch(e){} url = null; }
@@ -1060,11 +1067,22 @@ window.GameCore = (function(){
       // in the middle of a game.
       enable: function(){
         if(armed) return Promise.resolve(true);
-        return navigator.mediaDevices.getUserMedia({ audio: true }).then(function(s){
+        if(pending) return pending;
+        var mine = epoch;
+        var req = navigator.mediaDevices.getUserMedia({ audio: true }).then(function(s){
+          if(mine !== epoch){
+            try{ s.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+            return false;
+          }
           stream = s;
           armed = true;
           return true;
-        }).catch(function(){ armed = false; return false; });
+        }).catch(function(){ armed = false; return false; }).then(function(ok){
+          if(pending === req) pending = null;
+          return ok;
+        });
+        pending = req;
+        return req;
       },
       available: function(){ return armed; },
 
@@ -1117,6 +1135,7 @@ window.GameCore = (function(){
       drop: drop,
 
       release: function(){
+        epoch++; pending = null;
         drop();
         if(rec){ try{ rec.stop(); }catch(e){} rec = null; }
         if(stream){ try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} stream = null; }
@@ -1308,7 +1327,14 @@ window.GameCore = (function(){
       }
 
       return { play: play, has: has, cancel: cancel, estimate: estimate, tokens: list.slice() };
-    }).catch(function(){ return null; });
+    }).catch(function(){
+      /* A failed fetch is not "no clips on this site" — it may be one
+         dropped request. Forget it so a later call can try again, but not
+         for a few seconds, so a manifest that really is missing isn't
+         re-requested on every card. */
+      setTimeout(function(){ phAudioPromise = null; }, 5000);
+      return null;
+    });
     return phAudioPromise;
   }
 
@@ -1709,6 +1735,15 @@ window.GameCore = (function(){
     el.style.color = color;
     el.classList.toggle("big", !!big);
     el.classList.remove("go"); void el.offsetWidth; el.classList.add("go");
+    /* Clears itself. The animation is what normally hides it, but under
+       prefers-reduced-motion there is no animation and "go" would just
+       leave the last score sitting over the next word. */
+    if(el._popupTimer) clearTimeout(el._popupTimer);
+    el._popupTimer = setTimeout(function(){
+      el._popupTimer = null;
+      el.classList.remove("go");
+      el.textContent = "";
+    }, big ? 1500 : 1000);   // just past the 1.4s / 1s animations
   }
 
   /* ---------------- progress graphic ----------------

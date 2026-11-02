@@ -103,7 +103,12 @@ window.EIListen = (function(){
           return;
         }
       }
-      if(name === "not-allowed" || name === "service-not-allowed" || name === "network"){
+      /* audio-capture (no mic) and language-not-supported will fail the
+         same way on every re-arm, so retrying only spins the mic every
+         200ms forever. They end the session like the permission errors do,
+         and the page is told the name unchanged. */
+      if(name === "not-allowed" || name === "service-not-allowed" || name === "network" ||
+         name === "audio-capture" || name === "language-not-supported"){
         wanted = false;
         stopRec();
       }
@@ -142,6 +147,9 @@ window.EIListen = (function(){
 
     start: function(){
       if(!SR) return false;
+      // A fresh start after the mic was off is a fresh chance: don't let
+      // failures from the last session count against this one.
+      if(!wanted) net.ok();
       wanted = true;
       loop();
       arm();

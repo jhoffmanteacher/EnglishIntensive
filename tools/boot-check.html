@@ -77,12 +77,12 @@
 
     /* A made-up word is judged by sound — but once, on the whole of what
        was said, so chatter doesn't read the card. */
-    "say-nonsense": sayOne("nonsense", "tup", function(rec, card, mic, wait){
-      rec.emit(0, "i give up", true);   // "up" is one sound from "tup"
-      must(card().indexOf("correct") === -1, "\"I give up\" was taken as a reading of tup");
+    "say-nonsense": sayOne("nonsense", "rup", function(rec, card, mic, wait){
+      rec.emit(0, "i give up", true);   // "up" is one sound from "rup"
+      must(card().indexOf("correct") === -1, "\"I give up\" was taken as a reading of rup");
       return wait(1000).then(function(){
-        rec.emit(1, "top", true);
-        must(card().indexOf("correct") !== -1, "\"top\" didn't count for tup — the list's phonetic switch isn't reaching Say it");
+        rec.emit(1, "rap", true);
+        must(card().indexOf("correct") !== -1, "\"rap\" didn't count for rup — the list's phonetic switch isn't reaching Say it");
       });
     }),
     /* The computer never says a made-up word: it would guess, and read
@@ -122,9 +122,9 @@
       } },
     /* …and never a reading that is another word on the list, even when
        that word isn't in this round. The round here is one word. */
-    "say-nonsense-twin": sayOne("nonsense", "ret", function(rec, card){
-      rec.emit(0, "rit", true);
-      must(card().indexOf("wrong") !== -1, "\"rit\" passed for ret because rit wasn't in the round");
+    "say-nonsense-twin": sayOne("nonsense", "sug", function(rec, card){
+      rec.emit(0, "sig", true);
+      must(card().indexOf("wrong") !== -1, "\"sig\" passed for sug because sig wasn't in the round");
     }),
     /* A mishearing in the ACCEPT table counts in Say It — it didn't, and
        an entry a teacher added changed nothing here. A dropped sound is
