@@ -11,6 +11,11 @@ if [ -z "$CHROME" ]; then
 fi
 PORT="${PORT:-8000}"
 fail=0
+# No arguments used to check nothing and still print "pages clean". Default
+# to every page of the site.
+if [ $# -eq 0 ]; then
+  set -- $(cd "$(dirname "$0")/.." && ls *.html | grep -v '^tests.html$')
+fi
 for f in "$@"; do
   out=$("$CHROME" --headless=new --disable-gpu --no-sandbox --enable-logging=stderr --v=1 \
         --virtual-time-budget=3000 --dump-dom "http://localhost:$PORT/$f" 2>&1 >/dev/null)

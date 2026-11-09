@@ -534,8 +534,20 @@
   function retiredMode(familyKey, modeKey){
     return WordLists.isRetired(WordLists.idFor(familyKey, WordLists.listNumsOf(familyKey)[0], modeKey));
   }
-  function pickerHtml(scopeId, selected){
+  /* A family's modes for a picker or popover: the ones on offer, plus a
+     retired one only where `held(mode)` says this scope has it. */
+  function modesToShow(famKey, held){
+    var offered = WordLists.offeredModesOf(famKey).map(function(m){ return m.key; });
+    return WordLists.modesOf(famKey).filter(function(m){
+      return offered.indexOf(m.key) !== -1 || held(m);
+    });
+  }
+  function pickerHtml(scopeId, selected, alsoShow){
     var on = function(id){ return (selected || []).indexOf(id) !== -1; };
+    // Retired ids to draw a box for even though this scope doesn't hold
+    // them: the bulk dialog uses it so "Take these away" has something to tick.
+    var extra = Array.isArray(alsoShow) ? alsoShow : [];
+    var shown = function(id){ return on(id) || extra.indexOf(id) !== -1; };
     var sc = esc(scopeId);
 
     function box(id){
@@ -555,9 +567,8 @@
          teacher can see it and untick it; it is never offered fresh, so a
          scope that doesn't hold it (every bulk picker starts empty) gets
          no box for it at all. */
-      var modes = WordLists.modesOf(fam.key).filter(function(m){
-        if(!retiredMode(fam.key, m.key)) return true;
-        return WordLists.listNumsOf(fam.key).some(function(n){ return on(WordLists.idFor(fam.key, n, m.key)); });
+      var modes = modesToShow(fam.key, function(m){
+        return WordLists.listNumsOf(fam.key).some(function(n){ return shown(WordLists.idFor(fam.key, n, m.key)); });
       });
       var body;
 
@@ -575,7 +586,7 @@
           var cells = modes.map(function(m){
             var id = WordLists.idFor(fam.key, n, m.key);
             // A retired id gets a box only where it is held.
-            return "<td>" + (id && (!WordLists.isRetired(id) || on(id)) ? box(id) : "") + "</td>";
+            return "<td>" + (id && (!WordLists.isRetired(id) || shown(id)) ? box(id) : "") + "</td>";
           }).join("");
           var anyId = WordLists.idsOfList(fam.key, n)[0];
           var preview = anyId ? WordLists.wordsOf(anyId).slice(0, 4).join(", ") + "…" : "";
@@ -659,7 +670,12 @@
       if(b.dataset.pkFam){
         parts = b.dataset.pkFam.split("|"); scope = parts[0];
         pickerInputs(scope, function(l){ return l.family === parts[1]; })
-          .forEach(function(cb){ cb.checked = parts[2] === "all" && !WordLists.isRetired(cb.dataset.list); });
+          .forEach(function(cb){
+            // "all" ticks what is on offer and leaves a retired box as it
+            // is; only "none" clears it.
+            if(parts[2] === "all"){ if(!WordLists.isRetired(cb.dataset.list)) cb.checked = true; }
+            else cb.checked = false;
+          });
       } else if(b.dataset.pkCol){
         parts = b.dataset.pkCol.split("|"); scope = parts[0];
         toggleGroup(pickerInputs(scope, function(l){ return l.family === parts[1] && l.mode === parts[2]; }));
@@ -1034,7 +1050,9 @@
     var eff = effectiveLists(s.uid);
     var lists = eff.ids.map(function(id){
       var l = WordLists.byId(id);
-      if(!l) return null;
+      // A retired list the student still holds is not part of the plan: an
+      // untouched one would stop "everything is solid" from ever firing.
+      if(!l || l.retired) return null;
       var st = Adaptive.statsForList(s.stats, id);
       var sum = Adaptive.summarize(st);
       var cardsId = WordLists.idFor(l.family, l.listNum, "cards");
@@ -1806,9 +1824,8 @@
     closePop();
     var fam = col.fam;
     // Offered modes, plus a retired one only where this scope holds it.
-    var modes = WordLists.modesOf(fam.key).filter(function(m){
-      var id = WordLists.idFor(fam.key, col.n, m.key);
-      return !WordLists.isRetired(id) || scopeView(scope).indexOf(id) !== -1;
+    var modes = modesToShow(fam.key, function(m){
+      return scopeView(scope).indexOf(WordLists.idFor(fam.key, col.n, m.key)) !== -1;
     });
     var label = fam.title + (fam.lists.length > 1 ? " · List " + col.n : "");
 
@@ -1870,7 +1887,8 @@
         else if(i !== -1) ids.splice(i, 1);
       });
       Array.prototype.forEach.call(pop.querySelectorAll("input[data-mode-id]"), function(cb){
-        cb.checked = wanted && !WordLists.isRetired(cb.dataset.modeId);
+        if(!wanted) cb.checked = false;
+        else if(!WordLists.isRetired(cb.dataset.modeId)) cb.checked = true;
       });
       apply(ids);
     });
@@ -2394,6 +2412,9 @@
      empty picker rather than from somebody's existing set. */
   function bulkApply(current, ids, how){
     var out = (current || []).slice();
+    // Adding or replacing never hands out a retired id a student doesn't
+    // already have; taking it away is the one thing a bulk change does with one.
+    if(how !== "remove") ids = ids.filter(function(id){ return !WordLists.isRetired(id) || out.indexOf(id) !== -1; });
     if(how === "replace") return ids.slice();
     ids.forEach(function(id){
       var i = out.indexOf(id);
@@ -2403,6 +2424,15 @@
     return out;
   }
 
+  // The retired ids any of these students still hold, so the bulk dialog can
+  // draw a box for each and "Take these away" can clear them.
+  function heldRetired(uids){
+    var seen = {};
+    uids.forEach(function(u){
+      liveStudent(u).forEach(function(id){ if(WordLists.isRetired(id)) seen[id] = true; });
+    });
+    return Object.keys(seen);
+  }
   var bulkWrap = null;
   function closeBulk(){
     if(bulkWrap && bulkWrap.parentNode) bulkWrap.parentNode.removeChild(bulkWrap);
@@ -2425,7 +2455,7 @@
         '<h2 id="abBulkTitle">Change games for ' + who + "</h2>" +
         '<p class="note">' + esc(names.slice(0, 6).join(", ")) + (names.length > 6 ? " and " + (names.length - 6) + " more" : "") +
         ". Tick the games, then choose what to do with them.</p>" +
-        pickerHtml("bulk", []) +
+        pickerHtml("bulk", [], heldRetired(uids)) +
         '<div class="rowActions stickyActions">' +
           '<button class="btn sm" data-bulk="add">Add to what they have</button>' +
           '<button class="btn ghost sm" data-bulk="remove">Take these away</button>' +

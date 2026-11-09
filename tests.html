@@ -2935,6 +2935,23 @@
        host.querySelector('input[data-list="blends-start-1-blendit"]').checked, false);
     eq("…but ticks the live ones",
        host.querySelector('input[data-list="blends-start-1-match"]').checked, true);
+    // The other way round: a student who HOLDS it and has "all" pressed to
+    // add Match It must not lose it as a side effect.
+    boxIds(T.pickerHtml("p", ["blends-start-1-blendit"], false));
+    host.querySelector('[data-pk-fam="p|blends-start|all"]').click();
+    eq("'all' leaves a held retired box ticked",
+       host.querySelector('input[data-list="blends-start-1-blendit"]').checked, true);
+    eq("a bulk picker can be told to draw a retired box so it can be taken away",
+       boxIds(T.pickerHtml("bulk", [], ["blends-start-1-blendit"])).indexOf("blends-start-1-blendit") !== -1, true);
+    eq("…and it starts unticked", host.querySelector('input[data-list="blends-start-1-blendit"]').checked, false);
+    eq("bulk add never hands out a retired id",
+       T.bulkApply(["initial-blends"], ["blends-start-1-blendit", "blends-start-1-match"], "add").join(","),
+       "initial-blends,blends-start-1-match");
+    eq("…nor does replace", T.bulkApply([], ["blends-start-1-blendit"], "replace").length, 0);
+    eq("replace keeps one the student already holds",
+       T.bulkApply(["blends-start-1-blendit"], ["blends-start-1-blendit"], "replace").join(","), "blends-start-1-blendit");
+    eq("bulk 'take away' removes a retired id",
+       T.bulkApply(["initial-blends", "blends-start-1-blendit"], ["blends-start-1-blendit"], "remove").join(","), "initial-blends");
 
     T.feed({ students: aClass().students,
              assignments: { u1: { lists: ["blends-start-1-blendit", "initial-blends"] }, u2: {}, u3: {}, u4: {} },

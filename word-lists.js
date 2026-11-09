@@ -20,6 +20,9 @@
      ⌨️ spell it   spell-game.js   the computer says it, you type it
      🃏 cards      card-game.js    read it, flip it, rate yourself
      🎯 Match It   match-game.js   hear it, find it among look-alikes
+     ⏱ one minute  fluency-game.js read down the list for a minute
+     🔊 Blend it   blend-it-game.js hear the sounds, blend them, say it
+     ✂️ Split it   card-game.js    mark where a long word comes apart
 
    The red words worked this way first — the same "List 3" as flash cards
    OR as Match It, because knowing `would` on sight and picking it out of
