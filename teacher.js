@@ -526,6 +526,11 @@
   /* A mode its family has retired, held by a student who was given it
      before it was. Said the same way everywhere it shows. */
   var RETIRED_TIP = "Retired \u2014 still in this student\u2019s list";
+  // ' title="…"' for a mode its family has a note on, else nothing.
+  function hintAttr(familyKey, modeKey){
+    var h = WordLists.hintOf(familyKey, modeKey);
+    return h ? ' title="' + esc(h) + '"' : "";
+  }
   function retiredMode(familyKey, modeKey){
     return WordLists.isRetired(WordLists.idFor(familyKey, WordLists.listNumsOf(familyKey)[0], modeKey));
   }
@@ -562,7 +567,7 @@
           if(retiredMode(fam.key, m.key)){
             return '<th class="retiredHead" title="' + RETIRED_TIP + '">' + esc(m.icon + " " + m.title) + "</th>";
           }
-          return "<th>" + esc(m.icon + " " + m.title) +
+          return "<th" + hintAttr(fam.key, m.key) + ">" + esc(m.icon + " " + m.title) +
             '<button type="button" class="pkMini" data-pk-col="' + sc + "|" + esc(fam.key) + "|" + esc(m.key) +
             '" title="Tick or untick every list for ' + esc(m.title) + '">all</button></th>';
         }).join("");
@@ -1816,7 +1821,7 @@
         if(!id) return "";
         var on = scopeView(scope).indexOf(id) !== -1;
         var ret = WordLists.isRetired(id);
-        return '<label class="check' + (ret ? " retiredBox" : "") + '"' + (ret ? ' title="' + RETIRED_TIP + '"' : "") +
+        return '<label class="check' + (ret ? " retiredBox" : "") + '"' + (ret ? ' title="' + RETIRED_TIP + '"' : hintAttr(fam.key, m.key)) +
           '><input type="checkbox" data-mode-id="' + esc(id) + '"' + (on ? " checked" : "") +
           "><span>" + esc(m.icon + " " + m.title) + (ret ? '<span class="sub2">Retired</span>' : "") + "</span></label>";
       }).join("") + "</div>" +

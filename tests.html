@@ -2592,6 +2592,8 @@
       eq(id + " still has a page", /\.html$/.test(W.hrefOf(id).split("?")[0]), true);
     });
     eq("a live id is not retired", W.isRetired("blends-start-1-match"), false);
+    eq("Red Words Match It carries the no-mic note", /No-mic option/.test(W.hintOf("red", "match")), true);
+    eq("…and nothing else has a note it shouldn't", W.hintOf("red", "cards") + W.hintOf("nonsense", "match"), "");
     eq("a family with no retired key is unchanged", W.isRetired("nonsense-1-blendit") || W.isRetired("red-1-match"), false);
     eq("an unknown id is not retired", W.isRetired("no-such-id"), false);
     eq("modesOf still lists every blends mode", W.modesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,cards,match,fluency,blendit");

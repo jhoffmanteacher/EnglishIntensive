@@ -590,6 +590,11 @@ window.LIST_FAMILIES = [
        where they belong (RED_HOMOPHONES below, and the contraction fold
        in GameCore.normalize), not by leaving the mode out. */
     modes: ["say", "cards", "match"],
+    /* Teacher-facing one-liners, shown as a tooltip on the mode wherever
+       the board or a picker names it. Match It stays here as the no-mic
+       option, but it is not what red words are for: it gives the student
+       the word by ear, and the goal is reading it on sight. */
+    hints: { match: "No-mic option. Red words are for reading on sight; Match It gives the word by ear." },
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
@@ -742,6 +747,11 @@ window.WordLists = (function(){
       if(!fam) return [];
       return fam.modes.filter(function(k){ return !fam.retired || fam.retired.indexOf(k) === -1; })
                       .map(function(k){ return MODES[k]; }).filter(Boolean);
+    },
+    // A family's one-line teacher note on a mode ("" when it has none).
+    hintOf: function(familyKey, modeKey){
+      var fam = familyOf(familyKey);
+      return (fam && fam.hints && fam.hints[modeKey]) || "";
     },
     // True for an id whose mode its family has retired. Unknown ids: false.
     isRetired: function(id){
