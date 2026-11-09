@@ -1477,7 +1477,7 @@ names into a period dropdown. **Periods → 📋 Import roster** takes
 whatever the student information system exports and places the whole class
 before any of them touches the site.
 
-Beside it, **Add students by ID number** is the same import with a typed
+On the Students tab, the **Add by student ID** box is the same import with a typed
 source: the IDs go through `parseRoster` and `importBody` exactly as a
 file's rows would. It skips any ID already on the roster rather than
 updating it, because a typed ID has no name and a set-merge would blank

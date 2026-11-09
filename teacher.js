@@ -884,8 +884,10 @@
           "<li><b>Give each student their games</b> on the Assign tab. A student sees only what you give them.</li>" +
           "<li><b>Students sign in</b> with their school account — their ID number @seq.org.</li>" +
         "</ol>" +
-        '<div class="rowActions"><button class="btn sm" id="tGoGroups">Import a roster →</button></div></div>';
+        '<div class="rowActions"><button class="btn sm" id="tGoGroups">Import a roster →</button></div>' +
+        '<p class="note" style="margin:16px 0 6px">Or add students one at a time:</p>' + quickAddHtml() + "</div>";
       $("tGoGroups").addEventListener("click", function(){ switchView("groups"); });
+      wireQuickAdd();
       return;
     }
     var waiting = students.filter(function(s){ return s.pending; }).length;
@@ -952,6 +954,7 @@
       '<p class="note">Click a student to see their hardest words and change their games. ' +
       '<b>Solid</b> means the student reads the word right at least 9 times in 10, with enough recent first-try right answers that the site now shows it only rarely. ' +
       '<b>Shaky</b> means right less than 60&nbsp;% of the time.</p>' +
+      quickAddHtml() +
       '<div class="rowActions" style="margin-bottom:16px">' +
         '<button class="btn ghost sm" id="tExportRoster">⬇ Roster CSV</button>' +
         '<button class="btn ghost sm" id="tExportWords">⬇ Every word CSV</button>' +
@@ -980,6 +983,7 @@
         switchView("assign", true);
       });
     });
+    wireQuickAdd();
     $("tExportRoster").addEventListener("click", function(){ download(exportName("roster"), rosterCsv()); });
     $("tExportWords").addEventListener("click", function(){ download(exportName("words"), wordsCsv()); });
   }
@@ -1398,16 +1402,6 @@
         '<span class="muted tiny">' + (Object.keys(roster).length
           ? Object.keys(roster).length + " on the roster now"
           : "nothing imported yet") + "</span></div>" +
-        '<p class="note" style="margin:14px 0 6px"><b>Or add students by ID number.</b> ' +
-        "One ID, or several separated by spaces or commas. They sign in as <b>&lt;ID&gt;@seq.org</b>.</p>" +
-        '<div class="rowActions"><input class="txt" id="tQuickId" inputmode="numeric" autocomplete="off" ' +
-          'placeholder="Student ID, e.g. 102345" aria-label="Student ID numbers to add"> ' +
-        '<select class="sel" id="tQuickPeriod" aria-label="Period for the students being added">' +
-          '<option value="">No period</option>' + periods.map(function(p){
-            return '<option value="' + esc(p) + '">Period ' + esc(p) + "</option>";
-          }).join("") + "</select> " +
-        '<button class="btn sm" id="tQuickBtn">Add</button>' +
-        '<span class="saveNote' + (quickNote.err ? " err" : "") + '" id="tQuickNote">' + esc(quickNote.text) + "</span></div>" +
       "</div>" +
 
       '<div class="panel"><h2>Periods</h2>' +
@@ -1425,9 +1419,6 @@
         "<tbody>" + rosterRows + "</tbody></table></div></div>" : "");
 
     $("tImport").addEventListener("click", openImport);
-    $("tQuickBtn").addEventListener("click", quickAdd);
-    $("tQuickId").addEventListener("keydown", function(e){ if(e.key === "Enter") quickAdd(); });
-    quickNote = { text: "", err: false };
     Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-period-for]"), function(sel){
       sel.addEventListener("change", function(){ setStudentPeriod(sel.dataset.periodFor, sel.value || null); });
     });
@@ -1477,6 +1468,26 @@
      and a set-merge would blank the name the import put there. */
   var quickNote = { text: "", err: false };
 
+  function quickAddHtml(){
+    return '<div class="rowActions" style="margin-bottom:16px">' +
+      '<input class="txt" id="tQuickId" inputmode="numeric" autocomplete="off" ' +
+        'placeholder="Add by student ID, e.g. 102345" aria-label="Student ID numbers to add"> ' +
+      '<select class="sel" id="tQuickPeriod" aria-label="Period for the students being added">' +
+        '<option value="">No period</option>' + allPeriods().map(function(p){
+          return '<option value="' + esc(p) + '">Period ' + esc(p) + "</option>";
+        }).join("") + "</select> " +
+      '<button class="btn sm" id="tQuickBtn">Add</button>' +
+      '<span class="saveNote' + (quickNote.err ? " err" : "") + '" id="tQuickNote">' +
+        esc(quickNote.text || "One ID or several, separated by spaces or commas. Each signs in as ID@seq.org.") +
+      "</span></div>";
+  }
+
+  function wireQuickAdd(){
+    $("tQuickBtn").addEventListener("click", quickAdd);
+    $("tQuickId").addEventListener("keydown", function(e){ if(e.key === "Enter") quickAdd(); });
+    quickNote = { text: "", err: false };
+  }
+
   function quickAdd(){
     var box = $("tQuickId"), note = $("tQuickNote"), btn = $("tQuickBtn");
     var period = $("tQuickPeriod").value || "";
@@ -1518,7 +1529,7 @@
         ". Choose their games on the Assign tab.";
       return loadAll().then(function(){
         quickNote = { text: msg, err: false };
-        render();   // draws the note once, then renderGroups clears it
+        render();   // draws the note once, then wireQuickAdd clears it
       });
     }).catch(function(){
       btn.disabled = false;
