@@ -1237,8 +1237,8 @@ window.CardGame = (function(){
           listenOn = false;
           try{ localStorage.setItem("cardListen", "0"); }catch(e){}
           renderListen();
-          listenNote("<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar, " +
-                     "choose Allow, then reload this page. The cards work fine without it.", true);
+          listenNote("<b>Microphone blocked.</b> Click the 🔒 or 🎤 icon next to the web address. " +
+                     "Turn the microphone on. Then reload this page. The cards work fine without it.", true);
         } else if(name === "network"){
           listenOn = false;
           renderListen();

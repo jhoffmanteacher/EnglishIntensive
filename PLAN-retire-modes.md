@@ -1,6 +1,9 @@
 # PLAN — Retire the modes that don't earn their place
 
-Status: **draft 2026-11-09, awaiting Jonathan's approval.** Written for a
+Status: **done 2026-11-09.** Built as written; the deviations are in
+`TODO.md` under *Decided during the retire-modes build*, and the result is
+described in the README's *Retired modes*. Kept as the record of what was
+planned. Original status: draft, awaiting approval. Written for a
 Claude Code session on `jhoffmanteacher/EnglishIntensive`. Read `CLAUDE.md`
 first, then the *Families and modes* comment at the top of `word-lists.js`.
 

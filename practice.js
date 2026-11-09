@@ -109,7 +109,9 @@ window.EIPractice = (function(){
       if(here.length === 1){ list = here[0]; }
     }
     if(!list){
-      EIAuth.fail("Unknown game", "No word list called “" + (listId || "") + "”. Check the id in this page's script tag, or the ?list= in the address.");
+      // The developer's detail goes to the console; the student gets plain words.
+      if(window.console) console.warn("Unknown game: no word list called “" + (listId || "") + "”. Check the id in this page's script tag, or the ?list= in the address.");
+      EIAuth.fail("We can't find that game", "Go to the home page and pick a game from your list. If it keeps happening, tell your teacher.");
       return;
     }
     if(list.page !== pageName() && here.length){

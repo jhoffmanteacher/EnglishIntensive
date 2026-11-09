@@ -375,8 +375,8 @@ quietly diverge.
 In the core: combo scoring and the star thresholds, the comeback deck (and
 the one function that touches `localStorage`), the race/vault progress
 graphics, the confetti, the score pop-up, the feedback blips, the voice
-ranking, the syllable-chunk parser (`parseEntry`, `chunkMarkup` — three
-engines play the dotted multisyllable list and all need the same answer to
+ranking, the syllable-chunk parser (`parseEntry`, `chunkMarkup` — every
+engine but spell-it handles dotted entries and all need the same answer to
 "what word is this really?"), the start screen's read-aloud
 (`directionParts`, below), and the word-list helpers (`shuffled`,
 `dedupeWords`, `sampleWords`, `escapeHtml`).
@@ -401,15 +401,15 @@ note if there is one, then the numbered steps. Boxed sections lead with
 their own on-screen `.tag` — "The rule", "Good to know" — so a listening
 student gets the same heading a sighted one reads.
 
-It lives in the core because all four engines had grown their own copy of
+It lives in the core because the engines had each grown their own copy of
 this walk, with the same two bugs. First: reading the intro with
 `.textContent` drops the `<br>`, welding two sentences into a run-on with no
 pause. Second: joining fragments with `". "` doubled the full stop every
 fragment already ends in, and sent the lot to the synthesiser as **one**
 utterance. Each engine now speaks the fragments as separate queued
 utterances, a truer pause than punctuation; the speaking stays per-engine,
-because the blend game must stand its microphone down first and the quiet
-three don't.
+because the blend game must stand its microphone down first and the
+others don't.
 
 Still in each engine: how it asks its question, how it judges the answer,
 its own screens and styles, and anything to do with the microphone.

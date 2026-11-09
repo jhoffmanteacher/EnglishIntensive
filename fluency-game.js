@@ -692,7 +692,7 @@ window.FluencyGame = (function(){
           micBlocked = true;
           wantMic = false;
           stopListening();
-          $("uiState").innerHTML = "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar and allow the mic, then reload.";
+          $("uiState").innerHTML = "<b>Microphone blocked.</b> Click the 🔒 or 🎤 icon next to the web address. Turn the microphone on. Then reload this page.";
         } else if(err === "network"){
           micTrouble = true;
           sessionNetErr = true;
@@ -836,7 +836,7 @@ window.FluencyGame = (function(){
         var name = err && err.name;
         $("checkWarn").style.display = "block";
         $("checkWarn").innerHTML = (name === "NotAllowedError" || name === "SecurityError")
-          ? "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar, choose Allow, then reload this page."
+          ? "<b>Microphone blocked.</b> Click the 🔒 or 🎤 icon next to the web address. Turn the microphone on. Then reload this page."
           : "<b>No microphone found.</b> Plug in the headset, then reload this page.";
         $("meterMsg").textContent = "";
         $("btnPlay").disabled = false;

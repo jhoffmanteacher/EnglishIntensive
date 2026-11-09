@@ -545,7 +545,7 @@ window.BlendItGame = (function(){
         var err = ev && ev.error;
         if(err === "not-allowed" || err === "service-not-allowed"){
           micOn = false; stopListening();
-          $("uiMic").innerHTML = "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar and allow the mic, then reload.";
+          $("uiMic").innerHTML = "<b>Microphone blocked.</b> Click the 🔒 or 🎤 icon next to the web address. Turn the microphone on. Then reload this page.";
         } else if(err === "network"){
           sessionNetErr = true;
           var wait = net.fail();
@@ -690,7 +690,7 @@ window.BlendItGame = (function(){
         var name = err && err.name;
         $("checkWarn").style.display = "block";
         $("checkWarn").innerHTML = (name === "NotAllowedError" || name === "SecurityError")
-          ? "<b>Microphone blocked.</b> Click the 🎤 or 🔒 icon in the address bar, choose Allow, then reload this page."
+          ? "<b>Microphone blocked.</b> Click the 🔒 or 🎤 icon next to the web address. Turn the microphone on. Then reload this page."
           : "<b>No microphone found.</b> Plug in the headset, then reload this page.";
         $("meterMsg").textContent = "";
         $("btnPlay").disabled = false;
