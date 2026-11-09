@@ -71,6 +71,11 @@ label.check{
   font-size:15px;
 }
 label.check:hover{border-color:var(--accent)}
+/* A mode the library has retired, still held by this scope: dashed, so it
+   reads as "left over" beside the live ones. It can be unticked, never added. */
+label.check.retiredBox{border-style:dashed;opacity:.8}
+.redGrid th.retiredHead{color:var(--muted);font-style:italic}
+input.retiredBox{outline:1px dashed var(--muted);outline-offset:2px}
 label.check input{width:17px;height:17px;accent-color:var(--accent);flex:none}
 label.check .sub2{color:var(--muted);font-size:12px;display:block}
 

@@ -299,7 +299,13 @@ window.EIStore = (function(){
   }
 
   function myLists(){
-    var ids = seesEverything() ? WordLists.ids : effectiveLists(assignment, rosterRow);
+    /* The teacher's preview shows what is on offer, so a mode the library
+       has retired stops appearing on their home page. A STUDENT who still
+       holds a retired id keeps it: it is in their assignment, so it is in
+       the list below, and it plays. */
+    var ids = seesEverything()
+      ? WordLists.all.filter(function(l){ return !l.retired; }).map(function(l){ return l.id; })
+      : effectiveLists(assignment, rosterRow);
     // Drop assignments naming a list that no longer exists, so a deleted
     // list doesn't render a broken tile.
     return ids.filter(function(id){ return WordLists.exists(id); });

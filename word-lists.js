@@ -814,7 +814,9 @@ window.WordLists = (function(){
     describeAssignment: function(ids){
       var have = haveSet(ids);
       if(!have.n) return "nothing";
-      if(have.n === all.length) return "everything";
+      // "Everything" means everything on offer: a retired id a student
+      // still holds doesn't stop a full set from reading as full.
+      if(offeredAll(have)) return "everything";
       var parts = [];
       window.LIST_FAMILIES.forEach(function(fam){
         var part = familyPart(fam, have);
@@ -823,6 +825,10 @@ window.WordLists = (function(){
       return parts.join(" · ");
     }
   };
+
+  function offeredAll(have){
+    return all.every(function(l){ return l.retired || have[l.id]; });
+  }
 
   /* The ids a caller handed us as a lookup: unknown ids dropped, repeats
      collapsed, and `n` the count of what actually survived — which is

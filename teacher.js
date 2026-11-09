@@ -523,12 +523,20 @@
               scopeSelection() can read one picker on a page carrying
               several
      selected the ids currently on (array) */
+  /* A mode its family has retired, held by a student who was given it
+     before it was. Said the same way everywhere it shows. */
+  var RETIRED_TIP = "Retired \u2014 still in this student\u2019s list";
+  function retiredMode(familyKey, modeKey){
+    return WordLists.isRetired(WordLists.idFor(familyKey, WordLists.listNumsOf(familyKey)[0], modeKey));
+  }
   function pickerHtml(scopeId, selected){
     var on = function(id){ return (selected || []).indexOf(id) !== -1; };
     var sc = esc(scopeId);
 
     function box(id){
-      return '<input type="checkbox" data-scope="' + sc + '" data-list="' + esc(id) + '"' + (on(id) ? " checked" : "") + ">";
+      var ret = WordLists.isRetired(id);
+      return '<input type="checkbox" data-scope="' + sc + '" data-list="' + esc(id) + '"' + (on(id) ? " checked" : "") +
+        (ret ? ' class="retiredBox" title="' + RETIRED_TIP + '"' : "") + ">";
     }
     function famTools(fam){
       return '<span class="pkTools">' +
@@ -537,11 +545,23 @@
     }
 
     var fams = WordLists.families().map(function(fam){
-      var modes = WordLists.modesOf(fam.key);
+      /* The modes on offer, plus any retired mode this scope already holds
+         (see word-lists.js, "Retired modes"). The held one stays so the
+         teacher can see it and untick it; it is never offered fresh, so a
+         scope that doesn't hold it (every bulk picker starts empty) gets
+         no box for it at all. */
+      var modes = WordLists.modesOf(fam.key).filter(function(m){
+        if(!retiredMode(fam.key, m.key)) return true;
+        return WordLists.listNumsOf(fam.key).some(function(n){ return on(WordLists.idFor(fam.key, n, m.key)); });
+      });
       var body;
 
       if(fam.lists.length > 1){
         var head = modes.map(function(m){
+          // A retired column has no "all": it can be unticked, never filled.
+          if(retiredMode(fam.key, m.key)){
+            return '<th class="retiredHead" title="' + RETIRED_TIP + '">' + esc(m.icon + " " + m.title) + "</th>";
+          }
           return "<th>" + esc(m.icon + " " + m.title) +
             '<button type="button" class="pkMini" data-pk-col="' + sc + "|" + esc(fam.key) + "|" + esc(m.key) +
             '" title="Tick or untick every list for ' + esc(m.title) + '">all</button></th>';
@@ -549,7 +569,8 @@
         var rows = WordLists.listNumsOf(fam.key).map(function(n){
           var cells = modes.map(function(m){
             var id = WordLists.idFor(fam.key, n, m.key);
-            return "<td>" + (id ? box(id) : "") + "</td>";
+            // A retired id gets a box only where it is held.
+            return "<td>" + (id && (!WordLists.isRetired(id) || on(id)) ? box(id) : "") + "</td>";
           }).join("");
           var anyId = WordLists.idsOfList(fam.key, n)[0];
           var preview = anyId ? WordLists.wordsOf(anyId).slice(0, 4).join(", ") + "…" : "";
@@ -563,7 +584,9 @@
         body = '<div class="listGrid">' + modes.map(function(m){
           var id = WordLists.idFor(fam.key, fam.lists[0].n, m.key);
           if(!id) return "";
-          return '<label class="check">' + box(id) + "<span>" + esc(m.icon + " " + m.title) +
+          var ret = WordLists.isRetired(id);
+          return '<label class="check' + (ret ? " retiredBox" : "") + '"' +
+            (ret ? ' title="' + RETIRED_TIP + '"' : "") + ">" + box(id) + "<span>" + esc(m.icon + " " + m.title) +
             '<span class="sub2">' + WordLists.wordsOf(id).length + " words" +
             (m.needs ? " · " + esc(m.needs) : "") + "</span></span></label>";
         }).join("") + "</div>";
@@ -601,8 +624,14 @@
   }
   // Tick every input in a group, or untick them all if they're already all on.
   function toggleGroup(inputs){
-    var allOn = inputs.length && inputs.every(function(cb){ return cb.checked; });
-    inputs.forEach(function(cb){ cb.checked = !allOn; });
+    // A retired box never counts toward "all on" and is never ticked by
+    // this; it only follows when the group is being cleared.
+    var live = inputs.filter(function(cb){ return !WordLists.isRetired(cb.dataset.list); });
+    var allOn = live.length && live.every(function(cb){ return cb.checked; });
+    inputs.forEach(function(cb){
+      if(allOn) cb.checked = false;
+      else if(!WordLists.isRetired(cb.dataset.list)) cb.checked = true;
+    });
   }
   /* One delegated handler for every picker on the page: the mini toggles,
      and a live summary on any change. Bound once per render. */
@@ -625,7 +654,7 @@
       if(b.dataset.pkFam){
         parts = b.dataset.pkFam.split("|"); scope = parts[0];
         pickerInputs(scope, function(l){ return l.family === parts[1]; })
-          .forEach(function(cb){ cb.checked = parts[2] === "all"; });
+          .forEach(function(cb){ cb.checked = parts[2] === "all" && !WordLists.isRetired(cb.dataset.list); });
       } else if(b.dataset.pkCol){
         parts = b.dataset.pkCol.split("|"); scope = parts[0];
         toggleGroup(pickerInputs(scope, function(l){ return l.family === parts[1] && l.mode === parts[2]; }));
@@ -1771,7 +1800,11 @@
   function openPop(td, scope, col){
     closePop();
     var fam = col.fam;
-    var modes = WordLists.modesOf(fam.key);
+    // Offered modes, plus a retired one only where this scope holds it.
+    var modes = WordLists.modesOf(fam.key).filter(function(m){
+      var id = WordLists.idFor(fam.key, col.n, m.key);
+      return !WordLists.isRetired(id) || scopeView(scope).indexOf(id) !== -1;
+    });
     var label = fam.title + (fam.lists.length > 1 ? " · List " + col.n : "");
 
     pop = document.createElement("div");
@@ -1782,8 +1815,10 @@
         var id = WordLists.idFor(fam.key, col.n, m.key);
         if(!id) return "";
         var on = scopeView(scope).indexOf(id) !== -1;
-        return '<label class="check"><input type="checkbox" data-mode-id="' + esc(id) + '"' + (on ? " checked" : "") +
-          "><span>" + esc(m.icon + " " + m.title) + "</span></label>";
+        var ret = WordLists.isRetired(id);
+        return '<label class="check' + (ret ? " retiredBox" : "") + '"' + (ret ? ' title="' + RETIRED_TIP + '"' : "") +
+          '><input type="checkbox" data-mode-id="' + esc(id) + '"' + (on ? " checked" : "") +
+          "><span>" + esc(m.icon + " " + m.title) + (ret ? '<span class="sub2">Retired</span>' : "") + "</span></label>";
       }).join("") + "</div>" +
       '<div class="abPopFoot">' +
         '<button type="button" class="pkMini" data-pop="all">all</button>' +
@@ -1821,12 +1856,17 @@
       if(b.dataset.pop === "done") return closePop();
       var wanted = b.dataset.pop === "all";
       var ids = scopeView(scope).slice();
-      WordLists.idsOfList(fam.key, col.n).forEach(function(id){
+      // "all" adds what is on offer; "none" clears the retired ones too.
+      var touch = WordLists.idsOfList(fam.key, col.n);
+      if(!wanted) touch = touch.concat(retiredIdsOf(fam.key, col.n));
+      touch.forEach(function(id){
         var i = ids.indexOf(id);
         if(wanted){ if(i === -1) ids.push(id); }
         else if(i !== -1) ids.splice(i, 1);
       });
-      Array.prototype.forEach.call(pop.querySelectorAll("input[data-mode-id]"), function(cb){ cb.checked = wanted; });
+      Array.prototype.forEach.call(pop.querySelectorAll("input[data-mode-id]"), function(cb){
+        cb.checked = wanted && !WordLists.isRetired(cb.dataset.modeId);
+      });
       apply(ids);
     });
     var first = pop.querySelector("input");
@@ -1838,8 +1878,17 @@
      student — not every student in the school. The period filter and the
      search box are what bound it, and that is the only thing standing
      between a mis-click and a class's worth of undone assignment. */
+  // The retired ids of one family (listNum null) or one list of it.
+  function retiredIdsOf(familyKey, listNum){
+    return WordLists.all.filter(function(l){
+      return l.retired && l.family === familyKey && (listNum == null || l.listNum === listNum);
+    }).map(function(l){ return l.id; });
+  }
   function columnToggle(col){
     var ids = col.summary ? WordLists.idsOfFamily(col.fam.key) : WordLists.idsOfList(col.fam.key, col.n);
+    // Ticking never adds a retired id; unticking clears one, or the cell
+    // would still show an icon after "untick every student".
+    var gone = ids.concat(retiredIdsOf(col.fam.key, col.summary ? null : col.n));
     var rows = visibleStudents();
     if(!rows.length) return;
     var allOn = rows.every(function(s){
@@ -1850,8 +1899,11 @@
       var set = liveStudent(s.uid).slice();
       ids.forEach(function(id){
         var i = set.indexOf(id);
-        if(allOn){ if(i !== -1) set.splice(i, 1); }
-        else if(i === -1) set.push(id);
+        if(!allOn && i === -1) set.push(id);
+      });
+      if(allOn) gone.forEach(function(id){
+        var i = set.indexOf(id);
+        if(i !== -1) set.splice(i, 1);
       });
       setScope("s:" + s.uid, set);
     });
@@ -1938,7 +1990,8 @@
         var from = mine[mine.length - 1];
         var fromId = WordLists.idFor(fam.key, from, m.key);
         var toId = WordLists.idFor(fam.key, from + 1, m.key);
-        if(!toId || have[toId]) return;
+        // A suggestion only ever adds something on offer.
+        if(!toId || have[toId] || WordLists.isRetired(toId)) return;
         var p = listProgress(stats, fromId);
         if(p.share < SOLID_ENOUGH) return;
         out.push({
