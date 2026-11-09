@@ -1477,6 +1477,12 @@ names into a period dropdown. **Periods → 📋 Import roster** takes
 whatever the student information system exports and places the whole class
 before any of them touches the site.
 
+Beside it, **Add students by ID number** is the same import with a typed
+source: the IDs go through `parseRoster` and `importBody` exactly as a
+file's rows would. It skips any ID already on the roster rather than
+updating it, because a typed ID has no name and a set-merge would blank
+the one the import stored.
+
 The join is the ID number. Students sign in as `<student id>@seq.org`, so
 the address is knowable in August and a uid is not — and the roster is
 therefore stored at `roster/{email}`, keyed by the thing both sides of a

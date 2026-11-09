@@ -1398,6 +1398,16 @@
         '<span class="muted tiny">' + (Object.keys(roster).length
           ? Object.keys(roster).length + " on the roster now"
           : "nothing imported yet") + "</span></div>" +
+        '<p class="note" style="margin:14px 0 6px"><b>Or add students by ID number.</b> ' +
+        "One ID, or several separated by spaces or commas. They sign in as <b>&lt;ID&gt;@seq.org</b>.</p>" +
+        '<div class="rowActions"><input class="txt" id="tQuickId" inputmode="numeric" autocomplete="off" ' +
+          'placeholder="Student ID, e.g. 102345" aria-label="Student ID numbers to add"> ' +
+        '<select class="sel" id="tQuickPeriod" aria-label="Period for the students being added">' +
+          '<option value="">No period</option>' + periods.map(function(p){
+            return '<option value="' + esc(p) + '">Period ' + esc(p) + "</option>";
+          }).join("") + "</select> " +
+        '<button class="btn sm" id="tQuickBtn">Add</button>' +
+        '<span class="saveNote' + (quickNote.err ? " err" : "") + '" id="tQuickNote">' + esc(quickNote.text) + "</span></div>" +
       "</div>" +
 
       '<div class="panel"><h2>Periods</h2>' +
@@ -1415,6 +1425,9 @@
         "<tbody>" + rosterRows + "</tbody></table></div></div>" : "");
 
     $("tImport").addEventListener("click", openImport);
+    $("tQuickBtn").addEventListener("click", quickAdd);
+    $("tQuickId").addEventListener("keydown", function(e){ if(e.key === "Enter") quickAdd(); });
+    quickNote = { text: "", err: false };
     Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-period-for]"), function(sel){
       sel.addEventListener("change", function(){ setStudentPeriod(sel.dataset.periodFor, sel.value || null); });
     });
@@ -1454,6 +1467,63 @@
         if(before) assignments[uid] = before; else delete assignments[uid];
         render();
       });
+  }
+
+  /* Quick add: type an ID (or a few) instead of importing a file. It is
+     the import with a one-line source — the same parseRoster checks, the
+     same importBody writes — so a typed ID and an imported one end up as
+     exactly the same roster row. The one difference: an ID already on the
+     roster is skipped, not updated, because a typed ID carries no name
+     and a set-merge would blank the name the import put there. */
+  var quickNote = { text: "", err: false };
+
+  function quickAdd(){
+    var box = $("tQuickId"), note = $("tQuickNote"), btn = $("tQuickBtn");
+    var period = $("tQuickPeriod").value || "";
+    var text = (box.value || "").split(/[\s,;]+/).filter(Boolean).map(function(id){
+      return period ? id + "," + period : id;
+    }).join("\n");
+    function say(t, err){ note.className = "saveNote" + (err ? " err" : ""); note.textContent = t; }
+    if(!text){ say("Type an ID number first.", true); return; }
+
+    var p = GameCore.parseRoster(text);
+    var skipped = [];
+    var rows = p.rows.filter(function(r){
+      if(roster[r.email]){ skipped.push(r.id); return false; }
+      return true;
+    });
+    var bad = p.errors.map(function(e){ return e.message; });
+    if(!rows.length){
+      say(bad.length ? bad.join(" · ") : "Already on the roster: " + skipped.join(", "), true);
+      return;
+    }
+
+    var body = importBody(rows, Date.now());
+    var batch = db.batch();
+    Object.keys(body.roster).forEach(function(email){
+      batch.set(db.collection("roster").doc(email), body.roster[email], { merge:true });
+    });
+    Object.keys(body.assignments).forEach(function(uid){
+      batch.set(db.collection("assignments").doc(uid), body.assignments[uid], { merge:true });
+    });
+    if(body.periods.length){
+      batch.set(db.collection("config").doc("class"), { periods: allPeriods().concat(body.periods) }, { merge:true });
+    }
+    btn.disabled = true;
+    say("Adding…");
+    batch.commit().then(function(){
+      var msg = "Added " + rows.length + (rows.length === 1 ? " student" : " students") +
+        (skipped.length ? " · already on the roster: " + skipped.join(", ") : "") +
+        (bad.length ? " · left out: " + bad.join("; ") : "") +
+        ". Choose their games on the Assign tab.";
+      return loadAll().then(function(){
+        quickNote = { text: msg, err: false };
+        render();   // draws the note once, then renderGroups clears it
+      });
+    }).catch(function(){
+      btn.disabled = false;
+      say("Nothing added — check the network and try again.", true);
+    });
   }
 
   function addPeriod(){
