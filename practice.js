@@ -125,7 +125,10 @@ window.EIPractice = (function(){
         EIAuth.fail(LOAD_FAIL_TITLE, LOAD_FAIL_BODY);
         return;
       }
-      if(EIStore.myLists().indexOf(list.id) === -1){
+      /* A retired list is not in the teacher's preview, but the teacher
+         opening one off a student's page (or an old link) should land on
+         the game, not on a chooser that doesn't list it. */
+      if(EIStore.myLists().indexOf(list.id) === -1 && !(list.retired && EIStore.seesEverything())){
         chooser(here.length ? here : [list]);
         return;
       }

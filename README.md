@@ -105,8 +105,8 @@ The six families:
 
 | family | lists | modes |
 |---|---|---|
-| Starting Blends | 1 | 🎤 🃏 🎯 ⏱ 🔊 |
-| Blend Words | 1 | 🎤 🃏 🎯 ⏱ 🔊 |
+| Starting Blends | 1 | 🎤 🃏 🎯 (⏱ 🔊 retired) |
+| Blend Words | 1 | 🎤 🃏 🎯 (⏱ 🔊 retired) |
 | Nonsense Words | 1 | 🎤 🃏 ⏱ 🔊 |
 | oi / oy | 1 | 🎤 ⌨️ 🃏 🎯 |
 | Multisyllable | 1 | 🎤 🃏 🎯 ✂️ |
@@ -123,9 +123,8 @@ says only the hint, and tap-to-hear plays the sounds but not the word;
 One minute lists the missed words without reading them back; Blend It's
 reveal plays the sounds and stops. The student reads, the computer only
 listens. Say It and One minute read the word aloud for a while. The
-one-minute run and Blend It live only on the three short-word families,
-because a timed read and a sound-by-sound blend both want words a
-student can get through in a breath. Split It is only for the
+one-minute run and Blend It are offered only on Nonsense Words (see
+*Retired modes*). Split It is only for the
 multisyllable list, since it is the only list with syllable dots to check
 against. And the **red words** got a say-it mode late, after the reason
 they didn't have one turned out to be wrong — see *Say It for the red
@@ -149,6 +148,49 @@ and page they always did; `tests.html` pins each one by hand, because
 that is the single check standing between a refactor and a year of
 practice detached from the list it belongs to. `title` is the display
 name and can change freely.
+
+### Retired modes
+
+A family can list modes in `retired: [...]`. A retired mode stays in
+`modes`, so its entries and ids are still generated and still resolve.
+It is just no longer **offered**: `WordLists.offeredModesOf(family)` drops
+it, `idsOfList` / `idsOfFamily` (what column toggles use) leave its ids
+out, and `isRetired(id)` says which is which. `modesOf` and `idFor` stay
+complete, because the board has to show a retired mode a student still
+holds. Deleting the id instead would orphan their history and leave
+dangling ids in every stored assignment.
+
+Today that is **Blend it** and **One minute** on Starting Blends and
+Blend Words (25 list × mode combinations became 21). Reasons:
+
+- **Blend it** is for blending sounds into a word. On a 28–31 word list
+  of *real* words it is an easier Say it: a student who can read *clam*
+  gains nothing from hearing /k/ /l/ /a/ /m/ first. It stays on Nonsense
+  Words, where blending is the point.
+- **One minute** is a rate measure. A decent reader laps a 28–31 word
+  list twice, so the number is mostly noise. Nonsense Words has 40 words,
+  and the rate of *decoding* is the real question there.
+- **Red Words · Match It** is *not* retired. It is the only red-word
+  activity with no microphone and no self-report. It carries a teacher
+  tooltip instead (`hints` on the family, shown by `hintOf`): red words
+  are for reading on sight, and Match It gives the word by ear.
+
+What happens to a student who already has one:
+
+- Nothing, until the teacher unticks it. It stays in their assignment, on
+  their home page, and plays. Silently migrating would change what a
+  student sees without the teacher doing anything.
+- On the Assign board and the student picker it shows dashed with a
+  "Retired — still in this student's list" tooltip, and can be unticked.
+  It is never offered fresh: bulk pickers start empty and draw no box for
+  it, a column's *all* never adds it (unticking clears it), and "Ready to
+  move up" only suggests offered ids.
+- The teacher's own preview home page lists offered ids only; a game page
+  still opens for a retired id.
+- "Everything" in a description means everything on offer.
+
+To un-retire a mode, delete its string from `retired`. Nothing else
+changes.
 
 ### Adding to the library
 
@@ -1447,7 +1489,7 @@ when it's true, a line counting the students shown who have nothing.
 Each name carries *"3 games"* or a gold *nothing yet* under it.
 
 - **A cell click** opens the modes for that one list, ticked live.
-- **A column's all** sets every mode of that list for every *visible*
+- **A column's all** sets every offered mode of that list for every *visible*
   student — the period filter and the name search are what bound it, and
   that is the only thing standing between a mis-click and a class's worth
   of undone assignment.

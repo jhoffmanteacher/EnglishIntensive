@@ -28,6 +28,12 @@ Two things worth watching once it has had one:
   word was read right and the mic wrote something else, never a dropped
   or swapped sound. It holds one entry (*tent* ← "tenth").
 
+- **Consider Spell it for blends.** Hearing a word and typing it would
+  suit the blend lists. Separate plan.
+- **Consider one 59-word blends list** (Starting Blends and Blend Words
+  merged) so One minute has enough words. It is a new list id and a new
+  family decision, so it needs its own plan.
+
 ## Smaller
 
 - **`red-words-game.html` / `red-words-match-game.html` redirects.** Six
@@ -64,6 +70,20 @@ Two things worth watching once it has had one:
   where they belong — `RED_HOMOPHONES` reaches the say matcher, and
   `GameCore.normalize` folds a contraction and its expansion to the same
   string. Ten new ids (`red-N-say`) on the generic `say-game.html`.
+
+## Decided during the retire-modes build
+
+- **No default-modes shortcut exists**, so nothing needed changing for red
+  words to prefer Say it + Cards. Sequences and period defaults were
+  removed on 2026-10-08.
+- **The Assign board has one column per list, not per mode**, so the
+  "column header tooltip" for Red Words · Match It sits on the mode in the
+  cell popover and the picker header (`hints` on the family).
+- **"Everything" ignores retired ids.** A student with every offered id
+  still reads as "everything" in descriptions.
+- **A teacher can open a retired game page** even though their preview
+  home page no longer lists it, so a retired tile on a student's page is
+  still checkable.
 
 ## Decided during the roster build
 

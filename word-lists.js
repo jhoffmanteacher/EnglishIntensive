@@ -39,6 +39,19 @@
    `initial-blends`, `nonsense`, `oi-oy-read`, `oi-oy-spell`,
    `multisyllable`. `title` is the display name and can change freely.
 
+   ── Retired modes ─────────────────────────────────────────────────────
+   A family may list modes in `retired: [...]`. A retired mode is still in
+   `modes`, so the registry still generates its entries and its ids, and
+   everything that resolves an id (the game page, a student's history, an
+   assignment already stored) keeps working. What changes is that the
+   mode is no longer OFFERED: the Assign board and the pickers draw their
+   columns from offeredModesOf(), and nothing a teacher does in bulk adds
+   a retired id. A student who already holds one keeps it, and it plays,
+   until the teacher unticks it — nothing a student sees changes on its
+   own. This is the only way to take a mode out of circulation, because
+   deleting it would orphan the stats and leave dangling ids in every
+   assignment. Un-retiring is deleting one string from the array.
+
    ── Adding to the library ─────────────────────────────────────────────
    · another red list        one array in RED_LISTS. Nothing else.
    · another mode on a list  one key in that family's `modes`.
@@ -375,6 +388,11 @@ window.LIST_FAMILIES = [
     note: "Words that begin with a consonant blend — bl, cr, sl, tr.",
     description: "Words that begin with a consonant blend — bl, cr, sl, tr.",
     modes: ["say", "cards", "match", "fluency", "blendit"],
+    /* On a 28-word list of real words, Blend it is an easier Say it (a
+       student who can read "clam" gains nothing from hearing /k/ /l/ /a/
+       /m/ first) and a minute is lapped twice, so the rate is mostly
+       noise. Both stay on Nonsense Words, where they are the point. */
+    retired: ["blendit", "fluency"],
     pages: { say: "initial-blends-game.html" },
     modeConfig: {
       say: { blend: "start", theme: "maze" }
@@ -395,6 +413,7 @@ window.LIST_FAMILIES = [
     note: "Words that end with a consonant blend — the hard half of a blend, because the sounds run together on the way out.",
     description: "Words that end with a consonant blend — soft, pond, risk, milk.",
     modes: ["say", "cards", "match", "fluency", "blendit"],
+    retired: ["blendit", "fluency"],   // same reasons as Starting Blends, above
     pages: { say: "blend-words-game.html" },
     modeConfig: {
       say: { blend: "end", theme: "race" }
@@ -571,6 +590,11 @@ window.LIST_FAMILIES = [
        where they belong (RED_HOMOPHONES below, and the contraction fold
        in GameCore.normalize), not by leaving the mode out. */
     modes: ["say", "cards", "match"],
+    /* Teacher-facing one-liners, shown as a tooltip on the mode wherever
+       the board or a picker names it. Match It stays here as the no-mic
+       option, but it is not what red words are for: it gives the student
+       the word by ear, and the goal is reading it on sight. */
+    hints: { match: "No-mic option. Red words are for reading on sight; Match It gives the word by ear." },
     modeConfig: {
       say: {
         blend: "start", blendLength: 0, theme: "race",
@@ -624,6 +648,7 @@ window.WORD_LISTS = (function(){
           family: fam.key,
           listNum: list.n,
           mode: modeKey,
+          retired: !!fam.retired && fam.retired.indexOf(modeKey) !== -1,
           engine: mode.engine,
           section: fam.section,
           page: page,
@@ -668,7 +693,7 @@ window.WordLists = (function(){
   }
 
   function idsOfList(familyKey, listNum){
-    return all.filter(function(l){ return l.family === familyKey && l.listNum === listNum; })
+    return all.filter(function(l){ return l.family === familyKey && l.listNum === listNum && !l.retired; })
               .map(function(l){ return l.id; });
   }
   return {
@@ -714,6 +739,25 @@ window.WordLists = (function(){
       if(!fam) return [];
       return fam.modes.map(function(k){ return MODES[k]; }).filter(Boolean);
     },
+    /* modesOf minus the retired ones: what the board and the pickers
+       OFFER. modesOf stays complete because a student may still hold a
+       retired mode and the teacher has to be able to see it. */
+    offeredModesOf: function(familyKey){
+      var fam = familyOf(familyKey);
+      if(!fam) return [];
+      return fam.modes.filter(function(k){ return !fam.retired || fam.retired.indexOf(k) === -1; })
+                      .map(function(k){ return MODES[k]; }).filter(Boolean);
+    },
+    // A family's one-line teacher note on a mode ("" when it has none).
+    hintOf: function(familyKey, modeKey){
+      var fam = familyOf(familyKey);
+      return (fam && fam.hints && fam.hints[modeKey]) || "";
+    },
+    // True for an id whose mode its family has retired. Unknown ids: false.
+    isRetired: function(id){
+      var l = index[id];
+      return !!(l && l.retired);
+    },
 
     /* Where a tile should link. cards-game.html and match-game.html serve
        every family, so they have to be told which list to play; a page
@@ -749,11 +793,12 @@ window.WordLists = (function(){
       }
       return null;
     },
-    // Every id in one family — what a column toggle on the board sets.
+    // Every OFFERED id in one family — what a column toggle on the board
+    // sets. Retired ids are left out, so no bulk action can add one.
     idsOfFamily: function(familyKey){
-      return all.filter(function(l){ return l.family === familyKey; }).map(function(l){ return l.id; });
+      return all.filter(function(l){ return l.family === familyKey && !l.retired; }).map(function(l){ return l.id; });
     },
-    // Every id for one list of one family, across its modes.
+    // Every offered id for one list of one family, across its modes.
     idsOfList: idsOfList,
 
     /* ── describing an assignment ─────────────────────────────────────
@@ -779,7 +824,9 @@ window.WordLists = (function(){
     describeAssignment: function(ids){
       var have = haveSet(ids);
       if(!have.n) return "nothing";
-      if(have.n === all.length) return "everything";
+      // "Everything" means everything on offer: a retired id a student
+      // still holds doesn't stop a full set from reading as full.
+      if(offeredAll(have)) return "everything";
       var parts = [];
       window.LIST_FAMILIES.forEach(function(fam){
         var part = familyPart(fam, have);
@@ -788,6 +835,10 @@ window.WordLists = (function(){
       return parts.join(" · ");
     }
   };
+
+  function offeredAll(have){
+    return all.every(function(l){ return l.retired || have[l.id]; });
+  }
 
   /* The ids a caller handed us as a lookup: unknown ids dropped, repeats
      collapsed, and `n` the count of what actually survived — which is

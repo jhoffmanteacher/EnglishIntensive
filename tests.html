@@ -877,6 +877,8 @@
        E({ period:"3" }, { lists:["c"] }).join(","), "c");
     eq("a student's OWN assignment beats the roster", E({ lists:["d"] }, { lists:["c"] }).join(","), "d");
     eq("a roster row with no lists changes nothing", E(null, { name:"Ana" }).length, 0);
+    eq("a retired id a student already holds is still theirs",
+       E({ lists:["initial-blends","blends-start-1-blendit"] }, null).join(","), "initial-blends,blends-start-1-blendit");
     eq("the returned array is a copy, not the stored one",
        (function(){ var a = { lists:["a"] }; E(a, null).push("x"); return a.lists.length; })(), 1);
   })();
@@ -2496,7 +2498,9 @@
     var drift = [];
     W.families().forEach(function(fam){
       W.listNumsOf(fam.key).forEach(function(n){
-        var ids = W.idsOfList(fam.key, n);
+        // Every entry, retired or not: a retired mode still plays the list.
+        var ids = W.all.filter(function(l){ return l.family === fam.key && l.listNum === n; })
+                       .map(function(l){ return l.id; });
         var first = W.wordsOf(ids[0]).join("|");
         ids.slice(1).forEach(function(id){ if(W.wordsOf(id).join("|") !== first) drift.push(id); });
       });
@@ -2581,6 +2585,28 @@
     eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-say,red-3-cards,red-3-match");
     eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 30);
 
+    /* ── retired modes: out of circulation, never out of the registry ── */
+    ["blends-start-1-blendit","blends-start-1-fluency","blends-end-1-blendit","blends-end-1-fluency"].forEach(function(id){
+      eq(id + " still exists and resolves", W.exists(id) && W.byId(id).family.indexOf("blends") === 0, true);
+      eq(id + " is retired", W.isRetired(id), true);
+      eq(id + " still has a page", /\.html$/.test(W.hrefOf(id).split("?")[0]), true);
+    });
+    eq("a live id is not retired", W.isRetired("blends-start-1-match"), false);
+    eq("Red Words Match It carries the no-mic note", /No-mic option/.test(W.hintOf("red", "match")), true);
+    eq("…and nothing else has a note it shouldn't", W.hintOf("red", "cards") + W.hintOf("nonsense", "match"), "");
+    eq("a family with no retired key is unchanged", W.isRetired("nonsense-1-blendit") || W.isRetired("red-1-match"), false);
+    eq("an unknown id is not retired", W.isRetired("no-such-id"), false);
+    eq("modesOf still lists every blends mode", W.modesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,cards,match,fluency,blendit");
+    eq("offeredModesOf drops the retired ones", W.offeredModesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,cards,match");
+    eq("…in the other blends family too", W.offeredModesOf("blends-end").map(function(m){ return m.key; }).join(","), "say,cards,match");
+    eq("a family with no retired key offers everything it has",
+       W.offeredModesOf("nonsense").map(function(m){ return m.key; }).join(","), W.modesOf("nonsense").map(function(m){ return m.key; }).join(","));
+    eq("offeredModesOf of an unknown family is empty", W.offeredModesOf("nope").length, 0);
+    eq("idsOfList leaves the retired out", W.idsOfList("blends-start", 1).join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
+    eq("idsOfFamily leaves the retired out", W.idsOfFamily("blends-end").join(","), "final-blends,blends-end-1-cards,blends-end-1-match");
+    eq("idFor still finds a retired id (the board needs it to show one)", W.idFor("blends-start", 1, "blendit"), "blends-start-1-blendit");
+    eq("nonsense keeps Blend it and One minute", W.idsOfList("nonsense", 1).join(","), "nonsense,nonsense-1-cards,nonsense-1-fluency,nonsense-1-blendit");
+
     eq("a shared page needs a ?list=", W.hrefOf("red-3-match"), "match-game.html?list=red-3-match");
     eq("a page that serves one list doesn't", W.hrefOf("final-blends"), "blend-words-game.html");
     eq("hrefOf() of an unknown id is a harmless '#'", W.hrefOf("nope"), "#");
@@ -2645,6 +2671,10 @@
        W.describeFamily("red", ["red-1-cards","red-2-cards","red-1-match","initial-blends"]), "1–2 🃏 · 1 🎯");
     eq("describeFamily of a family with nothing in it is empty",
        W.describeFamily("multi", ["nonsense"]), "");
+    eq("a full set of what is on offer still reads as everything",
+       W.describeAssignment(W.all.filter(function(l){ return !l.retired; }).map(function(l){ return l.id; })), "everything");
+    eq("…and a held retired id doesn't change that",
+       W.describeAssignment(W.ids), "everything");
     eq("describeFamily ignores ids from other families",
        W.describeFamily("nonsense", ["nonsense","red-1-cards"]), "🎤");
   })();
@@ -2877,6 +2907,49 @@
     var back = 'p:Sup\\port';
     host.innerHTML = T.pickerHtml(back, ["red-3-cards"], false);
     eq("a scope id with a backslash doesn't throw", T.scopeSelection(back).join(","), "red-3-cards");
+
+    /* ---- retired modes on the board and in the picker ---- */
+    function boxIds(html){
+      host.innerHTML = html;
+      return [...host.querySelectorAll("input[data-list]")].map(function(cb){ return cb.dataset.list; });
+    }
+    var blendsIds = function(ids){ return ids.filter(function(id){ return id.indexOf("blends-start") === 0 || id === "initial-blends"; }); };
+    eq("a picker offers three modes for Starting Blends",
+       blendsIds(boxIds(T.pickerHtml("p", [], false))).join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
+    eq("a bulk picker (nothing held) has no box for a retired id at all",
+       boxIds(T.pickerHtml("bulk", [], false)).filter(function(id){ return W.isRetired(id); }).length, 0);
+    eq("Nonsense Words still offers Blend it and One minute",
+       boxIds(T.pickerHtml("p", [], false)).filter(function(id){ return id.indexOf("nonsense") === 0; }).join(","),
+       "nonsense,nonsense-1-cards,nonsense-1-fluency,nonsense-1-blendit");
+    var heldHtml = T.pickerHtml("p", ["blends-start-1-blendit"], false);
+    eq("a retired id that is held still gets its box…",
+       blendsIds(boxIds(heldHtml)).indexOf("blends-start-1-blendit") !== -1, true);
+    eq("…ticked", host.querySelector('input[data-list="blends-start-1-blendit"]').checked, true);
+    eq("…and marked retired, with its tooltip",
+       /Retired/.test(host.querySelector('input[data-list="blends-start-1-blendit"]').parentNode.title), true);
+    host.querySelector('[data-pk-fam="p|blends-start|none"]').click();
+    eq("'none' on the family unticks a retired box too",
+       host.querySelector('input[data-list="blends-start-1-blendit"]').checked, false);
+    host.querySelector('[data-pk-fam="p|blends-start|all"]').click();
+    eq("'all' on the family does not tick it again",
+       host.querySelector('input[data-list="blends-start-1-blendit"]').checked, false);
+    eq("…but ticks the live ones",
+       host.querySelector('input[data-list="blends-start-1-match"]').checked, true);
+
+    T.feed({ students: aClass().students,
+             assignments: { u1: { lists: ["blends-start-1-blendit", "initial-blends"] }, u2: {}, u3: {}, u4: {} },
+             classCfg: aClass().classCfg });
+    eq("the board still shows a held retired mode in the cell",
+       T.cellText("s:u1", colFor("blends-start", 1)), "🎤🔊");
+    eq("…the dashboard's student view still reports it", T.effectiveLists("u1").ids.indexOf("blends-start-1-blendit") !== -1, true);
+    T.columnToggle(colFor("blends-start", 1));
+    eq("a column 'all' never adds a retired id",
+       T.scopeView("s:u2").join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
+    eq("…and leaves the one a student already holds alone",
+       T.scopeView("s:u1").indexOf("blends-start-1-blendit") !== -1, true);
+    T.columnToggle(colFor("blends-start", 1));
+    eq("pressing it again clears the held retired id as well",
+       T.scopeView("s:u1").indexOf("blends-start-1-blendit"), -1);
 
     host.innerHTML = "";
   })();
