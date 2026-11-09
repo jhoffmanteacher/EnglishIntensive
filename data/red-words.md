@@ -3,15 +3,15 @@
 Source: SUHSD High-Frequency "Irregular/Red Word" Screener — Teacher Form
 (OGI Curriculum by Jarice, © for limited non-profit/student use).
 
-Ten lists of 20 words each, 200 words total, ordered roughly by difficulty
-(Lists 1–4 are common sight words; Lists 9–10 lean into multisyllabic and
-Tier 2/3 vocabulary). The site plays them from `RED_LISTS` in
-`word-lists.js`, which registers each list three times — as flash cards
-(`red-N-cards`), as Match It (`red-N-match`) and as Say it
-(`red-N-say`) — so the teacher can assign any of them per list. This file stays the source of record, so a
-correction here belongs in that array too.
+Ten lists of 20 words, 200 words total, ordered roughly by difficulty (Lists
+1–4 are common sight words; Lists 9–10 lean into multisyllabic and Tier 2/3
+vocabulary). The site plays them from `RED_LISTS` in `word-lists.js`, which
+registers each list three times — as flash cards (`red-N-cards`), Match It
+(`red-N-match`) and Say it (`red-N-say`) — so the teacher can assign any of
+them per list. This file is the source of record, so a correction here
+belongs in that array too.
 
-Each word below is stored exactly as printed on the screener, including
+Each word is stored exactly as printed on the screener, including
 apostrophes and capitalization (e.g. `Mrs.`, `Mr.`, `they'd`, `you're`).
 
 ## Red Word List 1
@@ -59,20 +59,19 @@ cologne, resumé, resume, boutique, fair, pair, fought, eye, show, small, about,
 ## Notes on the lists
 
 - 10 lists × 20 words = 200 words total.
-- Original screener scores students out of 20 per list, out of 80 for lists
-  1–4 (page 1), out of 80 for lists 5–8 (page 2), out of 40 for lists 9–10
-  (page 3), and out of 200 overall — that scoring rubric maps to approximate
-  grade-level benchmarks (K–5) and could inform difficulty tiers if the game
-  wants to group words by list number.
-- Four words repeat across lists as printed on the original screener:
-  `you` (Lists 1 and 5), `friend` (3 and 9), `sure` (4 and 9) and `enough`
-  (6 and 9) — so the 200 entries are 196 distinct words. They're kept as-is
-  rather than de-duplicated here, since list identity matters: a word can be
-  worth re-testing at a harder point in the screener. The game deduplicates
-  only within a single round, which is what its "All words" deck (196) and
-  its random "Mixed" deck use.
-- Words carrying punctuation (`Mrs.`, `Mr.`, contractions like `aren't`,
-  `they'd`, `you're`) would need special handling in a typing-based game
-  (e.g. accepting the answer with or without the apostrophe/period). The
+- The original screener scores students out of 20 per list, 80 for lists 1–4
+  (page 1), 80 for lists 5–8 (page 2), 40 for lists 9–10 (page 3), and 200
+  overall. That rubric maps to approximate grade-level benchmarks (K–5) and
+  could inform difficulty tiers if the game wants to group words by list
+  number.
+- Four words repeat across lists as printed on the screener: `you` (Lists 1
+  and 5), `friend` (3 and 9), `sure` (4 and 9) and `enough` (6 and 9), so
+  the 200 entries are 196 distinct words. They're kept as-is because list
+  identity matters: a word can be worth re-testing at a harder point in the
+  screener. The game deduplicates only within a single round, which is what
+  its "All words" deck (196) and random "Mixed" deck use.
+- Words carrying punctuation (`Mrs.`, `Mr.`, contractions like `aren't`, `they'd`,
+  `you're`) would need special handling in a typing-based game (e.g.
+  accepting the answer with or without the apostrophe/period). The
   flash-card game never compares them against anything a student typed or
-  said, so they cost it nothing — it just prints and speaks them as written.
+  said, so they cost it nothing; it prints and speaks them as written.

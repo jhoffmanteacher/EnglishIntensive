@@ -2,11 +2,11 @@
 
 The site needs a Firebase project for two things: Google sign-in, and one
 small database of student practice records. This is a **new, separate
-project** from the guitar-class one, so reading-class data and guitar data
-never share a database or a rules file.
+project** from the guitar-class one, so reading-class and guitar data never
+share a database or a rules file.
 
-Free tier covers a class of this size many times over — the whole class
-generates a few hundred document writes a day against a 20,000/day quota.
+The free tier covers a class this size many times over: a few hundred
+document writes a day against a 20,000/day quota.
 
 Budget about ten minutes. Steps 1–5 are the console; step 6 is this repo.
 
@@ -17,10 +17,10 @@ Budget about ten minutes. Steps 1–5 are the console; step 6 is this repo.
 1. Go to <https://console.firebase.google.com> and sign in as
    **jhoffman@seq.org**.
 2. **Create a project** → name it `english-intensive`. Firebase adds a
-   suffix to make the project *id* unique — ours is
-   `english-intensive-98d00`, and that is the id every command below
-   wants, not the name typed here.
-3. Google Analytics: **turn it off**. Nothing here uses it and it's one
+   suffix to make the project *id* unique. Ours is
+   `english-intensive-98d00`, and that is the id every command below wants,
+   not the name typed here.
+3. Google Analytics: **turn it off**. Nothing here uses it, and it's one
    fewer consent question about student data.
 4. Wait for "Your new project is ready" → **Continue**.
 
@@ -31,50 +31,49 @@ Budget about ten minutes. Steps 1–5 are the console; step 6 is this repo.
 3. Support email: pick your own address. **Save**.
 4. Leave every other provider **disabled**. Email/Password in particular:
    the rules trust `email_verified`, and an unverified provider is the one
-   way an outside account could ever look like a school one.
+   way an outside account could look like a school one.
 
 ## 3. Authorize the site's domain
 
 Still in **Authentication** → **Settings** tab → **Authorized domains**.
 
-Add the domain the site is served from — for GitHub Pages that's
+Add the domain the site is served from. For GitHub Pages that's
 `jhoffmanteacher.github.io`. `localhost` is already on the list, which is
 what makes Live Server work.
 
-Sign-in fails with `auth/unauthorized-domain` if this is missed. That is
-the single most common setup mistake.
+Missing this gives `auth/unauthorized-domain` at sign-in, the most common
+setup mistake.
 
 ## 4. Create the database
 
 1. Left sidebar → **Build → Firestore Database** → **Create database**.
-2. Location: **nam5 (us-central)** — or any US multi-region.
+2. Location: **nam5 (us-central)**, or any US multi-region.
 3. Start in **production mode** (locked). The next step replaces the rules
-   anyway, and starting locked means there is never a window where the
-   database is world-readable.
+   anyway, and starting locked means the database is never world-readable.
 
 ## 5. Publish the rules
 
 1. Firestore Database → **Rules** tab.
-2. Open `firestore.rules` from this repo, copy the whole file, paste it
-   over whatever is in the box, **Publish**.
+2. Open `firestore.rules` from this repo, copy the whole file, paste it over
+   whatever is in the box, **Publish**.
 
-**This is the actual security of the site.** Everything else — the
-sign-in wall, the @seq.org check, the teacher dashboard's account check —
-runs in the student's own browser and can be switched off from DevTools.
-These rules run on Google's servers and cannot.
+**This is the actual security of the site.** Everything else — the sign-in
+wall, the @seq.org check, the teacher dashboard's account check — runs in
+the student's own browser and can be switched off from DevTools. These rules
+run on Google's servers and cannot.
 
-Re-paste them any time `firestore.rules` changes in the repo. GitHub Pages
-does not deploy rules; nothing does but this box.
+Re-paste them whenever `firestore.rules` changes. GitHub Pages does not
+deploy rules; only this box does.
 
-A machine can do it instead of a person, but only where the Firebase CLI
-has already been logged in:
+A machine can do it instead, but only where the Firebase CLI is already
+logged in:
 
 ```
 firebase deploy --only firestore:rules --project english-intensive-98d00
 ```
 
-`firebase projects:list` says whether it is. Logging in needs a browser,
-so on a headless machine this is a person's job.
+`firebase projects:list` says whether it is. Logging in needs a browser, so
+on a headless machine this is a person's job.
 
 ## 6. Fill in `firebase-config.js`
 
@@ -88,8 +87,8 @@ so on a headless machine this is a person's job.
    `PASTE_..._HERE` placeholders. Commit and push.
 
 These values are **not secrets**. A Firebase web config ships to every
-browser that loads the site; it names the project, it doesn't authorise
-anything. The rules are what decide who may read what.
+browser that loads the site; it names the project and authorises nothing.
+The rules decide who may read what.
 
 ## 7. Check it
 
@@ -98,37 +97,36 @@ anything. The rules are what decide who may read what.
    "Teacher dashboard →" link under the tiles.
 3. Play one round of any game. Back in the console, **Firestore Database →
    Data** should now show a `students` collection with one document.
-4. Open the dashboard — you should be the only row.
+4. Open the dashboard. You should be the only row.
 
 If sign-in bounces you back to the wall with a message about a personal
-account, you're signed in to Chrome as a personal Google account: pick the
-@seq.org one in the popup.
+account, Chrome is signed in to a personal Google account. Pick the @seq.org
+one in the popup.
 
 ---
 
 ## Later: adding or removing a teacher
 
-Teacher accounts are listed in two places that must agree:
-`TEACHER_EMAILS` in `firebase-config.js`, and the list inside
-`isTeacher()` in `firestore.rules`. Both currently hold
-`jhoffman@seq.org`, `atalesnick@seq.org` and `nstuart@seq.org`.
+Teacher accounts are listed in two places that must agree: `TEACHER_EMAILS`
+in `firebase-config.js`, and the list inside `isTeacher()` in
+`firestore.rules`. Both currently hold `jhoffman@seq.org`,
+`atalesnick@seq.org` and `nstuart@seq.org`.
 
 To change who has access, edit both lists to match, then **re-paste
 `firestore.rules` into the console and Publish**. The repo edit alone does
-nothing — the console is the only thing that deploys rules.
+nothing; only the console deploys rules.
 
-Remember which of the two is real. `firebase-config.js` decides whether
-the dashboard renders; the rules decide whether the database answers it.
-Adding an address to the config alone gives someone a dashboard that
-loads nothing. Adding it to the rules alone is the one that actually
-grants access — a rules list that is wider than the config is a silent
-grant with no UI to show for it.
+Know which list is real. `firebase-config.js` decides whether the dashboard
+renders; the rules decide whether the database answers it. An address added
+to the config alone gets a dashboard that loads nothing. An address added to
+the rules alone is the one that actually grants access, and a rules list
+wider than the config is a silent grant with no UI to show for it.
 
-Every address on the list can read every student's practice record. It is
-a real grant, not a display setting.
+Every address on the list can read every student's practice record. It is a
+real grant, not a display setting.
 
 ## Later: a different school domain
 
-`seq.org` appears in three places: `ALLOWED_DOMAIN` in
-`firebase-config.js`, the `matches()` pattern in `firestore.rules`, and
-the `isTeacher()` address. Change all three, republish the rules.
+`seq.org` appears in three places: `ALLOWED_DOMAIN` in `firebase-config.js`,
+the `matches()` pattern in `firestore.rules`, and the `isTeacher()` address.
+Change all three, then republish the rules.

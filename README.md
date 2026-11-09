@@ -1,15 +1,15 @@
 # English Intensive
 
 Plain static HTML/JS games and activities for English language practice.
-No build step and no dependencies. The audience is **9th–10th graders in
+No build step, no dependencies. The audience is **9th–10th graders in
 reading intervention** — older students practising skills usually taught
-younger, so every visual and every line of copy stays age-respectful:
+younger, so every visual and line of copy stays age-respectful:
 arcade/neon fictions, no grade labels, no elementary-coded imagery or
 phrasing ("Multisyllable Words", not "Big Words").
 
-Serve it over HTTPS (GitHub Pages) or `http://localhost` — **not** by opening
-the files off disk. Chrome's speech recognition and microphone access both
-require a secure context, so the games will not listen from a `file://` URL.
+Serve it over HTTPS (GitHub Pages) or `http://localhost`, **not** off disk.
+Chrome's speech recognition and microphone both require a secure context,
+so the games will not listen from a `file://` URL.
 
 ```bash
 python3 -m http.server 8000
@@ -17,41 +17,36 @@ python3 -m http.server 8000
 
 ## The overview page
 
-`overview.html` is this same site described for a **reading teacher**
-rather than for whoever is editing it: what students practise, what each
-mode asks of them, what the dashboard reports, and what the site
-deliberately does not do. It is served from the repo like every other
-page —
+`overview.html` is this site described for a **reading teacher** rather than
+an editor: what students practise, what each mode asks, what the dashboard
+reports, and what the site deliberately does not do. It is served from the
+repo like every other page —
 
     https://jhoffmanteacher.github.io/EnglishIntensive/overview.html
 
 — and that is the link to hand somebody.
 
-It is a page of the site, but not one of the games. No `auth.js`, because
-the person reading it does not have an account and shouldn't need one; no
-JavaScript at all, which its CSP states outright (`script-src 'none'`).
-The body face is the self-hosted Atkinson Hyperlegible that `site.css`
-serves, for the same reason it is self-hosted there.
+Not one of the games: no `auth.js` (the reader has no account and shouldn't
+need one) and no JavaScript, which its CSP states outright
+(`script-src 'none'`). The body face is the self-hosted Atkinson
+Hyperlegible that `site.css` serves.
 
-**The file is the published page.** There is no second copy anywhere, so
-the committed version and the version a teacher is reading are the same
-thing by construction. That is the whole reason it lives here rather than
-being published somewhere else and kept in step by hand — the keeping in
-step is what fails.
+**The file is the published page.** There is no second copy, so the committed
+version and the one a teacher reads are the same by construction. That is
+why it lives here: publishing elsewhere and keeping it in step by hand is
+what fails.
 
 The masthead carries an **Updated &lt;date&gt;** stamp, and moving it is part
 of changing the page: a summary of a moving target is worth only as much as
 the reader's ability to tell how old it is.
 
-Keeping it true is the rest of the job. Anything a teacher would notice — a
-new mode, a new family, a changed rule about how rounds are drawn or what
-unlocks, a claim about what a number means — belongs in the same commit as
-the code that changed it. `CLAUDE.md` carries the same instruction, which is
-what makes it happen.
+Anything a teacher would notice — a new mode or family, a changed rule about
+how rounds are drawn or what unlocks, a claim about what a number means —
+goes in the same commit as the code. `CLAUDE.md` says the same.
 
-The two documents divide by audience and nothing else. This file explains
-why the code is shaped the way it is; that one explains what the site does
-to a reader who will never open it.
+The two documents divide by audience only: this one explains why the code
+is shaped as it is; that one explains what the site does to a reader who
+will never open it.
 
 ## Accounts
 
@@ -60,21 +55,20 @@ Every page is behind a Google sign-in wall (`auth.js`), restricted to
 per-student list assignment possible, so there is no guest mode.
 
 Set the project up once with **`SETUP-FIREBASE.md`** — until
-`firebase-config.js` has real values in it, every page shows a
-"sign-in isn't set up yet" panel instead of the games.
+`firebase-config.js` has real values, every page shows a "sign-in isn't set
+up yet" panel instead of the games.
 
 The @seq.org restriction, the teacher-account check and the wall itself
-are all client-side and all bypassable from DevTools. `firestore.rules`
-is the half that actually enforces any of it — see the header of that
-file, and re-publish it in the Firebase console whenever it changes.
-Nothing else deploys it.
+are client-side and bypassable from DevTools. `firestore.rules` is the half
+that actually enforces any of it — see the header of that file, and
+re-publish it in the Firebase console whenever it changes. Nothing else
+deploys it.
 
 ## Word lists
 
 `word-lists.js` is the single source of truth for what a practice list
-**is**. Three things have to agree about them (the game page that plays
-one, the home page that advertises it, the dashboard that assigns it), so
-they are defined once.
+**is**. The game page that plays a list, the home page that advertises it
+and the dashboard that assigns it have to agree, so it is defined once.
 
 ### Families and modes
 
@@ -95,11 +89,10 @@ come with it:
 The red words worked this way first: the same "List 3" as flash cards
 *or* as Match It, because knowing *would* on sight and picking it out of
 six look-alikes are different skills and a student can have one without
-the other. That is true of every list here, not only the red ones —
-reading *moist* cold, spelling it, and finding it in a row of look-alikes
-are three separate things to be good at. So the registry generates **one
-entry per (family, list, mode)**, each with its own id and therefore its
-own stats.
+the other. That holds for every list — reading *moist* cold, spelling it,
+and finding it among look-alikes are three separate things. So the
+registry generates **one entry per (family, list, mode)**, each with its
+own id and therefore its own stats.
 
 The six families:
 
@@ -112,31 +105,29 @@ The six families:
 | Multisyllable | 1 | 🎤 🃏 🎯 ✂️ |
 | Red Words | 10 | 🎤 🃏 🎯 |
 
-Some of the gaps are deliberate. **Nonsense words** have no Match It:
-that game works by *saying* a word and asking the student to find it, and
-a synthesiser handed "vab" doesn't say "vab", it guesses — often enough
-as "verb" that the answer key would be wrong. A list with no meanings can
-only be read, not heard. Every one of its modes runs with `speak: false`
-for the same reason: the cards' flip shows the word without pronouncing
-it; Say It has no Hear it button or H key, its reveal shows the word and
-says only the hint, and tap-to-hear plays the sounds but not the word;
-One minute lists the missed words without reading them back; Blend It's
-reveal plays the sounds and stops. The student reads, the computer only
+Some gaps are deliberate. **Nonsense words** have no Match It: that game
+*says* a word and asks the student to find it, and a synthesiser handed
+"vab" guesses — often "verb", so the answer key would be wrong. A list with
+no meanings can only be read, not heard. Every one of its modes runs with
+`speak: false` for the same reason: the cards' flip shows the word without
+pronouncing it; Say It has no Hear it button or H key, its reveal shows the
+word and says only the hint, and tap-to-hear plays the sounds but not the
+word; One minute lists the missed words without reading them back; Blend
+It's reveal plays the sounds and stops. The student reads, the computer only
 listens. Say It and One minute read the word aloud for a while. The
 one-minute run and Blend It are offered only on Nonsense Words (see
-*Retired modes*). Split It is only for the
-multisyllable list, since it is the only list with syllable dots to check
-against. And the **red words** got a say-it mode late, after the reason
-they didn't have one turned out to be wrong — see *Say It for the red
-words* below.
+*Retired modes*). Split It is only for the multisyllable list, the only list
+with syllable dots to check against. The **red words** got a say-it mode
+late, after the reason they lacked one proved wrong — see *Say It for the
+red words* below.
 
 ### Ids are permanent
 
-An id is half of every Firestore stat key (`"<id>|<word>"`) and it is
-what an assignment stores, so renaming one orphans a class's history.
-Generated ids are `<family>-<n>-<mode>` — `red-3-cards`,
-`multi-1-match`. A family's `ids` map overrides that per mode, and every
-id that predates families is pinned there, unchanged:
+An id is half of every Firestore stat key (`"<id>|<word>"`) and is what an
+assignment stores, so renaming one orphans a class's history. Generated
+ids are `<family>-<n>-<mode>` — `red-3-cards`, `multi-1-match`. A family's
+`ids` map overrides that per mode, and every id that predates families is
+pinned there, unchanged:
 
 ```js
 lists: [{ n:1, ids:{ say:"oi-oy-read", spell:"oi-oy-spell" }, words: OI_OY_WORDS }]
@@ -144,10 +135,9 @@ lists: [{ n:1, ids:{ say:"oi-oy-read", spell:"oi-oy-spell" }, words: OI_OY_WORDS
 
 `final-blends`, `initial-blends`, `nonsense`, `oi-oy-read`,
 `oi-oy-spell` and `multisyllable` all still resolve to exactly the engine
-and page they always did; `tests.html` pins each one by hand, because
-that is the single check standing between a refactor and a year of
-practice detached from the list it belongs to. `title` is the display
-name and can change freely.
+and page they always did; `tests.html` pins each by hand, the single check
+between a refactor and a year of practice detached from its list. `title`
+is the display name and can change freely.
 
 ### Retired modes
 
@@ -182,9 +172,12 @@ What happens to a student who already has one:
   student sees without the teacher doing anything.
 - On the Assign board and the student picker it shows dashed with a
   "Retired — still in this student's list" tooltip, and can be unticked.
-  It is never offered fresh: bulk pickers start empty and draw no box for
-  it, a column's *all* never adds it (unticking clears it), and "Ready to
-  move up" only suggests offered ids.
+  It is never offered fresh: bulk add and replace never grant one, a
+  column's *all* never adds it (unticking clears it), the family and
+  popover *all* leave a held one ticked, and "Ready to move up" and the
+  next-step rules ignore it. The bulk dialog draws a box for a retired id
+  only when a selected student holds one, so **Take these away** can clear
+  it for a whole period.
 - The teacher's own preview home page lists offered ids only; a game page
   still opens for a retired id.
 - "Everything" in a description means everything on offer.
@@ -203,51 +196,49 @@ changes.
   `blend-it-game.html` — so nothing new is needed unless the family wants
   list-specific coaching on its start screen. The five phonics families
   name their own say-it page in `pages` for that reason (the oi/oy rule
-  box, the blend explainer), and `spell` has no shared page at all: the
-  only list with a spelling mode carries the oi/oy rule box.
+  box, the blend explainer), and `spell` has no shared page: the only list
+  with a spelling mode carries the oi/oy rule box.
 
 `config` is what every mode of the family passes to its engine;
 `modeConfig[mode]` is what only that mode passes, and it wins on a clash.
-The home page and the dashboard pick all of it up with no further edits.
+The home page and the dashboard pick it all up with no further edits.
 
 Helpers on `WordLists`: `families()`, `familyOf()`, `modesOf(family)`,
 `listNumsOf(family)`, `idFor(family, n, mode)`, `idsOfList(family, n)`,
 `idsOfFamily(family)`, `hrefOf(id)`, and the pure `describeAssignment(ids)`
 / `describeFamily(family, ids)` that turn a set of ids into the one line
 the roster, the picker and the board all show: *"Starting Blends: 🎤🃏 ·
-Red Words: 1–3 🃏 · 1 🎯"*. A family with one list has nothing useful to
-say about *which* list, so it prints only the modes; a family with ten
-prints the list numbers per mode, as ranges, so ten ticked boxes read as
-"1–10" rather than as ten numbers.
+Red Words: 1–3 🃏 · 1 🎯"*. A family with one list prints only the modes;
+a family with ten prints the list numbers per mode, as ranges ("1–10", not
+ten numbers).
 
 ### Heart letters
 
-A red word is irregular, but it is rarely irregular all the way through.
-"said" is s + d with one impossible middle; "could" is c + d with one. The
-lists mark that middle with braces — `"s{ai}d"`, `"c{oul}d"` — and the
-flash cards show it in red on the **back** of the card, under "Remember the red
-letters. They don't sound the way they look." The front stays plain: the card has to be read
-cold first.
+A red word is rarely irregular all the way through: "said" is s + d around
+one impossible middle. The lists mark that middle with braces — `"s{ai}d"`,
+`"c{oul}d"` — and the flash cards show it in red on the **back**, under
+"Remember the red letters. They don't sound the way they look." The front
+stays plain: the card must be read cold first.
 
-The point is the size of the thing being memorised. "Learn s-a-i-d" is four
-letters with no pattern. "Learn that *said* has an **ai** in the middle" is
-one chunk, and the s and the d are just reading.
+The point is the size of the thing memorised. "Learn s-a-i-d" is four
+letters with no pattern; "*said* has an **ai** in the middle" is one chunk,
+and the s and the d are just reading.
 
-Marks are display only and stack with the syllable dots (`"al{th}·ough"` is
-legal). `GameCore.parseEntry` returns `{ word, chunks, heart }` — the heart
-ranges index the **plain** word, apostrophes and periods included — and
+Marks are display only and stack with the syllable dots (`"al{th}·ough"`).
+`GameCore.parseEntry` returns `{ word, chunks, heart }` — the heart ranges
+index the **plain** word, apostrophes and periods included — and
 `WordLists.plain()` strips braces as well as dots. Everything that stores or
-matches a word sees the plain form, so adding the marks changed no stat key;
+matches a word sees the plain form, so the marks changed no stat key;
 `tests.html` pins all ten red lists' `wordsOf()` byte for byte against what
 they produced before, because those strings have a term of practice behind
 them.
 
-Marking is by hand, deliberately. `phonemes()` could flag the vowel team in
-every word, including the regular ones — "which part can't be sounded out"
-is a teaching judgement, not something the encoder knows. The unmarked words
-in those lists are unmarked on purpose: *carrot*, *spirit*, *radio* and
-*about* are regular enough to sound out, and *Mrs.*, *Mr.* and *wind* are an
-abbreviation and a heteronym, which is a different problem.
+Marking is by hand, deliberately: `phonemes()` could flag the vowel team in
+every word, regular ones included, but "which part can't be sounded out" is
+a teaching judgement the encoder doesn't know. Unmarked words are unmarked
+on purpose: *carrot*, *spirit*, *radio* and *about* are regular enough to
+sound out; *Mrs.*, *Mr.* and *wind* are an abbreviation and a heteronym, a
+different problem.
 
 On **Not yet**, a word with heart letters is spelled rather than just
 re-read: "s. a. i. d. said", as one utterance, because four utterances come
@@ -255,18 +246,15 @@ out as four separate thoughts.
 
 ### Syllable dots
 
-The multisyllable list writes its words with middle dots marking the
-syllable breaks — `fan·tas·tic`. The dots are a display aid and nothing
-else: `GameCore.parseEntry` splits an entry into the plain word and its
-chunks, and the plain word is the only form that reaches phoneme
-matching, TTS, the comeback deck or a stat key. This used to live in
-`blend-game.js`, which was the only engine playing that list; now that
-every list can be played as cards or Match It it belongs in the core,
-where the things three engines must agree about live. The cards engine
-shows the chunked form on the **back** of the card — after the student
-has read it cold off the front — and Match It strips the dots entirely,
-since a tile with a dot down the middle would both give the split away
-and mark that tile out from its distractors.
+The multisyllable list writes words with middle dots marking syllable
+breaks — `fan·tas·tic`. A display aid only: `GameCore.parseEntry` splits an
+entry into the plain word and its chunks, and the plain word is the only
+form that reaches phoneme matching, TTS, the comeback deck or a stat key.
+This used to live in `blend-game.js`, the only engine playing that list; now
+every list can be played as cards or Match It, so it belongs in the core.
+Cards shows the chunked form on the **back**, after the cold read of the
+front; Match It strips the dots, since a dotted tile would give the split
+away and mark itself out from its distractors.
 
 ### Pages
 
@@ -275,8 +263,8 @@ and mark that tile out from its distractors.
 has the mode, and take the list from the query string:
 `cards-game.html?list=red-3-cards`. They call `EIPractice.play()` with no
 id. The per-family say-it pages and the spelling page name their one list
-outright, and `hrefOf` gives them a clean address with no `?list=` at
-all, because a page that serves one list already knows which.
+outright, and `hrefOf` gives them a clean address with no `?list=`, because
+a page that serves one list already knows which.
 
 `red-words-game.html` and `red-words-match-game.html` are now six-line
 redirects that carry the `?list=` across to the generic pages. They stay
@@ -286,39 +274,37 @@ dead link mid-class costs more than the file does.
 ## Home page
 
 `index.html` builds its tile grid from `word-lists.js`, filtered to the
-lists the signed-in student is assigned (`EIStore.myLists()`), so two
-students in different periods see different games.
+lists the signed-in student is assigned (`EIStore.myLists()`), so students
+in different periods see different games.
 
 The registry's (list × mode) entries fold back into **one tile per
-list** — "Red Words · List 3", or just "Blend Words" for a family with a
-single list — with a Play row per mode that student has, each carrying
-its own progress. A student assigned both modes of three red lists sees
-three tiles, not six. Every row links to its page with the list named:
+list** — "Red Words · List 3", or just "Blend Words" for a single-list
+family — with a Play row per mode that student has, each carrying its own
+progress. A student assigned both modes of three red lists sees three
+tiles, not six. Every row links to its page with the list named:
 `cards-game.html?list=red-3-cards`.
 
-The two shelves are **🔤 Sounding It Out** and **🃏 Red Words**. They used
-to be one shelf per modality — speaking games, typing games — which
-stopped meaning anything the day every list could be played four ways.
-What actually divides this library is the reading: words you can build
-out of their sounds, and words that refuse to be built and have to be
-known. Each mode's row carries a small `mic` or `headphones` tag, so a
-student on a Chromebook with neither finds that out before they open the
-game.
+The two shelves are **🔤 Sounding It Out** and **🃏 Red Words**. They used to
+be one shelf per modality (speaking, typing), which stopped meaning anything
+once every list could be played four ways. What divides this library is the
+reading: words you can build from their sounds, and words that refuse to be
+built and have to be known. Each mode's row carries a small `mic` or
+`headphones` tag, so a student on a Chromebook with neither finds out before
+opening the game.
 
-A shared page with no `?list=`, or a stale one, isn't an error: it shows
-a chooser of the student's own lists that have that mode, so a bookmarked
-or hand-typed address still lands somewhere useful. A list id belonging to
-a different page redirects there.
+A shared page with no `?list=`, or a stale one, isn't an error: it shows a
+chooser of the student's own lists that have that mode, so a bookmarked or
+hand-typed address still lands somewhere useful. A list id belonging to a
+different page redirects there.
 
-A student only ever plays what they were given. Opening a list they
-weren't assigned — an address copied off a neighbour's screen — shows that
-same chooser of their own lists instead, or one line saying the game isn't
-on their list. A student with nothing assigned gets an empty home page
-that says the teacher will add games, not the whole library. The teacher's
-account (and the localhost dev bypass) sees every list, so a game can be
-tried before it's handed out; the teacher's home page says so in one line
-so it isn't mistaken for what the class sees. That switch is
-`EIStore.seesEverything()`.
+A student only ever plays what they were given. Opening a list they weren't
+assigned — an address copied off a neighbour's screen — shows the same
+chooser, or one line saying the game isn't on their list. A student with
+nothing assigned gets an empty home page saying the teacher will add games,
+not the whole library. The teacher's account (and the localhost dev bypass)
+sees every list, so a game can be tried before it's handed out; the
+teacher's home page says so in one line so it isn't mistaken for what the
+class sees. That switch is `EIStore.seesEverything()`.
 
 ## Reading view
 
@@ -332,10 +318,10 @@ Four switches on every game's start screen, under **👁 Reading view**:
 | **Card colour** | Dark · Cream |
 
 None of these is decoration. A reader who loses their place between b and d,
-or who can't hold a word together when the letters sit tight, is describing
-the thing that is actually hard. Lexend was drawn against reading-speed
-research; Atkinson Hyperlegible was drawn by the Braille Institute for low
-vision, and its b/d/p/q and I/l/1 are made to be told apart at a glance.
+or can't hold a word together when the letters sit tight, is describing the
+thing that is actually hard. Lexend was drawn against reading-speed research;
+Atkinson Hyperlegible by the Braille Institute for low vision, its b/d/p/q
+and I/l/1 made to be told apart at a glance.
 
 Both fonts are **self-hosted** (`fonts/`, latin subset, 400 and 700, OFL
 licences included). Linking them from Google would mean a school network
@@ -343,20 +329,19 @@ that blocks `fonts.gstatic.com` silently falls back to the default face —
 for exactly the student the setting exists for.
 
 The settings live in `localStorage` under `eiView`, per device, like Shuffle
-and Voice: a shared Chromebook cart means the setting belongs to the seat.
+and Voice: on a shared Chromebook cart the setting belongs to the seat.
 They are applied as classes on `<html>` (`view-lexend`, `view-wide`,
-`view-lower`, `view-cream`), so a setting reaches every page and every
-engine without any of them knowing about it. `game-core.js` owns the object,
-the panel and the sanitizer — an unrecognised stored value is the default,
-not an error.
+`view-lower`, `view-cream`), so a setting reaches every page and engine
+without any of them knowing about it. `game-core.js` owns the object, the
+panel and the sanitizer — an unrecognised stored value is the default, not
+an error.
 
-`view-boot.js` runs in each page's `<head>`, before any stylesheet, and does
-one thing: copy a cached class string out of `localStorage` onto `<html>`.
-Without it a student with Lexend on watches every page render in the default
-face and then jump. It reads only the derived cache and scrubs it to
-`[a-z- ]` before it touches `className`, because localStorage is
-hand-editable; the cache is disposable, and `game-core.js` re-derives it from
-the real object as soon as it loads.
+`view-boot.js` runs in each page's `<head>`, before any stylesheet, and
+copies a cached class string out of `localStorage` onto `<html>`. Without it
+a student with Lexend on watches every page render in the default face, then
+jump. It reads only the derived cache and scrubs it to `[a-z- ]` before it
+touches `className`, because localStorage is hand-editable; the cache is
+disposable and `game-core.js` re-derives it from the real object on load.
 
 **lowercase** is the one switch that isn't blanket. Lowercasing "Mrs." makes
 a different word and lowercasing "Wednesday" makes a spelling error, so the
@@ -379,58 +364,52 @@ page loads it before its engine:
 
 There are six engines — blend (say it), spell (type it), card (flip it, and
 Split it), match (find it), fluency (one minute) and blend-it (hear the
-sounds, blend them) — and they deliberately share a look, a scoring system and a
-set of habits, so a student moving between them sees one game asking
-different questions. That agreement used to be kept by copying code between
-engines with "keep this in step" written on top of each copy. At two copies
-that was the right trade against a no-build site; by four it wasn't. The
-scoring was in four places, the comeback deck in three, the vault-run SVG in
-three more, and each copy was a chance for two games to quietly start
-behaving differently.
+sounds, blend them) — and they deliberately share a look, scoring and
+habits, so moving between them feels like one game asking different
+questions. That used to be kept by copying code between engines with "keep
+this in step" on each copy: right at two copies against a no-build site,
+wrong by four. Scoring was in four places, the comeback deck in three, the
+vault-run SVG in three more, and each copy was a chance for two games to
+quietly diverge.
 
 In the core: combo scoring and the star thresholds, the comeback deck (and
 the one function that touches `localStorage`), the race/vault progress
 graphics, the confetti, the score pop-up, the feedback blips, the voice
 ranking, the syllable-chunk parser (`parseEntry`, `chunkMarkup` — three
-engines now play the dotted multisyllable list and all three need the same
-answer to "what word is this really?"), the start screen's read-aloud
+engines play the dotted multisyllable list and all need the same answer to
+"what word is this really?"), the start screen's read-aloud
 (`directionParts`, below), and the word-list helpers (`shuffled`,
 `dedupeWords`, `sampleWords`, `escapeHtml`).
 
 ### Directions, and reading them aloud
 
-The intro line and numbered steps on every start screen are written short
-and plain. This is a phonics class, not a reading test: the *how to play*
-copy should not itself be a decoding challenge. Each intro is one or two
-short sentences separated by a `<br>`, and that break is load-bearing —
-see below.
+The intro and numbered steps on every start screen are short and plain. This
+is a phonics class, not a reading test: the *how to play* copy must not be a
+decoding challenge. Each intro is one or two short sentences separated by a
+`<br>`, and that break is load-bearing — see below.
 
-Every game has a **🔊 Read directions aloud** button, which speaks that
-same text in the same best-picked voice as the words themselves
-(`Core.voice()` prefers Chrome's network-backed "Google US English" over
-the flatter local default). It reads off the live DOM rather than a second
-copy of the strings, so the spoken directions cannot drift from the
-visible ones, and it's disabled outright where `speechSynthesis` is
+Every game has a **🔊 Read directions aloud** button, speaking that text in
+the same best-picked voice as the words (`Core.voice()` prefers Chrome's
+network-backed "Google US English" over the flatter local default). It reads
+the live DOM, not a second copy of the strings, so spoken and visible
+directions cannot drift, and it is disabled where `speechSynthesis` is
 missing.
 
 `Core.directionParts(startScreen)` does the walk and returns the fragments
 to speak, in screen order: the intro, then the rule box or "good to know"
 note if there is one, then the numbered steps. Boxed sections lead with
 their own on-screen `.tag` — "The rule", "Good to know" — so a listening
-student gets the same heading a sighted one reads before the paragraph
-under it.
+student gets the same heading a sighted one reads.
 
 It lives in the core because all four engines had grown their own copy of
-this walk, and all four copies had the same two bugs. The first: reading
-the intro with `.textContent`, which drops the `<br>` silently, welding
-two sentences into a run-on with no pause exactly where the pause was
-written. The second: joining the fragments with `". "` — every fragment
-already ends in its own full stop, so the glue doubled it, and the lot
-went to the synthesiser as **one** utterance. Each engine now speaks the
-fragments as separate queued utterances, which gives a truer pause than
-any punctuation would; the speaking itself stays per-engine, because the
-blend game has to stand its microphone down first and the quiet three
-don't.
+this walk, with the same two bugs. First: reading the intro with
+`.textContent` drops the `<br>`, welding two sentences into a run-on with no
+pause. Second: joining fragments with `". "` doubled the full stop every
+fragment already ends in, and sent the lot to the synthesiser as **one**
+utterance. Each engine now speaks the fragments as separate queued
+utterances, a truer pause than punctuation; the speaking stays per-engine,
+because the blend game must stand its microphone down first and the quiet
+three don't.
 
 Still in each engine: how it asks its question, how it judges the answer,
 its own screens and styles, and anything to do with the microphone.
@@ -443,10 +422,9 @@ microphone bookkeeping into shared code:
 var snd = Core.sounds({ onPlay: function(ms){ holdMic(ms + 180, true); } });
 ```
 
-Each engine aliases what it takes at the top of its file, so the list of
-what's shared is visible in one place and the code below reads unchanged.
-`tests.html` asserts that every engine points at the *same function object*
-as the core — if a local copy is ever reintroduced, that check fails
+Each engine aliases what it takes at the top of its file, so what's shared
+is visible in one place. `tests.html` asserts every engine points at the
+*same function object* as the core, so a reintroduced local copy fails
 immediately.
 
 ## Listening: two things every mic mode shares
@@ -454,29 +432,28 @@ immediately.
 Both live in `game-core.js`, are pinned in `tests.html`, and are driven
 through the real engines with a fake recogniser in `tools/boot-check.html`.
 
-**A late result stays with its own word** (`resultGate`). Say It's
-recogniser runs for many words at a time — the beeps don't restart it,
-only the computer's voice does — and it scores on an interim guess so a
-right answer lands quickly. Chrome then sends its *final* version of the
-same speech, sometimes after the next word is already up. Scored there,
-it was a wrong answer and a lost try on a word the student hadn't read
-yet. Now everything the session produced before a word appeared belongs
-to the word before it. (`say-late`)
+**A late result stays with its own word** (`resultGate`). Say It's recogniser
+runs across many words — only the computer's voice restarts it, not the
+beeps — and scores on an interim guess so a right answer lands quickly.
+Chrome then sends its *final* version of the same speech, sometimes after
+the next word is up. Scored there, it was a wrong answer and a lost try on a
+word not yet read. Now everything the session produced before a word
+appeared belongs to the word before it. (`say-late`)
 
-**A dropped second of Wi-Fi is waited out** (`netRetry`). Chrome's
-recogniser runs on a server, and a single "network" error used to switch
-the mic off for the round with "check wifi and reload". Now each mode
-waits 1, 2, then 4 seconds and tries again, shows *Reconnecting…* while
-it does, and only gives up after four failures in a row. A result, or a
-session that ends without a network error, resets the count. Say It,
-Blend it, One minute and the flash cards' listening all use it. (`say-net`)
+**A dropped second of Wi-Fi is waited out** (`netRetry`). Chrome's recogniser
+runs on a server, and one "network" error used to switch the mic off for the
+round with "check wifi and reload". Now each mode waits 1, 2, then 4 seconds,
+retries, shows *Reconnecting…*, and gives up only after four failures in a
+row. A result, or a session ending without a network error, resets the
+count. Say It, Blend it, One minute and the flash cards' listening all use
+it. (`say-net`)
 
-Chrome 154 also offers on-device recognition (`processLocally`) and
-word boosting (`phrases`). Neither is used yet. On-device would take the
-network out of it entirely but needs testing for accuracy on struggling
-readers and for whether managed Chromebooks allow the language pack.
-Boosting the target word must never touch scoring — it makes the
-recogniser hear the word whether or not it was read.
+Chrome 154 also offers on-device recognition (`processLocally`) and word
+boosting (`phrases`); neither is used yet. On-device would take the network
+out but needs testing for accuracy on struggling readers and for whether
+managed Chromebooks allow the language pack. Boosting the target word must
+never touch scoring — it makes the recogniser hear the word whether or not
+it was read.
 
 ## Blend games
 
@@ -511,49 +488,48 @@ that read as one game asking different questions.
 
 ### Say It for the red words
 
-The red words got a say-it mode late, after the reason they didn't have one
-turned out to be wrong. "A phoneme matcher has nothing to check an irregular
-word against" is true and beside the point: Say It takes an **exact
-transcript** first and only falls back to phonemes, and a red word is an
-ordinary dictionary word that Chrome returns reliably. What actually blocked
-it was two things, both now fixed where they belong.
+The red words got a say-it mode late, after the reason they lacked one
+proved wrong. "A phoneme matcher has nothing to check an irregular word
+against" is true and beside the point: Say It takes an **exact transcript**
+first and falls back to phonemes only after, and a red word is an ordinary
+dictionary word Chrome returns reliably. Two things actually blocked it,
+both now fixed where they belong.
 
 **Homophones.** No amount of listening separates *to* from *two*, and a
 student who read the card correctly must not be marked wrong because the
 recogniser guessed the other spelling. A list may carry `homophones` groups
-(the red words pass the same `RED_HOMOPHONES` Match It already used), and
-any member of the target's group is accepted — checked *before* the level
-rules, including at Challenge, because a homophone is not a near miss the
-game is being generous about. The phonics lists deliberately have no groups:
-their near-misses are minimal pairs (*sled* / *bled*), and telling those
-apart is the exercise.
+(the red words pass the `RED_HOMOPHONES` Match It already used); any member
+of the target's group is accepted, checked *before* the level rules,
+including at Challenge, because a homophone is not a near miss the game is
+being generous about. The phonics lists deliberately have no groups: their
+near-misses are minimal pairs (*sled* / *bled*), and telling those apart is
+the exercise.
 
 **Sound-alikes that aren't on a list.** `RED_HOMOPHONES` holds only pairs
-with both words on a list, because that is what Match It needs. A
-recogniser has no such limit: say *know* and it is at least as likely to
-write "no"; *eye* comes back as "I", *buy* as "by", *hour* as "our". Those
-were misses, and the reveal then told the student they had dropped a sound.
-`RED_SOUNDALIKES` in `word-lists.js` is a second, say-only map —
-`{ know: ["no"], eye: ["i", "aye"], … }` — passed to Say It and to the
-cards' Listen as `soundalikes`, and never to Match It, which would need a
-sentence for every entry. `GameCore.soundsLike` accepts one **only as the
-whole transcript** (fillers aside — "um, no" is "no"): "no", "I", "so" and
-"for" are in everything a student says, and "I don't know" must not count
-as reading *eye*. Tests pin that
-no entry is itself a list word and that every key is one. It wants one
-check on a Chromebook: the map is built from which words sound the same,
-not from a log of what Chrome returned.
+with both words on a list, which is what Match It needs. A recogniser has no
+such limit: *know* is at least as likely to come back "no"; *eye* as "I",
+*buy* as "by", *hour* as "our". Those were misses, and the reveal then told
+the student they had dropped a sound. `RED_SOUNDALIKES` in `word-lists.js`
+is a second, say-only map — `{ know: ["no"], eye: ["i", "aye"], … }` —
+passed to Say It and the cards' Listen as `soundalikes`, never to Match It,
+which would need a sentence for every entry. `GameCore.soundsLike` accepts
+one **only as the whole transcript** (fillers aside — "um, no" is "no"):
+"no", "I", "so" and "for" are in everything a student says, and "I don't
+know" must not count as reading *eye*. Tests pin that no entry is itself a
+list word and every key is one. It wants one check on a Chromebook: the map
+is built from which words sound the same, not from a log of what Chrome
+returned.
 
-**Contractions.** "they'd" said out loud *is* "they would", and the
-recogniser writes down whichever it likes. `GameCore.normalize` folds the
-expansion to the contraction so both are the same string — but only when
-the transcript is exactly that phrase. Folding inside a longer transcript
-would destroy tokens the matcher needs: "they have" is the expansion of
-"they've" and also a student reading the word *have* with a run-up.
+**Contractions.** "they'd" said aloud *is* "they would", and the recogniser
+writes down whichever it likes. `GameCore.normalize` folds the expansion to
+the contraction so both are the same string — but only when the transcript is
+exactly that phrase. Folding inside a longer transcript would destroy tokens
+the matcher needs: "they have" is the expansion of "they've" and also a
+student reading *have* with a run-up.
 
 The mode runs on a generic `say-game.html?list=red-3-say`, the way
 `cards-game.html` already works. The five phonics families keep their own
-pages, because each carries a rule box or a mic note that only makes sense
+pages, because each carries a rule box or mic note that only makes sense
 for that list.
 
 Three matching modes for `blend`, depending on what's being drilled:
@@ -565,19 +541,19 @@ Three matching modes for `blend`, depending on what's being drilled:
   oi/oy diphthong: "coin", "boyish", "annoy"). Pass `sound` (one phoneme
   token from `phonemes()`, e.g. `"OY"`) and `highlight` (a regex matching the
   letters to show highlighted, e.g. `/oi|oy/i`) instead of `blendLength`. The
-  sound is located by searching the word's phoneme sequence rather than
-  slicing fixed letter positions, since its spelling position varies.
+  sound is located by searching the word's phoneme sequence, since its
+  spelling position varies.
 - No blend at all (plain word reading — nonsense words, multisyllable
   words): pass `blend: "start"` with `blendLength: 0`. The "blend" is then
-  always empty, so nothing is force-matched and nothing is highlighted —
-  it's a plain whole-word fuzzy match.
+  always empty, so nothing is force-matched or highlighted — a plain
+  whole-word fuzzy match.
 
-The plain progress bar is themed per game instead: `theme: "race"` slides a car
-along a track toward a checkered flag, `theme: "maze"` is a **vault run** — a
-ninja threading a neon laser corridor toward a diamond vault. Both use the same
-word-index percentage as the old bar, so they work for any word-list length.
-`blend-words-game.html` uses the race theme, `initial-blends-game.html` uses
-the maze theme — pick either for a new game.
+The plain progress bar is themed per game: `theme: "race"` slides a car along
+a track toward a checkered flag, `theme: "maze"` is a **vault run** — a ninja
+threading a neon laser corridor toward a diamond vault. Both use the same
+word-index percentage as the old bar, so they work for any list length.
+`blend-words-game.html` uses the race theme, `initial-blends-game.html` the
+maze theme — pick either for a new game.
 
 Word-list entries may carry **syllable marks** with a middle dot
 (`"fan·tas·tic"`). The engine strips the dots everywhere that matters
@@ -587,9 +563,8 @@ pronounces it syllable by syllable, then whole), and the end screen's
 missed-word chips keep the chunked form. Undotted words behave exactly as
 before. `multisyllable-words-game.html` uses this throughout.
 
-The engine renders every screen, so adding a game means copying one of the
-existing pages and swapping the word list. Chrome only — it uses the Web
-Speech API.
+The engine renders every screen, so adding a game means copying an existing
+page and swapping the word list. Chrome only — it uses the Web Speech API.
 
 Current games:
 
@@ -603,76 +578,74 @@ Current games:
 
 ### Comeback words (missed-word persistence)
 
-> Still here, still per-device, and now the *inner* of two loops: the
-> comeback deck is a within-page warm-up in `localStorage`, while the
-> adaptive scheduler below is the cross-session, cross-device one in
-> Firestore. They don't conflict — one picks a warm-up out of the last few
-> rounds on this machine, the other picks the round itself.
+> Still per-device, and now the *inner* of two loops: the comeback deck is a
+> within-page warm-up in `localStorage`, while the adaptive scheduler below
+> is the cross-session, cross-device one in Firestore. They don't conflict —
+> one picks a warm-up out of the last few rounds on this machine, the other
+> picks the round itself.
 
 Each game page keeps its own deck of not-yet-mastered words in
 `localStorage` (`"blendComeback:" + pathname`, and `"cardComeback:"` /
-`"matchComeback:"` for the two sight-word games): a word joins the
-deck when it's missed twice or skipped in a round, and **leaves the deck the
-moment it's read correctly on the first try** in any later round. When the deck has
-words, the start screen grows a "🔁 Words you missed (N)" button that runs just
-those words — most-missed first, capped at 15 so it stays a warm-up. The
-storage layer treats localStorage as untrusted (versioned, sanitized on
-read, silently absent if storage is unavailable), and the pure deck logic
-(`comebackMerge` / `comebackMastered` / `comebackDeck`) lives in
-`game-core.js` and is covered by `tests.html`. The session-level "Practice missed words" button on the end
-screen is unchanged and separate.
+`"matchComeback:"` for the two sight-word games): a word joins the deck
+when it's missed twice or skipped in a round, and **leaves the deck the
+moment it's read correctly on the first try** in any later round. When the
+deck has words, the start screen grows a "🔁 Words you missed (N)" button
+that runs just those words — most-missed first, capped at 15 so it stays a
+warm-up. The storage layer treats localStorage as untrusted (versioned,
+sanitized on read, silently absent if storage is unavailable), and the pure
+deck logic (`comebackMerge` / `comebackMastered` / `comebackDeck`) lives in
+`game-core.js` and is covered by `tests.html`. The session-level "Practice
+missed words" button on the end screen is unchanged and separate.
 
 ## Spelling game
 
-`spell-game.js` is a second engine for **encoding** practice — the computer
-says the word and the student types it. Deliberately mic-free, so it works
-in a noisy room. A page passes `SpellGame.start({title, intro, rule, words})`;
-`rule` is a short spelling rule shown on the start screen (the oi/oy page
-teaches: *oy* before nothing-or-a-vowel — enjoy, royal; *oi* before a
-consonant — coin, moist). The word is spoken (auto, plus "Say it again",
-slower after a miss) but never printed before it's answered; second miss
-reveals the correct spelling with the letters the student failed to produce
-highlighted in gold (a Levenshtein backtrace, `diffLetters()`), then moves
-on. Scoring, streaks, stars and the missed-words list match the blend games
-exactly, and the pure helpers are covered by `tests.html`.
+`spell-game.js` is a second engine for **encoding** practice: the computer
+says the word, the student types it. Deliberately mic-free, so it works in a
+noisy room. A page passes `SpellGame.start({title, intro, rule, words})`;
+`rule` is a short spelling rule on the start screen (the oi/oy page teaches:
+*oy* before nothing-or-a-vowel — enjoy, royal; *oi* before a consonant —
+coin, moist). The word is spoken (auto, plus "Say it again", slower after a
+miss) but never printed before it's answered; a second miss reveals the
+spelling with the letters the student failed to produce in gold (a
+Levenshtein backtrace, `diffLetters()`), then moves on. Scoring, streaks,
+stars and the missed-words list match the blend games, and the pure helpers
+are covered by `tests.html`.
 
 ### How the listening works
 
-The mic is not push-to-talk. Each game opens on a mic-check screen with a live
-level meter, then the mic stays on for the whole game, only pausing while the
-computer is actually speaking words out loud (the coach's praise, "The word
-was...", or "Hear it") — never for the short feedback beeps, so it doesn't
-have to reconnect between words. Silence never counts as a wrong answer.
+The mic is not push-to-talk. Each game opens on a mic-check screen with a
+live level meter, then the mic stays on for the whole game, pausing only
+while the computer speaks words aloud (the coach's praise, "The word
+was...", "Hear it") — never for the short feedback beeps, so it needn't
+reconnect between words. Silence never counts as a wrong answer.
 
-Neither does **the right word heard faintly**. Chrome reports how sure it
-is of a transcript, and Say It doesn't take an exact match as right when
-that confidence is under 0.35 — a quiet read is where the recogniser fills
-in a likely word. But "not sure it was right" is not "wrong": that result
-used to fall through to the miss and tell a student who had read *crab*
-"Not quite — I heard: crab". Now it costs no try and asks for the word
-once more, a little louder; the same word twice is taken as read.
-(`say-quiet` in `tools/boot-check.html`.)
+Neither does **the right word heard faintly**. Chrome reports how sure it is
+of a transcript, and Say It doesn't take an exact match as right under 0.35
+confidence — a quiet read is where the recogniser fills in a likely word. But
+"not sure it was right" is not "wrong": that result used to fall through to
+the miss and tell a student who had read *crab* "Not quite — I heard: crab".
+Now it costs no try and asks for the word once more, a little louder; the
+same word twice is taken as read. (`say-quiet` in `tools/boot-check.html`.)
 
-A real word has to come back exactly right to be marked correct — there's
-no forgiving near-misses, since the student actually saying the word
-correctly is the whole point. A more forgiving phonetic matcher lives in
+A real word has to come back exactly right to be marked correct — no
+forgiving near-misses, since the student actually saying the word correctly
+is the whole point. A more forgiving phonetic matcher lives in
 `game-core.js` (`phonemes()`, `phoneticDistance()`, the `ACCEPT` table of
-known recogniser mishearings); it compares **sounds** rather than letters,
-so "krab" would pass for "crab". The games don't expose it as a level any
-more, but it is not dead code: the encoder underneath it is what tells a
-student which part of a word went wrong (below), what the phoneme clips in
-`audio/ph/` are named after, and what the flash cards use to judge a spoken
-answer.
+known recogniser mishearings); it compares **sounds** rather than letters, so
+"krab" would pass for "crab". The games no longer expose it as a level, but
+it is not dead code: the encoder underneath tells a student which part of a
+word went wrong (below), names the phoneme clips in `audio/ph/`, and is what
+the flash cards use to judge a spoken answer.
 
 **The nonsense list is the one exception, in every mic mode.** A recogniser
 handed "vab" has no dictionary entry to return, so it returns the nearest
 real word — "verb" — and a letter-perfect match is a bar no student could
-clear. A list that sets `phonetic: true` is judged by sound: within one
-sound of the word. Say It, One minute and Blend It set it for the nonsense
-words and for nothing else (the cards' Listen gets the same rule from
-`speak: false`). Say It and One minute went without the switch for a while,
-and marked correct readings wrong. `x` and `qu` are opened out into two
-sounds for this comparison, or "ticks" could never match *tix*.
+clear. A list that sets `phonetic: true` is judged by sound: within one sound
+of the word. Say It, One minute and Blend It set it for the nonsense words
+and nothing else (the cards' Listen gets the same rule from `speak: false`).
+Say It and One minute went without the switch for a while and marked correct
+readings wrong. `x` and `qu` are opened out into two sounds for this
+comparison, or "ticks" could never match *tix*.
 
 In Say It, "by sound" is fenced three ways, because one sound is a wide
 margin on a three-sound word:
@@ -693,27 +666,25 @@ correct reading. A transcript can't tell those apart; the cards can.
 `say-nonsense` and `say-nonsense-twin` in `tools/boot-check.html` drive
 this through the real engine and the list's real config.
 
-**`ACCEPT` is the other exception, and it is one for every list.** It
-holds transcripts the recogniser returns for a word that was read right —
-*tent* comes back as "tenth" — and every mode that listens accepts them:
-Say It, the cards' Listen, One minute and Blend It. It used to be checked
-only at the forgiving level, which Say It never runs at, so adding an entry
-did nothing in the one mode whose transcripts reach the dashboard.
+**`ACCEPT` is the other exception, and it applies to every list.** It holds
+transcripts the recogniser returns for a word that was read right — *tent*
+comes back as "tenth" — and every listening mode accepts them: Say It, the
+cards' Listen, One minute and Blend It. It used to be checked only at the
+forgiving level, which Say It never runs at, so adding an entry did nothing
+in the one mode whose transcripts reach the dashboard.
 
-An entry forgives that reading for every student, so the bar for adding one
-is narrow: the student said the word correctly and the microphone wrote
-something else. A transcript that is what a real misreading sounds like
-does not belong there. *gasp* ← "gas" was in the table and has been taken
-out for that reason — it is the final blend with its last sound dropped,
-which is the error that list exists to catch (and the example used under
-*Which part went wrong*, below).
+An entry forgives that reading for every student, so the bar is narrow: the
+student said the word correctly and the microphone wrote something else. A
+transcript that is what a real misreading sounds like does not belong.
+*gasp* ← "gas" was taken out for that reason — it is the final blend with its
+last sound dropped, the error that list exists to catch (and the example
+under *Which part went wrong*, below).
 
-Run `tests.html` (served the same way as the games) to check the matcher
-itself, along with everything shared in `game-core.js` (scoring, stars, the
-comeback deck, the progress graphics, the sound contract the mic games rely
-on), the syllable parser, the spelling checker, the flash-card deck builders
-and the matching game's distractor picker — it renders a pass/fail table
-with a summary line.
+Run `tests.html` (served like the games) to check the matcher and everything
+shared in `game-core.js` (scoring, stars, the comeback deck, the progress
+graphics, the sound contract the mic games rely on), the syllable parser,
+the spelling checker, the flash-card deck builders and the matching game's
+distractor picker. It renders a pass/fail table with a summary line.
 
 Three scripts in `tools/` run the checks headlessly, against a plain
 `python3 -m http.server`:
@@ -724,50 +695,48 @@ Three scripts in `tools/` run the checks headlessly, against a plain
 | `tools/check-pages.sh <pages…>` | loads each page and reports console errors and CSP violations |
 | `tools/boot-check.sh` | **starts every engine** against its real list and clicks a few steps through it |
 
-The last one exists because of the gap the other two leave. `tests.html`
-covers pure logic; page loads stop at the sign-in wall, so an engine's
-`start()` never runs on a real page without an account. A listener bound to
-an element before the shell exists throws on the first card and passes both
-of the other checks — which is exactly what happened once, and is why this
-one is here.
+The last one exists for the gap the other two leave: `tests.html` covers
+pure logic, and page loads stop at the sign-in wall, so an engine's `start()`
+never runs on a real page without an account. A listener bound to an element
+before the shell exists throws on the first card and passes both other
+checks — which happened once.
 
-Say It has no alignment to lose, and that is worth saying next to the
-fluency run, which does. One word is on screen at a time and the matcher
-**searches** the whole transcript for it rather than walking a pointer down
-a list, so a filler, a false start or a self-correction inside one utterance
-costs nothing: "um crab", "crab um" and "cram crab" all match *crab*.
+Say It has no alignment to lose, unlike the fluency run. One word is on
+screen at a time and the matcher **searches** the whole transcript for it
+rather than walking a pointer down a list, so a filler, a false start or a
+self-correction inside one utterance costs nothing: "um crab", "crab um"
+and "cram crab" all match *crab*.
 
-**On the multisyllable list only** (`join: true`), the same search closes
-up a word the recogniser wrote as two. Chrome returns *upset* as "up set"
-and *hubcap* as "hub cap" when it likes — its split, not the student's — so
-the whole transcript with the spaces out, and each neighbouring pair, are
-candidates as well (the rule the one-minute run already had). It works
-inside one result: "nap kin" said in a breath is *napkin*, but a pause long
-enough for Chrome to finalise "nap" on its own is still a miss. That is why
-the directions changed too. They used to say "Say each part, then say the
-whole word", with the mic live from the first sound; they now say to break
-the word up in your head and say it whole.
+**On the multisyllable list only** (`join: true`), the same search closes up
+a word the recogniser wrote as two. Chrome returns *upset* as "up set" and
+*hubcap* as "hub cap" when it likes — its split, not the student's — so the
+whole transcript with the spaces out, and each neighbouring pair, are
+candidates too (the rule the one-minute run already had). It works inside
+one result: "nap kin" said in a breath is *napkin*, but a pause long enough
+for Chrome to finalise "nap" on its own is still a miss. That is why the
+directions changed: they used to say "Say each part, then say the whole
+word", with the mic live from the first sound; they now say to break the
+word up in your head and say it whole.
 
 It is off everywhere else on purpose. Those words are closed syllables, so
 the parts said apart are the same sounds as the word. On the red words they
 are not, and closing up would forgive the classic misreadings: "is land"
 for *island*, "fat her" for *father*, "no thing" for *nothing*.
 
-What did cost something was a final transcript with no attempt in it at all
-— a filler on its own, a cough the recogniser rendered as "uh", another
-student's voice. That counted as a miss, and two of them showed the answer
-to a word nobody had tried to read. `GameCore.isNonAnswer()` now excuses a
-transcript that is **entirely** noise, from a closed set of non-lexical
-sounds (`um`, `uh`, `er`, `hmm`, `huh`, `ah`…). Say It and Blend It both use
-it, and the fluency run filters the same set out of every transcript before
-aligning it — a cough is not a token the walk should have to explain.
+What did cost something was a final transcript with no attempt in it — a
+filler on its own, a cough rendered as "uh", another student's voice. That
+counted as a miss, and two of them showed the answer to a word nobody had
+tried to read. `GameCore.isNonAnswer()` now excuses a transcript that is
+**entirely** noise, from a closed set of non-lexical sounds (`um`, `uh`,
+`er`, `hmm`, `huh`, `ah`…). Say It and Blend It both use it, and the fluency
+run filters the same set out of every transcript before aligning it.
 
 Two things keep that from forgiving real misreads. It fires only when every
 token is noise — "um bled" is an attempt that got the word wrong, and
 counts. And no token in the set is a word on any list, which a test checks;
-"what" is deliberately excluded for exactly that reason, since a student
-reading *put* as *what* has misread it and a transcript cannot tell that
-from somebody asking a question.
+"what" is deliberately excluded, since a student reading *put* as *what* has
+misread it and a transcript cannot tell that from somebody asking a
+question.
 
 If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
@@ -775,10 +744,10 @@ the mic-check screen first: a quiet input is an OS-level microphone setting
 
 ### Which part went wrong
 
-A red ✗ tells a student they were wrong. It doesn't tell them *which part*,
-and for a reader who is guessing at blends or sliding off vowels that is the
-only part worth knowing. `GameCore.diagnose()` lines up what the mic heard
-against the word that was on screen, sound by sound, and names one thing:
+A red ✗ tells a student they were wrong, not *which part*, and for a reader
+guessing at blends or sliding off vowels that is the only part worth
+knowing. `GameCore.diagnose()` lines up what the mic heard against the word
+on screen, sound by sound, and names one thing:
 
 | kind | what it means | what the student sees |
 |---|---|---|
@@ -794,20 +763,19 @@ One answer, never a list. A wrong reading usually has one cause, and three
 guesses at once is how a hint becomes noise. The rules are tried in the
 order a teacher would look — the blend on the page first, then the target
 sound, then the vowel, then the rest — so on the Blend Words list "gasp"
-read as "gas" points at the blend, and everywhere else it points at the
-dropped **p**.
+read as "gas" points at the blend, and everywhere else at the dropped **p**.
 
 It is built on `phonemeSpans()`, which is `phonemes()` with the letters kept:
 each sound carries the slice of the word that spells it, so the reveal can
-light up **cr** rather than saying "the second phoneme". Silent letters fold
+light up **cr** rather than say "the second phoneme". Silent letters fold
 into the sound before them, so every letter belongs to something.
 
 The first miss doesn't get any of this — just "I heard: *bred*", because the
-student is about to try again and a hint they haven't asked for slows the
-retry down. The reveal is where it lands: the letters turn gold, the message
-appears under the word, and with **Voice** on it is read out as one sentence
-after the word ("The word was, crab. Look at the blend, cr."). That costs
-700 ms of extra reveal time, spent only when there is a voice saying it.
+student is about to retry and an unasked-for hint slows that down. The
+reveal is where it lands: the letters turn gold, the message appears under
+the word, and with **Voice** on it is read out as one sentence after the
+word ("The word was, crab. Look at the blend, cr."). That costs 700 ms of
+extra reveal time, spent only when a voice is saying it.
 
 The end screen's missed-word chips carry the kind of error too, so a round
 that went wrong in four different ways looks different from one that went
@@ -818,12 +786,12 @@ wrong the same way four times.
 Each correct word is worth 10 points times a **combo multiplier** driven by
 the streak: ×1 to start, ×2 from a streak of 5, ×3 from 10 up (capped
 there). Every 5th in a row is a milestone — +25 bonus, a "🔥 N in a row!"
-banner, confetti over the word, a fanfare, and the runner's boost animation.
-A wrong answer or a Skip resets the streak and the multiplier; a "×2 combo!"
-badge under the Streak stat shows the current tier. The end screen adds a
-**0–3 star rating** (3 at 90 %+, 2 at 70 %+, 1 at 50 %+) and calls out a
-"Perfect round!" when every word was said right. The scoring math is a pure
-function (`Core.pointsFor()` in `game-core.js`) covered by `tests.html`.
+banner, confetti, a fanfare, and the runner's boost animation. A wrong
+answer or a Skip resets the streak and multiplier; a "×2 combo!" badge under
+the Streak stat shows the tier. The end screen adds a **0–3 star rating** (3
+at 90 %+, 2 at 70 %+, 1 at 50 %+) and a "Perfect round!" when every word was
+said right. The scoring math is a pure function (`Core.pointsFor()` in
+`game-core.js`) covered by `tests.html`.
 
 ### Correct/wrong feedback
 
@@ -835,8 +803,8 @@ The **Voice** button (default **Off**, remembered per device like the other
 settings) turns on a short spoken coach on top of that: quick praise on a
 correct answer ("Nice!", "Got it!"…, with a bigger call-out every 5-streak),
 and the word spoken aloud after the second miss. Press **H** any time during
-play to hear the current word read at a slower pace — same as clicking "Hear
-it" — regardless of the Voice setting. All speech picks the best available
+play to hear the current word read slower — same as clicking "Hear it" —
+regardless of the Voice setting. All speech picks the best available
 `en-US` voice (`Core.voice` in `game-core.js`), preferring Chrome/ChromeOS's
 natural voice over the flat default, and re-picks once Chrome finishes
 loading its voice list.
@@ -852,12 +820,11 @@ loading its voice list.
 
 `card-game.js` is the third engine, and the only one that doesn't judge the
 answer itself. It drills **sight recognition** — knowing a word without
-working for it. That began as a red-word game, for the words the decoding
-rules lie about, where there's no rule to apply, no blend to isolate and
-nothing to sound out; every list can be played this way now, because
-reading a word you *can* decode without stopping to decode it is the
-skill that makes reading fluent. Whether the student knew the word on
-sight is a question only the student can answer, so the game asks them:
+working for it. It began as a red-word game, for words the decoding rules lie
+about; every list can be played this way now, because reading a decodable
+word without stopping to decode it is what makes reading fluent. Whether the
+student knew the word on sight only the student can answer, so the game asks
+them:
 
 1. The word shows on a card. The student reads it out loud.
 2. They flip it (Space, or click the card). **Only now** is the word spoken —
@@ -867,8 +834,8 @@ sight is a question only the student can answer, so the game asks them:
 
 No mic and no typing, so it works in a loud room and on a Chromebook with a
 dead microphone. It's also the only engine that doesn't need
-`speechSynthesis` to function — without it the cards still work, minus the
-read-aloud check, so the start screen warns instead of disabling Start.
+`speechSynthesis` — without it the cards still work, minus the read-aloud
+check, so the start screen warns instead of disabling Start.
 
 A page passes decks rather than one word list:
 
@@ -885,41 +852,37 @@ CardGame.start({
 ```
 
 With more than one deck the start screen grows a picker and the engine adds
-two decks of its own: a random **Mixed** 20 drawn from everything (re-drawn
-every round, so it's never the same 20 twice) and one **All words** deck.
-The last-picked list is remembered per device. A single `words:` array works
-too — the picker then never appears. Deck word lists are deduplicated per
-round, which matters because printed word lists repeat words across lists on
-purpose.
+two decks of its own: a random **Mixed** 20 from everything (re-drawn every
+round) and one **All words** deck. The last-picked list is remembered per
+device. A single `words:` array works too — the picker then never appears.
+Deck lists are deduplicated per round, because printed word lists repeat
+words across lists on purpose.
 
 `cards-game.html` serves every family's cards mode, taking the list from
 `?list=`. Two config keys are worth knowing:
 
 - `speak: false` — the flip shows the word without pronouncing it. The
-  nonsense-word list needs this: a synthesiser handed "vab" guesses, and
-  it guesses wrong often enough to teach the wrong answer. Directions are
-  still read aloud; only the word itself goes quiet, and the "Hear it
-  again" button goes with it.
+  nonsense-word list needs this: a synthesiser handed "vab" guesses, wrong
+  often enough to teach the wrong answer. Directions are still read aloud;
+  only the word itself goes quiet, and the "Hear it again" button with it.
 - Syllable-dotted entries (`fan·tas·tic`) show plain on the front — the
-  student has to read it cold — and chunked on the back, which is where
-  the split earns its keep. The plain word is what gets spoken, rated and
-  stored.
+  student has to read it cold — and chunked on the back, where the split
+  earns its keep. The plain word is what gets spoken, rated and stored.
 
 The ten red-word lists live in `data/red-words.md` as the source of
 record; the arrays in `word-lists.js` are that file transcribed, so
 corrections belong in both.
 
 Scoring, streaks, stars, the missed-word list and the comeback deck all match
-the other two engines exactly, so a student moving between games sees one
-scoring system. A skipped card counts as missed, and ending a round early
-scores only the cards actually seen.
+the other two engines exactly. A skipped card counts as missed, and ending a
+round early scores only the cards actually seen.
 
 One thing to know as a teacher: the score is a **self-rating**, so it
 measures honesty as much as reading. That's the trade the format makes —
-nothing can listen to a student read "Wednesday" and tell you they knew it on
-sight rather than worked it out. The start screen asks for honesty directly,
-and the payoff is framed as the deck shrinking rather than the score going
-up.
+nothing can listen to a student read "Wednesday" and tell you they knew it
+on sight rather than worked it out. The start screen asks for honesty
+directly, and the payoff is framed as the deck shrinking, not the score
+rising.
 
 ## Matching game
 
@@ -931,7 +894,7 @@ up.
 `match-game.js` is the checked counterpart to the flash cards: the computer
 says a word and the student picks the printed word that matches, out of six.
 Same skill, but the game knows whether they were right instead of taking
-their word for it. Mic-free, so it still works in a loud room.
+their word for it. Mic-free, so it works in a loud room.
 
 ```html
 <script src="match-game.js"></script>
@@ -949,27 +912,26 @@ MatchGame.start({
 ```
 
 Decks, the picker, Mixed/All words, the comeback deck and the scoring all
-work exactly as they do in `card-game.js` — both reach the same code in
-`game-core.js`. Two tries per word: a wrong tile
-greys out and stays on screen (so the retry narrows the field instead of
-being a coin flip), and a second miss gilds the right one and says it slowly.
-Only a first-try pick clears a word from the comeback deck.
+work exactly as in `card-game.js` — both reach the same code in
+`game-core.js`. Two tries per word: a wrong tile greys out and stays on
+screen (so the retry narrows the field instead of being a coin flip), and a
+second miss gilds the right one and says it slowly. Only a first-try pick
+clears a word from the comeback deck.
 
 ### Picking the wrong answers
 
 The whole difficulty of the game is in **which wrong words it shows**. Six
-random words off the list is a game you can win without reading — the first
-letter is enough. So `nearestWords()` ranks the list by how confusable each
-word is with the target (edit distance, then shared opening letters, then
-length), and the tiles are drawn from the top of that ranking. For red words
-that produces exactly the sets students really mix up: `should` comes with
-could/would/said, `through` with though/although/enough, `there` with
-where/here/were. Getting it right means reading to the end of the word.
+random words off the list can be beaten without reading — the first letter
+is enough. So `nearestWords()` ranks the list by how confusable each word is
+with the target (edit distance, then shared opening letters, then length),
+and the tiles come from the top of that ranking. For red words that gives
+exactly the sets students really mix up: `should` with could/would/said,
+`through` with though/although/enough, `there` with where/here/were. Getting
+it right means reading to the end of the word.
 
-Pushed all the way, though, the same idea breaks the game: the most
-confusable word of all is a **homophone**, and no amount of listening
-separates "to" from "two". Both guards below matter, and any word list with a
-homophone pair in it needs both:
+Pushed all the way, the same idea breaks the game: the most confusable word
+of all is a **homophone**, and no amount of listening separates "to" from
+"two". Any word list with a homophone pair needs both guards:
 
 - `homophones` groups words that sound alike. No two members of a group ever
   appear on screen together — enforced as the set is built, so it also stops
@@ -982,20 +944,21 @@ homophone pair in it needs both:
   heteronyms, where the synthesiser has to guess a pronunciation: "does" as
   the female deer, "live" as in live television, "minute" as in tiny.
 
-This is not hypothetical for the red-word lists: `to`/`two` are both on List 1
-and `there`/`their` both on List 2, so without the guards the very first list
-deals unanswerable items. `tests.html` draws every word of those two lists 40
-times over and fails if any tile set holds two words that sound alike.
+This is not hypothetical for the red-word lists: `to`/`two` are both on
+List 1 and `there`/`their` both on List 2, so without the guards the very
+first list deals unanswerable items. `tests.html` draws every word of those
+two lists 40 times over and fails if any tile set holds two words that sound
+alike.
 
 Distractors normally come from the round's own list, so the wrong answers are
-words the student is working on. A round too short to fill its own tiles (a
-three-word comeback deck) widens to the whole word list instead.
+words the student is working on. A round too short to fill its tiles (a
+three-word comeback deck) widens to the whole word list.
 
 `match-game.html` serves every family's Match It mode except the nonsense
 words, which have none — the game works by *saying* the word, and there is
 no reliable way to say a word that isn't one. Syllable dots are stripped
-on the way in: a tile with a dot down its middle would both give the
-split away and mark that tile out from its distractors.
+on the way in: a dotted tile would both give the split away and mark that
+tile out from its distractors.
 
 Cards and Match It on the same list keep **separate** ids, stats and
 comeback decks, on purpose: knowing a word on sight and picking it out of
@@ -1003,19 +966,18 @@ five look-alikes are different days' work.
 
 ### Words in context
 
-Once a word is solid on its own, the next thing worth asking is whether it
-survives a sentence — which is where a word actually gets read, and where a
-student who has memorised a shape rather than a word comes unstuck. On lists
-that carry sentences (the red words and oi/oy), **one card in three** shows a
-mastered word inside its sentence on the front, the word in full weight and
-the rest muted. The back is the word alone: the sentence was the question.
+Once a word is solid on its own, the next question is whether it survives a
+sentence — where a word actually gets read, and where a student who has
+memorised a shape rather than a word comes unstuck. On lists that carry
+sentences (the red words and oi/oy), **one card in three** shows a mastered
+word inside its sentence on the front, the word in full weight and the rest
+muted. The back is the word alone: the sentence was the question.
 
-Three gates, all deliberate. The word has to be one the scheduler already
-counts as solid, so this reads as a step up rather than the game getting
-harder; the counter only advances on cards that *could* have shown a
-sentence, so "one in three" means one in three of those; and the speed round
-is exempt, because that round is about reading one word fast and a sentence
-in it is just a slower card.
+Three gates, all deliberate. The word must already be solid to the
+scheduler, so this reads as a step up, not the game getting harder; the
+counter advances only on cards that *could* have shown a sentence, so "one
+in three" means one in three of those; and the speed round is exempt, being
+about reading one word fast.
 
 The bold lands on the word and nowhere else — a word-boundary match, so
 "one" doesn't light up inside "money", and case-insensitive, so a
@@ -1027,15 +989,14 @@ card can show and checks the word is actually in it.
 Off by default and remembered per device, like Shuffle and Voice. With it
 on, the mic keeps whatever the student said while the card was face up; on
 the flip the back shows "I heard: *could*" and **pulses** the rating button
-it thinks is right. The student still presses one — that self-rating is
-still the score, and a suggestion that pre-pressed it would quietly take
-the game over. No transcript means no line and no pulse: an empty mic looks
-exactly like the game with Listen off.
+it thinks is right. The student still presses one — the self-rating is still
+the score, and a pre-pressed suggestion would quietly take the game over. No
+transcript means no line and no pulse: an empty mic looks exactly like
+Listen off.
 
 Turning it on is where Chrome asks for the microphone, so the prompt
-happens on the start screen and not in the middle of a card. A blocked mic
-snaps the toggle back to Off with the same message Say It gives, and the
-cards carry on.
+happens on the start screen, not mid-card. A blocked mic snaps the toggle
+back to Off with the same message Say It gives, and the cards carry on.
 
 `judgeHeard()` (pure, in `tests.html`) accepts four things, in order of how
 sure they are: the word; a homophone of it (the red lists pass their
@@ -1048,36 +1009,34 @@ as and a letter-perfect match would be a bar no student could clear.
 
 The listening itself is `listen.js` (`EIListen`) — a small wrapper over
 `SpeechRecognition` with `start`/`stop`/`hold`/`onTranscript`. It is
-deliberately **not** a refactor of Say It's loop. That one is the whole
-game: it holds the mic open for a round, mutes around every beep and
-utterance, and its hold lengths were tuned by ear against a room of
-Chromebooks. The cards want something much smaller, and touching a tuned
-thing to serve a second caller is how it stops being tuned. Both exist; the
-mic is stopped before the card speaks, so the recogniser can never
-transcribe the computer's own read back as the student's answer.
+deliberately **not** a refactor of Say It's loop. That one is the whole game:
+it holds the mic open for a round, mutes around every beep and utterance, and
+its hold lengths were tuned by ear against a room of Chromebooks. The cards
+want something much smaller, and touching a tuned thing to serve a second
+caller is how it stops being tuned. The mic is stopped before the card
+speaks, so the recogniser can never transcribe the computer's own read back
+as the student's answer.
 
 ## One minute (word-list rate)
 
 Every other mode asks whether a student knows a word. This one asks how
-fast, which is a different question and the one that goes on being worth
-asking long after accuracy has stopped moving. A student can be right about
-*would* every single time and still take three seconds to get there.
+fast, which stays worth asking long after accuracy has stopped moving: a
+student can be right about *would* every time and still take three seconds.
 
 `fluency-game.js` + `fluency-game.html`: the word list in rows of five,
 sixty seconds, the deck cycling so a fast reader never runs out. Space
 skips. Score: **correct words per minute**, plus the delta since last time,
-which is the reason to do it twice. On the starting blends, the final
-blends and the nonsense words.
+which is the reason to do it twice. Offered on the nonsense words only
+(retired on the two blends families; see *Retired modes*).
 
-It is called a rate rather than *fluency* on purpose. What a list of words
-measures is **automaticity of word recognition** — whether a word comes back
-without effort — which is a real construct and the one timed word-list tests
-like TOWRE assess. What it cannot measure is prosody, phrasing, or whether a
-student holds meaning across a sentence, because none of those exist outside
-connected text. The two numbers also differ: a passage hands a weak decoder
-context to lean on, and a list takes that away, which is the point here and
-also the reason a good rate on this list is not evidence that a paragraph
-goes well. Passage reading wants its own probe.
+It is called a rate rather than *fluency* on purpose. A list of words
+measures **automaticity of word recognition** — whether a word comes back
+without effort — a real construct, the one timed word-list tests like TOWRE
+assess. It cannot measure prosody, phrasing, or holding meaning across a
+sentence, which exist only in connected text. A passage also hands a weak
+decoder context to lean on and a list takes that away, which is the point
+here and why a good rate on this list is not evidence a paragraph goes well.
+Passage reading wants its own probe.
 
 The clock starts on the **first word actually read**, not on the button: a
 student fumbling with headphones for four seconds has not been reading for
@@ -1089,13 +1048,12 @@ a forty-second run that stopped early is not a faster reader.
 
 `consume()` (pure, in `tests.html`) walks a transcript's tokens against the
 words still to be read. The obvious rule — every token answers the current
-word, right or wrong — is wrong in a way that took a while to see: a single
-**extra** token knocks the alignment out for the rest of the run. Say "um"
-at word three and "um" eats *golf*, then "golf" is judged against *honk*,
-and every word after it reads as wrong. The student never resyncs, because
-they're reading straight down a fixed list. A reader who hesitated once
-ended the minute at nought — and hesitating is exactly what the students
-this measures actually do.
+word, right or wrong — fails in a way that took a while to see: one **extra**
+token knocks the alignment out for the rest of the run. Say "um" at word
+three and "um" eats *golf*, then "golf" is judged against *honk*, and every
+word after reads as wrong. The student never resyncs, because they're
+reading straight down a fixed list. A reader who hesitated once ended the
+minute at nought — and hesitating is what the students this measures do.
 
 So a token that doesn't match the current word isn't automatically a
 misread. Five rules decide, in order:
@@ -1122,20 +1080,20 @@ fire when a *later* token matches the word we're on — the signature of
 noise — so a wrong word followed by the next right word is still a misread
 and still counts. Three fillers in a row is past what a two-token window
 can tell from a run of misreads; that limit is pinned by a test rather than
-chased, because widening the window until nothing ever desyncs is the same
-as forgiving every misread.
+chased, because widening the window until nothing desyncs is the same as
+forgiving every misread.
 
-Interim results drive the pointer, not just finals — a reader at sixty
-words a minute is four words past whatever the recogniser is still thinking
-about, and waiting would leave the highlight hopelessly behind. But an
-interim is a guess Chrome keeps **revising**: "cost" becomes "cast" a beat
-later. So each result is scored from a snapshot of the run taken before it
-was first seen, and a revision rolls back to that snapshot and scores the
-new transcript from scratch. Nothing reaches the scheduler until the result
-goes final — a stat write can't be rolled back, and reporting a word wrong
-on a guess about to be withdrawn is worse than reporting it a moment late.
+Interim results drive the pointer, not just finals — a reader at sixty words
+a minute is four words past whatever the recogniser is still thinking about,
+and waiting would leave the highlight hopelessly behind. But an interim is a
+guess Chrome keeps **revising**: "cost" becomes "cast" a beat later. So each
+result is scored from a snapshot of the run taken before it was first seen,
+and a revision rolls back to that snapshot and rescores from scratch. Nothing
+reaches the scheduler until the result goes final: a stat write can't be
+rolled back, and reporting a word wrong on a guess about to be withdrawn is
+worse than reporting it a moment late.
 
-That last path is the one mic behaviour that *can* be tested headlessly, and
+That path is the one mic behaviour that *can* be tested headlessly, and
 `tools/boot-check.sh` does: a fake recogniser emits a bad interim and then
 the corrected final, and the run has to end with three words right and no
 errors.
@@ -1157,17 +1115,16 @@ at 50 %.
 `students/{uid}.fluency[listId]` is a list of `{at, cwpm, errors, n}`,
 oldest first, capped at **30** — a term of weekly reads, and a few
 kilobytes. It is not a stat: a rate belongs to a run, not to a word, and
-nothing in the scheduler reads it. The tail is what makes the dashboard's
+nothing in the scheduler reads it. The tail makes the dashboard's
 sparkline; a single latest number would say nothing about whether anything
 is changing.
 
-**A run the mic wasn't there for isn't stored.** If the connection
-dropped at any point in the minute, or the recogniser heard nothing at
-all, the end screen shows what happened and says the run wasn't saved —
-no rate, no round, no "since last time". A dropped connection isn't a
-slower reader, and saving it would put a cliff in the trend line. Driven
-in `tools/boot-check.html` (`fluency-net`, `fluency-silent`,
-`fluency-saved`).
+**A run the mic wasn't there for isn't stored.** If the connection dropped
+at any point in the minute, or the recogniser heard nothing at all, the end
+screen shows what happened and says the run wasn't saved — no rate, no
+round, no "since last time". A dropped connection isn't a slower reader,
+and saving it would put a cliff in the trend line. Driven in
+`tools/boot-check.html` (`fluency-net`, `fluency-silent`, `fluency-saved`).
 
 The student page draws one inline-SVG sparkline per fluency list (no
 library, no axes, no labels — the question is "is this going up", and the
@@ -1177,54 +1134,52 @@ read.
 
 ## Phoneme clips
 
-A synthesiser will not say an isolated /b/. Asked for one it says **"buh"**
-— and a word sounded out as "buh-a-tuh" does not blend into "bat". That is
-the single most common thing a struggling reader has been taught wrong, and
-the student who does it has been doing it faithfully for years.
+A synthesiser will not say an isolated /b/. Asked for one it says **"buh"** —
+and a word sounded out as "buh-a-tuh" does not blend into "bat". That is the
+most common thing a struggling reader has been taught wrong, and they have
+done it faithfully for years.
 
 So the sounds come from files. `audio/ph/<TOKEN>.mp3`, one per token
 `phonemes()` can emit (37 of them), made by `tools/make-phonemes.sh` out of
 espeak-ng's phoneme input — the one way to get a synthesiser to say a sound
 in isolation. Stops (b d g k p t) have no sound at all without a release, so
-they get a tiny schwa that is then trimmed back to the burst: the closest a
-machine gets to a pure /b/ without saying "buh". **/r/ and /j/** get the
-same treatment for a different reason: espeak renders either one on its own
-as pure silence, and for a while `R.mp3` and `J.mp3` were two identical
-empty files — Blend It played *crab* as /k/ … /a/ /b/. They are built from
-the sound plus a schwa and trimmed back to the sound. The script now exits
-with an error naming any clip that peaks below −40 dB, and
-`tools/boot-check.sh` reports a clip too small to hold a sound. The script is a build-time
-tool; the clips are committed, and nothing on the site needs it.
+they get a tiny schwa trimmed back to the burst: the closest a machine gets
+to a pure /b/ without "buh". **/r/ and /j/** get the same treatment for a
+different reason: espeak renders either alone as pure silence, and for a
+while `R.mp3` and `J.mp3` were two identical empty files — Blend It played
+*crab* as /k/ … /a/ /b/. They are built from the sound plus a schwa, trimmed
+back to the sound. The script now exits with an error naming any clip that
+peaks below −40 dB, and `tools/boot-check.sh` reports a clip too small to
+hold a sound. The script is build-time only; the clips are committed, and
+nothing on the site needs it.
 
 `GameCore.phonemeAudio()` fetches `audio/ph/manifest.json` once per page and
 resolves to a player — `play(tokens, gapMs)`, `has()`, `estimate()`,
-`cancel()` — or to **null**. Null is the feature switch: if the folder isn't
-there, everything built on it hides itself rather than playing silence at a
-student. `x` and `qu` stay single tokens everywhere else (the distance
-arithmetic depends on it) and are expanded to two clips only here.
+`cancel()` — or to **null**. Null is the feature switch: without the folder,
+everything built on it hides rather than playing silence at a student. `x`
+and `qu` stay single tokens everywhere else (the distance arithmetic depends
+on it) and are expanded to two clips only here.
 
 Playing goes through the same microphone hold the spoken coach uses, so the
-recogniser never transcribes the computer's own sounds back as the
-student's.
+recogniser never transcribes the computer's own sounds as the student's.
 
 ### Blend It
 
-A mode that starts from **sound** rather than from letters, and the only one
-that can. The student hears /k/ /r/ /a/ /b/ spread 700 ms apart, then the
-same sounds 250 ms apart, then says the word. The word itself is not on
-screen until they have had their go — that is phonological blending with
-nothing to read off, which is the sub-skill every printed list has to
-assume.
+A mode that starts from **sound** rather than letters, and the only one that
+can. The student hears /k/ /r/ /a/ /b/ spread 700 ms apart, then 250 ms
+apart, then says the word. The word is not on screen until they have had
+their go — phonological blending with nothing to read off, the sub-skill
+every printed list has to assume.
 
-Dots under the prompt show how many sounds are coming, which is itself worth
-knowing before trying to blend them. On the second miss the sounds play once
-more and **the letters light up with them**, in order, using `phonemeSpans`
-— *that* sound is spelled by *those* letters, which is the join the whole
-game exists to make. Then the whole word, spoken; nothing for the nonsense
-list, where a synthesiser handed "vab" says "verb".
+Dots under the prompt show how many sounds are coming, worth knowing before
+trying to blend them. On the second miss the sounds play once more and **the
+letters light up with them**, in order, using `phonemeSpans` — *that* sound
+is spelled by *those* letters, the join the whole game exists to make. Then
+the whole word, spoken; nothing for the nonsense list, where a synthesiser
+handed "vab" says "verb".
 
-On the starting blends, the final blends and the nonsense words.
-`blend-it-game.js` + `blend-it-game.html`.
+Offered on the nonsense words only (retired on the two blends families;
+see *Retired modes*). `blend-it-game.js` + `blend-it-game.html`.
 
 ### Tap to hear
 
@@ -1234,23 +1189,23 @@ Press one and it plays itself, then the whole word — a part is only useful
 next to the thing it is part of.
 
 A student who has been told a word twice and still can't read it usually
-can't hear *which part* they are getting wrong. Pressing "tas" and hearing
-/t/ /a/ /s/ answers that without anybody having to explain it.
+can't hear *which part* is going wrong. Pressing "tas" and hearing /t/ /a/
+/s/ answers that without anyone explaining.
 
 **Not on the red words.** `tapPieces` and `diagnose()` both stand on
-`phonemes()`, which is a set of regular spelling rules — and the red words
-are the ones the rules get wrong. By rule *said* is S·EY·D, so pressing the
-back of that card played "sayed", beside the red letters marking exactly the
-part that can't be sounded out; *one* played as "own". The red family sets
-`config: { irregular: true }`, and on such a list the cards show the heart
-letters with nothing to press and Say It reveals the word without naming a
-part (so those misses carry no error kind to the dashboard — an encoder's
-guess is worse than a blank). Bringing the taps back for these words means
-hand-written sounds per word, the way the heart letters are hand-marked.
+`phonemes()`, a set of regular spelling rules — and the red words are the
+ones the rules get wrong. By rule *said* is S·EY·D, so pressing the back of
+that card played "sayed", beside the red letters marking exactly the part
+that can't be sounded out; *one* played as "own". The red family sets
+`config: { irregular: true }`: the cards show the heart letters with nothing
+to press and Say It reveals the word without naming a part (so those misses
+carry no error kind to the dashboard — an encoder's guess is worse than a
+blank). Bringing the taps back means hand-written sounds per word, as the
+heart letters are hand-marked.
 
-Press-only on purpose (`tabindex="-1"`): these sit inside games where 1 and
-2 are the answer keys, and a tab stop on every syllable would put a dozen
-new stops between the student and the button they need.
+Press-only on purpose (`tabindex="-1"`): these sit inside games where 1 and 2
+are the answer keys, and a tab stop on every syllable would put a dozen new
+stops between the student and the button they need.
 
 ## Sound boxes, splitting and hearing yourself
 
@@ -1258,20 +1213,18 @@ Three smaller things, each aimed at a sub-skill the other modes step over.
 
 ### Sound boxes (oi/oy spelling)
 
-One input per **sound**, not one for the word. "coin" is three sounds and
-four letters, and a student who puts one letter in each box has already
-found the thing they were going to get wrong. Typing auto-advances when a
-box is as long as the sound it holds — that length is the scaffold, exactly
-as the width of a drawn box is on paper — and Backspace out of an empty box
-goes back.
+One input per **sound**, not per word. "coin" is three sounds and four
+letters, and a student who puts one letter in each box has already found
+what they would get wrong. Typing auto-advances when a box is as long as the
+sound it holds — that length is the scaffold, as the width of a drawn box is
+on paper — and Backspace out of an empty box goes back.
 
-The first miss marks the wrong boxes red and says how many; the student
-types over them. The second fills those boxes in gold and leaves the right
-ones alone, so what they see is their own spelling with the missing piece
-dropped in rather than the answer handed over whole. When exactly **one**
-box is wrong there is a single thing to point at, so `diagnose()` says what
-it is and the voice reads it after the word; two or more and it says nothing
-rather than guessing.
+The first miss marks the wrong boxes red and says how many; the student types
+over them. The second fills those boxes in gold and leaves the right ones
+alone, so they see their own spelling with the missing piece dropped in, not
+the answer handed over whole. When exactly **one** box is wrong there is a
+single thing to point at, so `diagnose()` says what it is and the voice reads
+it after the word; two or more and it says nothing rather than guess.
 
 Stats are unchanged: correct means every box right first try.
 
@@ -1290,20 +1243,19 @@ have the perfectly good answer "no splits at all".
 
 A student who has just read a word wrong twice usually has no idea what they
 actually said — they heard the word correctly in their own head the whole
-time. "🎙 Hear yourself" plays the last few seconds back and then reads the
-word properly, which is the comparison the button exists for. There is no
-arguing with the recording.
+time. "🎙 Hear yourself" plays the last few seconds back, then reads the word
+properly: the comparison the button exists for. There is no arguing with the
+recording.
 
-**In memory only.** The clip lives as a blob URL for exactly as long as its
-card is on screen and is revoked when the next one arrives. Nothing is
-stored and nothing is uploaded: a recording of a fifteen-year-old struggling
-to read is not a thing to keep, and the moment it is kept somebody has to
-decide who may hear it.
+**In memory only.** The clip is a blob URL, alive only while its card is on
+screen and revoked when the next arrives. Nothing is stored or uploaded: a
+recording of a fifteen-year-old struggling to read is not a thing to keep,
+and the moment it is kept somebody has to decide who may hear it.
 
-Feature-detected (`MediaRecorder`), and only ever enabled where the
-microphone prompt has already been answered — after Say It's mic check, or
-when the cards' Listen toggle is switched on. It never causes a prompt of
-its own, and where there is no permission the button simply never appears.
+Feature-detected (`MediaRecorder`), and only enabled where the microphone
+prompt has already been answered — after Say It's mic check, or when the
+cards' Listen toggle is switched on. It never causes a prompt of its own,
+and where there is no permission the button never appears.
 
 ## Adaptive practice
 
@@ -1325,63 +1277,60 @@ Two independent pulls decide how often a word comes up:
   rather than banned, so short sessions don't loop the same handful and a
   long gap doesn't dump everything at once.
 
-Only **first-try** answers count as right. Getting a word after being told
-it isn't knowing it — the same rule the comeback deck already used. A miss
-drops a word one box rather than resetting it to zero: resetting is the
-textbook Leitner move and it turns one fumble into a week of seeing that
-word every session.
+Only **first-try** answers count as right. Getting a word after being told it
+isn't knowing it — the rule the comeback deck already used. A miss drops a
+word one box rather than resetting it: resetting is the textbook Leitner
+move and turns one fumble into a week of seeing that word every session.
 
 ### Speed
 
 A word decoded in three seconds is not a sight word, however reliably it
 comes back right. The flash cards time the flip (`performance.now()` when
-the card lands, again when it turns) and pass the milliseconds along with
-the rating; the other engines can't measure anything meaningful per word — a
-mic answer's clock includes the recogniser and a typed one includes the
-typing — and simply don't pass it. (The one-minute run measures speed a
-different way: correct words per minute across the whole run, kept in its own
-`fluency` record, not as a per-word `lat`.)
+the card lands, again when it turns) and pass the milliseconds with the
+rating; the other engines can't measure anything meaningful per word — a mic
+answer's clock includes the recogniser and a typed one the typing — and
+don't pass it. (The one-minute run measures speed differently: correct words
+per minute across the run, kept in its own `fluency` record, not as a
+per-word `lat`.)
 
-The stat gains `lat`, a running average of how long a **correct** answer
-took. Wrong answers aren't timed: that clock is measuring how long a
-student stared at a word they didn't know. Over `SLOW_MS` (2.5 s) a word
-counts as slow and the scheduler weights it up by ×1.5, so it keeps coming
-round after its accuracy has stopped moving.
+The stat gains `lat`, a running average of how long a **correct** answer took.
+Wrong answers aren't timed: that clock measures how long a student stared at
+a word they didn't know. Over `SLOW_MS` (2.5 s) a word counts as slow and the
+scheduler weights it ×1.5, so it keeps coming round after its accuracy has
+stopped moving.
 
-What slow does **not** do is change `isMastered`. The student's own tile
-says "12 of 20 solid", and that number must not drop the day the cards
-learn to use a stopwatch — nothing about their reading changed. Speed is
-the scheduler's business and the teacher's: the dashboard's per-list
-breakdown reads "12 / 20 (4 slow)", and **Ready to move up** counts a word
-only when it is solid *and* at pace, so nobody gets advanced on the
-strength of thirty words they can decode but not read.
+What slow does **not** do is change `isMastered`. The student's tile says "12
+of 20 solid", and that number must not drop the day the cards learn to use a
+stopwatch — nothing about their reading changed. Speed is the scheduler's
+business and the teacher's: the dashboard's per-list breakdown reads "12 / 20
+(4 slow)", and **Ready to move up** counts a word only when it is solid *and*
+at pace, so nobody advances on thirty words they can decode but not read.
 
-On the card itself, a flip under 1.5 s earns a "⚡ fast" pill and the end
-screen counts them. There is deliberately no slow pill: "you were quick" is
-worth saying out loud, and "you were slow" is a thing the scheduler acts on
-quietly, because being told would make the next card slower, not faster.
+On the card, a flip under 1.5 s earns a "⚡ fast" pill and the end screen
+counts them. There is deliberately no slow pill: "you were quick" is worth
+saying aloud, while "you were slow" the scheduler acts on quietly, because
+being told would make the next card slower.
 
-A list with at least eight solid words also offers a **⚡ Speed round** on
-the start screen — a deck of nothing but words the student already owns,
-with the cards flipping themselves after two seconds so there is no waiting
-the clock out. Useless as practice; the only thing on the site that asks
-whether a word can be read without thinking about it.
+A list with at least eight solid words also offers a **⚡ Speed round** on the
+start screen — only words the student already owns, the cards flipping
+themselves after two seconds so there is no waiting the clock out. Useless
+as practice; the only thing on the site that asks whether a word can be read
+without thinking about it.
 
 Never-practiced words sit at a flat weight of 3.0, between "solid" and
-"shaky", so new material keeps flowing without crowding out what's
-failing. "Play again" redraws — the words missed a minute ago are now the
-likeliest picks.
+"shaky", so new material keeps flowing without crowding out what's failing.
+"Play again" redraws — the words missed a minute ago are now the likeliest
+picks.
 
-Stats are stored per **list and word** (`"<listId>|<word>"`), not per
-word: "coin" in the reading game and "coin" in the spelling game are
-different skills, and a student can be fluent at one while failing the
-other.
+Stats are stored per **list and word** (`"<listId>|<word>"`), not per word:
+"coin" in the reading game and "coin" in the spelling game are different
+skills, and a student can be fluent at one while failing the other.
 
 ## Per-student tracking
 
 `store.js` keeps one document per student at `students/{uid}` — the
 per-word stats, lifetime totals, and a short tail of finished rounds. Two
-rules in that file are worth knowing before touching it:
+rules in that file matter before touching it:
 
 - **A failed read is not an empty record.** If the load fails (blocked
   network, offline Chromebook) every local map is empty, which is
@@ -1400,14 +1349,14 @@ it is never merged back up.
 The document also carries a `heard` map: for each word Say It marked wrong,
 the last **five** transcripts the recogniser returned, cleaned (lowercase,
 letters/digits/apostrophe/space, 40 characters) and deduplicated. It is
-evidence, not a score — nothing in the scheduler reads it. It is there
-because a word that keeps coming back as "bread" is a reading error worth a
-lesson, and a word that comes back as three spellings of itself is the
-recogniser failing and wants a line in `ACCEPT` instead. The shape lives in
-`adaptive.js` (`cleanHeard`, `pushHeard`, `sanitizeHeard`) beside
-`sanitizeStats`, because both the student's store and the teacher's
-dashboard have to agree about it. Both places sanitize on the way in: the
-document is hand-editable and outlives any change to this repo.
+evidence, not a score — nothing in the scheduler reads it. A word that keeps
+coming back as "bread" is a reading error worth a lesson; a word that comes
+back as three spellings of itself is the recogniser failing and wants a
+line in `ACCEPT` instead. The shape lives in `adaptive.js` (`cleanHeard`,
+`pushHeard`, `sanitizeHeard`) beside `sanitizeStats`, because the student's
+store and the teacher's dashboard both have to agree about it. Both
+sanitize on the way in: the document is hand-editable and outlives any
+change to this repo.
 
 ## Teacher dashboard
 
@@ -1438,23 +1387,23 @@ page for that account. Four tabs:
 There is no class default, no period list, no course, and no "everything
 when nothing is set". Each student has exactly one set of lists — their
 own — and that set is what their home page shows. `EIStore.effectiveLists`
-is the whole rule: the student's `assignments/{uid}` lists, else the
-lists on their roster row (set on the dashboard before they had signed
-in), else nothing.
+is the whole rule: the student's `assignments/{uid}` lists, else the lists
+on their roster row (set on the dashboard before they had signed in), else
+nothing.
 
-This replaced a precedence walk (own → roster → period course → period
-list → class default → everything) with inherited cells drawn dashed,
-copy-on-write edits and an *own ↺* button to hand a student back to their
-group. All of that was correct and all of it needed explaining. With one
-level there is nothing to inherit, so a row on the board is simply what
-that student sees, and "who has nothing" — the only question the old
-default answered — is now asked out loud instead.
+This replaced a precedence walk (own → roster → period course → period list →
+class default → everything) with inherited cells drawn dashed, copy-on-write
+edits and an *own ↺* button to hand a student back to their group. All of it
+was correct and all of it needed explaining. With one level there is nothing
+to inherit: a row on the board is what that student sees, and "who has
+nothing" — the only question the old default answered — is asked out loud.
 
 ### The picker
 
 Every place a set of lists is chosen — a student's own page, the board's
-bulk dialog — uses one component, `pickerHtml()` in `teacher.js`. It is one section per family,
-because that is the only kind of entry the registry has:
+bulk dialog — uses one component, `pickerHtml()` in `teacher.js`: one
+section per family, because that is the only kind of entry the registry
+has:
 
 - **a family with one list** — a line of mode checkboxes, with *all* /
   *none*: "Blend Words: 🎤 Say it · 🃏 Cards · 🎯 Match It", each labelled
@@ -1468,25 +1417,25 @@ A live line under the picker — *"Ticked: Starting Blends: 🎤🃏 · Red
 Words: 1–3 🃏 · 1 🎯"* — says in words what the ticks add up to, and it is
 the same line the roster shows, so what a student *has* and what you're
 *setting* read the same way. The button row under a picker is sticky, so
-Save is on screen however far down the six families you've scrolled.
+Save stays on screen however far down the six families you've scrolled.
 
 ### The Assign board: the whole class at once
 
-The picker answers "what should *this* student get?", which is the right
-shape for a conversation about one student and the wrong shape for the
-ten minutes at the start of a unit when you are moving a class onto List
-4. The **Assign** tab is that: students down the side, lists across the
-top, every assignment in the class visible and editable in place.
+The picker answers "what should *this* student get?", the right shape for one
+student and the wrong one for the ten minutes at the start of a unit when you
+move a class onto List 4. The **Assign** tab is that: students down the side,
+lists across the top, every assignment in the class visible and editable in
+place.
 
 Rows are grouped by period under a heading row whose checkbox selects
 everyone shown under it. Columns are one per list, grouped under a family
-header that can be folded (▾/▸) into a single summary column, which is
-how ten red-word columns get out of the way when you're working on
-blends. Both the first column and the two header rows are sticky, so a
-name and a list stay on screen however far you scroll. Above the grid is
-a key to the mode icons — the cells are icons and nothing else — and,
-when it's true, a line counting the students shown who have nothing.
-Each name carries *"3 games"* or a gold *nothing yet* under it.
+header that folds (▾/▸) into one summary column, which is how ten red-word
+columns get out of the way when you're working on blends. The first column
+and the two header rows are sticky, so a name and a list stay on screen
+however far you scroll. Above the grid is a key to the mode icons — cells are
+icons and nothing else — and, when it's true, a line counting the students
+shown who have nothing. Each name carries *"3 games"* or a gold *nothing
+yet*.
 
 - **A cell click** opens the modes for that one list, ticked live.
 - **A column's all** sets every offered mode of that list for every *visible*
@@ -1509,24 +1458,24 @@ Each name carries *"3 games"* or a gold *nothing yet* under it.
 The board's rules — what a student has, how far a column toggle or a bulk
 change reaches, and the shape of the documents Save writes — are pure
 functions of a class's state and are pinned in `tests.html`, along with a
-check that the grid itself renders the rows and cells it claims to.
+check that the grid renders the rows and cells it claims to.
 
 ### Roster import
 
 A class only existed on this dashboard once every student had signed in,
 which made the first day of term an empty page and a teacher typing thirty
-names into a period dropdown. **Periods → 📋 Import roster** takes
-whatever the student information system exports and places the whole class
-before any of them touches the site.
+names into a period dropdown. **Periods → 📋 Import roster** takes whatever
+the student information system exports and places the whole class before any
+of them touches the site.
 
-On the Students tab, the **Add by student ID** box is the same import with a typed
-source: the IDs go through `parseRoster` and `importBody` exactly as a
+On the Students tab, the **Add by student ID** box is the same import with a
+typed source: the IDs go through `parseRoster` and `importBody` exactly as a
 file's rows would. It skips any ID already on the roster rather than
-updating it, because a typed ID has no name and a set-merge would blank
-the one the import stored.
+updating it, because a typed ID has no name and a set-merge would blank the
+one the import stored.
 
 The join is the ID number. Students sign in as `<student id>@seq.org`, so
-the address is knowable in August and a uid is not — and the roster is
+the address is knowable in August and a uid is not — the roster is
 therefore stored at `roster/{email}`, keyed by the thing both sides of a
 first sign-in agree about.
 
@@ -1536,20 +1485,18 @@ quoted fields with commas inside names; a BOM; Windows line endings; `Perm
 ID` or `Local ID` or `Student Number`; one *Name* column or *Last* plus
 *First*; `Period 3` or `P3` or `3rd`. With no header row at all it reads the
 columns by shape — the all-digits column is the ID, the wordy one is the
-name, the one- or two-digit one is the period. Any other column is
-ignored: which games a student gets is chosen on the dashboard, not in the
-export.
+name, the one- or two-digit one is the period. Any other column is ignored:
+which games a student gets is chosen on the dashboard, not in the export.
 
-What it will **not** do is guess an ID. A row without one, or with a
-non-numeric or duplicate one, is listed and left out — a guessed ID is a
-student matched to somebody else's record.
+It will **not** guess an ID. A row without one, or with a non-numeric or
+duplicate one, is listed and left out — a guessed ID is a student matched to
+somebody else's record.
 
 Nothing is written until the preview has been looked at: name, email,
-period, and a status of *new*, *update* or *already signed in*.
-Then one batch of set-merges (chunks of 400).
+period, and a status of *new*, *update* or *already signed in*. Then one
+batch of set-merges (chunks of 400).
 
-Two rules do the rest of the work and both are about not destroying
-anything:
+Two rules do the rest of the work, both about not destroying anything:
 
 - **A re-import never deletes.** A student dropped from an export by
   mistake keeps their row and their period. Removal is one explicit button
@@ -1562,12 +1509,11 @@ anything:
 
 A roster row with no account behind it is folded into the class as a
 **pending student** — a real row, greyed, clickable and assignable, with
-"hasn't signed in yet" where their numbers would be. That is the design
-decision worth knowing: every view shows the class as it actually is, and
-nothing had to learn about a second kind of student. Their assignments are
-written to their roster row instead of to `assignments/{uid}`, because
-there is no uid to write one against yet; `store.js` picks them up on the
-first sign-in.
+"hasn't signed in yet" where their numbers would be. The design decision
+worth knowing: every view shows the class as it actually is, and nothing
+had to learn about a second kind of student. Their assignments are written
+to their roster row instead of `assignments/{uid}`, because there is no uid
+to write against yet; `store.js` picks them up on the first sign-in.
 
 ### What should change
 
@@ -1597,9 +1543,8 @@ what it did before committing.
 
 A student who has finished Red List 3 should be on List 4, and the only
 thing between those two facts is somebody noticing. For a class moving
-together that's fine; for the three students who are ahead it is exactly
-the kind of thing that doesn't get done, and they spend a fortnight
-re-practising words they already know.
+together that's fine; for the three students who are ahead it doesn't get
+done, and they spend a fortnight re-practising words they already know.
 
 So the board works it out. Above the grid, when there is anything to say:
 *"Marcos · Red Words 🃏 · finished List 2 (18 of 20 solid) → add List 3"*,
@@ -1608,46 +1553,44 @@ waits for the same Save.
 
 The count in the brackets is the **fluent** one — solid *and* at pace,
 `mastered − slow` — because that is the number `Adaptive.listShare`
-measured the bar against. Printing `mastered` there would show "20 of
-20" beside a suggestion that sixteen of them earned, and a teacher who
-has read that slow words never count toward moving up would be right to
-ask which is true. Where any are slow the line names them beside the
-count as *"(16 of 20 solid, 3 more slow)"*: "more", so nobody reads the
-three as part of the sixteen. The per-list cell on the student page keeps
-its own shape, *"20 / 20 (3 slow)"*, where the slow words are counted
-*inside* the twenty — that cell is answering "how many do they own", this
-line is answering "how many did the bar see".
+measured the bar against. Printing `mastered` would show "20 of 20" beside
+a suggestion that sixteen of them earned, and a teacher who has read that
+slow words never count toward moving up would be right to ask which is
+true. Where any are slow the line names them beside the count as *"(16 of
+20 solid, 3 more slow)"*: "more", so nobody reads the three as part of the
+sixteen. The per-list cell on the student page keeps its own shape, *"20 /
+20 (3 slow)"*, where the slow words are counted *inside* the twenty — that
+cell answers "how many do they own", this line "how many did the bar see".
 
 It does not act on its own, on two counts. Auto-advancing would move a
-student on the strength of a scoring heuristic with nobody who has met
-them in the loop — and "solid" here means solid on a screen, which is not
-always solid on paper. And the arithmetic runs on the **teacher's** page,
-which is where the decision belongs; `firestore.rules` is what actually
-holds that line (a student can read `assignments/{uid}` and never write
-it), but there is no reason to ship the policy to their browser either.
+student on the strength of a scoring heuristic with nobody who has met them
+in the loop — and "solid" here means solid on a screen, which is not always
+solid on paper. And the arithmetic runs on the **teacher's** page, where the
+decision belongs; `firestore.rules` is what actually holds that line (a
+student can read `assignments/{uid}` and never write it), but there is no
+reason to ship the policy to their browser either.
 
 The bar is **four words in five solid** (`SOLID_ENOUGH`), not all of them:
 one stubborn word — a name, a word whose synthesised reading is poor —
 should not hold a student on a list for a term. Each mode advances on its
 own, because a student can be solid on List 3 as flash cards and still be
-finding it in Match It. And the suggestion is **additive**: it doesn't
-take the finished list away, since each list is its own tile with its own
+finding it in Match It. And the suggestion is **additive**: it doesn't take
+the finished list away, since each list is its own tile with its own
 adaptive deck, so keeping List 3 alongside List 4 costs nothing and keeps
 those words in rotation. Dropping one stays a judgement call.
 
 ### Patterns
 
 Thirty words all going wrong on the same vowel team is **one** problem with
-one lesson behind it, and a list of thirty words is exactly the shape that
-hides that. So every family carries a `pattern` — *initial blend*, *final
-blend*, *vowel team oi/oy*, *multisyllable*, *irregular*, *nonsense CVC* —
-in the words a teacher would use in a plan, and **Trouble
-spots** has a second table grouped by it, filterable by period like the
-first.
+one lesson behind it, and a list of thirty words hides that. So every
+family carries a `pattern` — *initial blend*, *final blend*, *vowel team
+oi/oy*, *multisyllable*, *irregular*, *nonsense CVC* — in the words a
+teacher would use in a plan, and **Trouble spots** has a second table
+grouped by it, filterable by period like the first.
 
 "Shaky" in that table counts **students**, not words: a student struggling
-with six words of one pattern counts once, because the question the table
-answers is how many people to reteach.
+with six words of one pattern counts once, because the table answers how
+many people to reteach.
 
 It is also a slightly **looser** line than the one on the Students table.
 `adaptive.js` calls a word shaky when it is not solid and first-try accuracy
@@ -1665,22 +1608,22 @@ fumbled once. The key set is closed and sanitized on the way in: this goes
 from a game engine into a document a teacher reads.
 
 The student page gains a **Slow but right** count (from `lat` — see Speed;
-still never shown to the student) and a one-line error mix. Both exports
-grow columns: *Slow but right* and *Top error* on the roster; *Pattern*,
-*Slow* and *Top error* per word.
+never shown to the student) and a one-line error mix. Both exports grow
+columns: *Slow but right* and *Top error* on the roster; *Pattern*, *Slow*
+and *Top error* per word.
 
 ### Notes
 
-A short note per student, on their detail page, for the things the
-numbers can't say — *"reads well, freezes when timed"*, *"sounds it out
-under his breath and gets there"*. The first line shows under their name
-on the roster and as a ✎ on the board, because a note you have to open a
-student to discover is a note nobody reads.
+A short note per student, on their detail page, for the things the numbers
+can't say — *"reads well, freezes when timed"*, *"sounds it out under his
+breath and gets there"*. The first line shows under their name on the
+roster and as a ✎ on the board, because a note you have to open a student
+to discover is a note nobody reads.
 
 It lives in its own `notes/{uid}` collection, and that is the whole design
 decision. A student can read their own `assignments/{uid}` row, so a note
-stored there would be a note its subject can read — and a teacher writing
-for that audience will either write nothing useful or keep the real notes
+stored there would be readable by its subject — and a teacher writing for
+that audience will either write nothing useful or keep the real notes
 somewhere else. `notes/{uid}` is **teacher read and teacher write, with no
 student clause at all**. It is the one path on the site a student may not
 read about themselves.
@@ -1700,11 +1643,11 @@ in memory — no new reads, no backend:
 
 The builders are pure functions and the escaping is tested, which matters
 more than it looks: a student called O'Brien, a note with a comma, a list
-title with a quotation mark — a naive join breaks on any of them, and it
-breaks silently, in a file somebody has already emailed to a meeting.
-Cells beginning `=`, `+`, `-` or `@` are prefixed with an apostrophe so a
-spreadsheet doesn't read a name as a formula, and the file carries a BOM
-so Excel doesn't mangle accented names.
+title with a quotation mark — a naive join breaks on any of them, silently,
+in a file somebody has already emailed to a meeting. Cells beginning `=`,
+`+`, `-` or `@` are prefixed with an apostrophe so a spreadsheet doesn't
+read a name as a formula, and the file carries a BOM so Excel doesn't
+mangle accented names.
 
 ### Keyboard and screen readers
 
@@ -1728,10 +1671,10 @@ mean the same thing now: nothing.
 `config/class` holds only the named periods, and it is **teacher-only,
 read and write**: students never read it, because `store.js` resolves a
 student's lists through `assignments/{uid}` and `roster/{email}`. (An
-earlier design had students read `periodLists` and `defaultLists` from
-it; those fields are gone and the student-read grant went with them.
-Older builds also wrote `sequences` and `sequenceOn` there. Nothing reads
-any of them now, and they can be left or deleted in the console.)
+earlier design had students read `periodLists` and `defaultLists` from it;
+those fields are gone and the student-read grant went with them. Older
+builds also wrote `sequences` and `sequenceOn` there. Nothing reads any of
+them now, and they can be left or deleted in the console.)
 
 A student reads and writes only their own `students/{uid}`. The teacher
 has **read** on it and no write. Everything the teacher sets lives in
@@ -1747,15 +1690,14 @@ The console does not update itself: whenever `firestore.rules` changes,
 re-publish it (Firestore Database → Rules → Publish) or the old rules are
 still the ones enforcing.
 
-The roster adds a fifth path, `roster/{email}`, and it is the one rules
-change in all of this. A student may read **exactly one document** — their
-own, matched on their own token's address — and may not write it at all.
-They need the read (their period, and any lists the teacher gave them
-before they had an account, resolve through it on a first sign-in) and
-must not have the write (the row decides which lists they get). Rules in the repo
-are not rules in the console: until `firestore.rules` is pasted in and
-published, every roster read is denied, and the site behaves exactly as it
-did before the roster existed. That is designed, and it is also why an
+The roster adds a fifth path, `roster/{email}`, the one rules change in all of
+this. A student may read **exactly one document** — their own, matched on
+their own token's address — and may not write it. They need the read (their
+period, and any lists given before they had an account, resolve through it on
+first sign-in) and must not have the write (the row decides which lists they
+get). Rules in the repo are not rules in the console: until `firestore.rules`
+is pasted in and published, every roster read is denied and the site behaves
+as it did before the roster existed. That is designed, and it is also why an
 unpublished rules change fails quietly rather than loudly.
 
 The `heard` map added with the sound-level feedback needed no rules change
