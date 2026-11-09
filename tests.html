@@ -2496,7 +2496,9 @@
     var drift = [];
     W.families().forEach(function(fam){
       W.listNumsOf(fam.key).forEach(function(n){
-        var ids = W.idsOfList(fam.key, n);
+        // Every entry, retired or not: a retired mode still plays the list.
+        var ids = W.all.filter(function(l){ return l.family === fam.key && l.listNum === n; })
+                       .map(function(l){ return l.id; });
         var first = W.wordsOf(ids[0]).join("|");
         ids.slice(1).forEach(function(id){ if(W.wordsOf(id).join("|") !== first) drift.push(id); });
       });
@@ -2580,6 +2582,26 @@
     eq("idFor() is null for a mode the family doesn't have", W.idFor("nonsense", 1, "match"), null);
     eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-say,red-3-cards,red-3-match");
     eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 30);
+
+    /* ── retired modes: out of circulation, never out of the registry ── */
+    ["blends-start-1-blendit","blends-start-1-fluency","blends-end-1-blendit","blends-end-1-fluency"].forEach(function(id){
+      eq(id + " still exists and resolves", W.exists(id) && W.byId(id).family.indexOf("blends") === 0, true);
+      eq(id + " is retired", W.isRetired(id), true);
+      eq(id + " still has a page", /\.html$/.test(W.hrefOf(id).split("?")[0]), true);
+    });
+    eq("a live id is not retired", W.isRetired("blends-start-1-match"), false);
+    eq("a family with no retired key is unchanged", W.isRetired("nonsense-1-blendit") || W.isRetired("red-1-match"), false);
+    eq("an unknown id is not retired", W.isRetired("no-such-id"), false);
+    eq("modesOf still lists every blends mode", W.modesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,cards,match,fluency,blendit");
+    eq("offeredModesOf drops the retired ones", W.offeredModesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,cards,match");
+    eq("…in the other blends family too", W.offeredModesOf("blends-end").map(function(m){ return m.key; }).join(","), "say,cards,match");
+    eq("a family with no retired key offers everything it has",
+       W.offeredModesOf("nonsense").map(function(m){ return m.key; }).join(","), W.modesOf("nonsense").map(function(m){ return m.key; }).join(","));
+    eq("offeredModesOf of an unknown family is empty", W.offeredModesOf("nope").length, 0);
+    eq("idsOfList leaves the retired out", W.idsOfList("blends-start", 1).join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
+    eq("idsOfFamily leaves the retired out", W.idsOfFamily("blends-end").join(","), "final-blends,blends-end-1-cards,blends-end-1-match");
+    eq("idFor still finds a retired id (the board needs it to show one)", W.idFor("blends-start", 1, "blendit"), "blends-start-1-blendit");
+    eq("nonsense keeps Blend it and One minute", W.idsOfList("nonsense", 1).join(","), "nonsense,nonsense-1-cards,nonsense-1-fluency,nonsense-1-blendit");
 
     eq("a shared page needs a ?list=", W.hrefOf("red-3-match"), "match-game.html?list=red-3-match");
     eq("a page that serves one list doesn't", W.hrefOf("final-blends"), "blend-words-game.html");
