@@ -27,7 +27,9 @@
    Public API:
      EIAuth.ready()      → Promise resolving to the signed-in user
      EIAuth.user         → the user, or null before sign-in
-     EIAuth.isTeacher()  → true if signed in as one of TEACHER_EMAILS
+     EIAuth.isTeacher()  → true for the admin, or an account with a
+                           teachers/{email} doc (resolved before ready())
+     EIAuth.isAdmin()    → true if signed in as one of ADMIN_EMAILS
      EIAuth.db()         → Promise resolving to Firestore (SDK loaded on
                            demand — see ensureDb)
      EIAuth.signOut()
@@ -57,20 +59,17 @@ window.EIAuth = (function(){
     }catch(e){ auth = null; }
   }
 
-  /* Accepts a list (TEACHER_EMAILS) or, from an older config, a single
-     string (TEACHER_EMAIL). Normalising both to an array here means a
-     stale firebase-config.js degrades to one teacher rather than locking
-     the dashboard for everyone. */
-  var TEACHERS = (function(){
-    var v = (typeof TEACHER_EMAILS !== "undefined") ? TEACHER_EMAILS
-          : (typeof TEACHER_EMAIL  !== "undefined") ? TEACHER_EMAIL
-          : null;
+  /* The admin, lowercased. Every other teacher is a teachers/{email}
+     document the admin adds on the dashboard — see resolveTeacher(). */
+  var ADMINS = (function(){
+    var v = (typeof ADMIN_EMAILS !== "undefined") ? ADMIN_EMAILS : null;
     if(v == null) return [];
-    return (typeof v === "string") ? [v] : v.slice();
+    return ((typeof v === "string") ? [v] : v).map(function(e){ return String(e).toLowerCase(); });
   })();
   var DOMAIN  = (typeof ALLOWED_DOMAIN !== "undefined") ? ALLOWED_DOMAIN : null;
 
   var user = null;
+  var teacherFlag = false;      // settled before readyResolve — see resolveTeacher
   var readyResolve = null;
   var readyPromise = new Promise(function(res){ readyResolve = res; });
 
@@ -95,6 +94,33 @@ window.EIAuth = (function(){
     return loadFirestoreSdk().then(function(){
       db = firebase.firestore();
       return db;
+    });
+  }
+
+  /* ---------------- is this a teacher? ----------------
+     The admin is named in the config. Anyone else is a teacher if the
+     admin has added them, which is a teachers/{email} document — one
+     read, which the rules allow every signed-in user for their OWN
+     address and nobody for anyone else's. It is settled before ready()
+     resolves, so EIAuth.isTeacher() can stay a plain synchronous call
+     for every page that already uses it.
+
+     Any failure means "not a teacher". That only ever costs a teacher
+     their dashboard for one load; the other way round would show a
+     student the teacher's view of the home page. And none of this is the
+     security — firestore.rules asks the same question for every read. */
+  function emailOf(u){ return String((u && u.email) || "").toLowerCase(); }
+  function adminEmail(u){ return ADMINS.indexOf(emailOf(u)) !== -1; }
+  function resolveTeacher(u){
+    if(adminEmail(u)){ teacherFlag = true; return Promise.resolve(true); }
+    var email = emailOf(u);
+    if(!email) return Promise.resolve(false);
+    return ensureDb().then(function(d){
+      if(!d) return false;
+      return d.collection("teachers").doc(email).get().then(function(snap){ return !!snap.exists; });
+    }).catch(function(){ return false; }).then(function(t){
+      teacherFlag = !!t;
+      return teacherFlag;
     });
   }
 
@@ -369,7 +395,9 @@ window.EIAuth = (function(){
       startStall();
       // Everything downstream (EIStore, EIPractice, the dashboard) waits
       // on this promise and takes the wall down when it has what it needs.
-      readyResolve(u);
+      // Whether they're a teacher is settled first, so isTeacher() is
+      // already true or false by the time anybody asks.
+      resolveTeacher(u).then(function(){ readyResolve(u); });
     });
   }
 
@@ -385,7 +413,8 @@ window.EIAuth = (function(){
     ready: function(){ return readyPromise; },
     get user(){ return user; },
     uid: function(){ return user ? user.uid : null; },
-    isTeacher: function(){ return !!(user && TEACHERS.indexOf(user.email) !== -1); },
+    isTeacher: function(){ return !!(user && !user._dev && (teacherFlag || adminEmail(user))); },
+    isAdmin: function(){ return !!(user && !user._dev && adminEmail(user)); },
     isDev: isDev,
     db: ensureDb,
     signIn: signIn,

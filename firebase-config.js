@@ -22,17 +22,17 @@ const firebaseConfig = {
   appId:             "1:566881874310:web:f1f083c916c6baf3413c07"
 };
 
-/* The Google accounts that get the teacher dashboard (teacher.html).
-   Repeated verbatim in firestore.rules — keep the two lists in step or the
-   dashboard will render for an account the database then refuses to answer.
-   This half is only the UI; isTeacher() in the rules is what's enforced.
+/* The admin: the one account that sees every student, adds and removes
+   teachers, and moves students between them. Repeated in isAdmin() in
+   firestore.rules — keep the two in step. This half is only the UI; the
+   rules are what's enforced. One address: the rules name exactly one.
 
-   Every address here can read EVERY student's practice record. Adding one
-   is a real grant, not a display setting. */
-const TEACHER_EMAILS = [
-  'jhoffman@seq.org',
-  'atalesnick@seq.org',
-  'nstuart@seq.org'
+   Other teachers are NOT listed here. The admin adds them on the
+   dashboard's Teachers section, which writes a teachers/{email}
+   document; auth.js reads that document at sign-in. Each teacher sees
+   only their own students. */
+const ADMIN_EMAILS = [
+  'jhoffman@seq.org'
 ];
 
 /* Only accounts on this domain may sign in. Enforced twice on purpose:

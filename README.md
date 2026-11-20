@@ -64,6 +64,69 @@ that actually enforces any of it — see the header of that file, and
 re-publish it in the Firebase console whenever it changes. Nothing else
 deploys it.
 
+### Teachers and the admin
+
+There is **one admin**, `jhoffman@seq.org`, named twice: `ADMIN_EMAILS` in
+`firebase-config.js` (the dashboard's half) and `isAdmin()` in
+`firestore.rules` (the half that's enforced). Every other teacher is a
+`teachers/{email}` document the admin adds on the dashboard — no teacher
+address is hard-coded anywhere else. `auth.js` reads that one document at
+sign-in, before `EIAuth.ready()` resolves, so `EIAuth.isTeacher()` stays a
+plain synchronous call; any failure reads as "not a teacher", which at
+worst costs a teacher their dashboard for one load. `EIAuth.isAdmin()` is
+the config check alone.
+
+**Each teacher sees only their own students; the admin sees everyone.**
+Ownership is a `teacher` field (a lowercased address) on all four documents
+that describe a student — `roster/{email}`, `students/{uid}`,
+`assignments/{uid}`, `notes/{uid}`. It has to be on all four because
+Firestore rules are not filters: a teacher's list query is allowed only
+when the rule can be proven from the query, so every teacher-side query in
+`teacher.js` is `where('teacher', '==', me)` (`mine()`), and the rules
+compare exactly that field. The admin's queries have no where clause.
+
+Ownership **starts at the roster row**. An import writes the row with
+`teacher` = the importer; `store.js` copies the row's `teacher` onto the
+student's own doc on their next sign-in (the one change the rules let a
+student make to that field), and from then on the teacher's list query
+finds them. One student, one teacher: the import first `get()`s every
+address that isn't already on the teacher's roster, and the rules answer a
+teacher's get of somebody else's row with *permission-denied* — that
+refusal is the answer. Those rows are skipped and reported ("already in
+another teacher's class — ask the admin to move them"), never written,
+and a refusal at write time (a race) re-checks and retries once so one row
+can't sink the batch. `importPlan()`/`classifyProbe()` are the pure half.
+
+**Moving** is admin-only: one student from their page, or a whole period
+from the Teachers section. `moveBody()` set-merges `{teacher}` onto the
+roster row, the student's doc (the admin may change exactly that field on
+it), the assignment and the note — the last two written even when missing,
+so a moved student always has documents whose owner the rules check.
+Removing a teacher deletes only their `teachers/` doc; their students stay
+theirs, listed under the address as *removed*, until moved.
+
+**The admin's migration** runs on every admin load and is a no-op once
+done (`migrationBody()`, pinned in `tests.html`): every roster/students/
+assignments/notes doc without `teacher` gets the admin; a student's doc
+follows their roster row and their assignment and note follow their doc,
+which also repairs any drift; and the old shared `config/class` periods
+are copied into `classes/jhoffman@seq.org` if that doesn't exist. Batches
+of ≤400. Periods are now per teacher, in `classes/{email}`.
+
+One deviation from the obvious rule, forced by Firestore: an assignment or
+note **create** only checks that it names the writer, and an **update**
+checks the existing owner, falling back to the student's doc only when
+they differ. Checking the student's doc on every write is a `get()` per
+document, Firestore allows about ten per request, and the Assign board
+saves a whole class in one batch — `tools/rules-test.mjs` showed a batch
+of thirty failing at the tenth. A create without the check is safe
+because a uid is an unguessable id a teacher only ever sees for their own
+students.
+
+`tools/rules-test.mjs` runs `firestore.rules` in the Firestore emulator
+against all of this (see its header for how to run it; it needs Java and
+two npm packages kept out of the repo).
+
 ## Word lists
 
 `word-lists.js` is the single source of truth for what a practice list
@@ -1360,8 +1423,11 @@ change to this repo.
 
 ## Teacher dashboard
 
-`teacher.html` — visible to `TEACHER_EMAILS` only, with a link on the home
-page for that account. Four tabs:
+`teacher.html` — for teachers only (see *Teachers and the admin* above),
+with a link on the home page for those accounts. Each teacher's dashboard
+holds their own students; the admin's holds everyone, plus a **Teachers**
+tab (add, remove, student counts, move a whole period) and a *Teacher*
+select on each student's page. Four tabs for everyone:
 
 - **Students** — roster with accuracy, words solid, words shaky, last
   activity, and a **Lists** column that says in words what each student
@@ -1668,16 +1734,17 @@ modes, the grid and the board are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.
 
-`config/class` holds only the named periods, and it is **teacher-only,
-read and write**: students never read it, because `store.js` resolves a
-student's lists through `assignments/{uid}` and `roster/{email}`. (An
-earlier design had students read `periodLists` and `defaultLists` from it;
-those fields are gone and the student-read grant went with them. Older
-builds also wrote `sequences` and `sequenceOn` there. Nothing reads any of
-them now, and they can be left or deleted in the console.)
+`classes/{email}` holds one teacher's named periods, read and written by
+that teacher and the admin; students never read it, because `store.js`
+resolves a student's lists through `assignments/{uid}` and
+`roster/{email}`. It replaced the shared `config/class`, which is now
+admin-read-only and read once, by the migration. (Older builds also wrote
+`periodLists`, `defaultLists`, `sequences` and `sequenceOn` there. Nothing
+reads any of them now, and they can be left or deleted in the console.)
 
-A student reads and writes only their own `students/{uid}`. The teacher
-has **read** on it and no write. Everything the teacher sets lives in
+A student reads and writes only their own `students/{uid}`. Their teacher
+has **read** on it and no write; the admin may change its `teacher` field
+and nothing else. Everything the teacher sets lives in
 `assignments/{uid}` instead, so a compromised teacher session can't erase
 anyone's work. In `firestore.rules` the student's read and their
 create/update are **separate statements** on purpose: `request.resource`

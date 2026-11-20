@@ -105,28 +105,56 @@ one in the popup.
 
 ---
 
+## After this change ships: adding the other teachers
+
+No teacher but the admin is written in the code. `jhoffman@seq.org` is the
+one admin — `ADMIN_EMAILS` in `firebase-config.js` and `isAdmin()` in
+`firestore.rules` — and every other teacher is added on the dashboard.
+**The other teachers are not seeded** — not in the config, not in the rules.
+Add each of them yourself, once, after the deploy below.
+
+Deploy in this order:
+
+1. **Publish the rules first.** Paste the new `firestore.rules` into
+   Firestore Database → Rules → Publish. The new rules accept everything
+   the old site writes from a student's browser, so publishing them before
+   the site changes breaks no student. (Until step 2 the old dashboard
+   still loads for you — you are the admin — but not for the other two
+   teachers, which is the point.)
+2. **Merge to `main` and push.** GitHub Pages picks it up in a minute or
+   two.
+3. **Open the dashboard as jhoffman@seq.org.** The first admin load gives
+   every existing student, roster row, assignment and note to you, and
+   copies the old periods across. It does this quietly; reload once and
+   everyone is still there.
+4. **Add the teachers**: Teachers → *Add a teacher*, one at a time, with
+   their @seq.org address and a name. Each gets the dashboard the next time
+   they sign in, with an empty class.
+5. **Move their students to them**: Teachers → *Move a whole period*, or
+   the *Teacher* box on one student's page. Or have them import their own
+   roster — an import claims a student who has no roster row yet, and skips
+   (and names) any student who is already in another teacher's class.
+
 ## Later: adding or removing a teacher
 
-Teacher accounts are listed in two places that must agree: `TEACHER_EMAILS`
-in `firebase-config.js`, and the list inside `isTeacher()` in
-`firestore.rules`. Both currently hold `jhoffman@seq.org`,
-`atalesnick@seq.org` and `nstuart@seq.org`.
+Teachers → *Add a teacher* writes a `teachers/{email}` document; *Remove*
+deletes it. Only the admin can do either — the rules refuse that collection
+to everyone else. A new teacher sees only the students they import or that
+you move to them. Removing a teacher deletes nothing else: their students
+stay theirs, listed under their address as *removed*, until you move them.
 
-To change who has access, edit both lists to match, then **re-paste
-`firestore.rules` into the console and Publish**. The repo edit alone does
-nothing; only the console deploys rules.
+## Later: a different admin
 
-Know which list is real. `firebase-config.js` decides whether the dashboard
-renders; the rules decide whether the database answers it. An address added
-to the config alone gets a dashboard that loads nothing. An address added to
-the rules alone is the one that actually grants access, and a rules list
-wider than the config is a silent grant with no UI to show for it.
-
-Every address on the list can read every student's practice record. It is a
-real grant, not a display setting.
+Change the address in `ADMIN_EMAILS` (`firebase-config.js`) **and** in
+`isAdmin()` (`firestore.rules`), then republish the rules. The two must
+agree: the config decides whether the admin controls render, the rules
+decide whether the database lets them work. Documents the old admin owns
+stay owned by that address until moved.
 
 ## Later: a different school domain
 
-`seq.org` appears in three places: `ALLOWED_DOMAIN` in `firebase-config.js`,
-the `matches()` pattern in `firestore.rules`, and the `isTeacher()` address.
-Change all three, then republish the rules.
+`seq.org` appears in four places: `ALLOWED_DOMAIN` in `firebase-config.js`,
+the `matches()` pattern in `firestore.rules`, the `isAdmin()` address, and
+the `@seq.org` check on the dashboard's *Add a teacher* box
+(`TEACHER_EMAIL_RE` in `teacher.js`). Change all four, then republish the
+rules.

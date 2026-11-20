@@ -28,6 +28,14 @@
    2. Writes are debounced, and the debounce has to be flushed before
       sign-out. A round of practice that ends with the student clicking
       "Sign out" is exactly the round most likely to be lost.
+
+   ── Whose class ───────────────────────────────────────────────────────
+   The roster row's `teacher` is who owns this student. On every load,
+   if it differs from the `teacher` on students/{uid}, it is copied
+   across — that is how a student imported by a teacher reaches that
+   teacher's dashboard, since a teacher can only list students whose own
+   doc names them. firestore.rules allows the student exactly that
+   change and no other.
    ════════════════════════════════════════════════════════════════════ */
 
 window.EIStore = (function(){
@@ -45,6 +53,8 @@ window.EIStore = (function(){
   var recent = [];              // [{list, at, right, total}] newest last
   var assignment = null;        // { period, lists } or null
   var rosterRow = null;         // roster/{email} — the imported class list
+  var docTeacher = null;        // `teacher` as stored on students/{uid}
+  var dirtyTeacher = null;      // the roster's teacher, when it needs copying
   var loadFailed = false;
   var dirty = {};               // stat keys changed since the last write
   var dirtyHeard = {};          // heard keys changed since the last write
@@ -94,6 +104,14 @@ window.EIStore = (function(){
     return [];
   }
 
+  /* The roster row's teacher, when it isn't already on the student's own
+     doc — the one field store.js ever copies from the roster. Pure. */
+  function teacherToCopy(row, current){
+    var t = row && typeof row.teacher === "string" ? row.teacher.toLowerCase() : "";
+    if(!t) return null;
+    return t === (current || null) ? null : t;
+  }
+
   /* ── loading ─────────────────────────────────────────────────────── */
   function load(u){
     uid = u.uid; user = u;
@@ -134,6 +152,8 @@ window.EIStore = (function(){
         }
         assignment = snaps[1] && snaps[1].exists ? snaps[1].data() : null;
         rosterRow  = snaps[2] && snaps[2].exists ? snaps[2].data() : null;
+        docTeacher = d && typeof d.teacher === "string" ? d.teacher : null;
+        dirtyTeacher = teacherToCopy(rosterRow, docTeacher);
         writeLocal();
         // Stamp identity on every sign-in: it is what turns an opaque uid
         // into a name on the teacher's roster, and it keeps up with a
@@ -169,6 +189,7 @@ window.EIStore = (function(){
     if(any) p.words = words;
     if(anyHeard) p.heard = heardOut;
     if(anyFl) p.fluency = flOut;
+    if(dirtyTeacher) p.teacher = dirtyTeacher;
     if(dirtyMeta){
       p.name  = (user && user.displayName) || null;
       p.email = (user && user.email) || null;
@@ -188,10 +209,11 @@ window.EIStore = (function(){
     clearTimeout(saveTimer); saveTimer = null;
     if(loadFailed || !uid || (user && user._dev)) return Promise.resolve();
     if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length &&
-       !Object.keys(dirtyFluency).length && !dirtyMeta) return inFlight || Promise.resolve();
+       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyTeacher) return inFlight || Promise.resolve();
     var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
+    var sendingTeacher = dirtyTeacher;
     var body = payload();
-    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false;
+    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyTeacher = null;
     /* Chained behind whatever is already on the wire, never alongside it:
        two overlapping writes could land out of order, and the older
        one's cleanup must not make inFlight look empty while this one is
@@ -205,6 +227,7 @@ window.EIStore = (function(){
       return db.collection("students").doc(uid).set(body, { merge:true });
     }).then(function(){
       retryMs = 0;
+      if(sendingTeacher) docTeacher = sendingTeacher;
     }, function(err){
       // Put the unsent keys back so the next save retries them rather than
       // dropping a round of practice on one bad request.
@@ -212,6 +235,7 @@ window.EIStore = (function(){
       for(k in sendingHeard){ if(has(sendingHeard, k)) dirtyHeard[k] = true; }
       for(k in sendingFluency){ if(has(sendingFluency, k)) dirtyFluency[k] = true; }
       if(sendingMeta) dirtyMeta = true;
+      if(sendingTeacher && !dirtyTeacher) dirtyTeacher = sendingTeacher;
       console.warn("EIStore: save failed", err);
       /* A denied write will be denied again; the next round's own flush
          can still try, but a timer hammering the rules would not help.
@@ -348,6 +372,7 @@ window.EIStore = (function(){
     failed: function(){ return loadFailed; },
     _internals: {
       effectiveLists: effectiveLists,
+      teacherToCopy: teacherToCopy,
       // The write body, for a test that can assert its shape without a
       // Firestore. Reads the module's live state, so a test drives it
       // through the same recordHeard() a game calls.

@@ -14,22 +14,53 @@ rules_version = '2';
    into Firebase console → Firestore Database → Rules → Publish (or run
    `firebase deploy --only firestore:rules` if the CLI is ever set up).
    Keep this file and the console in sync; if they drift, the console wins
-   and this file becomes a lie.
+   and this file becomes a lie. tools/rules-test.mjs runs this file
+   against the Firestore emulator.
 
-   The site only ever touches five paths (verified against store.js and
+   The site touches these paths (verified against store.js, auth.js and
    teacher.js):
      students/{uid}      one doc per student: words (per-word stats),
-                         heard (what the mic returned on a miss),
-                         totals, recent rounds, name/email/photo
-     assignments/{uid}   teacher-written: period + assigned list ids
-                         (student reads their own)
-     config/class        one shared doc: the named periods
-                         (teacher-only; students never read it)
+                         heard (what the mic returned on a miss), totals,
+                         recent rounds, name/email/photo, and `teacher` —
+                         the address of the teacher whose class they're in
+     assignments/{uid}   teacher-written: period + assigned list ids +
+                         `teacher` (the student reads their own)
      notes/{uid}         teacher-written and TEACHER-READ: the teacher's
-                         private note about a student
+                         private note about a student, + `teacher`
      roster/{email}      teacher-written: the class list as imported, keyed
                          by the address a student will sign in with, so a
-                         student can be placed before they ever appear
+                         student can be placed before they ever appear.
+                         Its `teacher` field is who OWNS that student.
+     teachers/{email}    who is a teacher. Admin-written.
+     classes/{email}     one per teacher: their named periods and the
+                         students they have archived
+     config/class        the OLD shared periods doc. Admin-read only, so
+                         the dashboard can copy it into classes/ once.
+
+   ── Who sees whom ─────────────────────────────────────────────────────
+   One admin, named in isAdmin() below and in ADMIN_EMAILS in
+   firebase-config.js. The admin reads and writes everything, and is the
+   only one who can add a teacher (a teachers/{email} doc) or move a
+   student from one teacher to another.
+
+   A teacher is anyone with a teachers/{email} doc. A teacher sees ONLY
+   the students whose `teacher` field is their own address. Every
+   teacher-owned document carries that field — roster, assignments,
+   notes and the student's own doc — because Firestore rules are not
+   filters: a list query is allowed only if the rule can be proven from
+   the query itself. So every teacher-side list query in teacher.js says
+   where('teacher', '==', <me>) (the admin's alone don't), and the read
+   rules below compare exactly that field.
+
+   Ownership starts at the roster row. A teacher's import writes
+   roster/{email} with teacher = them; a row someone else owns cannot be
+   read or overwritten, and the import reads each new address first and
+   skips the ones it is refused. The student's own browser (store.js)
+   then copies the row's `teacher` onto students/{uid}, which a student
+   may do only when it matches their roster row. A row with no `teacher`
+   at all predates multiple teachers and may be claimed; the admin's
+   dashboard gives every such document to the admin the first time it
+   opens, so in practice there are none.
 
    Anything not matched below is denied by default. Do not add a catch-all.
    ══════════════════════════════════════════════════════════════════════ */
@@ -56,77 +87,153 @@ service cloud.firestore {
           && request.auth.token.email.matches('^[^@]+@seq[.]org$');
     }
 
-    /* The teacher accounts. Keep this list and TEACHER_EMAILS in
-       firebase-config.js together — the dashboard reads one and the
-       database enforces the other, and a mismatch is a dashboard that
-       renders and then can't load anything.
+    // The signed-in address, lowercased. Only ever called after
+    // isSchool(), which guarantees a token with an email in it.
+    function me() {
+      return request.auth.token.email.lower();
+    }
 
-       Each address here can read every student's record, so this list is
-       the grant itself. Editing it changes nothing until it is re-pasted
-       into the Firebase console and published. */
+    /* The one admin. Keep this and ADMIN_EMAILS in firebase-config.js
+       together: the dashboard reads one, the database enforces this. */
+    function isAdmin() {
+      return isSchool() && me() == 'jhoffman@seq.org';
+    }
+
+    /* A teacher: the admin, or anyone the admin has added on the
+       dashboard (a teachers/{email} doc). Being a teacher grants nothing
+       about anybody else's students — see the per-collection rules. */
     function isTeacher() {
-      return isSchool() && request.auth.token.email in [
-        'jhoffman@seq.org',
-        'atalesnick@seq.org',
-        'nstuart@seq.org'
-      ];
+      return isSchool()
+          && (isAdmin() || exists(/databases/$(database)/documents/teachers/$(me())));
+    }
+
+    // Does this student's own doc name me as their teacher?
+    function ownsStudent(userId) {
+      return get(/databases/$(database)/documents/students/$(userId)).data.get('teacher', null) == me();
+    }
+
+    /* Who is a teacher. A teacher may read their own doc — that one read
+       is how auth.js decides whether to show them the dashboard. Only the
+       admin may list, add or remove. Removing one deletes nothing else:
+       their students stay owned by that address until the admin moves
+       them. */
+    match /teachers/{email} {
+      allow read: if isAdmin() || (isSchool() && me() == email);
+      allow write: if isAdmin();
     }
 
     /* One document per student, keyed by uid.
 
-       A student reads and writes ONLY their own. The teacher gets read —
-       deliberately NOT write. The dashboard never needs to modify student
-       work (assignments live in their own collection precisely so that it
-       doesn't), and withholding write means a compromised teacher session
-       cannot erase a term of practice. If a "reset this student" button is
-       ever added it needs `allow delete: if isTeacher()` here, and that
+       A student reads and writes ONLY their own. Their teacher gets read
+       — deliberately NOT write. The dashboard never needs to modify
+       student work (assignments live in their own collection precisely so
+       that it doesn't), and withholding write means a compromised teacher
+       session cannot erase a term of practice. If a "reset this student"
+       button is ever added it needs a delete grant here, and that
        trade-off should be a deliberate decision rather than a default.
 
        The email condition stops a student writing someone else's address
-       onto their own doc, which is the one field the dashboard uses to
-       decide who a row belongs to. It's written as "if the field is
-       present" because store.js sends merge-writes that often carry only
-       the changed words. */
+       onto their own doc. It's written as "if the field is present"
+       because store.js sends merge-writes that often carry only the
+       changed words.
+
+       The `teacher` condition: on a student's own write the field must
+       come out unchanged, or equal to the `teacher` on their own roster
+       row. That is the only way it changes from the student's side, and
+       it is how a student reaches the teacher who imported them. The
+       roster get() runs only when the field actually changes (|| stops
+       at the first true), so an ordinary save costs nothing extra. */
     match /students/{userId} {
       /* Read and write are separate statements on purpose.
          `request.resource` is null on a read, so a single
          `allow read, write` that mentions request.resource.data errors on
-         every get — and an error is a deny. The teacher rule below
-         masked that, because a teacher testing passes it. */
+         every get — and an error is a deny. A teacher rule masked that
+         once, because a teacher testing passes it. */
       allow read: if isSchool() && request.auth.uid == userId;
       allow create, update: if isSchool()
                          && request.auth.uid == userId
                          && (!('email' in request.resource.data)
-                             || request.resource.data.email == request.auth.token.email);
-      allow read: if isTeacher();
+                             || request.resource.data.email == request.auth.token.email)
+                         && (request.resource.data.get('teacher', null)
+                               == (resource == null ? null : resource.data.get('teacher', null))
+                             || request.resource.data.get('teacher', null)
+                               == get(/databases/$(database)/documents/roster/$(me())).data.get('teacher', null));
+      // `resource.data.teacher`, not .get(): a list query is allowed only
+      // when the rule can be proven from its where clause, and the plain
+      // field comparison is the form that proof understands.
+      allow read: if isAdmin() || (isTeacher() && resource.data.teacher == me());
+      // Moving a student: the admin may change the owner and nothing else.
+      allow update: if isAdmin()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teacher']);
     }
 
     /* Which lists a student has been assigned, and which period they're
        in. Teacher writes; the student reads their own row and nobody
        else's — a student has no business knowing what another student has
-       been put on. */
+       been put on.
+
+       A teacher may get their own, and a document that doesn't exist
+       (which tells nobody anything); a list must carry where teacher==me.
+
+       A write must name the writer as `teacher`. An update must also be
+       to a document that is already the writer's (or has no owner yet),
+       OR the student's own doc must name the writer — the second is the
+       case of a student who has just arrived in this teacher's class and
+       still has an assignment stamped with the old owner.
+
+       Why the student's doc is a fallback and not checked on every
+       write: each get() is an "access call", Firestore allows only about
+       ten per request, and the Assign board saves a whole class in ONE
+       batch. Checked on every write, a period of thirty could never be
+       saved (tools/rules-test.mjs has the case). So a CREATE is checked
+       only for naming the writer. That is safe because a uid is a random
+       28-character id a teacher only ever learns from their own students'
+       docs, and because moving a student (admin only) writes an
+       assignment and a note stamped with the new owner, so a student
+       who has ever had a teacher always has a document here whose owner
+       an update is checked against. */
     match /assignments/{userId} {
       allow read:  if isSchool() && request.auth.uid == userId;
-      allow read, write: if isTeacher();
+      allow get:   if isAdmin()
+                   || (isTeacher() && (resource == null || resource.data.teacher == me()));
+      allow list:  if isAdmin() || (isTeacher() && resource.data.teacher == me());
+      allow create: if isAdmin()
+                   || (isTeacher() && request.resource.data.get('teacher', null) == me());
+      allow update: if isAdmin()
+                   || (isTeacher()
+                       && request.resource.data.get('teacher', null) == me()
+                       && (resource.data.get('teacher', null) in [null, me()]
+                           || ownsStudent(userId)));
+      allow delete: if isAdmin()
+                   || (isTeacher() && resource.data.get('teacher', null) == me());
     }
 
     /* The teacher's private note about a student — "reads well, freezes
-       when timed", the kind of observation that currently lives in
+       when timed", the kind of observation that otherwise lives in
        somebody's head or a separate document.
 
        This is the ONE path a student may not read about themselves, and
        that is the entire reason it is its own collection rather than a
        field on assignments/{uid}: a student can read their own assignment
        row, so a note stored there would be a note its subject can read.
-       Notes are written to be useful, not to be read by the student they
-       are about — a teacher who has to write for that audience will
-       either write nothing useful or keep the real notes somewhere else.
 
-       So: teacher only, both directions, and no student-read clause. If
-       you ever find yourself adding one, you are turning this back into
-       assignments/{uid} and should just use that instead. */
+       So: the owning teacher (and the admin), both directions, and no
+       student-read clause. If you ever find yourself adding one, you are
+       turning this back into assignments/{uid} and should just use that
+       instead. Ownership is checked exactly as for assignments above. */
     match /notes/{userId} {
-      allow read, write: if isTeacher();
+      allow get:   if isAdmin()
+                   || (isTeacher() && (resource == null || resource.data.teacher == me()));
+      allow list:  if isAdmin() || (isTeacher() && resource.data.teacher == me());
+      allow create: if isAdmin()
+                   || (isTeacher() && request.resource.data.get('teacher', null) == me());
+      allow update: if isAdmin()
+                   || (isTeacher()
+                       && request.resource.data.get('teacher', null) == me()
+                       && (resource.data.get('teacher', null) in [null, me()]
+                           || ownsStudent(userId)));
+      allow delete: if isAdmin()
+                   || (isTeacher() && resource.data.get('teacher', null) == me());
     }
 
     /* The imported class roster, one document per student, keyed by the
@@ -135,40 +242,61 @@ service cloud.firestore {
        Keyed by EMAIL rather than by uid because the whole point is to
        exist before the student does. A uid is minted at first sign-in;
        an ID number is on the roster export in August. The email derived
-       from that number is the only thing that is knowable on both sides
-       of a first sign-in, which makes it the only possible join.
+       from that number is the only thing knowable on both sides of a
+       first sign-in, which makes it the only possible join.
 
        A student may read exactly one document: their own. They need it —
-       store.js resolves their period, and any lists the teacher set up
-       before they had an account, through it on the first sign-in — and
-       the row holds their own name, ID and period, which they already
-       know. They may not read anyone else's, so the collection can hold
-       the whole class without being a class list any student can pull.
+       store.js resolves their period, their teacher and any lists set up
+       before they had an account through it. They may not WRITE it: the
+       row decides which lists they get and whose class they are in.
 
-       A student may not WRITE it, and that is the load-bearing half. The
-       row decides which lists they get; a writable row is a student
-       assigning themselves whatever they like. Same reasoning as
-       assignments/{uid} above.
+       A teacher may read a row that is theirs, a row with no owner (from
+       before there were several teachers — theirs to claim), and a row
+       that doesn't exist. Reading another teacher's row is refused, and
+       that refusal is exactly how the import learns a student is already
+       in someone else's class: it skips them and says so. A write must
+       leave the row owned by the writer, and may only touch a row that is
+       unowned or already theirs.
 
        `.lower()` on the token, not on the id: the document id is written
        lowercased by the import, and a comparison that lowercased only one
        side would let "Student@seq.org" read a row it does not own on a
        provider that preserves case. */
     match /roster/{email} {
-      allow read: if isSchool() && request.auth.token.email.lower() == email;
-      allow read, write: if isTeacher();
+      allow read: if isSchool() && me() == email;
+      /* get and list are separate on purpose. The unowned-row clause
+         can't be proven from a where clause, and under a combined
+         `read` the emulator let an unfiltered list of EVERY row through.
+         A list must carry where teacher==me; only a single get may see
+         an unowned or missing row. */
+      allow get:  if isAdmin()
+                  || (isTeacher() && (resource == null
+                                      || !('teacher' in resource.data)
+                                      || resource.data.teacher == me()));
+      allow list: if isAdmin() || (isTeacher() && resource.data.teacher == me());
+      allow create: if isAdmin()
+                    || (isTeacher() && request.resource.data.get('teacher', null) == me());
+      allow update: if isAdmin()
+                    || (isTeacher()
+                        && request.resource.data.get('teacher', null) == me()
+                        && resource.data.get('teacher', null) in [null, me()]);
+      allow delete: if isAdmin()
+                    || (isTeacher() && resource.data.get('teacher', null) == me());
     }
 
-    /* The named periods, and nothing else. Only the teacher dashboard
-       reads or writes this: store.js resolves a student's lists through
-       assignments/{uid} and roster/{email}, never through here. (An
-       earlier design had students read periodLists / defaultLists from
-       this doc; that is gone, so the student-read grant went with it.)
+    /* One per teacher, keyed by their address: the named periods and the
+       students they have archived. Only the dashboard reads it; store.js
+       never does. */
+    match /classes/{email} {
+      allow read, write: if isAdmin() || (isTeacher() && me() == email);
+    }
 
-       Scoped to the specific "class" doc — config/{doc} would cover every
-       future document under config/. */
+    /* The old shared periods doc, from before there were several
+       teachers. The admin's dashboard reads it once, to copy it into
+       classes/{admin}; nothing writes it any more. Scoped to the one doc
+       — config/{doc} would cover every future document under config/. */
     match /config/class {
-      allow read, write: if isTeacher();
+      allow read: if isAdmin();
     }
   }
 }

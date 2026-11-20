@@ -38,6 +38,9 @@
     <button class="tab" data-view="assign">Assign</button>
     <button class="tab" data-view="groups">Periods</button>
     <button class="tab" data-view="trouble">Trouble Spots</button>
+    <!-- Admin only: teacher.js unhides it. Hiding is cosmetic — the
+         rules refuse the teachers/ collection to everyone else. -->
+    <button class="tab" data-view="teachers" id="tTabTeachers" hidden>Teachers</button>
   </nav>
 
   <div id="tBody"></div>

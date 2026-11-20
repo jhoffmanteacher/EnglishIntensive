@@ -2783,9 +2783,10 @@
     T.setScope("s:u3", []);
     var body = T.saveBody(T.dirtyScopes(), 1234);
     eq("one document per changed student", Object.keys(body.students).sort().join(","), "u1,u3");
-    eq("…carrying the lists and a timestamp", JSON.stringify(body.students.u1), '{"lists":["nonsense"],"updatedAt":1234}');
+    eq("…carrying the lists, a timestamp and the owner the rules require",
+       JSON.stringify(body.students.u1), '{"lists":["nonsense"],"updatedAt":1234,"teacher":"t@seq.org"}');
     eq("…and nothing else, so their period survives the merge",
-       Object.keys(body.students.u1).sort().join(","), "lists,updatedAt");
+       Object.keys(body.students.u1).sort().join(","), "lists,teacher,updatedAt");
     eq("taking everything away writes an empty list, never null", body.students.u3.lists.length, 0);
     eq("nothing class-wide is ever written", "config" in body, false);
 
@@ -3569,6 +3570,145 @@
     var quiet = Core.sounds();
     quiet.good();
     eq("a game with no mic needs no callback", true, true);
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════
+     Several teachers, one owner per student
+
+     Ownership is a `teacher` field the rules check on every document.
+     These pin the dashboard's half: an import never takes another
+     teacher's student, every write names the owner, the admin's
+     migration gives every unowned document an owner exactly once, and a
+     move rewrites the four documents that say whose a student is.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals;
+    var ME = "a@seq.org", B = "b@seq.org", ADMIN = "jhoffman@seq.org";
+    function kid(uid, email, extra){
+      var s = { uid:uid, name:uid.toUpperCase(), email:email, stats:{}, heard:{}, fluency:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 };
+      for(var k in (extra || {})) s[k] = extra[k];
+      return s;
+    }
+
+    // ---- what one lookup says ----
+    eq("a refused lookup is another teacher's student", T.classifyProbe({ denied:true }, ME), "other");
+    eq("no row anywhere is new", T.classifyProbe({ exists:false }, ME), "new");
+    eq("a row with no owner can be claimed", T.classifyProbe({ exists:true, teacher:"" }, ME), "free");
+    eq("a row that names me is mine", T.classifyProbe({ exists:true, teacher:"A@seq.org" }, ME), "mine");
+    eq("a row that names someone else (the admin can see it) is theirs",
+       T.classifyProbe({ exists:true, teacher:B }, ME), "other");
+
+    // ---- which rows an import writes ----
+    T.feed({ me: ME, students: [], assignments: {}, roster: {
+        "1@seq.org": { email:"1@seq.org", name:"One", teacher: ME }
+      }, probe: { "2@seq.org":"other", "3@seq.org":"new", "4@seq.org":"free" } });
+    var rows = [
+      { id:"1", name:"One",   email:"1@seq.org", period:"3" },
+      { id:"2", name:"Two",   email:"2@seq.org", period:"3" },
+      { id:"3", name:"Three", email:"3@seq.org", period:"3" },
+      { id:"4", name:"Four",  email:"4@seq.org", period:"3" }
+    ];
+    var plan = T.importPlan(rows);
+    eq("an import skips the student another teacher has", plan.skip.map(function(r){ return r.id; }).join(","), "2");
+    eq("…and writes mine, the new one and the unowned one",
+       plan.take.map(function(r){ return r.id; }).join(","), "1,3,4");
+    eq("the preview says the skipped one is skipped", T.rosterStatus(rows[1]).key, "other");
+    eq("the skip message tells the teacher what to do",
+       /already in another teacher.s class \(Two\) . ask the admin to move them\./.test(T.skippedText(plan.skip)), true);
+    eq("nothing skipped says nothing", T.skippedText([]), "");
+    var body = T.importBody(plan.take, 5);
+    eq("every row an import writes names the importer",
+       Object.keys(body.roster).every(function(e){ return body.roster[e].teacher === ME; }), true);
+
+    // The admin can read every row, so the answer comes from the row itself.
+    T.feed({ me: ADMIN, admin: true, students: [], assignments: {}, roster: {
+        "5@seq.org": { email:"5@seq.org", name:"Five", teacher: B }
+      } });
+    eq("the admin's import doesn't take a row another teacher owns either",
+       T.importPlan([{ id:"5", name:"Five", email:"5@seq.org", period:"" }]).skip.length, 1);
+
+    // ---- the assignment fill-in ----
+    eq("no assignment is blank", T.blankAssignment(undefined), true);
+    eq("one carrying only an owner (left by a move) is blank", T.blankAssignment({ teacher: B }), true);
+    eq("one with a period is not", T.blankAssignment({ period: "" }), false);
+    eq("one with lists is not", T.blankAssignment({ lists: [] }), false);
+
+    // ---- whose a student is ----
+    T.feed({ me: ME, students: [kid("u1", "1@seq.org", { teacher: B })], assignments: {}, roster: {
+      "1@seq.org": { email:"1@seq.org", name:"U1", teacher: "C@seq.org" } } });
+    eq("the roster row decides whose a student is", T.ownerOf(T.studentByUid("u1")), "c@seq.org");
+    T.feed({ me: ME, students: [kid("u1", "1@seq.org", { teacher: B })], assignments: {} });
+    eq("…then their own doc", T.ownerOf(T.studentByUid("u1")), B);
+    T.feed({ me: ME, students: [kid("u1", "1@seq.org")], assignments: {} });
+    eq("…then whoever is signed in", T.ownerOf(T.studentByUid("u1")), ME);
+
+    // ---- the admin's migration ----
+    var raw = {
+      students: [
+        { id:"u1", email:"1@seq.org", teacher:"" },        // nobody's
+        { id:"u2", email:"2@seq.org", teacher:B },         // B's, and the roster agrees
+        { id:"u3", email:"3@seq.org", teacher:ADMIN },     // the roster says B now
+        { id:"t1", email:"b@seq.org", teacher:"" }         // a teacher's own record
+      ],
+      assignments: { u1:"", u2:B, u3:ADMIN, orphan:"" },
+      notes: { u2:"" },
+      roster: { "2@seq.org":B, "3@seq.org":B, "9@seq.org":"" },
+      classesExists: false,
+      configPeriods: ["3","5"]
+    };
+    var teachersKnown = {}; teachersKnown[ADMIN] = true; teachersKnown[B] = true;
+    var w = T.migrationBody(raw, ADMIN, teachersKnown);
+    function wrote(col, id){
+      var hit = w.filter(function(x){ return x.col === col && x.id === id; })[0];
+      return hit ? hit.data.teacher || JSON.stringify(hit.data) : null;
+    }
+    eq("an unowned roster row goes to the admin", wrote("roster", "9@seq.org"), ADMIN);
+    eq("an owned one is left alone", wrote("roster", "2@seq.org"), null);
+    eq("an unowned student goes to the admin", wrote("students", "u1"), ADMIN);
+    eq("a student already right is left alone", wrote("students", "u2"), null);
+    eq("a student whose roster row moved follows it", wrote("students", "u3"), B);
+    eq("a teacher's own practice record is nobody's student", wrote("students", "t1"), null);
+    eq("an assignment follows its student", wrote("assignments", "u3"), B);
+    eq("…an unowned one too", wrote("assignments", "u1"), ADMIN);
+    eq("…one with no student behind it goes to the admin", wrote("assignments", "orphan"), ADMIN);
+    eq("a note follows its student", wrote("notes", "u2"), B);
+    eq("the old shared periods are copied to the admin's own class",
+       wrote("classes", ADMIN), JSON.stringify({ periods: ["3","5"] }));
+    eq("every write is one field (or the periods), so it can't clobber anything",
+       w.every(function(x){ return Object.keys(x.data).length === 1; }), true);
+    // Run it again over what the first pass produced: nothing left to do.
+    var after = {
+      students: [
+        { id:"u1", email:"1@seq.org", teacher:ADMIN }, { id:"u2", email:"2@seq.org", teacher:B },
+        { id:"u3", email:"3@seq.org", teacher:B }, { id:"t1", email:"b@seq.org", teacher:"" }
+      ],
+      assignments: { u1:ADMIN, u2:B, u3:B, orphan:ADMIN }, notes: { u2:B },
+      roster: { "2@seq.org":B, "3@seq.org":B, "9@seq.org":ADMIN },
+      classesExists: true, configPeriods: ["3","5"]
+    };
+    eq("a second run writes nothing — it's safe on every load",
+       T.migrationBody(after, ADMIN, teachersKnown).length, 0);
+
+    // ---- moving students ----
+    T.feed({ me: ADMIN, admin: true, students: [kid("u1", "1@seq.org", { teacher: ME })],
+      assignments: { u1: { period:"3", teacher: ME } },
+      roster: { "1@seq.org": { email:"1@seq.org", name:"U1", teacher: ME },
+                "7@seq.org": { email:"7@seq.org", name:"Seven", period:"3", teacher: ME } } });
+    var mv = T.moveBody([T.studentByUid("u1"), T.studentByUid("roster:7@seq.org")], B);
+    eq("a signed-in student's move writes four documents, a pending one's one",
+       mv.map(function(x){ return x.col; }).join(","), "roster,students,assignments,notes,roster");
+    eq("…each naming the new teacher and nothing else",
+       mv.every(function(x){ return x.data.teacher === B && Object.keys(x.data).length === 1; }), true);
+    eq("students per teacher", T.teacherCounts()[ME], 2);
+    eq("a period move reaches everyone in it", T.periodMovers("3", "").length, 2);
+    eq("…and only those with the teacher named", T.periodMovers("3", B).length, 0);
+
+    // ---- store.js: the student copies their roster row's teacher ----
+    var copy = EIStore._internals.teacherToCopy;
+    eq("a roster teacher the doc doesn't have is copied", copy({ teacher:"A@seq.org" }, null), ME);
+    eq("…not when the doc already has it", copy({ teacher:ME }, ME), null);
+    eq("…and nothing when the row has no teacher", copy({ name:"x" }, B), null);
+    eq("…or there's no row at all", copy(null, B), null);
   })();
 
   // ---- render ----
