@@ -64,68 +64,99 @@ that actually enforces any of it — see the header of that file, and
 re-publish it in the Firebase console whenever it changes. Nothing else
 deploys it.
 
-### Teachers and the admin
+### Classes, teachers and the admin
 
 There is **one admin**, `jhoffman@seq.org`, named twice: `ADMIN_EMAILS` in
 `firebase-config.js` (the dashboard's half) and `isAdmin()` in
 `firestore.rules` (the half that's enforced). Every other teacher is a
-`teachers/{email}` document the admin adds on the dashboard — no teacher
-address is hard-coded anywhere else. `auth.js` reads that one document at
-sign-in, before `EIAuth.ready()` resolves, so `EIAuth.isTeacher()` stays a
-plain synchronous call; any failure reads as "not a teacher", which at
-worst costs a teacher their dashboard for one load. `EIAuth.isAdmin()` is
-the config check alone.
+`teachers/{email}` document the admin adds on the dashboard (Manage →
+Teachers) — no teacher address is hard-coded anywhere else. `auth.js` reads
+that one document at sign-in, before `EIAuth.ready()` resolves, so
+`EIAuth.isTeacher()` stays a plain synchronous call; any failure reads as
+"not a teacher", which at worst costs a teacher their dashboard for one
+load. `EIAuth.isAdmin()` is the config check alone.
 
-**Each teacher sees only their own students; the admin sees everyone.**
-Ownership is a `teacher` field (a lowercased address) on all four documents
-that describe a student — `roster/{email}`, `students/{uid}`,
-`assignments/{uid}`, `notes/{uid}`. It has to be on all four because
-Firestore rules are not filters: a teacher's list query is allowed only
-when the rule can be proven from the query, so every teacher-side query in
-`teacher.js` is `where('teacher', '==', me)` (`mine()`), and the rules
-compare exactly that field. The admin's queries have no where clause.
+**A class replaced the period.** A class (`classes/{classId}`, auto id) is
+`{name, teachers: [emails], archived, createdAt, createdBy}` — "P3
+Intensive", taught by one or more teachers. Every student is in exactly one
+class. Any teacher on a class can rename it, add or remove co-teachers
+(picked from the approved `teachers/` list, which any teacher may read for
+the names), archive its students, and delete it once it's empty; the rules
+refuse a class with zero teachers. Only the admin adds or removes teachers
+on the **site**. A teacher sees only the students in classes they teach;
+the admin sees every class.
 
-Ownership **starts at the roster row**. An import writes the row with
-`teacher` = the importer; `store.js` copies the row's `teacher` onto the
-student's own doc on their next sign-in (the one change the rules let a
-student make to that field), and from then on the teacher's list query
-finds them. One student, one teacher: the import first `get()`s every
-address that isn't already on the teacher's roster, and the rules answer a
-teacher's get of somebody else's row with *permission-denied* — that
-refusal is the answer. Those rows are skipped and reported ("already in
-another teacher's class — ask the admin to move them"), never written,
-and a refusal at write time (a race) re-checks and retries once so one row
-can't sink the batch. `importPlan()`/`classifyProbe()` are the pure half.
+**The copy is the trick.** Every document about a student —
+`roster/{email}`, `students/{uid}`, `assignments/{uid}`, `notes/{uid}` —
+carries the student's `classId` **and a copy of that class's `teachers`
+array**. Firestore rules are not filters: a teacher's list query is allowed
+only when the rule can be proven from the query, and `me() in
+resource.data.teachers` is provable from `where('teachers',
+'array-contains', me)` — the where clause on every teacher-side query in
+`teacher.js` (`mine()`). The admin's queries have none. A teacher's write
+must stamp a class's *own* teachers array (one `get()` of that class doc —
+the same doc for a whole class's batch, which Firestore counts once) with
+them in it; an update must also be to a doc that already names them, is
+unowned legacy, or belongs to a class they teach. `withStamp()`/`stampFor()`
+add the stamp to every write.
 
-**Moving** is admin-only: one student from their page, or a whole period
-from Manage → Teachers. `moveBody()` set-merges `{teacher}` onto the
-roster row, the student's doc (the admin may change exactly that field on
-it), the assignment and the note — the last two written even when missing,
-so a moved student always has documents whose owner the rules check.
-Removing a teacher deletes only their `teachers/` doc; their students stay
-theirs, listed under the address as *removed*, until moved.
+When a class's co-teachers change, `setClassTeachers()` writes the class doc
+and then rewrites the copy on every member's docs (`restampBody()`, batches
+of ≤400). A removed co-teacher loses access as soon as their address is
+gone from the copies. If that rewrite is cut off, **self-heal** finishes it:
+on every dashboard load `healBody()` compares each visible member doc with
+its class and rewrites any whose `classId` or `teachers` differ (a
+student's class is read from their roster row first — the record — then
+their own doc, then their assignment). A teacher can remove themselves; the
+rules let someone who *was* on a doc restamp it to the same class's current
+list, never move it elsewhere.
 
-**The admin's migration** runs on every admin load and is a no-op once
-done (`migrationBody()`, pinned in `tests.html`): every roster/students/
-assignments/notes doc without `teacher` gets the admin; a student's doc
-follows their roster row and their assignment and note follow their doc,
-which also repairs any drift; and the old shared `config/class` periods
-are copied into `classes/jhoffman@seq.org` if that doesn't exist. Batches
-of ≤400. Periods are now per teacher, in `classes/{email}`.
+**Membership starts at the roster row.** An import writes each row with the
+chosen class's stamp; `store.js` copies the row's `classId`/`teachers` onto
+the student's own doc on their next sign-in (`classToCopy()` — the one
+change the rules let a student make to those fields), and from then on the
+class's list queries find them. The import asks which class: by default it
+matches the file's period column to a class name of the teacher's ("3" ↔
+*3*, *Period 3*, *P3*, *P3 Intensive*), creating *Period 3* if nothing
+matches and *No class yet* for rows with no period; or one chosen class; or
+a new one. One student, one class: the import first `get()`s every address
+not already on the teacher's roster, and the rules answer a get of a row in
+somebody else's class with *permission-denied* — that refusal is the
+answer. Those rows are skipped and reported ("already in another class —
+ask a teacher on that class or the admin to move them"), never written; a
+refusal at write time (a race) re-checks and retries once so one row can't
+sink the batch. `importPlan()`, `classifyProbe()` and `importTargets()` are
+the pure half.
 
-One deviation from the obvious rule, forced by Firestore: an assignment or
-note **create** only checks that it names the writer, and an **update**
-checks the existing owner, falling back to the student's doc only when
-they differ. Checking the student's doc on every write is a `get()` per
-document, Firestore allows about ten per request, and the Assign board
-saves a whole class in one batch — `tools/rules-test.mjs` showed a batch
-of thirty failing at the tenth. A create without the check is safe
-because a uid is an unguessable id a teacher only ever sees for their own
-students.
+**Moving** a student is the *Class* box on their page or the *Who's in which
+class* table: a teacher can move between classes they teach; the admin,
+anywhere. `moveBody()` set-merges the new stamp onto the roster row, the
+student's doc (a teacher may change exactly those two fields on it), the
+assignment and the note — the last two written even when missing.
+**Removing a site teacher** (admin) deletes their `teachers/` doc — that
+alone ends their access — then takes them off every class; it is refused
+while they are the only teacher on a class.
+
+**The admin's migration** runs on every admin load and is a no-op once done
+(`migrationBody()`, pinned in `tests.html`): each distinct old period (the
+assignment's, else the roster row's — the old precedence) becomes a class
+`{name: <period>, teachers: [admin]}`, reusing a class of that name if one
+exists; every doc without a `classId` gets its student's class and its
+`period` field deleted; students with no period go to a class called *No
+class yet*; and when there are no classes at all, every period named in the
+old `config/class` becomes a class too, even an empty one. The admin then
+redistributes by adding co-teachers or moving students.
+
+Why the per-student `get()` is only a fallback: Firestore allows about ten
+`get()`s per request, and the Assign board saves a whole class in one batch.
+Checking each student's own doc on every write failed at the tenth in the
+emulator; checking the one class doc does not.
 
 `tools/rules-test.mjs` runs `firestore.rules` in the Firestore emulator
-against all of this (see its header for how to run it; it needs Java and
-two npm packages kept out of the repo).
+against all of this — co-teachers, removal cutting a teacher off, a student
+unable to pick a class their roster row doesn't name, whole-class batches
+(see its header for how to run it; it needs Java and two npm packages kept
+out of the repo).
 
 ## Word lists
 
@@ -240,7 +271,7 @@ What happens to a student who already has one:
   popover *all* leave a held one ticked, and "Ready to move up" and the
   next-step rules ignore it. The bulk dialog draws a box for a retired id
   only when a selected student holds one, so **Take these away** can clear
-  it for a whole period.
+  it for a whole class.
 - The teacher's own preview home page lists offered ids only; a game page
   still opens for a retired id.
 - "Everything" in a description means everything on offer.
@@ -338,7 +369,7 @@ dead link mid-class costs more than the file does.
 
 `index.html` builds its tile grid from `word-lists.js`, filtered to the
 lists the signed-in student is assigned (`EIStore.myLists()`), so students
-in different periods see different games.
+with different assignments see different games.
 
 The registry's (list × mode) entries fold back into **one tile per
 list** — "Red Words · List 3", or just "Blend Words" for a single-list
@@ -1423,9 +1454,10 @@ change to this repo.
 
 ## Teacher dashboard
 
-`teacher.html` — for teachers only (see *Teachers and the admin* above),
-with a link on the home page for those accounts. Each teacher's dashboard
-holds their own students; the admin's holds everyone.
+`teacher.html` — for teachers only (see *Classes, teachers and the admin*
+above), with a link on the home page for those accounts. Each teacher's
+dashboard holds the students in the classes they teach; the admin's holds
+every class.
 
 ### The console
 
@@ -1440,20 +1472,19 @@ structure, not its colours; everything here is `site.css`'s dark tokens.
   bottom. The groups:
   - *Students* — **Students**, **Trouble spots**
   - *Assign* — **Assign board**
-  - *Set up* — **Periods**, **Manage**
+  - *Set up* — **Classes**, **Manage**
 - **A slim top bar**: the view's title and a one-line subtitle on the
-  left; on the right the **period filter**, **Refresh** and **Student
+  left; on the right the **class filter**, **Refresh** and **Student
   view**. Its right padding keeps clear of `auth.js`'s fixed user chip.
-- **The period filter is the class's, not a view's.** A segmented control
-  — *All*, each period somebody is in, and *Unassigned (n)*, which
+- **The class filter is the page's, not a view's.** A segmented control
+  — *All*, each of my classes somebody is in, and *No class (n)*, which
   disappears at zero — that the Students table, its cards, *What should
   change*, the Assign board and Trouble spots all follow. It is remembered
-  in `localStorage` (`ei.class.period`; the board's old `ei.assign.period`
-  is read once so nobody's choice is lost), and a filter that matches
-  nobody — a period since emptied by a move, a stale key — **falls back to
-  All** (`effectiveFilter()`) rather than drawing an empty page under a
-  button that claims otherwise. The three per-view period selects it
-  replaced are gone. Periods and Manage hide it: it means nothing there.
+  in `localStorage` (`ei.class.filter`), and a filter that matches nobody
+  — a class since emptied or deleted, a stale key — **falls back to All**
+  (`effectiveFilter()`) rather than drawing an empty page under a button
+  that claims otherwise. It replaced three per-view period selects.
+  Classes and Manage hide it: it means nothing there.
 - **Refresh** re-runs `loadAll()` and draws the current view again with no
   page reload, so the open student, the filter and the Manage section all
   hold. With unsaved board edits it asks first, exactly as leaving the
@@ -1484,9 +1515,12 @@ The views:
   accuracy, so one student's bad day doesn't top the list. This is the
   "what do I reteach tomorrow" view.
 - **Assign board** — every student's games as one grid. The section below.
-- **Periods** — roster import, naming periods, and the table that drops
-  students into them. Periods group students on the dashboard; they never
-  decide what anybody sees.
+- **Classes** — roster import (into a class — see above), a card per class
+  with its size and teachers (add a co-teacher from the approved list,
+  remove one while more than one is left, rename, delete when empty),
+  *Create class*, and a *Who's in which class* table that moves a student
+  as soon as you pick. A class decides who sees a student, never what the
+  student sees.
 - **Manage** — one page, one section at a time behind a row of tabs: a
   real `role="tablist"` (arrows, Home and End move between tabs), the open
   one remembered in `localStorage` (`ei.manage.section`).
@@ -1494,28 +1528,32 @@ The views:
   - **Backup** — one JSON file of everything this account can read,
     fetched fresh from the database rather than from the page (which has
     sanitized and folded it): the teacher's roster rows, assignments,
-    notes, students' docs and `classes/` doc; for the admin, every
-    collection including `teachers/` and the old `config/class`. Named
+    notes, students' docs and class docs of every class they teach, and
+    the teachers list; for the admin, every collection including the old
+    `config/class`. Named
     `english-intensive-backup-YYYY-MM-DD.json`. There is no restore, on
     purpose: putting data back is a decision for a person in the console.
   - **Teachers** — admin only, and absent entirely for anyone else: each
-    teacher with their student count (archived included), add by @seq.org
-    address and name, remove (with a confirm; nothing else is deleted), and
-    *Move a whole period* to another teacher.
+    site teacher with their classes and student count, add by @seq.org
+    address and name, and remove (refused while they're the only teacher
+    on a class; otherwise it deletes their `teachers/` doc and takes them
+    off every class — nothing else is deleted).
 
 ### Archive
 
 An archived student is **hidden from every view and deleted from
 nothing**: the table, the cards, the board, the suggestions, Trouble
-spots. They keep practising whatever they were given. The flag is per
-teacher, in `classes/{me}.archived` as `{<key>: true}`, keyed by the id the
+spots. They keep practising whatever they were given. The flag is on the
+CLASS, shared by its co-teachers: `classes/{id}.archived` as
+`{<key>: true}`, keyed by the id the
 page uses — the uid, or `roster:<email>` before they've signed in — and
 both keys are checked, so a student archived while pending stays archived
 once they sign in. Unarchive writes `false` (a set-merge can't delete a
 map key without `FieldValue`, and `false` reads the same). In `teacher.js`
 `students` is the class with them taken out and `everyone` still has them,
-for the lookups a hidden row must not fool: whose student this is, whether
-an address has signed in, a whole-period move.
+for the lookups a hidden row must not fool: whether an address has signed
+in, how big a class is (a class of archived students is not empty), a
+co-teacher rewrite.
 
 ### Previewing a student
 
@@ -1576,7 +1614,7 @@ move a class onto List 4. The **Assign** tab is that: students down the side,
 lists across the top, every assignment in the class visible and editable in
 place.
 
-Rows are grouped by period under a heading row whose checkbox selects
+Rows are grouped by class under a heading row whose checkbox selects
 everyone shown under it. Columns are one per list, grouped under a family
 header that folds (▾/▸) into one summary column, which is how ten red-word
 columns get out of the way when you're working on blends. The first column
@@ -1588,13 +1626,13 @@ yet*.
 
 - **A cell click** opens the modes for that one list, ticked live.
 - **A column's all** sets every offered mode of that list for every *visible*
-  student — the period filter and the name search are what bound it, and
+  student — the class filter and the name search are what bound it, and
   that is the only thing standing between a mis-click and a class's worth
   of undone assignment.
 - **Change games for N selected…** opens the picker empty and offers
   three actions: **Add to what they have**, **Take these away**, and
   **Replace all their games**. Add is the common case and comes first:
-  moving a period onto List 4 shouldn't wipe the oi/oy cards half of them
+  moving a class onto List 4 shouldn't wipe the oi/oy cards half of them
   are still on. The arithmetic is `bulkApply()`.
 - **Nothing is written until Save.** Every edit lands in a draft, the bar
   at the bottom counts what's pending, and Save commits the lot in one
@@ -1613,13 +1651,13 @@ check that the grid renders the rows and cells it claims to.
 
 A class only existed on this dashboard once every student had signed in,
 which made the first day of term an empty page and a teacher typing thirty
-names into a period dropdown. **Periods → 📋 Import roster** takes whatever
+names into a dropdown. **Classes → 📋 Import roster** takes whatever
 the student information system exports and places the whole class before any
 of them touches the site.
 
-On the Students tab, the **Add by student ID** box is the same import with a
-typed source: the IDs go through `parseRoster` and `importBody` exactly as a
-file's rows would. It skips any ID already on the roster rather than
+On the Students page, the **Add by student ID** box is the same import with
+a typed source, into the class picked beside it: the IDs go through
+`parseRoster` and `importBody` exactly as a file's rows would. It skips any ID already on the roster rather than
 updating it, because a typed ID has no name and a set-merge would blank the
 one the import stored.
 
@@ -1634,27 +1672,27 @@ quoted fields with commas inside names; a BOM; Windows line endings; `Perm
 ID` or `Local ID` or `Student Number`; one *Name* column or *Last* plus
 *First*; `Period 3` or `P3` or `3rd`. With no header row at all it reads the
 columns by shape — the all-digits column is the ID, the wordy one is the
-name, the one- or two-digit one is the period. Any other column is ignored:
-which games a student gets is chosen on the dashboard, not in the export.
+name, the one- or two-digit one is the period. The period only ever picks
+a class (see above) and is not stored. Any other column is ignored: which
+games a student gets is chosen on the dashboard, not in the export.
 
 It will **not** guess an ID. A row without one, or with a non-numeric or
 duplicate one, is listed and left out — a guessed ID is a student matched to
 somebody else's record.
 
-Nothing is written until the preview has been looked at: name, email,
-period, and a status of *new*, *update* or *already signed in*. Then one
-batch of set-merges (chunks of 400).
+Nothing is written until the preview has been looked at: name, email, the
+period in the file, the class each row will go into, and a status of *new*,
+*update*, *already signed in* or *in another class — skipped*. Then any new
+classes, then one batch of set-merges (chunks of 400).
 
 Two rules do the rest of the work, both about not destroying anything:
 
 - **A re-import never deletes.** A student dropped from an export by
-  mistake keeps their row and their period. Removal is one explicit button
+  mistake keeps their row and their class. Removal is one explicit button
   on their page.
-- **The one place the roster writes into `assignments` only ever fills a
-  blank.** After an import, a student who has signed in, has a roster row
-  and has *no* assignment document gets one — a period, never lists. A
-  period a teacher set by hand in March is never overwritten by a
-  re-import in April.
+- **An import never touches `assignments`.** It writes roster rows only;
+  a signed-in student's other documents follow their row's class through
+  `store.js` and self-heal.
 
 A roster row with no account behind it is folded into the class as a
 **pending student** — a real row, greyed, clickable and assignable, with
@@ -1735,7 +1773,7 @@ one lesson behind it, and a list of thirty words hides that. So every
 family carries a `pattern` — *initial blend*, *final blend*, *vowel team
 oi/oy*, *multisyllable*, *irregular*, *nonsense CVC* — in the words a
 teacher would use in a plan, and **Trouble spots** has a second table
-grouped by it, filterable by period like the first.
+grouped by it, following the class filter like the first.
 
 "Shaky" in that table counts **students**, not words: a student struggling
 with six words of one pattern counts once, because the table answers how
@@ -1782,7 +1820,7 @@ read about themselves.
 Two CSVs from the Students tab, built from what the dashboard already has
 in memory — no new reads, no backend:
 
-- **Roster** — a row per student: period, the same list sentence the
+- **Roster** — a row per student: class, the same list sentence the
   screen shows, where it came from, accuracy, words solid and shaky, last
   active, and their note.
 - **Every word** — a row per (student, list, word) they have attempted:
@@ -1817,17 +1855,20 @@ modes, the grid and the board are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.
 
-`classes/{email}` holds one teacher's named periods, read and written by
-that teacher and the admin; students never read it, because `store.js`
-resolves a student's lists through `assignments/{uid}` and
-`roster/{email}`. It replaced the shared `config/class`, which is now
-admin-read-only and read once, by the migration. (Older builds also wrote
-`periodLists`, `defaultLists`, `sequences` and `sequenceOn` there. Nothing
-reads any of them now, and they can be left or deleted in the console.)
+`classes/{classId}` holds one class: its name, its teachers and its
+archived students, read and written by its teachers and the admin.
+Students never read it: `store.js` resolves a student's lists through
+`assignments/{uid}` and `roster/{email}`, and their class through the
+roster row. Classes replaced the free-text period and the shared
+`config/class`, which is now admin-read-only and read only by the
+migration. (Older builds also wrote `periodLists`, `defaultLists`,
+`sequences` and `sequenceOn` there. Nothing reads any of them now, and they
+can be left or deleted in the console.)
 
-A student reads and writes only their own `students/{uid}`. Their teacher
-has **read** on it and no write; the admin may change its `teacher` field
-and nothing else. Everything the teacher sets lives in
+A student reads and writes only their own `students/{uid}` (and may change
+its `classId`/`teachers` only to what their roster row says). Their
+teachers have **read** on it, and may change those two fields and nothing
+else — that is a move between classes or a co-teacher rewrite. Everything the teacher sets lives in
 `assignments/{uid}` instead, so a compromised teacher session can't erase
 anyone's work. In `firestore.rules` the student's read and their
 create/update are **separate statements** on purpose: `request.resource`
@@ -1843,7 +1884,7 @@ still the ones enforcing.
 The roster adds a fifth path, `roster/{email}`, the one rules change in all of
 this. A student may read **exactly one document** — their own, matched on
 their own token's address — and may not write it. They need the read (their
-period, and any lists given before they had an account, resolve through it on
+class, and any lists given before they had an account, resolve through it on
 first sign-in) and must not have the write (the row decides which lists they
 get). Rules in the repo are not rules in the console: until `firestore.rules`
 is pasted in and published, every roster read is denied and the site behaves

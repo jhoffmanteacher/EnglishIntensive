@@ -13,17 +13,22 @@
      shows a friendly "wrong account" panel so the real teacher knows
      they're signed in as the wrong Google account; it is not security.
 
-   ── Whose students ────────────────────────────────────────────────────
-   Every teacher sees only their own students: every list query below
-   carries where('teacher','==',me), because firestore.rules only allows
-   a list it can prove from the query. The admin's queries don't, and
-   the admin alone has Manage → Teachers and the "move" controls. Every
-   document this page writes carries `teacher` — the student's owner,
-   which for anyone but the admin is always the signed-in teacher.
+   ── Classes ───────────────────────────────────────────────────────────
+   A CLASS ("P3 Intensive") is a named group with one or more teachers,
+   and every student is in exactly one. A teacher sees only the students
+   in classes they teach: every list query below carries
+   where('teachers','array-contains',me), because firestore.rules only
+   allows a list it can prove from the query, and every document about a
+   student carries its class's `classId` and a copy of its `teachers`.
+   Any teacher on a class can add or remove co-teachers (from the
+   approved teachers); only the admin adds teachers to the site, and the
+   admin sees every class. When a class's teachers change, every member
+   doc is rewritten, and maintain() repairs any copy still out of step on
+   the next load.
 
    ── The layout ────────────────────────────────────────────────────────
    A console: a grouped sidebar on the left, a slim top bar (title, the
-   class-wide period filter, Refresh, Student view), and one view at a
+   class filter, Refresh, Student view), and one view at a
    time underneath. The sidebar's groups:
      Students   Students — the roster, four summary cards, and each
                 student's page: worst words, list by list, their games.
@@ -31,19 +36,20 @@
                 class: what to teach tomorrow.
      Assign     Assign board — every student's games as one grid, one
                 batched Save at the bottom.
-     Set up     Periods — importing the roster, and who is in which
-                period. Periods only group students on this page; they
-                never decide what anybody sees.
+     Set up     Classes — importing the roster, making classes and
+                sharing them with co-teachers, and who is in which. A
+                class decides who sees a student, never what the student
+                sees.
                 Manage — Archived, Backup, and (admin only) Teachers, one
                 section at a time behind a row of tabs.
 
-   The period filter in the top bar is the class's, not a view's: the
+   The class filter in the top bar is the page's, not a view's: the
    Students table, the board and Trouble spots all follow it, it is
-   remembered in localStorage, and one that matches nobody (a period that
+   remembered in localStorage, and one that matches nobody (a class that
    has since emptied) falls back to All rather than showing a blank page.
 
    An ARCHIVED student is hidden from every view and deleted from
-   nothing: classes/{me}.archived holds their key. `students` is the
+   nothing: their class's doc (classes/{id}.archived) holds their key. `students` is the
    class with them taken out; `everyone` still has them, for the lookups
    that must not be fooled by a hidden row (whose student is this, has
    this address signed in).
@@ -76,7 +82,7 @@
    The teacher has READ on students/{uid} and no write, deliberately: the
    dashboard never needs to modify a student's work, and withholding write
    means a compromised teacher session can't erase the class. Everything
-   the teacher DOES set — period, assigned lists — is therefore in
+   the teacher DOES set — assigned lists — is therefore in
    assignments/{uid}, which the student can only read.
    ════════════════════════════════════════════════════════════════════ */
 
@@ -84,16 +90,15 @@
   "use strict";
 
   var db = null;
-  var students = [];          // [{uid, name, email, photo, words, totals, recent, lastSeen}]
-  var assignments = {};       // uid → { period, lists }
-  var notes = {};             // uid → { text, updatedAt } — teacher-only
-  var roster = {};            // email → { name, id, period, lists, importedAt }
+  var students = [];          // [{uid, name, email, photo, classId, stats, ...}] — archived taken out
+  var assignments = {};       // uid → { lists, classId, teachers }
+  var notes = {};             // uid → { text, updatedAt, classId, teachers } — teachers only
+  var roster = {};            // email → { name, id, lists, importedAt, classId, teachers }
   var rosterReadable = false; // false until the roster rules are published
-  var classCfg = { periods:[] };   // classes/{me}: this teacher's named periods
+  var classes = {};           // classId → { id, name, teachers, archived, createdAt, createdBy }
   var me = "";                // the signed-in address, lowercased
   var admin = false;          // EIAuth.isAdmin(), read once at boot
-  var teacherDocs = [];       // admin only: teachers/{email} docs, [{email, name, addedAt, addedBy}]
-  var migrated = false;       // the admin's one-time migration has run this visit
+  var teacherDocs = [];       // teachers/{email}: [{email, name, addedAt, addedBy}]
   var view = "roster";
   var everyone = [];          // `students` plus the archived — see applyArchive
   var manageSection = null;   // Manage's open section; null until read from localStorage
@@ -123,9 +128,11 @@
     return (typeof v === "string" ? [v] : v).map(function(e){ return String(e).toLowerCase(); });
   }
   function adminEmail(){ return adminEmails()[0] || ""; }
+  function low(x){ return String(x == null ? "" : x).toLowerCase(); }
+  function sameList(a, b){ return JSON.stringify(a || null) === JSON.stringify(b || null); }
 
   /* Every address known to be a teacher: the admin, the signed-in
-     teacher, and (for the admin, who can read them) every teachers/ doc.
+     teacher, and every teachers/ doc (any teacher may read the list).
      Teachers play the games too (store.js writes students/{their uid}),
      so without this filter they show up in the admin's loadAll as
      students with "no games yet". */
@@ -133,33 +140,78 @@
     var out = {};
     adminEmails().forEach(function(e){ out[e] = true; });
     if(me) out[me] = true;
-    teacherDocs.forEach(function(t){ if(t.email) out[String(t.email).toLowerCase()] = true; });
+    teacherDocs.forEach(function(t){ if(t.email) out[low(t.email)] = true; });
     return out;
   }
 
-  /* Who a student belongs to. The roster row is the record of that — it
-     is what an import writes and what store.js copies — so it wins over
-     the student's own doc; with neither, they're the signed-in
-     teacher's, which is the only answer a write from this page could
-     use anyway. Lowercased throughout, because it is compared with a
-     lowercased token in firestore.rules. */
-  function ownerOf(s){
-    var r = rosterFor(s);
-    var t = (r && r.teacher) || (s && s.teacher) || me;
-    return String(t || "").toLowerCase();
-  }
-  function ownerOfUid(uid){ return ownerOf(studentByUid(uid)); }
-
-  // A teacher's display name, for the admin's views.
+  // A teacher's display name.
   function teacherName(email){
-    email = String(email || "").toLowerCase();
+    email = low(email);
     for(var i=0;i<teacherDocs.length;i++){
       if(teacherDocs[i].email === email) return teacherDocs[i].name || email;
     }
     return email;
   }
 
-  function classRef(){ return db.collection("classes").doc(me); }
+  /* ---------------- classes ----------------
+     Which class a student is in. Their roster row is the record of it —
+     it is what an import writes and what store.js copies onto the
+     student's own doc — then their own doc, then their assignment. */
+  function classIdOf(s){
+    if(!s) return "";
+    var r = rosterFor(s), a = assignments[s.uid];
+    return (r && r.classId) || s.classId || (a && a.classId) || "";
+  }
+  function className(id){
+    var c = classes[id];
+    return c ? (c.name || "Untitled class") : "No class";
+  }
+  function teachesClass(id){
+    var c = classes[id];
+    return !!(c && c.teachers.indexOf(me) !== -1);
+  }
+  // One stored class doc as the page holds it.
+  function classRowOf(id, d){
+    d = d || {};
+    return {
+      id: id,
+      name: d.name || "",
+      teachers: Array.isArray(d.teachers) ? d.teachers.map(low) : [],
+      archived: (d.archived && typeof d.archived === "object") ? d.archived : {},
+      createdAt: d.createdAt || 0,
+      createdBy: d.createdBy || ""
+    };
+  }
+  /* The stamp every write about a student carries: the class id and a
+     copy of that class's teachers. firestore.rules checks it against the
+     class doc itself, and the copy is what a teacher's list query finds. */
+  function stampFor(id){
+    var c = classes[id];
+    return c ? { classId: id, teachers: c.teachers.slice() } : {};
+  }
+  function stampOf(uid){ return stampFor(classIdOf(studentByUid(uid))); }
+  function withStamp(body, uid){
+    var st = stampOf(uid);
+    for(var k in st) body[k] = st[k];
+    return body;
+  }
+  // Every class on this page, by name — numbers in order ("P2" before "P10").
+  function allClasses(){
+    return Object.keys(classes).sort(function(a, b){
+      return className(a).localeCompare(className(b), undefined, { numeric: true, sensitivity: "base" });
+    });
+  }
+  // The classes this account may put a student in: the ones they teach,
+  // or, for the admin, all of them.
+  function placeableClasses(){
+    return allClasses().filter(function(id){ return admin || teachesClass(id); });
+  }
+  function classOptions(selected, list, none){
+    return (none ? '<option value=""' + (selected ? "" : " selected") + ">" + esc(none) + "</option>" : "") +
+      (list || placeableClasses()).map(function(id){
+        return '<option value="' + esc(id) + '"' + (id === selected ? " selected" : "") + ">" + esc(className(id)) + "</option>";
+      }).join("");
+  }
 
   /* ---------------- boot ---------------- */
   EIAuth.ready().then(function(user){
@@ -199,19 +251,21 @@
      The where clause is not an optimisation — firestore.rules refuses a
      teacher's list query that doesn't carry it. The admin's has none. */
   function mine(col){
-    return admin ? db.collection(col) : db.collection(col).where("teacher", "==", me);
+    return admin ? db.collection(col) : db.collection(col).where("teachers", "array-contains", me);
   }
 
-  function loadAll(){
+  /* `pass` counts the maintenance reloads in one chain (see maintain):
+     every outside caller starts at 0, so migration and self-heal run on
+     every load and refresh, and stop after two passes whatever happens. */
+  function loadAll(pass){
+    pass = pass || 0;
     return EIAuth.db().then(function(d){
       db = d;
       if(!db) throw new Error("no db");
       return Promise.all([
         mine("students").get(),
         mine("assignments").get(),
-        // Missing until this teacher names a period; refused only if the
-        // rules in the console predate classes/. Neither is fatal.
-        db.collection("classes").doc(me).get().catch(function(){ return null; }),
+        mine("classes").get(),
         // Teacher-only, by firestore.rules. A student reading this
         // collection gets nothing, which is the point of it existing
         // separately from assignments/{uid} — see the rules file.
@@ -221,7 +275,8 @@
            have not been published yet, which is a state the site is
            designed to survive — see firestore.rules. */
         mine("roster").get().catch(function(){ return null; }),
-        admin ? db.collection("teachers").get().catch(function(){ return null; }) : null,
+        // Any teacher may list these: the co-teacher picker shows names.
+        db.collection("teachers").get().catch(function(){ return null; }),
         // The old shared periods doc, read only to migrate it.
         admin ? db.collection("config").doc("class").get().catch(function(){ return null; }) : null
       ]);
@@ -229,26 +284,35 @@
       teacherDocs = [];
       if(snaps[5]) snaps[5].forEach(function(doc){
         var t = doc.data() || {};
-        teacherDocs.push({ email: String(doc.id).toLowerCase(), name: t.name || "", addedAt: t.addedAt || 0, addedBy: t.addedBy || "" });
+        teacherDocs.push({ email: low(doc.id), name: t.name || "", addedAt: t.addedAt || 0, addedBy: t.addedBy || "" });
       });
-      teacherDocs.sort(function(a, b){ return (a.name || a.email).toLowerCase() < (b.name || b.email).toLowerCase() ? -1 : 1; });
-      // Everything the migration needs, as plain data — see migrationBody.
+      teacherDocs.sort(function(a, b){ return low(a.name || a.email) < low(b.name || b.email) ? -1 : 1; });
+      classes = {};
+      snaps[2].forEach(function(doc){ classes[doc.id] = classRowOf(doc.id, doc.data()); });
+
+      // Everything maintenance needs, as plain data — see migrationBody
+      // and healBody.
       var raw = { students: [], assignments: {}, notes: {}, roster: {},
-                  classesExists: !!(snaps[2] && snaps[2].exists),
                   configPeriods: (snaps[6] && snaps[6].exists && Array.isArray((snaps[6].data() || {}).periods))
                     ? snaps[6].data().periods : [] };
+      function stampData(d){
+        var o = { classId: d.classId || "", teachers: Array.isArray(d.teachers) ? d.teachers : null };
+        if(Object.prototype.hasOwnProperty.call(d, "period")) o.period = d.period;
+        return o;
+      }
       students = [];
       var teachers = knownTeachers();
       snaps[0].forEach(function(doc){
         var d = doc.data() || {};
-        raw.students.push({ id: doc.id, email: d.email || "", teacher: d.teacher || "" });
-        if(d.email && teachers[String(d.email).toLowerCase()]) return;
+        if(d.email && teachers[low(d.email)]) return;
+        var st = stampData(d); st.id = doc.id; st.email = d.email || "";
+        raw.students.push(st);
         students.push({
           uid: doc.id,
           name: d.name || "",
           email: d.email || "",
           photo: d.photo || "",
-          teacher: d.teacher ? String(d.teacher).toLowerCase() : "",
+          classId: d.classId || "",
           stats: Adaptive.sanitizeStats(d.words),
           heard: Adaptive.sanitizeHeard(d.heard),
           fluency: Adaptive.sanitizeFluency(d.fluency),
@@ -260,22 +324,19 @@
       assignments = {};
       snaps[1].forEach(function(doc){
         assignments[doc.id] = doc.data() || {};
-        raw.assignments[doc.id] = assignments[doc.id].teacher || "";
+        raw.assignments[doc.id] = stampData(assignments[doc.id]);
       });
       notes = {};
       snaps[3].forEach(function(doc){
         notes[doc.id] = doc.data() || {};
-        raw.notes[doc.id] = notes[doc.id].teacher || "";
+        raw.notes[doc.id] = stampData(notes[doc.id]);
       });
       roster = {};
       rosterReadable = !!snaps[4];
       if(snaps[4]) snaps[4].forEach(function(doc){
-        roster[String(doc.id).toLowerCase()] = rosterRowOf(doc.id, doc.data() || {});
-        raw.roster[String(doc.id).toLowerCase()] = (doc.data() || {}).teacher || "";
+        roster[low(doc.id)] = rosterRowOf(doc.id, doc.data() || {});
+        raw.roster[low(doc.id)] = stampData(doc.data() || {});
       });
-      var c = (snaps[2] && snaps[2].exists) ? (snaps[2].data() || {}) : {};
-      classCfg = { periods: Array.isArray(c.periods) ? c.periods : [],
-                   archived: (c.archived && typeof c.archived === "object") ? c.archived : {} };
       addPendingStudents();
       // Sort by display name, falling back to the email local part — an
       // account with no display name shouldn't sink to the bottom.
@@ -285,81 +346,161 @@
       });
       applyArchive(students);
       return raw;
-    }).then(migrate);
+    }).then(function(raw){ return maintain(raw, pass); });
   }
 
-  /* ---------------- the admin's migration ----------------
-     Before there were several teachers nothing carried a `teacher`
-     field, and one shared config/class held the periods. The first time
-     the admin opens the dashboard after the change, every document
-     without an owner is given one, and the old periods are copied into
-     the admin's own classes/ doc. It runs on every admin load and does
-     nothing once there is nothing to do, so it needs no flag in the
-     database and is safe to interrupt.
+  /* ---------------- maintenance: migration and self-heal ----------------
+     Two jobs, both run on load, both pure (data in, a list of writes
+     out) so tests.html can pin them, both no-ops once there is nothing
+     to do — so neither needs a flag in the database and either is safe
+     to interrupt.
 
-     It also puts back in step anything that has drifted: a student's
-     own doc follows their roster row (that is what store.js does on
-     their next sign-in anyway), and their assignment and note follow
-     their own doc. Pure — data in, a list of writes out — so tests.html
-     can pin it without a Firestore. */
-  function migrationBody(raw, adminAddr, teachers){
-    adminAddr = String(adminAddr || "").toLowerCase();
-    teachers = teachers || {};
-    var out = [];
-    var low = function(x){ return String(x || "").toLowerCase(); };
-    var rosterOwner = {};
-    Object.keys(raw.roster || {}).forEach(function(email){
-      var t = low(raw.roster[email]);
-      if(!t){ t = adminAddr; out.push({ col: "roster", id: email, data: { teacher: t } }); }
-      rosterOwner[email] = t;
-    });
-    var studentOwner = {};
+     MIGRATION (admin only). Before classes, students had a free-text
+     PERIOD (on their assignment, else their roster row) and one shared
+     config/class listed the period names. Each distinct period becomes a
+     class owned by the admin; every document without a classId gets its
+     student's class and the period field is deleted; a student with no
+     period goes to a class called "No class yet"; and the first time
+     there are no classes at all, every name in config/class becomes a
+     class too, even an empty one. The admin then shares classes with
+     co-teachers or moves students.
+
+     SELF-HEAL (everyone). Every document about a student carries a copy
+     of their class's teachers. When co-teachers change, all of them are
+     rewritten; if that is interrupted, this finishes it: any member doc
+     this account can see whose classId or teachers differ from its
+     class's gets corrected. A student's class is read from their roster
+     row first (the record), then their own doc, then their assignment. */
+  var DELETE = "\u0000delete";          // → FieldValue.delete() in commitWrites
+  var NO_CLASS_NAME = "No class yet";
+
+  function migrationBody(raw, classList, adminAddr, teachersKnown, newId, now){
+    adminAddr = low(adminAddr);
+    teachersKnown = teachersKnown || {};
+    var out = [], byName = {};
+    (classList || []).forEach(function(c){ if(!byName[c.name]) byName[c.name] = c; });
+    function classFor(name){
+      if(byName[name]) return byName[name];
+      var c = { id: newId(), name: name, teachers: [adminAddr] };
+      byName[name] = c;
+      out.push({ col: "classes", id: c.id, data: { name: name, teachers: [adminAddr], archived: {}, createdAt: now, createdBy: adminAddr } });
+      return c;
+    }
+    function stamp(c, doc){
+      var d = { classId: c.id, teachers: c.teachers.slice() };
+      if(doc && Object.prototype.hasOwnProperty.call(doc, "period")) d.period = DELETE;
+      return d;
+    }
+    function periodFor(a, r){
+      // The assignment's word wins, even "" ("no period"); then the roster's.
+      if(a && typeof a.period === "string") return a.period;
+      return (r && r.period != null) ? String(r.period) : "";
+    }
+    var done = { roster: {}, students: {} }, classOfUid = {};
     (raw.students || []).forEach(function(st){
       var email = low(st.email);
-      // A teacher's own practice record is nobody's student.
-      if(email && teachers[email]) return;
-      var want = rosterOwner[email] || low(st.teacher) || adminAddr;
-      if(low(st.teacher) !== want) out.push({ col: "students", id: st.id, data: { teacher: want } });
-      studentOwner[st.id] = want;
+      if(email && teachersKnown[email]) return;       // a teacher's own record
+      var r = (raw.roster || {})[email];
+      if(st.classId || (r && r.classId)) return;      // already in a class: self-heal's job
+      var c = classFor(periodFor((raw.assignments || {})[st.id], r) || NO_CLASS_NAME);
+      classOfUid[st.id] = c;
+      out.push({ col: "students", id: st.id, data: stamp(c, null) });
+      if(r){ out.push({ col: "roster", id: email, data: stamp(c, r) }); done.roster[email] = true; }
+      done.students[st.id] = true;
     });
+    Object.keys(raw.roster || {}).forEach(function(email){
+      var r = raw.roster[email];
+      if(r.classId || done.roster[email]) return;
+      out.push({ col: "roster", id: email, data: stamp(classFor(periodFor(null, r) || NO_CLASS_NAME), r) });
+    });
+    var known = {};
+    (raw.students || []).forEach(function(st){ known[st.id] = true; });
     ["assignments", "notes"].forEach(function(col){
       var map = raw[col] || {};
       Object.keys(map).forEach(function(id){
-        var want = studentOwner[id] || low(map[id]) || adminAddr;
-        if(low(map[id]) !== want) out.push({ col: col, id: id, data: { teacher: want } });
+        var doc = map[id];
+        if(doc.classId) return;
+        var c = classOfUid[id];
+        // A student who is already in a class: self-heal stamps it.
+        if(!c && known[id]) return;
+        // No student doc behind it at all: an orphan, by its own period.
+        if(!c) c = classFor(periodFor(col === "assignments" ? doc : null, null) || NO_CLASS_NAME);
+        out.push({ col: col, id: id, data: stamp(c, doc) });
       });
     });
-    if(!raw.classesExists && (raw.configPeriods || []).length){
-      out.push({ col: "classes", id: adminAddr, data: { periods: raw.configPeriods.slice() } });
+    if(!(classList || []).length){
+      (raw.configPeriods || []).forEach(function(p){ if(p) classFor(String(p)); });
     }
+    return out;
+  }
+
+  function healBody(raw, classMap, who, isAdmin){
+    who = low(who);
+    var out = [];
+    function fix(col, id, doc, cid){
+      var c = classMap[cid];
+      if(!doc || !c) return;
+      // A teacher may only stamp a class they teach (firestore.rules).
+      if(!isAdmin && c.teachers.indexOf(who) === -1) return;
+      if(doc.classId === cid && sameList(doc.teachers, c.teachers)) return;
+      out.push({ col: col, id: id, data: { classId: cid, teachers: c.teachers.slice() } });
+    }
+    var seen = {};
+    (raw.students || []).forEach(function(st){
+      var email = low(st.email);
+      var r = (raw.roster || {})[email];
+      var a = (raw.assignments || {})[st.id];
+      var cid = (r && r.classId) || st.classId || (a && a.classId) || "";
+      if(email) seen[email] = true;
+      if(!cid) return;
+      if(r) fix("roster", email, r, cid);
+      fix("students", st.id, st, cid);
+      fix("assignments", st.id, a, cid);
+      fix("notes", st.id, (raw.notes || {})[st.id], cid);
+    });
+    Object.keys(raw.roster || {}).forEach(function(email){
+      var r = raw.roster[email];
+      if(!seen[email] && r.classId) fix("roster", email, r, r.classId);
+    });
     return out;
   }
 
   /* Firestore caps a batch at 500 writes; 400 leaves headroom. Every
      write here is a set-merge, so a chunk that lands twice is harmless. */
   function commitWrites(writes){
+    function prep(data){
+      var o = {};
+      for(var k in data){
+        if(!Object.prototype.hasOwnProperty.call(data, k)) continue;
+        o[k] = data[k] === DELETE ? firebase.firestore.FieldValue.delete() : data[k];
+      }
+      return o;
+    }
     var chunks = [], i;
     for(i=0;i<writes.length;i+=400) chunks.push(writes.slice(i, i+400));
     return chunks.reduce(function(chain, chunk){
       return chain.then(function(){
         var batch = db.batch();
         chunk.forEach(function(w){
-          batch.set(db.collection(w.col).doc(w.id), w.data, { merge:true });
+          batch.set(db.collection(w.col).doc(w.id), prep(w.data), { merge:true });
         });
         return batch.commit();
       });
     }, Promise.resolve());
   }
 
-  function migrate(raw){
-    if(!admin || migrated) return;
-    migrated = true;
-    var writes = migrationBody(raw, me, knownTeachers());
+  function newClassId(){ return db.collection("classes").doc().id; }
+
+  function maintain(raw, pass){
+    if(pass >= 2) return;
+    var writes = admin
+      ? migrationBody(raw, allClasses().map(function(id){ return classes[id]; }), me, knownTeachers(), newClassId, Date.now())
+      : [];
+    if(!writes.length) writes = healBody(raw, classes, me, admin);
     if(!writes.length) return;
-    // A failed migration is not a failed dashboard: the admin still sees
-    // everything, and the next load tries again.
-    return commitWrites(writes).then(function(){ return loadAll(); }, function(e){
-      if(window.console) console.warn("Migration didn't finish; it will retry next load.", e);
+    // A failed pass is not a failed dashboard: the next load tries again.
+    return commitWrites(writes).then(function(){ return loadAll(pass + 1); }, function(e){
+      if(window.console) console.warn("Class upkeep didn't finish; it will retry next load.", e);
     });
   }
 
@@ -385,10 +526,10 @@
       email: String(id).toLowerCase(),
       name: d.name || "",
       id: d.id || "",
-      period: d.period == null ? "" : String(d.period),
       lists: Array.isArray(d.lists) ? d.lists : null,
       importedAt: d.importedAt || 0,
-      teacher: d.teacher ? String(d.teacher).toLowerCase() : ""
+      classId: d.classId || "",
+      teachers: Array.isArray(d.teachers) ? d.teachers.map(low) : null
     };
   }
 
@@ -408,6 +549,7 @@
         name: r.name || email,
         email: email,
         photo: "",
+        classId: r.classId || "",
         pending: true,
         stats: {}, heard: {}, fluency: {},
         totals: { n:0, r:0 }, recent: [], lastSeen: 0
@@ -438,32 +580,30 @@
   }
 
   /* ---------------- whose is this row? ----------------
-     One teacher per student, and an import never takes a student from
-     another teacher. Before anything is written, every address that
-     isn't already on this teacher's roster is looked up on its own.
-     firestore.rules answers a teacher's get of somebody else's row with
-     permission-denied — that refusal IS the answer — and the admin, who
-     can read every row, is told whose it is.
+     Each student is in exactly one class, and an import never takes a
+     student out of a class the importer doesn't teach. Before anything is
+     written, every address that isn't already on this teacher's roster is
+     looked up on its own. firestore.rules answers a get of a row in
+     somebody else's class with permission-denied — that refusal IS the
+     answer — and the admin, who can read every row, is told whose it is.
 
-       new     no row anywhere: write it, owned by me
-       free    a row with no owner, from before there were several
-               teachers: claim it
-       mine    already mine
-       other   someone else's: skip it, and say so
+       new     no row anywhere: write it, into the chosen class
+       free    a row in no class, from before classes: claim it
+       mine    in a class I teach
+       other   in a class I don't teach: skip it, and say so
 
      Cached per address for the visit, so typing into the paste box
      doesn't re-ask the database on every keystroke. */
   var probe = {};   // email → "new" | "free" | "mine" | "other"
 
   // Pure: what one lookup says. `res` is {denied:true} or a snapshot-ish
-  // {exists, teacher}.
+  // {exists, teachers}.
   function classifyProbe(res, who){
-    who = String(who || "").toLowerCase();
+    who = low(who);
     if(!res || res.denied) return "other";
     if(!res.exists) return "new";
-    var t = String(res.teacher || "").toLowerCase();
-    if(!t) return "free";
-    return t === who ? "mine" : "other";
+    if(!Array.isArray(res.teachers)) return "free";
+    return res.teachers.map(low).indexOf(who) !== -1 ? "mine" : "other";
   }
 
   function probeEmails(emails){
@@ -472,7 +612,7 @@
     });
     return Promise.all(todo.map(function(email){
       return db.collection("roster").doc(email).get().then(function(snap){
-        probe[email] = classifyProbe({ exists: snap.exists, teacher: snap.exists && (snap.data() || {}).teacher }, me);
+        probe[email] = classifyProbe({ exists: snap.exists, teachers: snap.exists ? (snap.data() || {}).teachers : null }, me);
       }, function(err){
         // Only a refusal means "someone else's". A network failure is not
         // an answer; leave it unknown and let the write report it.
@@ -481,17 +621,16 @@
     }));
   }
 
-  /* Somebody else's student: a row on this page that names another
-     teacher (only the admin can see those), or a lookup that said so. */
+  /* In a class this account doesn't teach: a row on this page that
+     doesn't name me (only the admin can see those), or a lookup that
+     said so. */
   function ownedElsewhere(email){
     var r = roster[email];
-    if(r) return !!(r.teacher && r.teacher !== me);
+    if(r) return !!(r.teachers && r.teachers.length && r.teachers.indexOf(me) === -1);
     return probe[email] === "other";
   }
 
-  /* Pure: which rows an import may write, and which it must skip. A row
-     already on this teacher's roster is theirs by definition; anything
-     else goes by the lookup. */
+  // Pure: which rows an import may write, and which it must skip.
   function importPlan(rows){
     var take = [], skip = [];
     rows.forEach(function(r){
@@ -505,25 +644,66 @@
     if(!skip.length) return "";
     var names = skip.map(function(r){ return r.name || r.id || r.email; });
     return skip.length + (skip.length === 1 ? " student is" : " students are") +
-      " already in another teacher\u2019s class (" + names.slice(0, 5).join(", ") +
+      " already in another class (" + names.slice(0, 5).join(", ") +
       (names.length > 5 ? " and " + (names.length - 5) + " more" : "") +
-      ") \u2014 ask the admin to move them.";
+      ") — ask a teacher on that class or the admin to move them.";
   }
 
-  // new · update · already signed in · another teacher's. The third one
-  // matters: it is the row that will NOT get an assignment written for
-  // it, because that student already has one. The fourth is not written.
+  // new · update · already signed in · in another class. The last is not
+  // written.
   function rosterStatus(row){
     var signedIn = everyone.filter(function(s){
       return !s.pending && s.email && s.email.toLowerCase() === row.email;
     })[0];
-    if(ownedElsewhere(row.email)) return { key: "other", text: "in another teacher\u2019s class \u2014 skipped" };
+    if(ownedElsewhere(row.email)) return { key: "other", text: "in another class — skipped" };
     if(signedIn) return { key: "signed-in", text: "already signed in", uid: signedIn.uid };
     if(roster[row.email]) return { key: "update", text: "update" };
-    if(probe[row.email] === "other") return { key: "other", text: "in another teacher\u2019s class \u2014 skipped" };
     if(probe[row.email] === "free") return { key: "update", text: "update" };
-    if(!Object.prototype.hasOwnProperty.call(probe, row.email) && db) return { key: "checking", text: "checking\u2026" };
+    if(!Object.prototype.hasOwnProperty.call(probe, row.email) && db) return { key: "checking", text: "checking…" };
     return { key: "new", text: "new" };
+  }
+
+  /* ---------------- which class an import goes into ----------------
+     The teacher chooses: "match the file's period column" (the default),
+     one of their classes, or a new class. Matching is by name: period 3
+     matches a class called "3", "Period 3", "P3" or "P3 Intensive". A
+     period that matches nothing becomes a new class ("Period 3"), and a
+     row with no period goes to "No class yet". */
+  function nameMatchesPeriod(name, p){
+    var n = low(name).replace(/\s+/g, " ").trim(), q = low(p).trim();
+    if(!q) return false;
+    return n === q || n === "period " + q || n === "p" + q ||
+           n.indexOf("p" + q + " ") === 0 || n.indexOf("period " + q + " ") === 0;
+  }
+  function newClassNameFor(p){ return /^\d+$/.test(p) ? "Period " + p : p; }
+
+  /* Pure: where each row goes. `choice` is "" (match the period column),
+     a class id, or "+new" (into a new class called `newName`). Returns
+     { target: email → class id or "new:<name>", create: [names] }. Only
+     the classes in `ids` (the ones this account can place into) count. */
+  function importTargets(rows, choice, newName, ids){
+    var out = { target: {}, create: [] };
+    function fresh(name){
+      if(out.create.indexOf(name) === -1) out.create.push(name);
+      return "new:" + name;
+    }
+    rows.forEach(function(r){
+      if(choice && choice !== "+new"){ out.target[r.email] = choice; return; }
+      if(choice === "+new"){ out.target[r.email] = fresh(String(newName || "").trim() || "New class"); return; }
+      var hit = ids.filter(function(id){
+        return r.period ? nameMatchesPeriod(className(id), r.period) : low(className(id)) === low(NO_CLASS_NAME);
+      })[0];
+      out.target[r.email] = hit || fresh(r.period ? newClassNameFor(r.period) : NO_CLASS_NAME);
+    });
+    return out;
+  }
+  function targetLabel(key){
+    return key.indexOf("new:") === 0 ? key.slice(4) + " (new)" : className(key);
+  }
+
+  function importChoice(){
+    var sel = document.getElementById("riClass"), box = document.getElementById("riNewClass");
+    return { choice: sel ? sel.value : "", newName: box ? box.value : "" };
   }
 
   function renderImportPreview(){
@@ -536,15 +716,19 @@
       document.getElementById("riGo").disabled = true;
       return;
     }
+    var plan = importPlan(p.rows);
+    var ch = importChoice();
+    var targets = importTargets(plan.take, ch.choice, ch.newName, placeableClasses()).target;
     var body = p.rows.map(function(r){
       var st = rosterStatus(r);
+      var to = targets[r.email];
       return "<tr><td>" + esc(r.name || "—") + "</td>" +
         '<td class="muted tiny">' + esc(r.email) + "</td>" +
         "<td>" + (r.period ? '<span class="pill">' + esc(r.period) + "</span>" : '<span class="muted tiny">—</span>') + "</td>" +
+        "<td>" + (to ? esc(targetLabel(to)) : '<span class="muted tiny">—</span>') + "</td>" +
         '<td><span class="pill ' + (st.key === "new" ? "good" : st.key === "update" ? "warn" : st.key === "other" ? "bad" : "") + '">' + esc(st.text) + "</span></td></tr>";
     }).join("");
-    var skipped = importPlan(p.rows).skip;
-    var taking = p.rows.length - skipped.length;
+    var taking = plan.take.length;
 
     box.innerHTML =
       "<p class=\"note\"><b>" + taking + (taking === 1 ? " student" : " students") + "</b> ready" +
@@ -555,9 +739,9 @@
         return "line " + e.line + (e.name ? " (" + esc(e.name) + ")" : "") + " — " + esc(e.message);
       }).join("<br>") + "</div>" : "") +
       '<div class="tableScroll" style="max-height:46vh"><table class="t"><thead><tr>' +
-      "<th>Name</th><th>Signs in as</th><th>Period</th><th>Status</th>" +
+      "<th>Name</th><th>Signs in as</th><th>Period in file</th><th>Class</th><th>Status</th>" +
       "</tr></thead><tbody>" + body + "</tbody></table></div>" +
-      (skipped.length ? '<p class="note" style="margin-top:12px">' + esc(skippedText(skipped)) + "</p>" : "");
+      (plan.skip.length ? '<p class="note" style="margin-top:12px">' + esc(skippedText(plan.skip)) + "</p>" : "");
     document.getElementById("riGo").disabled = !taking;
     document.getElementById("riGo").textContent = "Import " + taking +
       (taking === 1 ? " student" : " students");
@@ -582,7 +766,7 @@
       '<div class="abModalBox riBox" role="dialog" aria-modal="true">' +
         "<h2>Import a roster</h2>" +
         '<p class="note">Whatever your student information system exports — comma, tab or semicolon separated. ' +
-        "It needs an <b>ID number</b> column and a <b>name</b>; a <b>period</b> is used if it's there. " +
+        "It needs an <b>ID number</b> column and a <b>name</b>; a <b>period</b> column, if there is one, can pick the class. " +
         "Students sign in as <b>&lt;ID number&gt;@seq.org</b>, which is how a row and an account find each other. " +
         "You choose their games afterwards, on the Assign board.</p>" +
         (rosterReadable ? "" : '<div class="empty" style="border-color:rgba(255,107,107,.45)"><b>The roster rules ' +
@@ -595,6 +779,15 @@
         '<p class="note" style="margin:14px 0 6px">…or paste it:</p>' +
         '<textarea class="riPaste" id="riPaste" spellcheck="false" ' +
           'placeholder="Student ID,Last Name,First Name,Period&#10;102345,Ruiz,Ana,3"></textarea>' +
+        '<div class="rowActions" style="margin-top:14px">' +
+          '<label class="muted tiny" for="riClass">Put them in</label>' +
+          '<select class="sel" id="riClass">' +
+            '<option value="">the class matching their period</option>' +
+            classOptions("", placeableClasses()) +
+            '<option value="+new">a new class…</option>' +
+          "</select>" +
+          '<input class="txt" id="riNewClass" placeholder="New class name, e.g. P3 Intensive" aria-label="New class name" hidden style="width:240px">' +
+        "</div>" +
         '<div id="riPreview"></div>' +
         '<div class="rowActions">' +
           '<button class="btn sm" id="riGo" disabled>Import</button>' +
@@ -605,6 +798,13 @@
     document.body.appendChild(importWrap);
     importWrap.addEventListener("click", function(e){ if(e.target === importWrap) closeImport(); });
     document.getElementById("riCancel").addEventListener("click", closeImport);
+    var sel = document.getElementById("riClass"), newBox = document.getElementById("riNewClass");
+    sel.addEventListener("change", function(){
+      newBox.hidden = sel.value !== "+new";
+      if(!newBox.hidden) newBox.focus();
+      renderImportPreview();
+    });
+    newBox.addEventListener("input", renderImportPreview);
 
     var paste = document.getElementById("riPaste");
     paste.addEventListener("input", function(){ readImport(paste.value); });
@@ -632,82 +832,73 @@
     renderImportPreview();
   }
 
-  /* What an import actually writes. Three things, one batch (or as few
-     batches as 400-a-piece allows):
+  /* What an import writes: one roster/{email} set-merge per row, carrying
+     the class stamp, in batches of 400 — plus, first and separately, any
+     new class the rows need (the rows' stamps are checked against the
+     class doc, so it has to exist before they land).
 
-       roster/{email}   one set-merge per row
-       config/class     any period the file mentioned that the class
-                        didn't have
-       assignments/{uid} ONLY where a student has already signed in, has
-                        a roster row, and has NO assignment document yet
-
-     That last one is the only place the roster ever writes into
-     assignments, and it only ever fills a blank. A teacher who moved a
-     student to another period in March must not have that undone by a
-     re-import in April, so an existing assignment is never touched.
-
-     And nothing is ever deleted. A student left out of an export by
-     mistake keeps their row; removing one is an explicit click on their
-     page. */
-  /* No assignment, or one that says nothing: a move between teachers
-     leaves a document carrying only `teacher`, and that must not stop an
-     import filling in the period. */
-  function blankAssignment(a){
-    return !a || (a.period == null && !Array.isArray(a.lists));
-  }
-
-  function importBody(rows, now){
-    var out = { roster: {}, periods: [], assignments: {} };
-    var known = {};
-    allPeriods().forEach(function(p){ known[p] = true; });
+     Nothing is ever deleted. A student left out of an export by mistake
+     keeps their row; removing one is an explicit click on their page. A
+     row already in one of the importer's classes is moved to the class
+     chosen now; its other documents follow on the next load (self-heal). */
+  function importBody(rows, now, classFor){
+    var out = { roster: {} };
     rows.forEach(function(r){
-      // Only rows importPlan let through get here — new, unowned, or
-      // already the importer's — so the importer is the owner.
-      var owner = me;
-      var doc = { name: r.name, id: r.id, period: r.period, importedAt: now, teacher: owner };
+      var doc = { name: r.name, id: r.id, importedAt: now };
+      var st = stampFor(classFor(r.email));
+      for(var k in st) doc[k] = st[k];
       out.roster[r.email] = doc;
-      if(r.period && !known[r.period]){ known[r.period] = true; out.periods.push(r.period); }
-
-      var signedIn = everyone.filter(function(s){
-        return !s.pending && s.email && s.email.toLowerCase() === r.email;
-      })[0];
-      if(signedIn && blankAssignment(assignments[signedIn.uid])){
-        var a = { period: r.period || null, updatedAt: now, teacher: owner };
-        out.assignments[signedIn.uid] = a;
-      }
     });
     return out;
   }
 
-  // An import body as a flat list of writes, for commitWrites.
-  function importWrites(body){
-    var writes = Object.keys(body.roster).map(function(email){
-      return { col: "roster", id: email, data: body.roster[email] };
-    }).concat(Object.keys(body.assignments).map(function(uid){
-      return { col: "assignments", id: uid, data: body.assignments[uid] };
-    }));
-    if(body.periods.length){
-      writes.push({ col: "classes", id: me, data: { periods: allPeriods().concat(body.periods) } });
-    }
-    return writes;
+  // Creates the named classes (skipping any already made in `made`), with
+  // the signed-in teacher on each. Resolves to `made`: name → class id.
+  function createClasses(names, made){
+    var todo = names.filter(function(n){ return !made[n]; });
+    if(!todo.length) return Promise.resolve(made);
+    var batch = db.batch(), now = Date.now(), rows = {};
+    todo.forEach(function(name){
+      var id = newClassId();
+      var data = { name: name, teachers: [me], archived: {}, createdAt: now, createdBy: me };
+      batch.set(db.collection("classes").doc(id), data);
+      rows[id] = data;
+      made[name] = id;
+    });
+    return batch.commit().then(function(){
+      for(var id in rows) classes[id] = classRowOf(id, rows[id]);
+      return made;
+    }, function(err){
+      todo.forEach(function(n){ delete made[n]; });
+      throw err;
+    });
   }
 
-  /* Look every address up, leave out the ones that are somebody else's,
-     write the rest. If the write is still refused — a row another
-     teacher claimed between the lookup and the click — forget what was
-     looked up, look again, and try once more, so one such row can't sink
-     the whole class. Resolves to the rows it skipped. */
-  function writeImport(rows, retried){
+  /* Look every address up, leave out the ones in another class, make any
+     new class, write the rest. If the write is still refused — a row
+     another teacher claimed between the lookup and the click — forget
+     what was looked up, look again, and try once more, so one such row
+     can't sink the whole class. Resolves to the rows it skipped. */
+  function writeImport(rows, choice, newName, retried, made){
+    made = made || {};
     return probeEmails(rows.map(function(r){ return r.email; })).then(function(){
       var plan = importPlan(rows);
       if(!plan.take.length) return plan.skip;
-      return commitWrites(importWrites(importBody(plan.take, Date.now()))).then(function(){
-        return plan.skip;
-      });
+      var t = importTargets(plan.take, choice, newName, placeableClasses());
+      return createClasses(t.create, made).then(function(){
+        var body = importBody(plan.take, Date.now(), function(email){
+          var key = t.target[email];
+          return key.indexOf("new:") === 0 ? made[key.slice(4)] : key;
+        });
+        return commitWrites(Object.keys(body.roster).map(function(email){
+          return { col: "roster", id: email, data: body.roster[email] };
+        }));
+      }).then(function(){ return plan.skip; });
     }).catch(function(err){
       if(retried || !(err && err.code === "permission-denied")) throw err;
       rows.forEach(function(r){ if(!roster[r.email]) delete probe[r.email]; });
-      return writeImport(rows, true);
+      // Classes made the first time are reused, not made again.
+      return writeImport(rows, choice, newName, true, made);
     });
   }
 
@@ -715,17 +906,21 @@
     var p = importParsed;
     if(!p || !p.rows.length) return;
     var note = document.getElementById("riNote");
+    var ch = importChoice();
+    if(ch.choice === "+new" && !ch.newName.trim()){
+      note.className = "saveNote err"; note.textContent = "Name the new class first.";
+      return;
+    }
     note.className = "saveNote";
     note.textContent = "Importing…";
 
-    writeImport(p.rows).then(function(skip){
+    writeImport(p.rows, ch.choice, ch.newName).then(function(skip){
       closeImport();
       return loadAll().then(function(){ return skip; });
     }).then(function(skip){
       view = "roster";
       detailUid = null;
       quickNote = { text: skippedText(skip), err: !!skip.length };
-      renderSub();
       render();
     }).catch(function(){
       if(note){
@@ -738,31 +933,6 @@
   }
 
   /* ---------------- shared bits ---------------- */
-
-  // Every period that exists: the ones the teacher named plus any a
-  // student is already tagged with, so a period can never go missing from
-  // the UI just because it was set before it was named.
-  function allPeriods(){
-    var set = {};
-    classCfg.periods.forEach(function(p){ if(p) set[p] = true; });
-    for(var uid in assignments){
-      var p = assignments[uid] && assignments[uid].period;
-      if(p) set[p] = true;
-    }
-    // And every period a student on this page is actually in. The admin
-    // sees other teachers' students, whose periods live in those
-    // teachers' classes/ docs; without this a pending student in a period
-    // the admin never named would fall off the board altogether.
-    students.forEach(function(s){
-      var sp = periodOf(assignments[s.uid], rosterFor(s));
-      if(sp) set[sp] = true;
-    });
-    return Object.keys(set).sort(function(a,b){
-      var na = parseFloat(a), nb = parseFloat(b);
-      if(!isNaN(na) && !isNaN(nb)) return na - nb;
-      return a < b ? -1 : a > b ? 1 : 0;
-    });
-  }
 
   /* What this student sees: the same rule store.js applies for the
      student, pinned against it by tests.html. Their own assignment, then
@@ -1025,35 +1195,35 @@
     // empty class and a freshly imported roster.
     var n = students.filter(function(s){ return !s.pending; }).length;
     $("tSub").textContent = n
-      ? n + (n === 1 ? " student has" : " students have") + " signed in · " + allPeriods().length + " period" + (allPeriods().length === 1 ? "" : "s") +
-        (admin ? " · every teacher\u2019s class" : "")
+      ? n + (n === 1 ? " student has" : " students have") + " signed in · " + allClasses().length + " class" + (allClasses().length === 1 ? "" : "es") +
+        (admin ? " · every class on the site" : "")
       : "No students have signed in yet.";
   }
 
   /* ---------------- the console's chrome ----------------
-     The sidebar, the top bar and the period filter. Painted on every
+     The sidebar, the top bar and the class filter. Painted on every
      render, so nothing in it can disagree with the view underneath. */
   var VIEW_TITLE = {
     roster: "Students", trouble: "Trouble spots", assign: "Assign board",
-    groups: "Periods", manage: "Manage"
+    groups: "Classes", manage: "Manage"
   };
-  // The views the period filter means something on.
+  // The views the class filter means something on.
   var FILTERED = { roster: true, trouble: true, assign: true };
 
-  /* Pure: the segmented filter's buttons. All, then each period someone
-     (not archived) is in, then "Unassigned (n)" — only while n > 0. */
+  /* Pure: the segmented filter's buttons. All, then each class someone
+     (not archived) is in, then "No class (n)" — only while n > 0. */
   function filterSegments(list){
     var counts = {}, loose = 0;
     list.forEach(function(st){
-      var p = studentPeriod(st.uid);
-      if(p === null) loose++;
-      else counts[p] = (counts[p] || 0) + 1;
+      var c = studentClass(st.uid);
+      if(c === null) loose++;
+      else counts[c] = (counts[c] || 0) + 1;
     });
     var out = [{ value: "", label: "All" }];
-    allPeriods().forEach(function(p){
-      if(counts[p]) out.push({ value: p, label: p, title: "Period " + p + " \u00b7 " + counts[p] });
+    allClasses().forEach(function(c){
+      if(counts[c]) out.push({ value: c, label: className(c), title: className(c) + " \u00b7 " + counts[c] });
     });
-    if(loose) out.push({ value: NO_PERIOD, label: "Unassigned (" + loose + ")" });
+    if(loose) out.push({ value: NO_CLASS, label: "No class (" + loose + ")" });
     return out;
   }
 
@@ -1068,7 +1238,7 @@
     var seg = $("tFilter");
     if(!seg) return;
     seg.hidden = !FILTERED[view] || !students.length;
-    var cur = boardPeriod();
+    var cur = boardClass();
     seg.innerHTML = filterSegments(students).map(function(o){
       return '<button type="button" data-filter="' + esc(o.value) + '" aria-pressed="' + (o.value === cur) + '"' +
         (o.title ? ' title="' + esc(o.title) + '"' : "") + ">" + esc(o.label) + "</button>";
@@ -1082,7 +1252,7 @@
     $("tFilter").addEventListener("click", function(e){
       var b = e.target.closest ? e.target.closest("[data-filter]") : null;
       if(!b) return;
-      setBoardPeriod(b.getAttribute("data-filter"));
+      setBoardClass(b.getAttribute("data-filter"));
       closePop();
       render();
     });
@@ -1250,7 +1420,7 @@
   function rosterCsv(){
     var flCols = fluencyColumns();
     var rows = [[
-      "Name","Email","Period","Lists",
+      "Name","Email","Class","Lists",
       "Answers","Accuracy %","Words solid","Words shaky","Slow but right","Top error","Last active","Signed in","Note"
     ].concat(flCols.reduce(function(acc, l){
       return acc.concat([l.listTitle + " latest", l.listTitle + " best"]);
@@ -1260,7 +1430,7 @@
       var eff = effectiveLists(s.uid);
       rows.push([
         s.name, s.email,
-        periodOf(assignments[s.uid], rosterFor(s)),
+        studentClass(s.uid) ? className(studentClass(s.uid)) : "",
         eff.ids.length ? WordLists.describeAssignment(eff.ids) : "nothing yet",
         sum.attempts, pct(sum.accuracy), sum.mastered, sum.struggling,
         sum.slowRight,
@@ -1279,9 +1449,9 @@
      the only export that can answer a question nobody thought to build a
      screen for. Words are the plain form, matching the stat key. */
   function wordsCsv(){
-    var rows = [["Name","Email","Period","List","Pattern","Mode","Word","Attempts","Correct","Accuracy %","Solid","Slow","Top error","Last practised"]];
+    var rows = [["Name","Email","Class","List","Pattern","Mode","Word","Attempts","Correct","Accuracy %","Solid","Slow","Top error","Last practised"]];
     students.forEach(function(s){
-      var period = studentPeriod(s.uid) || "";
+      var period = studentClass(s.uid) ? className(studentClass(s.uid)) : "";
       var keys = Object.keys(s.stats).sort();
       keys.forEach(function(key){
         var st = s.stats[key];
@@ -1343,7 +1513,7 @@
     if(!students.length){
       $("tBody").innerHTML = '<div class="panel"><h2>Get started</h2>' +
         '<ol class="steps">' +
-          "<li><b>Import your roster</b> under Periods. Your students show up here before they ever sign in.</li>" +
+          "<li><b>Import your roster</b> under Classes. Your students show up here before they ever sign in.</li>" +
           "<li><b>Give each student their games</b> on the Assign board. A student sees only what you give them.</li>" +
           "<li><b>Students sign in</b> with their school account — their ID number @seq.org.</li>" +
         "</ol>" +
@@ -1360,23 +1530,22 @@
     var rows = shown.map(function(s){
       var sum = Adaptive.summarize(s.stats);
       var eff = effectiveLists(s.uid);
-      var a = assignments[s.uid] || {};
-      var r = rosterFor(s);
-      var period = periodOf(a, r);
+      var cid = studentClass(s.uid);
+      var clsCell = cid ? '<span class="pill">' + esc(className(cid)) + "</span>" : '<span class="muted tiny">no class</span>';
       /* A student on the roster who hasn't signed in yet is a real row
          with nothing in it. Greyed rather than hidden: on day one the
          useful thing this table can tell a teacher is who is MISSING. */
       if(s.pending){
         return '<tr class="clickable pending" data-uid="' + esc(s.uid) + '">' +
           "<td>" + whoHtml(s) + "</td>" +
-          "<td>" + (period ? '<span class="pill">Period ' + esc(period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
+          "<td>" + clsCell + "</td>" +
           '<td class="listsCell">' + listsCellHtml(eff.ids) + "</td>" +
           '<td class="muted tiny" colspan="4">on the roster — hasn\u2019t signed in yet</td>' +
           '<td class="muted tiny">—</td></tr>';
       }
       return "<tr class=\"clickable\" data-uid=\"" + esc(s.uid) + "\">" +
         "<td>" + whoHtml(s) + "</td>" +
-        '<td>' + (period ? '<span class="pill">Period ' + esc(period) + "</span>" : '<span class="muted tiny">not set</span>') + "</td>" +
+        "<td>" + clsCell + "</td>" +
         '<td class="listsCell">' + listsCellHtml(eff.ids) + "</td>" +
         '<td class="num">' + sum.attempts + "</td>" +
         '<td class="num">' + accCell(sum.accuracy) + "</td>" +
@@ -1389,7 +1558,7 @@
     var steps = nextStepRows();
     var stepsHtml = steps.map(function(r){
       return '<li class="nsRow"><span class="nsWho">' + esc(r.name) +
-        (r.period ? ' <span class="muted tiny">P' + esc(r.period) + "</span>" : "") + "</span>" +
+        (r.cls ? ' <span class="muted tiny">' + esc(className(r.cls)) + "</span>" : "") + "</span>" +
         '<span class="nsText">' + esc(r.step.text) + "</span>" +
         (r.step.addId ? '<button class="pkMini" data-nsadd="' + esc(r.uid) + '|' + esc(r.step.addId) +
           '">Add ' + esc((WordLists.modeOf((WordLists.byId(r.step.addId) || {}).mode) || {}).title || "it") + "</button>" : "") +
@@ -1397,11 +1566,11 @@
     }).join("");
 
     $("tBody").innerHTML =
-      /* Four counts, all of them students, all of them inside the period
+      /* Four counts, all of them students, all of them inside the class
          filter. "Shaky" is the same per-student number as the table's
          Shaky column (Adaptive.summarize), counted as people who have any. */
       '<div class="sumCards">' +
-        sumCard("Students", cards.students, boardPeriod() ? "in this filter" : "in your class") +
+        sumCard("Students", cards.students, boardClass() ? "in this class" : (admin ? "on the site" : "in your classes")) +
         sumCard("Practiced this week", cards.week, "a round in the last 7 days") +
         sumCard("No games yet", cards.none, "home page is empty", cards.none ? "warn" : "") +
         sumCard("Have shaky words", cards.shaky, "right under 60% on a word", cards.shaky ? "bad" : "") +
@@ -1432,7 +1601,7 @@
         "Opens in Excel, Sheets or Numbers.</span>" +
       "</div>" +
       '<div class="tableScroll"><table class="t"><thead><tr>' +
-      "<th>Student</th><th>Period</th><th>Lists</th>" +
+      "<th>Student</th><th>Class</th><th>Lists</th>" +
       '<th class="num">Answers</th><th class="num">Accuracy</th><th class="num">Solid</th><th class="num">Shaky</th><th>Last active</th>' +
       "</tr></thead><tbody>" + rows + "</tbody></table></div></div>";
 
@@ -1505,11 +1674,9 @@
       // and "hasn't practised" about somebody who has never been here is
       // not a next step, it is the roster table saying the same thing.
       if(s.pending) return;
-      if(!matchesFilter(s, boardPeriod())) return;
-      var r = rosterFor(s);
-      var period = periodOf(assignments[s.uid], r);
+      if(!matchesFilter(s, boardClass())) return;
       var step = Adaptive.nextSteps(nextStepInfo(s));
-      if(step) out.push({ uid: s.uid, name: s.name || s.email || s.uid, period: period, step: step });
+      if(step) out.push({ uid: s.uid, name: s.name || s.email || s.uid, cls: studentClass(s.uid), step: step });
     });
     return out;
   }
@@ -1619,12 +1786,9 @@
 
     var picker = pickerHtml("student", eff.ids);
 
-    // The period they are actually in, not just the assigned one, so the
-    // box agrees with every other place this student's period is shown.
-    var shownPeriod = studentPeriod(s.uid);
-    var periodOpts = ['<option value="">— not set —</option>'].concat(allPeriods().map(function(p){
-      return '<option value="' + esc(p) + '"' + (shownPeriod === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
-    })).join("");
+    var myCls = studentClass(s.uid);
+    var clsList = placeableClasses();
+    if(myCls && clsList.indexOf(myCls) === -1) clsList = [myCls].concat(clsList);
 
     $("tBody").innerHTML =
       '<button class="backlink" id="tBack">← All students</button>' +
@@ -1641,7 +1805,8 @@
           '<div class="stat"><div class="k">Last active</div><div class="v" style="font-size:17px">' + esc(ago(sum.lastSeen || s.lastSeen)) + "</div></div>" +
         "</div>" +
         '<div class="rowActions">' +
-          (isArchived(s, classCfg.archived)
+          (!myCls ? '<span class="muted tiny">Put them in a class to be able to archive them.</span>' :
+           isArchived(s, archivedMap())
             ? '<span class="pill warn">Archived</span> <button class="btn ghost sm" id="tArchive">Unarchive</button>' +
               '<span class="muted tiny">Hidden from every view until you unarchive them.</span>'
             : '<button class="btn ghost sm" id="tArchive">Archive</button>' +
@@ -1653,14 +1818,9 @@
       '<div class="panel"><h2>Games</h2>' +
         '<p class="note">This student sees exactly what is ticked here, and nothing else. ' +
         "Each list can be played several ways — tick each way they should get it.</p>" +
-        '<div class="rowActions" style="margin-bottom:16px">' +
-          '<label class="muted tiny" for="tPeriod">Period</label>' +
-          '<select class="sel" id="tPeriod">' + periodOpts + "</select>" +
-          '<input class="txt" id="tNewPeriod" placeholder="or type a new one" style="width:170px">' +
-        "</div>" +
         picker +
         '<div class="rowActions stickyActions">' +
-          '<button class="btn sm" id="tSaveA">Save games and period</button>' +
+          '<button class="btn sm" id="tSaveA">Save games</button>' +
           '<span class="saveNote" id="tANote"></span>' +
         "</div>" +
       "</div>" +
@@ -1670,13 +1830,13 @@
         "One count per word given up on, not per fumble.</p>" +
         "<p>" + errorMix + "</p></div>" : "") +
 
-      (admin ? '<div class="panel"><h2>Teacher</h2>' +
-        '<p class="note">Whose class this student is in. Moving them takes their games, period, note and practice ' +
-        "with them; the teacher they leave stops seeing them.</p>" +
-        '<div class="rowActions"><label class="muted tiny" for="tOwner">Teacher</label>' +
-        '<select class="sel" id="tOwner">' + teacherOptions(ownerOf(s)) + "</select>" +
-        '<span class="saveNote" id="tOwnerNote"></span></div>' +
-      "</div>" : "") +
+      '<div class="panel"><h2>Class</h2>' +
+        '<p class="note">' + (myCls ? "Taught by " + esc(classes[myCls].teachers.map(teacherName).join(", ")) + ". " : "") +
+        "Moving them takes their games, note and practice with them; teachers who aren\u2019t on the new class stop seeing them.</p>" +
+        '<div class="rowActions"><label class="muted tiny" for="tClass">Class</label>' +
+        '<select class="sel" id="tClass">' + classOptions(myCls, clsList, myCls ? "" : "— no class —") + "</select>" +
+        '<span class="saveNote" id="tClassMoveNote"></span></div>' +
+      "</div>" +
 
       (rosterRow ? '<div class="panel"><h2>Roster row</h2>' +
         '<p class="note">Imported ' + esc(rosterRow.importedAt ? ago(rosterRow.importedAt) : "at some point") +
@@ -1715,8 +1875,8 @@
         "</tr></thead><tbody>" + perList + "</tbody></table></div></div>" : "");
 
     $("tBack").addEventListener("click", function(){ detailUid = null; render(); });
-    $("tArchive").addEventListener("click", function(){
-      var on = !isArchived(s, classCfg.archived);
+    if($("tArchive")) $("tArchive").addEventListener("click", function(){
+      var on = !isArchived(s, archivedMap());
       var note = $("tArchiveNote");
       note.className = "saveNote"; note.textContent = "Saving\u2026";
       setArchived(s, on).then(function(){
@@ -1727,17 +1887,19 @@
         note.className = "saveNote err"; note.textContent = "Didn't save \u2014 check the network and try again.";
       });
     });
-    if($("tOwner")) $("tOwner").addEventListener("change", function(){
-      var sel = this, to = sel.value, from = ownerOf(s);
-      if(to === from) return;
-      if(!window.confirm("Move " + (s.name || s.email) + " to " + teacherName(to) + "?")){
+    $("tClass").addEventListener("change", function(){
+      var sel = this, to = sel.value, from = myCls || "";
+      if(!to || to === from) return;
+      if(!window.confirm("Move " + (s.name || s.email) + " to " + className(to) + "?")){
         sel.value = from;
         return;
       }
-      var note = $("tOwnerNote");
+      var note = $("tClassMoveNote");
       note.className = "saveNote"; note.textContent = "Moving…";
       moveStudents([s], to).then(function(){
-        note.className = "saveNote ok"; note.textContent = "Moved.";
+        // If the new class isn't one of mine, they leave this page.
+        if(!admin && !teachesClass(to)) return loadAll().then(function(){ detailUid = null; render(); });
+        render();
       }, function(){
         sel.value = from;
         note.className = "saveNote err"; note.textContent = "Didn't move — check the network and try again.";
@@ -1793,7 +1955,7 @@
     var note = $("tNoteNote");
     var before = notes[uid] ? JSON.parse(JSON.stringify(notes[uid])) : null;
     text = String(text || "").slice(0, NOTE_MAX);
-    var body = { text: text, updatedAt: Date.now(), teacher: ownerOfUid(uid) };
+    var body = withStamp({ text: text, updatedAt: Date.now() }, uid);
     notes[uid] = body;
     if(note){ note.className = "saveNote"; note.textContent = "Saving…"; }
     db.collection("notes").doc(uid).set(body, { merge:true })
@@ -1825,10 +1987,9 @@
   /* Writes are optimistic — the local copy updates first so the UI never
      stalls on school Wi-Fi — and roll back on failure, because a silent
      failure here means a teacher believes a student was assigned
-     something they weren't. */
+     something they weren't. Every write carries the class stamp. */
   function saveStudentAssignment(uid){
     var note = $("tANote");
-    var period = ($("tNewPeriod").value || "").trim() || $("tPeriod").value || null;
     var lists = checkedLists();
 
     /* A student who hasn't signed in yet is edited the same way and
@@ -1837,14 +1998,11 @@
     if(isPending(uid)){
       var em = emailOfPending(uid);
       var wasRow = roster[em] ? JSON.parse(JSON.stringify(roster[em])) : null;
-      var rowBody = { period: period || "", lists: lists, updatedAt: Date.now(), teacher: ownerOfUid(uid) };
-      roster[em] = roster[em] || { email: em };
-      roster[em].period = rowBody.period;
+      var rowBody = withStamp({ lists: lists, updatedAt: Date.now() }, uid);
+      roster[em] = roster[em] || rosterRowOf(em, {});
       roster[em].lists = lists;
-      if(period && classCfg.periods.indexOf(period) === -1) classCfg.periods.push(period);
       note.className = "saveNote"; note.textContent = "Saving…";
       db.collection("roster").doc(em).set(rowBody, { merge:true })
-        .then(function(){ return classRef().set({ periods: classCfg.periods }, { merge:true }); })
         .then(function(){
           note.className = "saveNote ok"; note.textContent = "Saved.";
           render();
@@ -1860,17 +2018,12 @@
     }
 
     var before = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
-    var body = { period: period, lists: lists, updatedAt: Date.now(), teacher: ownerOfUid(uid) };
-    assignments[uid] = body;
-    if(period && classCfg.periods.indexOf(period) === -1) classCfg.periods.push(period);
+    var body = withStamp({ lists: lists, updatedAt: Date.now() }, uid);
+    var a = assignments[uid] || (assignments[uid] = {});
+    for(var k in body) a[k] = body[k];
 
     note.className = "saveNote"; note.textContent = "Saving…";
     db.collection("assignments").doc(uid).set(body, { merge:true })
-      .then(function(){
-        // Keep the named-period list in step, so a period invented in this
-        // box shows up under Periods straight away.
-        return classRef().set({ periods: classCfg.periods }, { merge:true });
-      })
       .then(function(){
         note.className = "saveNote ok"; note.textContent = "Saved.";
         render();
@@ -1881,100 +2034,232 @@
       });
   }
 
-  /* ---------------- periods ----------------
-     Importing the roster, naming periods, and who is in which. A period
-     is a label that groups students on this dashboard; it never decides
-     what a student sees. */
+  /* ════════════════════════════════════════════════════════════════
+     classes
+
+     A class ("P3 Intensive") is a named group with one or more teachers;
+     every student is in exactly one. This view is where they are made,
+     renamed, shared and emptied: import a roster into one, create one,
+     add or remove a co-teacher (from the approved teachers — the admin
+     decides who is a teacher on the site), delete one once nobody is in
+     it, and move students between the classes you teach. A class decides
+     who can see a student; it never decides what the student sees.
+     ════════════════════════════════════════════════════════════════ */
+
+  // Everyone in class `id`, archived included — a class with only
+  // archived students in it is not empty.
+  function membersOf(id){
+    return everyone.filter(function(s){ return classIdOf(s) === id; });
+  }
+
+  /* Pure: the writes that put these students in class `id`. Four
+     documents per signed-in student — roster row (the record), their own
+     doc (the admin or a teacher on both classes may change exactly its
+     class fields), assignment and note — the last two written even when
+     missing, so a moved student always has documents whose stamp the
+     rules check. A pending student has no uid yet: their roster row is
+     everything. */
+  function moveBody(list, id){
+    var st = stampFor(id), out = [];
+    list.forEach(function(s){
+      var email = low(s.email);
+      if(email){
+        var row = { classId: st.classId, teachers: st.teachers };
+        // A signed-in student with no roster row gets one, named, so the
+        // move is recorded where class membership is read from.
+        if(!roster[email] && s.name) row.name = s.name;
+        out.push({ col: "roster", id: email, data: row });
+      }
+      if(s.pending) return;
+      ["students", "assignments", "notes"].forEach(function(col){
+        out.push({ col: col, id: s.uid, data: { classId: st.classId, teachers: st.teachers } });
+      });
+    });
+    return out;
+  }
+
+  // Writes, then mirrors the move locally.
+  function moveStudents(list, id){
+    return commitWrites(moveBody(list, id)).then(function(){
+      var st = stampFor(id);
+      list.forEach(function(s){
+        var email = low(s.email);
+        if(email){
+          if(!roster[email]) roster[email] = rosterRowOf(email, { name: s.name });
+          roster[email].classId = st.classId;
+          roster[email].teachers = st.teachers.slice();
+        }
+        s.classId = st.classId;
+        if(!s.pending){
+          var a = assignments[s.uid] || (assignments[s.uid] = {});
+          a.classId = st.classId; a.teachers = st.teachers.slice();
+          var n = notes[s.uid] || (notes[s.uid] = {});
+          n.classId = st.classId; n.teachers = st.teachers.slice();
+        }
+      });
+      applyArchive(everyone);
+    });
+  }
+
+  /* Pure: rewrite the teachers copy on every document of class `id`'s
+     members, after the class's own teachers have changed. */
+  function restampBody(id){
+    var st = stampFor(id), out = [];
+    membersOf(id).forEach(function(s){
+      var email = low(s.email);
+      var data = { classId: st.classId, teachers: st.teachers };
+      if(email && roster[email]) out.push({ col: "roster", id: email, data: data });
+      if(s.pending) return;
+      out.push({ col: "students", id: s.uid, data: data });
+      if(assignments[s.uid]) out.push({ col: "assignments", id: s.uid, data: data });
+      if(notes[s.uid]) out.push({ col: "notes", id: s.uid, data: data });
+    });
+    return out;
+  }
+
+  /* A class's co-teachers: the class doc first, then every member doc.
+     If the second half is cut off, maintain() finishes it on the next
+     load. Never to zero — the rules refuse that too. */
+  function setClassTeachers(id, list){
+    var c = classes[id];
+    if(!c || !list.length) return Promise.reject(new Error("a class needs a teacher"));
+    var before = c.teachers.slice();
+    return db.collection("classes").doc(id).set({ teachers: list }, { merge:true }).then(function(){
+      c.teachers = list.slice();
+      return commitWrites(restampBody(id));
+    }, function(err){ c.teachers = before; throw err; });
+  }
+
+  function createClass(name){
+    name = String(name || "").trim();
+    var id = newClassId();
+    var data = { name: name, teachers: [me], archived: {}, createdAt: Date.now(), createdBy: me };
+    return db.collection("classes").doc(id).set(data).then(function(){
+      classes[id] = classRowOf(id, data);
+      return id;
+    });
+  }
+
   function renderGroups(){
-    var periods = allPeriods();
-    function countIn(p){
-      return students.filter(function(s){ return studentPeriod(s.uid) === p; }).length;
-    }
+    var ids = allClasses();
+    var approved = teacherDocs.map(function(t){ return t.email; });
+    if(adminEmail() && approved.indexOf(adminEmail()) === -1) approved.unshift(adminEmail());
 
-    var periodPills = periods.map(function(p){
-      var n = countIn(p);
-      return '<span class="pill">Period ' + esc(p) + ' <span class="muted">· ' + n + "</span></span>";
-    }).join(" ");
+    var cards = ids.map(function(id){
+      var c = classes[id], n = membersOf(id).length, mineToo = admin || teachesClass(id);
+      var chips = c.teachers.map(function(t){
+        return '<span class="pill">' + esc(teacherName(t)) +
+          (mineToo && c.teachers.length > 1
+            ? ' <button type="button" class="pkMini" data-unco="' + esc(id) + "|" + esc(t) + '" title="Remove ' + esc(teacherName(t)) + ' from this class">×</button>'
+            : "") + "</span>";
+      }).join(" ");
+      var addable = approved.filter(function(e){ return c.teachers.indexOf(e) === -1; });
+      return '<div class="clsCard">' +
+        '<div class="clsHead"><b>' + esc(c.name || "Untitled class") + "</b>" +
+          '<span class="muted tiny">' + n + (n === 1 ? " student" : " students") + "</span></div>" +
+        '<div class="clsTeachers">' + chips + "</div>" +
+        (mineToo ? '<div class="rowActions">' +
+          (addable.length ? '<select class="sel" data-co-pick="' + esc(id) + '" aria-label="Add a co-teacher to ' + esc(c.name) + '">' +
+            '<option value="">Add a co-teacher…</option>' + addable.map(function(e){
+              return '<option value="' + esc(e) + '">' + esc(teacherName(e)) + "</option>";
+            }).join("") + "</select>" : "") +
+          '<button type="button" class="btn ghost sm" data-rename="' + esc(id) + '">Rename</button>' +
+          (n ? "" : '<button type="button" class="btn ghost sm" data-delclass="' + esc(id) + '">Delete</button>') +
+        "</div>" : "") +
+      "</div>";
+    }).join("");
 
-    // rosterRows, not roster: naming it `roster` shadowed the module-level
-    // map, and the "N on the roster now" line below counted the characters
-    // of this HTML string.
-    var rosterRows = students.map(function(s){
-      var mine = studentPeriod(s.uid);
-      var opts = ['<option value="">—</option>'].concat(periods.map(function(p){
-        return '<option value="' + esc(p) + '"' + (mine === p ? " selected" : "") + ">Period " + esc(p) + "</option>";
-      })).join("");
+    var moveRows = students.map(function(s){
+      var mineCls = classIdOf(s);
+      var opts = placeableClasses();
+      if(mineCls && opts.indexOf(mineCls) === -1) opts = [mineCls].concat(opts);
       return "<tr><td>" + whoHtml(s) + "</td>" +
-        '<td><select class="sel" data-period-for="' + esc(s.uid) + '" aria-label="Period for ' + esc(s.name || s.email) + '">' + opts + "</select></td>" +
+        '<td><select class="sel" data-class-for="' + esc(s.uid) + '" aria-label="Class for ' + esc(s.name || s.email) + '">' +
+          classOptions(mineCls, opts, mineCls ? "" : "— no class —") + "</select></td>" +
         '<td class="listsCell">' + listsCellHtml(effectiveLists(s.uid).ids) + "</td></tr>";
     }).join("");
 
     $("tBody").innerHTML =
       '<div class="panel"><h2>Import a roster</h2>' +
-        '<p class="note">Drop or paste whatever your student information system exports. ' +
-        "Every student shows up here with their period before they ever sign in. " +
-        "Re-importing updates rows and never deletes one.</p>" +
+        '<p class="note">Drop or paste whatever your student information system exports, and choose the class. ' +
+        "Every student shows up before they ever sign in. Re-importing updates rows and never deletes one.</p>" +
         '<div class="rowActions"><button class="btn sm" id="tImport">📋 Import roster</button>' +
         '<span class="muted tiny">' + (Object.keys(roster).length
           ? Object.keys(roster).length + " on the roster now"
           : "nothing imported yet") + "</span></div>" +
       "</div>" +
 
-      '<div class="panel"><h2>Periods</h2>' +
-        '<p class="note">Periods are labels — “3”, “5”, “Support” — for grouping and filtering students here. ' +
-        "They don't change what anyone sees.</p>" +
-        (periodPills ? '<p class="periodPills">' + periodPills + "</p>" : "") +
-        '<div class="rowActions"><input class="txt" id="tAddPeriod" placeholder="New period, e.g. 3" aria-label="New period name"> ' +
-        '<button class="btn sm" id="tAddPeriodBtn">Add period</button>' +
-        '<span class="saveNote" id="tAddNote"></span></div>' +
+      '<div class="panel"><h2>' + (admin ? "Classes" : "Your classes") + "</h2>" +
+        '<p class="note">A class is a group of students and the teachers who share them — "P3 Intensive". ' +
+        "Everyone on a class sees its students, and any of them can add or remove a co-teacher. " +
+        "Who is a teacher on the site is up to the admin. A class decides who sees a student, never what the student sees.</p>" +
+        (cards ? '<div class="clsGrid">' + cards + "</div>" : '<div class="empty">No classes yet.</div>') +
+        '<div class="rowActions" style="margin-top:14px"><input class="txt" id="tAddClass" placeholder="New class, e.g. P3 Intensive" aria-label="New class name" style="width:240px"> ' +
+        '<button class="btn sm" id="tAddClassBtn">Create class</button>' +
+        '<span class="saveNote" id="tClassNote"></span></div>' +
       "</div>" +
 
-      (students.length ? '<div class="panel"><h2>Who’s in which period</h2>' +
-        '<p class="note">Changes save as soon as you pick.</p>' +
-        '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Period</th><th>Games</th></tr></thead>' +
-        "<tbody>" + rosterRows + "</tbody></table></div></div>" : "");
+      (students.length ? '<div class="panel"><h2>Who’s in which class</h2>' +
+        '<p class="note">Changes save as soon as you pick. Their games, note and practice go with them.</p>' +
+        '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Class</th><th>Games</th></tr></thead>' +
+        "<tbody>" + moveRows + "</tbody></table></div></div>" : "");
+
+    function say(t, err){
+      var n = $("tClassNote");
+      if(n){ n.className = "saveNote" + (err ? " err" : ""); n.textContent = t; }
+    }
+    function fail(){ say("Didn't save — check the network and try again.", true); }
 
     $("tImport").addEventListener("click", openImport);
-    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-period-for]"), function(sel){
-      sel.addEventListener("change", function(){ setStudentPeriod(sel.dataset.periodFor, sel.value || null); });
-    });
-    var addBtn = $("tAddPeriodBtn");
-    if(addBtn) addBtn.addEventListener("click", addPeriod);
-    var addBox = $("tAddPeriod");
-    if(addBox) addBox.addEventListener("keydown", function(e){ if(e.key === "Enter") addPeriod(); });
-  }
-
-  function setStudentPeriod(uid, period){
-    /* Same split as saveStudentAssignment: a student who hasn't signed in
-       has no uid to write an assignment against. Writing one anyway
-       created assignments/roster:<email>, which looked applied on the
-       dashboard and did nothing at sign-in — the real uid's document was
-       somewhere else — while the orphan kept feeding allPeriods(). */
-    if(isPending(uid)){
-      var em = emailOfPending(uid);
-      var wasRow = roster[em] ? JSON.parse(JSON.stringify(roster[em])) : null;
-      roster[em] = roster[em] || { email: em };
-      roster[em].period = period || "";
-      db.collection("roster").doc(em).set({ period: period || "", updatedAt: Date.now(), teacher: ownerOfUid(uid) }, { merge:true })
-        .catch(function(){
-          if(wasRow) roster[em] = wasRow; else delete roster[em];
-          render();
-        });
-      return;
-    }
-
-    var before = assignments[uid] ? JSON.parse(JSON.stringify(assignments[uid])) : null;
-    var body = assignments[uid] || {};
-    // "" rather than null for "not set": see periodOf.
-    body.period = period || "";
-    body.updatedAt = Date.now();
-    assignments[uid] = body;
-    body.teacher = ownerOfUid(uid);
-    db.collection("assignments").doc(uid).set({ period: body.period, updatedAt: body.updatedAt, teacher: body.teacher }, { merge:true })
-      .catch(function(){
-        if(before) assignments[uid] = before; else delete assignments[uid];
-        render();
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-class-for]"), function(sel){
+      sel.addEventListener("change", function(){
+        var s = studentByUid(sel.dataset.classFor);
+        if(!s || !sel.value) return;
+        sel.disabled = true;
+        moveStudents([s], sel.value).then(function(){ render(); }, function(){ sel.disabled = false; fail(); });
       });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-co-pick]"), function(sel){
+      sel.addEventListener("change", function(){
+        var id = sel.dataset.coPick, who = sel.value;
+        if(!who) return;
+        say("Saving…");
+        setClassTeachers(id, classes[id].teachers.concat([who])).then(function(){ render(); }, fail);
+      });
+    });
+    $("tBody").querySelector(".panel + .panel").addEventListener("click", function(e){
+      var b = e.target.closest ? e.target.closest("[data-unco],[data-rename],[data-delclass]") : null;
+      if(!b) return;
+      if(b.hasAttribute("data-unco")){
+        var parts = b.getAttribute("data-unco").split("|"), id = parts[0], who = parts[1];
+        var left = classes[id].teachers.filter(function(t){ return t !== who; });
+        if(!left.length) return;
+        if(!window.confirm("Remove " + teacherName(who) + " from " + className(id) + "?" +
+          (who === me ? "\n\nYou will stop seeing this class and its students." : ""))) return;
+        say("Saving…");
+        setClassTeachers(id, left).then(function(){
+          return who === me && !admin ? loadAll() : null;
+        }).then(function(){ render(); }, fail);
+      } else if(b.hasAttribute("data-rename")){
+        var rid = b.getAttribute("data-rename");
+        var name = window.prompt("New name for " + className(rid) + ":", classes[rid].name);
+        if(name == null || !name.trim()) return;
+        db.collection("classes").doc(rid).set({ name: name.trim() }, { merge:true }).then(function(){
+          classes[rid].name = name.trim(); render();
+        }, fail);
+      } else {
+        var did = b.getAttribute("data-delclass");
+        if(membersOf(did).length) return;
+        if(!window.confirm("Delete the empty class " + className(did) + "?")) return;
+        db.collection("classes").doc(did).delete().then(function(){
+          delete classes[did]; render();
+        }, fail);
+      }
+    });
+    var addBtn = $("tAddClassBtn");
+    if(addBtn) addBtn.addEventListener("click", addClass);
+    var addBox = $("tAddClass");
+    if(addBox) addBox.addEventListener("keydown", function(e){ if(e.key === "Enter") addClass(); });
   }
 
   /* Quick add: type an ID (or a few) instead of importing a file. It is
@@ -1986,13 +2271,13 @@
   var quickNote = { text: "", err: false };
 
   function quickAddHtml(){
+    var ids = placeableClasses();
     return '<div class="rowActions" style="margin-bottom:16px">' +
       '<input class="txt" id="tQuickId" inputmode="numeric" autocomplete="off" ' +
         'placeholder="Add by student ID, e.g. 102345" aria-label="Student ID numbers to add"> ' +
-      '<select class="sel" id="tQuickPeriod" aria-label="Period for the students being added">' +
-        '<option value="">No period</option>' + allPeriods().map(function(p){
-          return '<option value="' + esc(p) + '">Period ' + esc(p) + "</option>";
-        }).join("") + "</select> " +
+      '<select class="sel" id="tQuickClass" aria-label="Class for the students being added">' +
+        (ids.length ? classOptions(ids[0], ids) : '<option value="">a new class (“My class”)</option>') +
+      "</select> " +
       '<button class="btn sm" id="tQuickBtn">Add</button>' +
       '<span class="saveNote' + (quickNote.err ? " err" : "") + '" id="tQuickNote">' +
         esc(quickNote.text || "One ID or several, separated by spaces or commas. Each signs in as ID@seq.org.") +
@@ -2007,10 +2292,8 @@
 
   function quickAdd(){
     var box = $("tQuickId"), note = $("tQuickNote"), btn = $("tQuickBtn");
-    var period = $("tQuickPeriod").value || "";
-    var text = (box.value || "").split(/[\s,;]+/).filter(Boolean).map(function(id){
-      return period ? id + "," + period : id;
-    }).join("\n");
+    var choice = $("tQuickClass").value || "+new";
+    var text = (box.value || "").split(/[\s,;]+/).filter(Boolean).join("\n");
     function say(t, err){ note.className = "saveNote" + (err ? " err" : ""); note.textContent = t; }
     if(!text){ say("Type an ID number first.", true); return; }
 
@@ -2028,7 +2311,7 @@
 
     btn.disabled = true;
     say("Adding…");
-    writeImport(rows).then(function(taken){
+    writeImport(rows, choice, "My class").then(function(taken){
       var added = rows.length - taken.length;
       var msg = (added ? "Added " + added + (added === 1 ? " student" : " students") : "Nobody added") +
         (skipped.length ? " · already on the roster: " + skipped.join(", ") : "") +
@@ -2044,19 +2327,16 @@
     });
   }
 
-  function addPeriod(){
-    var v = ($("tAddPeriod").value || "").trim();
-    var note = $("tAddNote");
+  function addClass(){
+    var v = ($("tAddClass").value || "").trim();
+    var note = $("tClassNote");
     if(!v){ note.className = "saveNote err"; note.textContent = "Type a name first."; return; }
-    if(classCfg.periods.indexOf(v) !== -1){ note.className = "saveNote"; note.textContent = "Already there."; return; }
-    classCfg.periods.push(v);
+    var clash = placeableClasses().filter(function(id){ return low(className(id)) === low(v); })[0];
+    if(clash){ note.className = "saveNote"; note.textContent = "You already have a class called that."; return; }
     note.className = "saveNote"; note.textContent = "Saving…";
-    classRef().set({ periods: classCfg.periods }, { merge:true })
-      .then(function(){ render(); })
-      .catch(function(){
-        classCfg.periods = classCfg.periods.filter(function(x){ return x !== v; });
-        note.className = "saveNote err"; note.textContent = "Didn't save.";
-      });
+    createClass(v).then(function(){ render(); }, function(){
+      note.className = "saveNote err"; note.textContent = "Didn't save.";
+    });
   }
 
   /* ════════════════════════════════════════════════════════════════
@@ -2071,7 +2351,7 @@
      · A row is exactly what that student sees. There is nothing above it
        to inherit from, so there is nothing to explain about where a cell
        came from.
-     · Many at once: tick names, or a whole period at its header, then
+     · Many at once: tick names, or a whole class at its header, then
        "Change games" adds, takes away or replaces lists for all of them.
      · Nothing is written until Save. Every edit lands in `draft`, the
        bar at the bottom counts what's pending, and Save commits the lot
@@ -2083,31 +2363,30 @@
     draft: {},        // "s:<uid>" → ids array
     sel: {},          // uid → true, for the bulk dialog
     collapsed: {},    // family key → true
-    period: null,     // filter; null until read from localStorage
+    cls: null,        // class filter; null until read from localStorage
     q: ""             // name search
   };
 
-  /* The class-wide period filter (the top bar's), stored on `board` for
-     history's sake — it began as the board's own. The old key is still
-     read once, so nobody's remembered period is lost in the move. */
-  var FILTER_KEY = "ei.class.period";
-  var OLD_FILTER_KEY = "ei.assign.period";
-  function storedPeriod(){
-    if(board.period === null){
-      try{ board.period = window.localStorage.getItem(FILTER_KEY) ||
-                          window.localStorage.getItem(OLD_FILTER_KEY) || ""; }
-      catch(e){ board.period = ""; }
+  /* The class-wide filter (the top bar's): "" for all, a class id, or
+     NO_CLASS. Stored on `board` for history's sake — it began as the
+     board's own period box. Its key is new: a remembered PERIOD name
+     would never match a class id, and would only fall back to All. */
+  var FILTER_KEY = "ei.class.filter";
+  function storedClass(){
+    if(board.cls === null){
+      try{ board.cls = window.localStorage.getItem(FILTER_KEY) || ""; }
+      catch(e){ board.cls = ""; }
     }
-    return board.period;
+    return board.cls;
   }
   /* The filter in force. Remembered in localStorage, so it can outlive
-     the period it names — a new roster, a period emptied by a move —
-     and a filter that matches nobody falls back to All, rather than
-     drawing an empty page under a button that says otherwise. */
-  function boardPeriod(){ return effectiveFilter(storedPeriod(), students); }
-  function setBoardPeriod(p){
-    board.period = p;
-    try{ window.localStorage.setItem(FILTER_KEY, p); }catch(e){}
+     the class it names — a class deleted, or emptied by a move — and a
+     filter that matches nobody falls back to All, rather than drawing an
+     empty page under a button that says otherwise. */
+  function boardClass(){ return effectiveFilter(storedClass(), students); }
+  function setBoardClass(c){
+    board.cls = c;
+    try{ window.localStorage.setItem(FILTER_KEY, c); }catch(e){}
   }
 
   function hasDraft(scope){ return Object.prototype.hasOwnProperty.call(board.draft, scope); }
@@ -2144,25 +2423,13 @@
   }
 
   /* ── who's on the board ─────────────────────────────────────────── */
-  var NO_PERIOD = " none";     // a filter value no real period can collide with
+  var NO_CLASS = " none";     // a filter value no real class id can collide with
 
-  /* A student's period, read the way every other reader here reads it:
-     the assignment's if there is one, otherwise the roster row's. A
-     student imported into period 3 who signs in later has no assignment
-     at all, and reading only assignments put them in "No period yet" on
-     the board while the Students tab said Period 3. */
-  function studentPeriod(uid){
-    var p = periodOf(assignments[uid], rosterFor(studentByUid(uid)));
-    return p === "" ? null : p;
-  }
-  /* A string on the assignment, even "", is the teacher's word and wins;
-     only a missing or null one defers to the roster. That is what lets
-     "— not set —" stick for a roster-imported student: clearing writes ""
-     rather than null, because null would just fall back to the roster
-     period again on the next load. */
-  function periodOf(a, r){
-    if(a && typeof a.period === "string") return a.period;
-    return (r && r.period) || "";
+  /* A student's class, if it is one this page knows; otherwise null —
+     which is the "No class" bucket. */
+  function studentClass(uid){
+    var id = classIdOf(studentByUid(uid));
+    return id && classes[id] ? id : null;
   }
   function matchesQuery(s){
     var q = board.q.trim().toLowerCase();
@@ -2170,18 +2437,18 @@
     return (s.name || "").toLowerCase().indexOf(q) !== -1 ||
            (s.email || "").toLowerCase().indexOf(q) !== -1;
   }
-  // Every student a column toggle would reach: the period filter and the
+  // Every student a column toggle would reach: the class filter and the
   // name box both narrow it, which is the whole safety story for "all".
   function visibleStudents(){
-    var f = boardPeriod();
+    var f = boardClass();
     return students.filter(function(s){ return matchesQuery(s) && matchesFilter(s, f); });
   }
 
-  // Pure: is this student inside period filter `f`?
+  // Pure: is this student inside class filter `f`?
   function matchesFilter(s, f){
     if(!f) return true;
-    var p = studentPeriod(s.uid);
-    return f === NO_PERIOD ? p === null : p === f;
+    var c = studentClass(s.uid);
+    return f === NO_CLASS ? c === null : c === f;
   }
   // Pure: `f`, or All when `f` matches nobody in `list`.
   function effectiveFilter(f, list){
@@ -2189,10 +2456,10 @@
     for(var i=0;i<list.length;i++) if(matchesFilter(list[i], f)) return f;
     return "";
   }
-  // The class inside the filter — the Students table, its cards, the
+  // The students inside the filter — the Students table, its cards, the
   // suggestions and Trouble spots. The board adds its name search on top.
   function classStudents(){
-    var f = boardPeriod();
+    var f = boardClass();
     return students.filter(function(s){ return matchesFilter(s, f); });
   }
 
@@ -2217,7 +2484,8 @@
   }
 
   /* ---------------- archive ----------------
-     Hidden from every view, deleted from nothing. The key is the
+     Hidden from every view, deleted from nothing. Kept on the CLASS doc
+     (classes/{id}.archived), so co-teachers share it. The key is the
      student's id on this page: their uid, or roster:<email> before they
      have signed in — and both are checked, so a student archived while
      pending stays archived once they sign in. */
@@ -2228,6 +2496,16 @@
     var em = String(st.email || "").toLowerCase();
     return !!(em && map[PENDING_PREFIX + em] === true);
   }
+  // Every class's archive in one map: the keys are per student, so they
+  // can't collide.
+  function archivedMap(){
+    var out = {};
+    for(var id in classes){
+      var a = classes[id].archived || {};
+      for(var k in a) if(Object.prototype.hasOwnProperty.call(a, k) && a[k] === true) out[k] = true;
+    }
+    return out;
+  }
   // Pure: the class split in two.
   function splitArchived(list, map){
     var out = { active: [], archived: [] };
@@ -2236,21 +2514,23 @@
   }
   function applyArchive(full){
     everyone = full;
-    students = splitArchived(full, classCfg.archived).active;
+    students = splitArchived(full, archivedMap()).active;
   }
   /* Unarchiving writes false rather than deleting the key: a set-merge
      can't delete without FieldValue, and false means the same thing. */
   function setArchived(st, on){
+    var id = classIdOf(st), c = classes[id];
+    if(!c) return Promise.reject(new Error("not in a class"));
     var patch = {};
     patch[st.uid] = !!on;
     var em = String(st.email || "").toLowerCase();
     if(!on && em) patch[PENDING_PREFIX + em] = false;
-    var before = JSON.parse(JSON.stringify(classCfg.archived || {}));
-    classCfg.archived = classCfg.archived || {};
-    for(var k in patch) classCfg.archived[k] = patch[k];
+    var before = JSON.parse(JSON.stringify(c.archived || {}));
+    c.archived = c.archived || {};
+    for(var k in patch) c.archived[k] = patch[k];
     applyArchive(everyone);
-    return classRef().set({ archived: patch }, { merge:true }).catch(function(err){
-      classCfg.archived = before;
+    return db.collection("classes").doc(id).set({ archived: patch }, { merge:true }).catch(function(err){
+      c.archived = before;
       applyArchive(everyone);
       throw err;
     });
@@ -2436,7 +2716,7 @@
 
   /* ── column toggles ───────────────────────────────────────────────
      "all" on a column sets every mode of that list for every VISIBLE
-     student — not every student in the school. The period filter and the
+     student — not every student in the school. The class filter and the
      search box are what bound it, and that is the only thing standing
      between a mis-click and a class's worth of undone assignment. */
   // The retired ids of one family (listNum null) or one list of it.
@@ -2635,9 +2915,8 @@
       return;
     }
 
-    var periods = allPeriods();
-    // The period filter is the top bar's, and falls back to All on its
-    // own (boardPeriod) when it would match nobody.
+    // The class filter is the top bar's, and falls back to All on its
+    // own (boardClass) when it would match nobody.
     var cols = boardColumns();
     var vis = visibleStudents();
     var visUid = {}; vis.forEach(function(s){ visUid[s.uid] = true; });
@@ -2698,7 +2977,7 @@
         "</div></th>" + cellsFor(scope) + "</tr>";
     }
     /* A period's heading row. Its checkbox ticks every student shown
-       under it, which is how "give period 3 List 4" becomes two clicks
+       under it, which is how "give P3 List 4" becomes two clicks
        and a choice rather than thirty. */
     function groupRow(key, label, kids){
       var allOn = kids.length && kids.every(function(s){ return board.sel[s.uid]; });
@@ -2711,19 +2990,19 @@
     var groups = [];   // [{ key, kids }] — what each heading's checkbox reaches
 
     var rows = "";
-    periods.filter(function(p){
-      return boardPeriod() === "" || boardPeriod() === p;
-    }).forEach(function(p){
-      var kids = vis.filter(function(s){ return studentPeriod(s.uid) === p; });
+    allClasses().filter(function(c){
+      return boardClass() === "" || boardClass() === c;
+    }).forEach(function(c){
+      var kids = vis.filter(function(s){ return studentClass(s.uid) === c; });
       if(!kids.length) return;
-      groups.push({ key: p, kids: kids });
-      rows += groupRow(p, "Period " + p, kids) + kids.map(studentRow).join("");
+      groups.push({ key: c, kids: kids });
+      rows += groupRow(c, className(c), kids) + kids.map(studentRow).join("");
     });
 
-    var loose = vis.filter(function(s){ return studentPeriod(s.uid) === null; });
-    if(loose.length && (boardPeriod() === "" || boardPeriod() === NO_PERIOD)){
-      groups.push({ key: NO_PERIOD, kids: loose });
-      rows += groupRow(NO_PERIOD, "No period yet", loose) + loose.map(studentRow).join("");
+    var loose = vis.filter(function(s){ return studentClass(s.uid) === null; });
+    if(loose.length && (boardClass() === "" || boardClass() === NO_CLASS)){
+      groups.push({ key: NO_CLASS, kids: loose });
+      rows += groupRow(NO_CLASS, "No class", loose) + loose.map(studentRow).join("");
     }
     if(!rows){
       rows = '<tr><td colspan="' + (cols.length + 1) + '" class="muted" style="padding:18px">Nobody matches that.</td></tr>';
@@ -2738,8 +3017,8 @@
       '<div class="panel abPanel"><h2>Assign games</h2>' +
         '<p class="note">Each student sees only what is in their row. ' +
         "<b>Click a cell</b> to choose how they play that list. " +
-        "To change many students at once, <b>tick their names</b> — or a whole period — and press <b>Change games</b>. " +
-        "The period buttons at the top choose who is shown. " +
+        "To change many students at once, <b>tick their names</b> — or a whole class — and press <b>Change games</b>. " +
+        "The class buttons at the top choose who is shown. " +
         "Nothing is saved until you press <b>Save</b>.</p>" +
         legendHtml() +
 
@@ -3021,17 +3300,17 @@
      their roster row, which store.js reads on the first sign-in. Pure, and
      separate from saveBoard, because the shape of these writes is the part
      that has to be right: a stray field in the student body would
-     overwrite their period. `now` is a parameter so a test can pin it. */
+     overwrite something else. `now` is a parameter so a test can pin it. */
   function saveBody(scopes, now){
     var out = { students: {}, roster: {} };
     scopes.forEach(function(scope){
       var uid = scope.slice(2), val = board.draft[scope];
-      // `teacher` rides along because firestore.rules requires every
-      // write to name the owner; it is the owner already on the doc.
-      if(isPending(uid)) out.roster[emailOfPending(uid)] = { lists: val, updatedAt: now, teacher: ownerOfUid(uid) };
-      // These fields and no others: the period lives in the same
-      // document and must survive the write.
-      else out.students[uid] = { lists: val, updatedAt: now, teacher: ownerOfUid(uid) };
+      // The class stamp rides along because firestore.rules checks it on
+      // every write; it is the student's class as it already stands.
+      if(isPending(uid)) out.roster[emailOfPending(uid)] = withStamp({ lists: val, updatedAt: now }, uid);
+      // These fields and no others: nothing else on the document may
+      // be touched by the write.
+      else out.students[uid] = withStamp({ lists: val, updatedAt: now }, uid);
     });
     return out;
   }
@@ -3051,7 +3330,7 @@
       var a = assignments[uid] || (assignments[uid] = {});
       a.lists = body.students[uid].lists;
       a.updatedAt = body.students[uid].updatedAt;
-      a.teacher = body.students[uid].teacher;
+      if(body.students[uid].classId){ a.classId = body.students[uid].classId; a.teachers = body.students[uid].teachers; }
       batch.set(db.collection("assignments").doc(uid), body.students[uid], { merge:true });
     });
     Object.keys(body.roster).forEach(function(em){
@@ -3307,19 +3586,19 @@
   }
 
   function renderArchivedSection(into){
-    var gone = splitArchived(everyone, classCfg.archived).archived;
+    var gone = splitArchived(everyone, archivedMap()).archived;
     var rows = gone.map(function(st){
-      var per = studentPeriod(st.uid);
+      var per = studentClass(st.uid);
       return "<tr><td>" + whoHtml(st) + "</td>" +
-        "<td>" + (per ? '<span class="pill">Period ' + esc(per) + "</span>" : '<span class="muted tiny">\u2014</span>') + "</td>" +
+        "<td>" + (per ? '<span class="pill">' + esc(className(per)) + "</span>" : '<span class="muted tiny">\u2014</span>') + "</td>" +
         '<td><button class="btn ghost sm" data-unarchive="' + esc(st.uid) + '">Unarchive</button> ' +
         '<button class="btn ghost sm" data-open="' + esc(st.uid) + '">Open</button></td></tr>';
     }).join("");
     into.innerHTML = '<div class="panel"><h2>Archived</h2>' +
       '<p class="note">Archived students are hidden from every view — the table, the board, the cards, Trouble spots. ' +
       "Nothing about them is deleted, and they keep practicing whatever they were given. " +
-      "Archive a student from their own page.</p>" +
-      (rows ? '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Period</th><th></th></tr></thead>' +
+      "Archiving is shared by everyone who teaches the class. Archive a student from their own page.</p>" +
+      (rows ? '<div class="tableScroll"><table class="t"><thead><tr><th>Student</th><th>Class</th><th></th></tr></thead>' +
               "<tbody>" + rows + "</tbody></table></div>"
             : '<div class="empty">Nobody is archived.</div>') +
       '<span class="saveNote" id="mArchNote"></span></div>';
@@ -3341,8 +3620,9 @@
   /* ---------------- backup ----------------
      One JSON file of everything this account can read, straight from the
      database rather than from the page (which has sanitized and folded
-     it): a teacher's roster rows, assignments, notes, students' docs and
-     classes doc; for the admin, every collection. For keeping, not for
+     it): the roster rows, assignments, notes, students' docs and class
+     docs of every class this teacher is on, and the list of teachers;
+     for the admin, every collection. For keeping, not for
      restoring — there is no import, deliberately: a restore is a
      decision, made in the console, by a person. */
   function backupName(now){
@@ -3354,7 +3634,7 @@
       app: "english-intensive",
       exportedAt: new Date(now).toISOString(),
       exportedBy: me,
-      scope: admin ? "everything (admin)" : "this teacher's class",
+      scope: admin ? "everything (admin)" : "this teacher's classes",
       collections: data
     }, null, 2);
   }
@@ -3371,23 +3651,22 @@
     }
     var cols = ["students", "assignments", "notes", "roster"];
     var jobs = cols.map(function(c){ return docs(mine(c)); });
-    jobs.push(admin ? docs(db.collection("classes")) : one(classRef()));
-    if(admin){
-      jobs.push(docs(db.collection("teachers")));
-      jobs.push(one(db.collection("config").doc("class")).catch(function(){ return {}; }));
-    }
+    jobs.push(docs(mine("classes")));
+    jobs.push(docs(db.collection("teachers")).catch(function(){ return {}; }));
+    if(admin) jobs.push(one(db.collection("config").doc("class")).catch(function(){ return {}; }));
     return Promise.all(jobs).then(function(r){
       var out = {};
       cols.forEach(function(c, i){ out[c] = r[i]; });
       out.classes = r[4];
-      if(admin){ out.teachers = r[5]; out.config = r[6]; }
+      out.teachers = r[5];
+      if(admin) out.config = r[6];
       return out;
     });
   }
   function renderBackupSection(into){
     into.innerHTML = '<div class="panel"><h2>Backup</h2>' +
-      '<p class="note">One file of everything ' + (admin ? "in the database — every teacher\u2019s class" : "about your class") +
-      ": the roster, every student\u2019s practice record, their games, your notes and your periods. " +
+      '<p class="note">One file of everything ' + (admin ? "in the database — every class" : "about your classes") +
+      ": the roster, every student\u2019s practice record, their games, the notes and the classes. " +
       "Keep it somewhere safe. It is for keeping; the site has no way to load one back.</p>" +
       '<div class="rowActions"><button class="btn sm" id="mBackup">\u2b07 Download backup</button>' +
       '<span class="saveNote" id="mBackupNote"></span></div></div>';
@@ -3409,182 +3688,72 @@
   /* ════════════════════════════════════════════════════════════════
      teachers (admin only)
 
-     Who else can use this dashboard, how many students each has, and
-     moving students between them. Adding a teacher is one
-     teachers/{email} document; it grants them their own students and
-     nobody else's (firestore.rules). Removing one deletes only that
-     document: their students stay owned by that address, and show up
-     here under it, until the admin moves them.
+     Who is a teacher on the SITE, and which classes each one is on.
+     Adding a teacher is one teachers/{email} document; it lets them sign
+     in to the dashboard, where they see nothing until they create a class
+     or someone puts them on one. Removing one deletes that document —
+     which alone ends their access — and takes them off every class. It is
+     refused while they are the only teacher on a class: add someone else
+     to it, or move its students, first.
      ════════════════════════════════════════════════════════════════ */
 
-  // Every teacher address the admin might move a student to: the admin,
-  // each teachers/ doc, and any owner still on a student (a removed
-  // teacher's class has to be reachable to be moved out of).
-  function teacherChoices(){
-    var seen = {}, out = [];
-    function add(e){ e = String(e || "").toLowerCase(); if(e && !seen[e]){ seen[e] = true; out.push(e); } }
-    add(adminEmail() || me);
-    teacherDocs.forEach(function(t){ add(t.email); });
-    everyone.forEach(function(st){ add(ownerOf(st)); });
-    return out;
+  // Pure: the classes `email` teaches.
+  function teacherClasses(email){
+    email = low(email);
+    return allClasses().filter(function(id){ return classes[id].teachers.indexOf(email) !== -1; });
   }
-  function teacherOptions(selected){
-    var listed = {};
-    teacherDocs.forEach(function(t){ listed[t.email] = true; });
-    return teacherChoices().map(function(e){
-      var gone = e !== (adminEmail() || me) && !listed[e];
-      return '<option value="' + esc(e) + '"' + (e === selected ? " selected" : "") + ">" +
-        esc(teacherName(e) + (gone ? " (removed)" : "")) + "</option>";
-    }).join("");
-  }
-
-  // Pure: students per owner, archived or not, signed in or not.
-  function teacherCounts(){
-    var out = {};
-    everyone.forEach(function(st){ var o = ownerOf(st); out[o] = (out[o] || 0) + 1; });
-    return out;
-  }
-
-  /* Pure: the writes that move these students to `to`. Four documents
-     per student, all set-merges of the one field, so the batch can't
-     touch anything else:
-       roster/{email}     the record of ownership — what store.js copies
-                          and what stops another teacher's import
-       students/{uid}     so the new teacher's list query finds them
-                          (the admin may change exactly this field)
-       assignments/{uid}  and notes/{uid} — written even when missing,
-                          so a student who has ever been moved always has
-                          documents whose owner the rules check
-     A pending student has no uid yet: their roster row is everything. */
-  function moveBody(list, to){
-    to = String(to || "").toLowerCase();
-    var out = [];
-    list.forEach(function(st){
-      var email = String(st.email || "").toLowerCase();
-      if(email){
-        var row = { teacher: to };
-        // A signed-in student with no roster row gets one, named, so the
-        // move is recorded where ownership is read from.
-        if(!roster[email] && st.name) row.name = st.name;
-        out.push({ col: "roster", id: email, data: row });
-      }
-      if(st.pending) return;
-      out.push({ col: "students", id: st.uid, data: { teacher: to } });
-      out.push({ col: "assignments", id: st.uid, data: { teacher: to } });
-      out.push({ col: "notes", id: st.uid, data: { teacher: to } });
-    });
-    return out;
-  }
-
-  /* Writes, then mirrors the move locally rather than reloading — the
-     admin sees everyone either way, so nothing appears or disappears. */
-  function moveStudents(list, to){
-    to = String(to || "").toLowerCase();
-    return commitWrites(moveBody(list, to)).then(function(){
-      list.forEach(function(st){
-        var email = String(st.email || "").toLowerCase();
-        if(email){
-          if(!roster[email]) roster[email] = rosterRowOf(email, { name: st.name });
-          roster[email].teacher = to;
-        }
-        st.teacher = to;
-        if(!st.pending){
-          (assignments[st.uid] = assignments[st.uid] || {}).teacher = to;
-          (notes[st.uid] = notes[st.uid] || {}).teacher = to;
-        }
-      });
-    });
+  // Pure: of those, the ones they teach alone — what blocks removing them.
+  function soleClasses(email){
+    return teacherClasses(email).filter(function(id){ return classes[id].teachers.length === 1; });
   }
 
   function renderTeachers(into){
     if(!admin) return;
-    var counts = teacherCounts();
+    var adminAddr = adminEmail() || me;
+    var list = [adminAddr];
+    teacherDocs.forEach(function(t){ if(list.indexOf(t.email) === -1) list.push(t.email); });
     var listed = {};
     teacherDocs.forEach(function(t){ listed[t.email] = true; });
-    var adminAddr = adminEmail() || me;
 
-    var rows = teacherChoices().map(function(e){
+    var rows = list.map(function(e){
       var t = teacherDocs.filter(function(x){ return x.email === e; })[0];
       var isAdminRow = e === adminAddr;
-      var gone = !isAdminRow && !t;
+      var cls = teacherClasses(e);
+      var n = 0;
+      cls.forEach(function(id){ n += membersOf(id).length; });
       return "<tr><td><b>" + esc(t && t.name ? t.name : e) + "</b>" +
-          '<div class="muted tiny">' + esc(e) + (isAdminRow ? " · admin" : "") + (gone ? " · removed" : "") + "</div></td>" +
-        '<td class="num">' + (counts[e] || 0) + "</td>" +
-        "<td>" + (isAdminRow || gone ? "" :
+          '<div class="muted tiny">' + esc(e) + (isAdminRow ? " · admin" : "") + "</div></td>" +
+        "<td>" + (cls.length ? cls.map(function(id){ return '<span class="pill">' + esc(className(id)) + "</span>"; }).join(" ")
+                             : '<span class="muted tiny">no classes</span>') + "</td>" +
+        '<td class="num">' + n + "</td>" +
+        "<td>" + (isAdminRow || !listed[e] ? "" :
           '<button class="btn ghost sm" data-unteach="' + esc(e) + '">Remove</button>') + "</td></tr>";
     }).join("");
 
-    var periods = allPeriods();
     into.innerHTML =
       '<div class="panel"><h2>Teachers</h2>' +
-        '<p class="note">Each teacher sees only their own students. You see everyone. ' +
-        "A student belongs to whoever imported them; an import never takes a student from another teacher, " +
-        "so moving one is done here, or on the student's own page.</p>" +
-        '<div class="tableScroll"><table class="t"><thead><tr><th>Teacher</th><th class="num">Students</th><th></th></tr></thead>' +
+        '<p class="note">Who can use this dashboard. A teacher sees the students in the classes they are on, ' +
+        "and any teacher on a class can add these teachers to it. You see every class.</p>" +
+        '<div class="tableScroll"><table class="t"><thead><tr><th>Teacher</th><th>Classes</th><th class="num">Students</th><th></th></tr></thead>' +
         "<tbody>" + rows + "</tbody></table></div>" +
+        '<span class="saveNote" id="tTeachListNote"></span>' +
       "</div>" +
 
       '<div class="panel"><h2>Add a teacher</h2>' +
-        '<p class="note">Their school Google account. They can open the dashboard the next time they sign in, ' +
-        "and start with an empty class until they import a roster.</p>" +
+        '<p class="note">Their school Google account. They can open the dashboard the next time they sign in. ' +
+        "They start with no classes: they create one, import a roster into it, or get added to one.</p>" +
         '<div class="rowActions">' +
           '<input class="txt" id="tTeachEmail" placeholder="name@seq.org" aria-label="Teacher email" autocomplete="off" style="width:220px">' +
-          '<input class="txt" id="tTeachName" placeholder="Name, e.g. Ms. Talesnick" aria-label="Teacher name" autocomplete="off" style="width:220px">' +
+          '<input class="txt" id="tTeachName" placeholder="Name, e.g. Ms. Rivera" aria-label="Teacher name" autocomplete="off" style="width:220px">' +
           '<button class="btn sm" id="tTeachAdd">Add teacher</button>' +
           '<span class="saveNote" id="tTeachNote"></span>' +
-        "</div>" +
-      "</div>" +
-
-      '<div class="panel"><h2>Move a whole period</h2>' +
-        '<p class="note">Everyone in one period, to another teacher. Their games, notes and practice go with them.</p>' +
-        '<div class="rowActions">' +
-          '<label class="muted tiny" for="tMovePeriod">Everyone in</label>' +
-          '<select class="sel" id="tMovePeriod">' + periods.map(function(p){
-            return '<option value="' + esc(p) + '">Period ' + esc(p) + "</option>";
-          }).join("") + '<option value="' + NO_PERIOD + '">No period yet</option></select>' +
-          '<label class="muted tiny" for="tMoveFrom">now with</label>' +
-          '<select class="sel" id="tMoveFrom"><option value="">any teacher</option>' + teacherOptions("") + "</select>" +
-          '<label class="muted tiny" for="tMoveTo">to</label>' +
-          '<select class="sel" id="tMoveTo">' + teacherOptions("") + "</select>" +
-          '<button class="btn sm" id="tMoveGo">Move</button>' +
-          '<span class="saveNote" id="tMoveNote"></span>' +
         "</div>" +
       "</div>";
 
     $("tTeachAdd").addEventListener("click", addTeacher);
     $("tTeachName").addEventListener("keydown", function(e){ if(e.key === "Enter") addTeacher(); });
-    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-unteach]"), function(b){
+    Array.prototype.forEach.call(into.querySelectorAll("[data-unteach]"), function(b){
       b.addEventListener("click", function(){ removeTeacher(b.getAttribute("data-unteach")); });
-    });
-    $("tMoveGo").addEventListener("click", movePeriod);
-  }
-
-  // Who a bulk move reaches. Pure over the class: period, then (if
-  // chosen) the teacher they're with now.
-  function periodMovers(period, from){
-    // Archived students move with their period: hidden is not left behind.
-    return everyone.filter(function(st){
-      var p = studentPeriod(st.uid);
-      if(period === NO_PERIOD ? p !== null : p !== period) return false;
-      return !from || ownerOf(st) === from;
-    });
-  }
-
-  function movePeriod(){
-    var period = $("tMovePeriod").value, from = $("tMoveFrom").value, to = $("tMoveTo").value;
-    var note = $("tMoveNote");
-    var who = periodMovers(period, from).filter(function(st){ return ownerOf(st) !== to; });
-    if(!who.length){ note.className = "saveNote err"; note.textContent = "Nobody to move."; return; }
-    var label = period === NO_PERIOD ? "with no period" : "in period " + period;
-    if(!window.confirm("Move " + who.length + (who.length === 1 ? " student " : " students ") + label +
-                       " to " + teacherName(to) + "?")) return;
-    note.className = "saveNote"; note.textContent = "Moving…";
-    moveStudents(who, to).then(function(){
-      render();
-      var n2 = $("tMoveNote");
-      if(n2){ n2.className = "saveNote ok"; n2.textContent = "Moved " + who.length + "."; }
-    }, function(){
-      note.className = "saveNote err"; note.textContent = "Didn't move — check the network and try again.";
     });
   }
 
@@ -3610,15 +3779,31 @@
   }
 
   function removeTeacher(email){
-    var n = teacherCounts()[email] || 0;
+    var note = $("tTeachListNote");
+    var alone = soleClasses(email);
+    if(alone.length){
+      note.className = "saveNote err";
+      note.textContent = teacherName(email) + " is the only teacher on " +
+        alone.map(className).join(", ") + ". Add another teacher to " + (alone.length === 1 ? "it" : "them") +
+        ", or move the students, first.";
+      return;
+    }
+    var cls = teacherClasses(email);
     if(!window.confirm("Remove " + teacherName(email) + " as a teacher?\n\n" +
-      "They lose the dashboard. Nothing is deleted: " +
-      (n ? "their " + n + (n === 1 ? " student stays" : " students stay") + " theirs until you move them." : "they have no students."))) return;
+      "They lose the dashboard" + (cls.length ? " and come off " + cls.length + (cls.length === 1 ? " class" : " classes") : "") +
+      ". No student, class or practice is deleted.")) return;
+    note.className = "saveNote"; note.textContent = "Removing…";
+    // The teachers/ doc first: deleting it is what actually ends their
+    // access (isTeacher() in the rules). Then off each class.
     db.collection("teachers").doc(email).delete().then(function(){
       teacherDocs = teacherDocs.filter(function(t){ return t.email !== email; });
-      render();
-    }, function(){
-      window.alert("Didn't remove — check the network and try again.");
+      return cls.reduce(function(chain, id){
+        return chain.then(function(){
+          return setClassTeachers(id, classes[id].teachers.filter(function(t){ return t !== email; }));
+        });
+      }, Promise.resolve());
+    }).then(function(){ render(); }, function(){
+      note.className = "saveNote err"; note.textContent = "Didn't finish — check the network and try again.";
     });
   }
 
@@ -3638,14 +3823,19 @@
       importPlan: importPlan,
       skippedText: skippedText,
       migrationBody: migrationBody,
+      healBody: healBody,
       moveBody: moveBody,
-      ownerOf: ownerOf,
-      teacherCounts: teacherCounts,
-      periodMovers: periodMovers,
+      restampBody: restampBody,
+      classIdOf: classIdOf,
+      teacherClasses: teacherClasses,
+      soleClasses: soleClasses,
+      importTargets: importTargets,
+      nameMatchesPeriod: nameMatchesPeriod,
+      DELETE: DELETE,
       effectiveFilter: effectiveFilter,
       matchesFilter: matchesFilter,
       classStudents: classStudents,
-      boardPeriod: boardPeriod,
+      boardClass: boardClass,
       filterSegments: filterSegments,
       summaryCounts: summaryCounts,
       isArchived: isArchived,
@@ -3655,7 +3845,8 @@
       backupJson: backupJson,
       previewHref: previewHref,
       renderRoster: renderRoster,
-      blankAssignment: blankAssignment,
+      renderGroups: renderGroups,
+      renderManage: renderManage,
       nextStepInfo: nextStepInfo,
       nextStepRows: nextStepRows,
       rosterStatus: rosterStatus,
@@ -3669,8 +3860,9 @@
         st = st || {};
         students = st.students || [];
         assignments = st.assignments || {};
-        classCfg = { periods: (st.classCfg && st.classCfg.periods) || [],
-                     archived: (st.classCfg && st.classCfg.archived) || {} };
+        classes = {};
+        var cl = st.classes || {};
+        for(var cid in cl) classes[cid] = classRowOf(cid, cl[cid]);
         notes = st.notes || {};
         roster = st.roster || {};
         rosterReadable = st.rosterReadable !== false;
@@ -3683,7 +3875,7 @@
         if(st.roster) addPendingStudents();
         applyArchive(students);
         board.draft = {}; board.sel = {}; board.collapsed = {};
-        board.period = st.period || "";      // set directly: no localStorage in tests
+        board.cls = st.filter || "";      // set directly: no localStorage in tests
         board.q = st.q || "";
       },
       board: board,
@@ -3704,7 +3896,7 @@
       readyToAdvance: readyToAdvance,
       evidenceText: evidenceText,
       noteOf: noteOf,
-      studentPeriod: studentPeriod,
+      studentClass: studentClass,
       csvCell: csvCell,
       csvRows: csvRows,
       sparkline: sparkline,
@@ -3717,7 +3909,7 @@
       boardSuggestions: boardSuggestions,
       SOLID_ENOUGH: SOLID_ENOUGH,
       saveBody: saveBody,
-      NO_PERIOD: NO_PERIOD,
+      NO_CLASS: NO_CLASS,
       // Not pure, and here for one reason: 200 lines of string-built
       // markup deserve a test that they parse into the table they claim
       // to. tests.html gives it a #tBody to draw into.

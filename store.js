@@ -8,7 +8,7 @@
                          owns their shape), lifetime totals, and a short
                          tail of finished rounds.
      assignments/{uid}   written by the TEACHER, read-only to the student:
-                         which period they're in and which lists they get.
+                         which lists they get, and which class they're in.
                          Separate from students/{uid} precisely so the
                          teacher never needs write access to a student's
                          work — see firestore.rules.
@@ -30,12 +30,12 @@
       "Sign out" is exactly the round most likely to be lost.
 
    ── Whose class ───────────────────────────────────────────────────────
-   The roster row's `teacher` is who owns this student. On every load,
-   if it differs from the `teacher` on students/{uid}, it is copied
-   across — that is how a student imported by a teacher reaches that
-   teacher's dashboard, since a teacher can only list students whose own
-   doc names them. firestore.rules allows the student exactly that
-   change and no other.
+   The roster row's `classId` and `teachers` say which class this student
+   is in and who teaches it. On every load, if they differ from what is
+   on students/{uid}, they are copied across — that is how a student
+   imported into a class reaches its teachers' dashboards, since a
+   teacher can only list students whose own doc names them.
+   firestore.rules allows the student exactly that change and no other.
 
    ── Preview ───────────────────────────────────────────────────────────
    index.html?preview=<uid | roster:email>, opened by a TEACHER from the
@@ -59,10 +59,10 @@ window.EIStore = (function(){
   var fluency = {};             // listId → [{at, cwpm, errors, n}] oldest first
   var totals = { n:0, r:0 };
   var recent = [];              // [{list, at, right, total}] newest last
-  var assignment = null;        // { period, lists } or null
+  var assignment = null;        // { lists, classId, teachers } or null
   var rosterRow = null;         // roster/{email} — the imported class list
-  var docTeacher = null;        // `teacher` as stored on students/{uid}
-  var dirtyTeacher = null;      // the roster's teacher, when it needs copying
+  var docClass = null;          // { classId, teachers } as stored on students/{uid}
+  var dirtyClass = null;        // the roster's, when it needs copying
   var preview = null;           // { id, name, failed } while a teacher previews
   var loadFailed = false;
   var dirty = {};               // stat keys changed since the last write
@@ -113,12 +113,15 @@ window.EIStore = (function(){
     return [];
   }
 
-  /* The roster row's teacher, when it isn't already on the student's own
-     doc — the one field store.js ever copies from the roster. Pure. */
-  function teacherToCopy(row, current){
-    var t = row && typeof row.teacher === "string" ? row.teacher.toLowerCase() : "";
-    if(!t) return null;
-    return t === (current || null) ? null : t;
+  /* The roster row's class stamp, when it isn't already on the student's
+     own doc — the only fields store.js ever copies from the roster. Copied
+     exactly as the row has them: the rules compare them for equality. */
+  function classToCopy(row, current){
+    if(!row || typeof row.classId !== "string" || !row.classId || !Array.isArray(row.teachers)) return null;
+    current = current || {};
+    if(current.classId === row.classId &&
+       JSON.stringify(current.teachers || null) === JSON.stringify(row.teachers)) return null;
+    return { classId: row.classId, teachers: row.teachers.slice() };
   }
 
   // ?preview=<id> from the address, or null. Pure.
@@ -210,8 +213,8 @@ window.EIStore = (function(){
         }
         assignment = snaps[1] && snaps[1].exists ? snaps[1].data() : null;
         rosterRow  = snaps[2] && snaps[2].exists ? snaps[2].data() : null;
-        docTeacher = d && typeof d.teacher === "string" ? d.teacher : null;
-        dirtyTeacher = teacherToCopy(rosterRow, docTeacher);
+        docClass = d ? { classId: d.classId, teachers: d.teachers } : null;
+        dirtyClass = classToCopy(rosterRow, docClass);
         writeLocal();
         // Stamp identity on every sign-in: it is what turns an opaque uid
         // into a name on the teacher's roster, and it keeps up with a
@@ -247,7 +250,7 @@ window.EIStore = (function(){
     if(any) p.words = words;
     if(anyHeard) p.heard = heardOut;
     if(anyFl) p.fluency = flOut;
-    if(dirtyTeacher) p.teacher = dirtyTeacher;
+    if(dirtyClass){ p.classId = dirtyClass.classId; p.teachers = dirtyClass.teachers; }
     if(dirtyMeta){
       p.name  = (user && user.displayName) || null;
       p.email = (user && user.email) || null;
@@ -267,11 +270,11 @@ window.EIStore = (function(){
     clearTimeout(saveTimer); saveTimer = null;
     if(loadFailed || preview || !uid || (user && user._dev)) return Promise.resolve();
     if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length &&
-       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyTeacher) return inFlight || Promise.resolve();
+       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyClass) return inFlight || Promise.resolve();
     var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
-    var sendingTeacher = dirtyTeacher;
+    var sendingClass = dirtyClass;
     var body = payload();
-    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyTeacher = null;
+    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyClass = null;
     /* Chained behind whatever is already on the wire, never alongside it:
        two overlapping writes could land out of order, and the older
        one's cleanup must not make inFlight look empty while this one is
@@ -285,7 +288,7 @@ window.EIStore = (function(){
       return db.collection("students").doc(uid).set(body, { merge:true });
     }).then(function(){
       retryMs = 0;
-      if(sendingTeacher) docTeacher = sendingTeacher;
+      if(sendingClass) docClass = sendingClass;
     }, function(err){
       // Put the unsent keys back so the next save retries them rather than
       // dropping a round of practice on one bad request.
@@ -293,7 +296,7 @@ window.EIStore = (function(){
       for(k in sendingHeard){ if(has(sendingHeard, k)) dirtyHeard[k] = true; }
       for(k in sendingFluency){ if(has(sendingFluency, k)) dirtyFluency[k] = true; }
       if(sendingMeta) dirtyMeta = true;
-      if(sendingTeacher && !dirtyTeacher) dirtyTeacher = sendingTeacher;
+      if(sendingClass && !dirtyClass) dirtyClass = sendingClass;
       console.warn("EIStore: save failed", err);
       /* A denied write will be denied again; the next round's own flush
          can still try, but a timer hammering the rules would not help.
@@ -418,15 +421,10 @@ window.EIStore = (function(){
     recent: function(){ return recent.slice(); },
     myLists: myLists,
     seesEverything: seesEverything,
-    // The assignment's period, or the roster's where the teacher hasn't
-    // set one — which on day one is the only one there is.
-    period: function(){
-      // A string on the assignment is the teacher's word, including "" —
-      // that is how the dashboard says "no period", and it has to beat the
-      // roster's period or a cleared student snaps back on reload. Only a
-      // missing/null period defers to the roster.
-      if(assignment && typeof assignment.period === "string") return assignment.period || null;
-      return (rosterRow && rosterRow.period) || null;
+    // The class this student is in, by id, or null. Their roster row is
+    // the record of it; their own doc follows it (see classToCopy).
+    classId: function(){
+      return (rosterRow && rosterRow.classId) || (docClass && docClass.classId) || null;
     },
     roster: function(){ return rosterRow; },
     failed: function(){ return loadFailed; },
@@ -435,7 +433,7 @@ window.EIStore = (function(){
     _internals: {
       previewParam: previewParam,
       effectiveLists: effectiveLists,
-      teacherToCopy: teacherToCopy,
+      classToCopy: classToCopy,
       // The write body, for a test that can assert its shape without a
       // Firestore. Reads the module's live state, so a test drives it
       // through the same recordHeard() a game calls.

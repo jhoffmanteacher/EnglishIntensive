@@ -105,7 +105,12 @@ one in the popup.
 
 ---
 
-## After this change ships: adding the other teachers
+## After this change ships: classes, and adding the other teachers
+
+Periods are gone; **classes** replace them. A class ("P3 Intensive") has a
+name and one or more teachers, and every student is in exactly one class.
+Any teacher on a class can add or remove co-teachers on it; only the admin
+adds or removes teachers on the site.
 
 No teacher but the admin is written in the code. `jhoffman@seq.org` is the
 one admin — `ADMIN_EMAILS` in `firebase-config.js` and `isAdmin()` in
@@ -113,43 +118,50 @@ one admin — `ADMIN_EMAILS` in `firebase-config.js` and `isAdmin()` in
 **The other teachers are not seeded** — not in the config, not in the rules.
 Add each of them yourself, once, after the deploy below.
 
-Deploy in this order:
+Deploy in this order — **rules first**, because the new dashboard reads
+`classes/`, which the old rules refuse, so the new site on the old rules
+would show "Couldn't load the class":
 
-1. **Publish the rules first.** Paste the new `firestore.rules` into
-   Firestore Database → Rules → Publish. The new rules accept everything
-   the old site writes from a student's browser, so publishing them before
-   the site changes breaks no student. (Until step 2 the old dashboard
-   still loads for you — you are the admin — but not for the other two
-   teachers, which is the point.)
+1. **Publish the rules.** Paste the new `firestore.rules` into Firestore
+   Database → Rules → Publish. The new rules accept everything the old site
+   writes from a student's browser, so publishing them before the site
+   changes breaks no student. (Until step 2 the old dashboard still loads
+   for you — you are the admin — but adding a period there won't save, and
+   it no longer loads for anyone else, which is the point.)
 2. **Merge to `main` and push.** GitHub Pages picks it up in a minute or
    two.
-3. **Open the dashboard as jhoffman@seq.org.** The first admin load gives
-   every existing student, roster row, assignment and note to you, and
-   copies the old periods across. It does this quietly; reload once and
-   everyone is still there.
-4. **Add the teachers**: Manage → Teachers → *Add a teacher*, one at a time, with
-   their @seq.org address and a name. Each gets the dashboard the next time
-   they sign in, with an empty class.
-5. **Move their students to them**: Manage → Teachers → *Move a whole period*, or
-   the *Teacher* box on one student's page. Or have them import their own
-   roster — an import claims a student who has no roster row yet, and skips
-   (and names) any student who is already in another teacher's class.
+3. **Open the dashboard as jhoffman@seq.org.** The first admin load turns
+   every period into a class taught by you ("3" becomes a class called
+   *3*), puts every student, roster row, assignment and note in their
+   class, and puts students with no period in a class called *No class
+   yet*. It does this quietly; reload once and everyone is still there.
+   Rename the classes under **Classes** if you like ("3" → "P3 Intensive").
+4. **Add the teachers**: Manage → Teachers → *Add a teacher*, one at a time,
+   with their @seq.org address and a name. Each gets the dashboard the next
+   time they sign in.
+5. **Share or hand over classes**: under **Classes**, *Add a co-teacher* on
+   each class they teach. To hand a class over entirely, add them, then
+   remove yourself. Or move single students with the *Class* box on a
+   student's page. A teacher can also import their own roster into a new
+   class — an import claims a student who has no roster row yet, and skips
+   (and names) anyone already in another class.
 
 ## Later: adding or removing a teacher
 
-Manage → Teachers → *Add a teacher* writes a `teachers/{email}` document; *Remove*
-deletes it. Only the admin can do either — the rules refuse that collection
-to everyone else. A new teacher sees only the students they import or that
-you move to them. Removing a teacher deletes nothing else: their students
-stay theirs, listed under their address as *removed*, until you move them.
+Manage → Teachers → *Add a teacher* writes a `teachers/{email}` document;
+*Remove* deletes it — which alone ends their access — and takes them off
+every class. Only the admin can do either; the rules refuse writes to that
+collection from everyone else. Removing is refused while they are the only
+teacher on a class: add another teacher to it, or move its students, first.
+No student, class or practice is ever deleted by it.
 
 ## Later: a different admin
 
 Change the address in `ADMIN_EMAILS` (`firebase-config.js`) **and** in
 `isAdmin()` (`firestore.rules`), then republish the rules. The two must
 agree: the config decides whether the admin controls render, the rules
-decide whether the database lets them work. Documents the old admin owns
-stay owned by that address until moved.
+decide whether the database lets them work. Classes the old admin teaches
+stay theirs until someone adds a co-teacher.
 
 ## Later: a different school domain
 

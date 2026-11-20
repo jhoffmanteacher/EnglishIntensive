@@ -4,10 +4,10 @@
    tests.html can't touch the rules: they run on Google's servers, and
    they are the only thing that actually decides who reads what. This
    runs the real file in the local emulator and checks the claims the
-   multi-teacher model rests on — one teacher can't read another's
-   students, a list query with where('teacher','==',me) is allowed, a
-   student can set their own `teacher` only to what their roster row
-   says, the admin can move a student, nobody else can add a teacher.
+   class model rests on — a co-teacher reads their class's students, a
+   teacher not on the class can't, removing a co-teacher (once the member
+   docs are rewritten) cuts them off, a student can only take the class
+   their roster row names, nobody but the admin adds a teacher.
 
    Not part of the site and not needed to run it. Two dependencies, kept
    OUT of the repo (there is no package.json here on purpose):
@@ -39,6 +39,11 @@ const {
 const ADMIN = "jhoffman@seq.org";
 const A = "teacher.a@seq.org";
 const B = "teacher.b@seq.org";
+const C = "teacher.c@seq.org";
+const XT = [A, B];        // class X: A and B co-teach
+const YT = [C];           // class Y: C alone
+const ZT = [A];           // class Z: A alone
+const WT = [A, B];        // class W: B will remove themselves
 
 const [host, port] = (process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080").split(":");
 const env = await initializeTestEnvironment({
@@ -55,10 +60,10 @@ function as(uid, email){
 const admin = as("admin-uid", ADMIN);
 const tA = as("a-uid", A);
 const tB = as("b-uid", B);
+const tC = as("c-uid", C);
 const stranger = as("x-uid", "nobody@seq.org");
-const s1 = as("s1", "101@seq.org");   // A's student
-const s2 = as("s2", "202@seq.org");   // B's student
-const s3 = as("s3", "303@seq.org");   // imported by A, hasn't copied it yet
+const s1 = as("s1", "101@seq.org");   // in X
+const s3 = as("s3", "303@seq.org");   // roster says X, own doc not yet
 
 let pass = 0, total = 0;
 async function check(desc, p){
@@ -68,124 +73,159 @@ async function check(desc, p){
 }
 const ok = (desc, fn) => check(desc, assertSucceeds(fn()));
 const no = (desc, fn) => check(desc, assertFails(fn()));
+const inX = { classId: "X", teachers: XT };
 
 // ── fixture, written with rules off ───────────────────────────────────
 await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
-  await db.doc("teachers/" + A).set({ email: A, name: "A" });
-  await db.doc("teachers/" + B).set({ email: B, name: "B" });
-  await db.doc("students/s1").set({ email: "101@seq.org", teacher: A, words: {} });
-  await db.doc("students/s2").set({ email: "202@seq.org", teacher: B, words: {} });
+  for(const t of [A, B, C]) await db.doc("teachers/" + t).set({ email: t, name: t });
+  await db.doc("classes/X").set({ name: "P3", teachers: XT, archived: {} });
+  await db.doc("classes/Y").set({ name: "P5", teachers: YT, archived: {} });
+  await db.doc("classes/Z").set({ name: "P6", teachers: ZT, archived: {} });
+  await db.doc("classes/W").set({ name: "P7", teachers: WT, archived: {} });
+  await db.doc("students/s1").set({ email: "101@seq.org", words: {}, ...inX });
+  await db.doc("students/s2").set({ email: "202@seq.org", words: {}, classId: "Y", teachers: YT });
   await db.doc("students/s3").set({ email: "303@seq.org", words: {} });
-  await db.doc("roster/101@seq.org").set({ name: "One", teacher: A });
-  await db.doc("roster/202@seq.org").set({ name: "Two", teacher: B });
-  await db.doc("roster/303@seq.org").set({ name: "Three", teacher: A });
-  await db.doc("roster/404@seq.org").set({ name: "Legacy" });          // no owner
-  await db.doc("assignments/s1").set({ lists: ["x"], teacher: A });
-  await db.doc("assignments/s2").set({ lists: ["y"], teacher: B });
-  await db.doc("notes/s1").set({ text: "a", teacher: A });
-  await db.doc("notes/s2").set({ text: "b", teacher: B });
-  // Arrived in A's class from the admin's: their own doc says A, their
-  // old assignment and note still say the admin.
-  await db.doc("students/s7").set({ email: "707@seq.org", teacher: A });
-  await db.doc("assignments/s7").set({ lists: [], teacher: ADMIN });
-  await db.doc("notes/s7").set({ text: "", teacher: ADMIN });
-  await db.doc("classes/" + A).set({ periods: ["1"] });
+  await db.doc("students/s4").set({ email: "404@seq.org", classId: "W", teachers: WT });
+  await db.doc("roster/101@seq.org").set({ name: "One", ...inX });
+  await db.doc("roster/202@seq.org").set({ name: "Two", classId: "Y", teachers: YT });
+  await db.doc("roster/303@seq.org").set({ name: "Three", ...inX });
+  await db.doc("roster/404@seq.org").set({ name: "Four", classId: "W", teachers: WT });
+  await db.doc("roster/505@seq.org").set({ name: "Legacy", period: "3" });     // no owner
+  await db.doc("assignments/s1").set({ lists: ["x"], ...inX });
+  await db.doc("assignments/s2").set({ lists: ["y"], classId: "Y", teachers: YT });
+  await db.doc("assignments/s4").set({ lists: [], classId: "W", teachers: WT });
+  await db.doc("notes/s1").set({ text: "a", ...inX });
+  await db.doc("notes/s2").set({ text: "b", classId: "Y", teachers: YT });
   await db.doc("config/class").set({ periods: ["3"] });
   for(let i = 0; i < 30; i++){
-    await db.doc("students/bulk" + i).set({ email: "9" + i + "@seq.org", teacher: A });
+    await db.doc("students/bulk" + i).set({ email: "9" + i + "@seq.org", ...inX });
   }
 });
 
 // ── teachers/ ─────────────────────────────────────────────────────────
-await ok("a teacher reads their own teachers/ doc", () => tA.doc("teachers/" + A).get());
-await no("…but not another teacher's", () => tA.doc("teachers/" + B).get());
-await no("a teacher can't list teachers", () => tA.collection("teachers").get());
-await no("a teacher can't add a teacher", () => tA.doc("teachers/c@seq.org").set({ email: "c@seq.org" }));
-await no("a student can't add themselves as a teacher", () => s1.doc("teachers/101@seq.org").set({ email: "101@seq.org" }));
-await ok("the admin lists teachers", () => admin.collection("teachers").get());
-await ok("the admin adds a teacher", () => admin.doc("teachers/c@seq.org").set({ email: "c@seq.org", name: "C" }));
-await ok("the admin removes one", () => admin.doc("teachers/c@seq.org").delete());
+await ok("a teacher lists the site's teachers (the co-teacher picker)", () => tA.collection("teachers").get());
+await no("someone who isn't a teacher can't", () => stranger.collection("teachers").get());
+await ok("…but may read their own (that's how auth.js asks)", () => stranger.doc("teachers/nobody@seq.org").get());
+await no("a teacher can't add a teacher to the site", () => tA.doc("teachers/d@seq.org").set({ email: "d@seq.org" }));
+await no("a student can't add themselves", () => s1.doc("teachers/101@seq.org").set({ email: "101@seq.org" }));
+await ok("the admin adds a teacher", () => admin.doc("teachers/d@seq.org").set({ email: "d@seq.org" }));
+await ok("the admin removes one", () => admin.doc("teachers/d@seq.org").delete());
+
+// ── classes/ ──────────────────────────────────────────────────────────
+await ok("A lists the classes A teaches", () => tA.collection("classes").where("teachers", "array-contains", A).get());
+await no("A can't list every class", () => tA.collection("classes").get());
+await no("C can't read class X", () => tC.doc("classes/X").get());
+await ok("A creates a class with A on it", () => tA.doc("classes/new1").set({ name: "New", teachers: [A] }));
+await no("A can't create a class without A on it", () => tA.doc("classes/new2").set({ name: "New", teachers: [C] }));
+await no("a student can't create a class", () => s1.doc("classes/new3").set({ name: "Mine", teachers: ["101@seq.org"] }));
+await ok("A renames X", () => tA.doc("classes/X").update({ name: "P3 Intensive" }));
+await no("C can't rename X", () => tC.doc("classes/X").update({ name: "Hijacked" }));
+await no("a class can never have zero teachers", () => tA.doc("classes/Z").update({ teachers: [] }));
+await ok("A deletes a class A teaches", () => tA.doc("classes/new1").delete());
 
 // ── students/ ─────────────────────────────────────────────────────────
-await ok("teacher A reads A's student", () => tA.doc("students/s1").get());
-await no("teacher A can't read B's student", () => tA.doc("students/s2").get());
-await no("…or an unowned one", () => tA.doc("students/s3").get());
-await ok("A's list query with where teacher==A succeeds", () => tA.collection("students").where("teacher", "==", A).get());
-await no("A's unfiltered list query is refused", () => tA.collection("students").get());
-await no("A can't list B's with where teacher==B", () => tA.collection("students").where("teacher", "==", B).get());
-await no("someone who isn't a teacher can't list", () => stranger.collection("students").where("teacher", "==", "nobody@seq.org").get());
+await ok("co-teacher B reads X's student", () => tB.doc("students/s1").get());
+await no("C, not on X, can't", () => tC.doc("students/s1").get());
+await ok("B's list query with array-contains B succeeds", () => tB.collection("students").where("teachers", "array-contains", B).get());
+await no("B's unfiltered list is refused", () => tB.collection("students").get());
+await no("C can't list X's students by naming B", () => tC.collection("students").where("teachers", "array-contains", B).get());
 await ok("the admin lists everyone", () => admin.collection("students").get());
-await no("a teacher still has no write on a student's doc", () => tA.doc("students/s1").set({ words: {} }, { merge: true }));
+await no("a teacher still can't write a student's practice", () => tA.doc("students/s1").set({ words: { "a|b": 1 } }, { merge: true }));
 
-await ok("a student saves their own doc without touching teacher", () => s1.doc("students/s1").set({ words: { "a|b": 1 } }, { merge: true }));
-await no("a student can't move themselves to another teacher", () => s1.doc("students/s1").set({ teacher: B }, { merge: true }));
-await ok("a student copies their roster row's teacher", () => s3.doc("students/s3").set({ teacher: A }, { merge: true }));
-await no("…and only that one", () => s3.doc("students/s3").set({ teacher: B }, { merge: true }));
-await ok("a brand-new student creates their doc with no teacher", () => as("s5", "505@seq.org").doc("students/s5").set({ email: "505@seq.org" }));
-await ok("a new student created with their roster row's teacher", () => as("s6", "101@seq.org").doc("students/s6").set({ teacher: A }));
-await no("a student can't read another student's doc", () => s1.doc("students/s2").get());
+await ok("a student saves their own doc without touching the class", () => s1.doc("students/s1").set({ words: { "a|b": 1 } }, { merge: true }));
+await no("a student can't set a class their roster row doesn't name", () => s1.doc("students/s1").set({ classId: "Y", teachers: YT }, { merge: true }));
+await no("…or pad the teachers list", () => s1.doc("students/s1").set({ classId: "X", teachers: [A, B, C] }, { merge: true }));
+await ok("a student copies their roster row's class", () => s3.doc("students/s3").set({ classId: "X", teachers: XT }, { merge: true }));
+await ok("a brand-new student creates their doc with no class", () => as("s5", "606@seq.org").doc("students/s5").set({ email: "606@seq.org" }));
 
-await ok("the admin moves a student (teacher field only)", () => admin.doc("students/s2").update({ teacher: A }));
-await no("…but may not change anything else on it", () => admin.doc("students/s2").update({ words: { "x|y": 1 } }));
-await ok("…and moves them back", () => admin.doc("students/s2").update({ teacher: B }));
+await ok("A moves a student between two classes A teaches (X → Z)", () => tA.doc("students/s1").update({ classId: "Z", teachers: ZT }));
+await no("…but not into a class A isn't on", () => tA.doc("students/s1").update({ classId: "Y", teachers: YT }));
+await no("C can't move A's student", () => tC.doc("students/s1").update({ classId: "Y", teachers: YT }));
+await no("a stamp must match the class's own teachers", () => tA.doc("students/s1").update({ classId: "Z", teachers: [A, C] }));
+await no("a teacher may change only the class fields", () => tA.doc("students/s1").update({ classId: "X", teachers: XT, words: {} }));
+await ok("A moves them back", () => tA.doc("students/s1").update(inX));
+await ok("the admin moves anyone anywhere", () => admin.doc("students/s2").update({ classId: "Y", teachers: YT }));
 
 // ── roster/ ───────────────────────────────────────────────────────────
-await ok("A reads A's roster row", () => tA.doc("roster/101@seq.org").get());
-await no("A can't read B's roster row (that's how the import knows)", () => tA.doc("roster/202@seq.org").get());
-await ok("A may read a row that doesn't exist", () => tA.doc("roster/999@seq.org").get());
-await ok("A may read an unowned legacy row", () => tA.doc("roster/404@seq.org").get());
-await ok("A's roster list query with where teacher==A", () => tA.collection("roster").where("teacher", "==", A).get());
-await no("A's unfiltered roster query is refused", () => tA.collection("roster").get());
-await ok("A creates a row owned by A", () => tA.doc("roster/777@seq.org").set({ name: "New", teacher: A }));
-await no("A can't create a row owned by B", () => tA.doc("roster/778@seq.org").set({ name: "New", teacher: B }));
-await no("A can't create a row with no owner", () => tA.doc("roster/779@seq.org").set({ name: "New" }));
-await no("A can't overwrite B's row", () => tA.doc("roster/202@seq.org").set({ name: "Mine now", teacher: A }));
-await ok("A claims the unowned legacy row", () => tA.doc("roster/404@seq.org").set({ teacher: A }, { merge: true }));
-await no("A can't delete B's row", () => tA.doc("roster/202@seq.org").delete());
-await ok("A deletes A's own row", () => tA.doc("roster/777@seq.org").delete());
+await ok("B gets a row in X", () => tB.doc("roster/101@seq.org").get());
+await no("C can't get a row in X (that's how the import knows)", () => tC.doc("roster/101@seq.org").get());
+await ok("C may get a row that doesn't exist", () => tC.doc("roster/999@seq.org").get());
+await ok("C may get an unowned legacy row", () => tC.doc("roster/505@seq.org").get());
+await ok("B's roster list with array-contains", () => tB.collection("roster").where("teachers", "array-contains", B).get());
+await no("an unfiltered roster list is refused", () => tB.collection("roster").get());
+await ok("A creates a row in X", () => tA.doc("roster/777@seq.org").set({ name: "New", ...inX }));
+await no("A can't create a row in Y", () => tA.doc("roster/778@seq.org").set({ name: "New", classId: "Y", teachers: YT }));
+await no("A can't create a row with a made-up teachers list", () => tA.doc("roster/779@seq.org").set({ name: "New", classId: "X", teachers: [A] }));
+await no("C can't take X's row into Y", () => tC.doc("roster/101@seq.org").set({ classId: "Y", teachers: YT }, { merge: true }));
+await ok("C claims the unowned legacy row", () => tC.doc("roster/505@seq.org").set({ classId: "Y", teachers: YT }, { merge: true }));
+await no("C can't delete X's row", () => tC.doc("roster/101@seq.org").delete());
+await ok("A deletes a row in X", () => tA.doc("roster/777@seq.org").delete());
 await ok("a student reads their own roster row", () => s1.doc("roster/101@seq.org").get());
-await no("…and nobody else's", () => s1.doc("roster/202@seq.org").get());
-await no("…and can't write it", () => s1.doc("roster/101@seq.org").set({ teacher: B }, { merge: true }));
-await ok("the admin rewrites any row (a move)", () => admin.doc("roster/202@seq.org").set({ teacher: B }, { merge: true }));
+await no("…nobody else's", () => s1.doc("roster/202@seq.org").get());
+await no("…and can't write it", () => s1.doc("roster/101@seq.org").set({ classId: "Y", teachers: YT }, { merge: true }));
 
 // ── assignments/ and notes/ ───────────────────────────────────────────
 for(const col of ["assignments", "notes"]){
-  await ok("A reads A's " + col, () => tA.doc(col + "/s1").get());
-  await no("A can't read B's " + col, () => tA.doc(col + "/s2").get());
-  await ok("A's " + col + " list query with where teacher==A", () => tA.collection(col).where("teacher", "==", A).get());
-  await no("A's unfiltered " + col + " query is refused", () => tA.collection(col).get());
-  await ok("A writes A's student's " + col, () => tA.doc(col + "/s1").set({ teacher: A, updatedAt: 1 }, { merge: true }));
-  await no("A can't write B's student's " + col + " even claiming them", () => tA.doc(col + "/s2").set({ teacher: A, x: 1 }, { merge: true }));
-  await no("A can't write " + col + " without naming themselves", () => tA.doc(col + "/s1").set({ teacher: B }, { merge: true }));
-  await no("A can't create " + col + " stamped with B", () => tA.doc(col + "/fresh").set({ teacher: B }));
-  await ok("A takes over a stale " + col + " doc once the student's own doc names A", () =>
-    tA.doc(col + "/s7").set({ teacher: A, z: 1 }, { merge: true }));
-  await ok("the admin writes any " + col, () => admin.doc(col + "/s2").set({ teacher: B, y: 1 }, { merge: true }));
+  await ok("co-teacher B reads " + col + " in X", () => tB.doc(col + "/s1").get());
+  await no("C can't read " + col + " in X", () => tC.doc(col + "/s1").get());
+  await ok("B lists " + col + " with array-contains", () => tB.collection(col).where("teachers", "array-contains", B).get());
+  await no("an unfiltered " + col + " list is refused", () => tB.collection(col).get());
+  await ok("B writes " + col + " for X's student", () => tB.doc(col + "/s1").set({ updatedAt: 1, ...inX }, { merge: true }));
+  await no("C can't write " + col + " for X's student, even stamping Y", () => tC.doc(col + "/s1").set({ classId: "Y", teachers: YT }, { merge: true }));
+  await no("A can't create " + col + " stamped for a class A isn't on", () => tA.doc(col + "/fresh").set({ classId: "Y", teachers: YT }));
+  await ok("the admin writes any " + col, () => admin.doc(col + "/s2").set({ y: 1 }, { merge: true }));
 }
 await ok("a student reads their own assignment", () => s1.doc("assignments/s1").get());
 await no("a student can't read their own note", () => s1.doc("notes/s1").get());
 await no("a student can't write their assignment", () => s1.doc("assignments/s1").set({ lists: ["z"] }, { merge: true }));
 
-/* The Assign board saves a whole class in ONE batch, and each assignment
-   write costs a get() of that student's doc. Firestore caps those calls
-   per request; this is the case that proves a period of thirty saves. */
+/* The Assign board saves a whole class in ONE batch. Each write's stamp
+   is checked with a get() of the same class doc, which Firestore counts
+   once; this is the case that proves a class of thirty saves. */
 function thirty(){
   const batch = tA.batch();
-  for(let i = 0; i < 30; i++) batch.set(tA.doc("assignments/bulk" + i), { teacher: A, lists: ["x" + Date.now()] }, { merge: true });
+  for(let i = 0; i < 30; i++) batch.set(tA.doc("assignments/bulk" + i), { lists: ["x" + Date.now()], ...inX }, { merge: true });
   return batch.commit();
 }
 await ok("A creates thirty assignments in one batch", thirty);
 await ok("…and updates the same thirty in one batch", thirty);
-await ok("A imports forty roster rows in one batch", () => {
+await ok("A imports forty roster rows into X in one batch", () => {
   const batch = tA.batch();
-  for(let i = 0; i < 40; i++) batch.set(tA.doc("roster/8" + i + "@seq.org"), { teacher: A, name: "R" + i }, { merge: true });
+  for(let i = 0; i < 40; i++) batch.set(tA.doc("roster/8" + i + "@seq.org"), { name: "R" + i, ...inX }, { merge: true });
   return batch.commit();
 });
 
-// ── classes/ and config/class ─────────────────────────────────────────
-await ok("A reads and writes their own classes doc", () => tA.doc("classes/" + A).set({ periods: ["1", "2"] }, { merge: true }));
-await no("A can't read B's classes doc", () => tA.doc("classes/" + B).get());
+// ── changing a class's co-teachers ────────────────────────────────────
+await ok("A removes B from X", () => tA.doc("classes/X").update({ teachers: [A] }));
+await ok("…and rewrites X's members (roster, student, assignment, note) in one batch", () => {
+  const batch = tA.batch();
+  const st = { classId: "X", teachers: [A] };
+  batch.set(tA.doc("roster/101@seq.org"), st, { merge: true });
+  batch.set(tA.doc("students/s1"), st, { merge: true });
+  batch.set(tA.doc("assignments/s1"), st, { merge: true });
+  batch.set(tA.doc("notes/s1"), st, { merge: true });
+  return batch.commit();
+});
+await no("B is cut off from the student", () => tB.doc("students/s1").get());
+await no("…their roster row", () => tB.doc("roster/101@seq.org").get());
+await no("…their note", () => tB.doc("notes/s1").get());
+await no("…and the class", () => tB.doc("classes/X").get());
+await ok("a half-finished rewrite can be finished by anyone on the class", () =>
+  tA.doc("roster/303@seq.org").set({ classId: "X", teachers: [A] }, { merge: true }));
+
+await ok("B removes themselves from W", () => tB.doc("classes/W").update({ teachers: [A] }));
+await ok("…and may still rewrite W's members to the class's new list", () => {
+  const batch = tB.batch();
+  const st = { classId: "W", teachers: [A] };
+  batch.set(tB.doc("roster/404@seq.org"), st, { merge: true });
+  batch.set(tB.doc("students/s4"), st, { merge: true });
+  batch.set(tB.doc("assignments/s4"), st, { merge: true });
+  return batch.commit();
+});
+await no("…after which B can't read them", () => tB.doc("students/s4").get());
+
+// ── config/class ──────────────────────────────────────────────────────
 await ok("the admin reads the old config/class", () => admin.doc("config/class").get());
 await no("…which nobody writes any more", () => admin.doc("config/class").set({ periods: [] }));
 await no("a teacher can't read config/class", () => tA.doc("config/class").get());

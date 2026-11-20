@@ -93,6 +93,45 @@
       detail: detail || (JSON.stringify(actual) + (actual===expected ? "" : " (expected " + JSON.stringify(expected) + ")")) });
   }
 
+  /* The dashboard's fixtures below were written when students had a
+     free-text PERIOD. Classes replaced periods; rather than rewrite every
+     fixture, the dashboard's feed() is wrapped once here so an old-style
+     fixture becomes the class model: period "3" on an assignment or a
+     roster row (or in classCfg.periods) becomes class "c3", named
+     "Period 3" and taught by the test's teacher, and a `period` filter
+     becomes that class. Tests written for classes pass `classes` and
+     `filter` and go straight through. */
+  (function(){
+    var T = window.EITeacher._internals, feed = T.feed;
+    T.feed = function(st){
+      st = st || {};
+      var who = st.me || "t@seq.org";
+      var classes = st.classes || {};
+      function cls(per){
+        if(per == null || per === "") return "";
+        var id = "c" + per;
+        if(!classes[id]) classes[id] = { name: "Period " + per, teachers: [who] };
+        return id;
+      }
+      ((st.classCfg || {}).periods || []).forEach(cls);
+      ["assignments", "roster"].forEach(function(col){
+        var map = st[col] || {};
+        for(var k in map){
+          var d = map[k];
+          if(!d || !Object.prototype.hasOwnProperty.call(d, "period")) continue;
+          var id = cls(d.period);
+          if(id){ d.classId = id; d.teachers = classes[id].teachers.slice(); }
+          delete d.period;
+        }
+      });
+      st.classes = classes;
+      if(Object.prototype.hasOwnProperty.call(st, "period")){
+        st.filter = (st.period && st.period !== T.NO_CLASS) ? "c" + st.period : st.period;
+      }
+      return feed(st);
+    };
+  })();
+
   var END = { atStart:false, blendLength:2 };
   var START = { atStart:true, blendLength:2 };
   function match(heard, target, level, cfg){
@@ -2028,25 +2067,18 @@
 
     (function(){
       feed(aClass());
-      var b = T2.importBody(rows(), 1000);
+      var b = T2.importBody(rows(), 1000, function(){ return "c9"; });
       eq("every row becomes a roster document", Object.keys(b.roster).sort().join(","), "1@seq.org,2@seq.org,3@seq.org");
       eq("…carrying the name", b.roster["1@seq.org"].name, "Ana Ruiz");
       eq("…the ID", b.roster["1@seq.org"].id, "1");
-      eq("…the period", b.roster["1@seq.org"].period, "3");
+      eq("…the class it was put in", b.roster["1@seq.org"].classId, "c9");
+      eq("…with a copy of that class's teachers, which the rules check",
+         JSON.stringify(b.roster["1@seq.org"].teachers), '["t@seq.org"]');
+      eq("…no period: classes replaced them",
+         Object.prototype.hasOwnProperty.call(b.roster["1@seq.org"], "period"), false);
       eq("…and no lists: games are chosen on the dashboard",
          Object.prototype.hasOwnProperty.call(b.roster["1@seq.org"], "lists"), false);
-      eq("a period the class didn't have is created", b.periods.sort().join(","), "3,4");
-      eq("…and one it already had isn't", b.periods.indexOf("9"), -1);
-
-      eq("a signed-in student with NO assignment gets one filled in",
-         Object.keys(b.assignments).join(","), "u2");
-      eq("…from the roster row", b.assignments.u2.period, "4");
-      eq("…carrying a period and no lists",
-         Object.prototype.hasOwnProperty.call(b.assignments.u2, "lists"), false);
-      eq("a signed-in student who already has one is never touched",
-         Object.prototype.hasOwnProperty.call(b.assignments, "u1"), false);
-      eq("a student who hasn't signed in gets no assignment at all",
-         Object.keys(b.assignments).length, 1);
+      eq("an import writes roster rows and nothing else", Object.keys(b).join(","), "roster");
     })();
 
     // The preview's status column.
@@ -2091,44 +2123,26 @@
          T2.effectiveLists("u2").ids.length, 0);
     })();
 
-    /* A student's period is read from the assignment first and the roster
-       row second — everywhere. Reading only the assignment put a student
-       imported into period 3 who signed in later under "No period yet" on
-       the board, hidden by the Period 3 filter, and out of that period's
-       Trouble Spots, while the Students tab said Period 3. */
+    /* A student's class is read from their roster row first — the record,
+       and what store.js copies — then their own doc, then their
+       assignment. */
     (function(){
       var c = aClass();
-      c.assignments = { u1: { period:"9", lists:["nonsense"] } };   // u2 has none
-      c.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"3" } };
+      c.classes = { cA: { name: "A", teachers: ["t@seq.org"] }, cB: { name: "B", teachers: ["t@seq.org"] } };
+      c.assignments = { u1: { classId: "cB", lists: ["nonsense"] } };
+      c.roster = { "1@seq.org": { email:"1@seq.org", name:"Ana Ruiz", classId: "cA", teachers: ["t@seq.org"] } };
+      c.students[1].classId = "cB";
       feed(c);
-      eq("a student with no assignment gets their period off the roster row",
-         T2.studentPeriod("u2"), "3");
-      eq("…and an assignment still outranks the row", T2.studentPeriod("u1"), "9");
-
-      c.assignments.u2 = { period:"4" };
+      eq("the roster row's class wins", T2.studentClass("u1"), "cA");
+      eq("…then the student's own doc", T2.studentClass("u2"), "cB");
+      c.roster = {}; c.students[1].classId = "";
+      c.assignments = { u1: { classId: "cB", lists: [] } };
       feed(c);
-      eq("an assignment written later moves them", T2.studentPeriod("u2"), "4");
-
-      c.assignments.u2 = { period:null };
+      eq("…then their assignment", T2.studentClass("u1"), "cB");
+      eq("a student in no class is in the No class bucket", T2.studentClass("u2"), null);
+      c.assignments = { u1: { classId: "gone" } };
       feed(c);
-      eq("a missing assignment period falls back to the row", T2.studentPeriod("u2"), "3");
-
-      c.assignments.u2 = { period:"" };
-      feed(c);
-      eq("a cleared period (\"\") is the teacher's word and beats the row", T2.studentPeriod("u2") || null, null);
-
-      var c2 = aClass();
-      c2.assignments = {};
-      c2.roster = {};
-      feed(c2);
-      eq("a student in neither place has no period", T2.studentPeriod("u2"), null);
-      eq("…and a pending student reads their own row",
-         (function(){
-           var c3 = aClass();
-           c3.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
-           feed(c3);
-           return T2.studentPeriod("roster:3@seq.org");
-         })(), "5");
+      eq("…and so is one whose class this page can't see", T2.studentClass("u1"), null);
     })();
 
     // Board edits for a pending student go to the roster, not assignments.
@@ -2758,7 +2772,7 @@
     eq("no filter shows the whole class", T.visibleStudents().length, 4);
     T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: "3" });
     eq("a period filter narrows it", T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u1,u2");
-    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: T.NO_PERIOD });
+    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: T.NO_CLASS });
     eq("'no period yet' finds the students nobody has placed",
        T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u4");
     T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, q: "mar" });
@@ -2783,10 +2797,9 @@
     T.setScope("s:u3", []);
     var body = T.saveBody(T.dirtyScopes(), 1234);
     eq("one document per changed student", Object.keys(body.students).sort().join(","), "u1,u3");
-    eq("…carrying the lists, a timestamp and the owner the rules require",
-       JSON.stringify(body.students.u1), '{"lists":["nonsense"],"updatedAt":1234,"teacher":"t@seq.org"}');
-    eq("…and nothing else, so their period survives the merge",
-       Object.keys(body.students.u1).sort().join(","), "lists,teacher,updatedAt");
+    eq("…carrying the lists, a timestamp and the class stamp the rules check",
+       JSON.stringify(body.students.u1), '{"lists":["nonsense"],"updatedAt":1234,"classId":"c3","teachers":["t@seq.org"]}');
+    eq("…and nothing else", Object.keys(body.students.u1).sort().join(","), "classId,lists,teachers,updatedAt");
     eq("taking everything away writes an empty list, never null", body.students.u3.lists.length, 0);
     eq("nothing class-wide is ever written", "config" in body, false);
 
@@ -2828,7 +2841,7 @@
     // A period heading's box selects everyone shown under it.
     T.feed(aClass());
     T.renderAssign();
-    var pbox = document.querySelector('#abGrid [data-pickgroup="3"]');
+    var pbox = document.querySelector('#abGrid [data-pickgroup="c3"]');
     pbox.checked = true;
     pbox.dispatchEvent(new Event("change", { bubbles: true }));
     eq("ticking a period selects its students",
@@ -2874,7 +2887,7 @@
     cls.period = "9";
     T.feed(cls);
     T.renderAssign();
-    eq("a filter naming a period this class doesn't have falls back to all",
+    eq("a filter naming a class this page doesn't have falls back to all",
        T.visibleStudents().length, 4);
 
     /* ---- the picker binds its handlers once ----
@@ -3029,9 +3042,9 @@
     var roster = T.rosterCsv().split("\r\n");
     eq("the roster has a header and a row per student", roster.length, 3, JSON.stringify(roster));
     eq("the header names the columns",
-       roster[0], "Name,Email,Period,Lists,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Signed in,Note");
+       roster[0], "Name,Email,Class,Lists,Answers,Accuracy %,Words solid,Words shaky,Slow but right,Top error,Last active,Signed in,Note");
     eq("a name with a comma and an apostrophe survives whole",
-       roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,3,'), 0);
+       roster[1].indexOf('"Ana O\'Brien, Jr.",ana@seq.org,Period 3,'), 0);
     eq("the roster carries the same sentence the screen shows",
        roster[1].indexOf("Red Words: 1 🃏") !== -1, true);
     eq("…and the note, quoted for its comma",
@@ -3044,7 +3057,7 @@
     eq("a word with no attempts is left out",
        T.wordsCsv().indexOf("never") , -1);
     eq("the header names the columns",
-       words[0], "Name,Email,Period,List,Pattern,Mode,Word,Attempts,Correct,Accuracy %,Solid,Slow,Top error,Last practised");
+       words[0], "Name,Email,Class,List,Pattern,Mode,Word,Attempts,Correct,Accuracy %,Solid,Slow,Top error,Last practised");
     // Rows come out sorted by stat key, so "said" precedes "would".
     eq("a row names the list, its pattern and the mode in words",
        words[1].indexOf("Red Words · List 1,irregular,Cards,said,4,3,75,no") !== -1, true, words[1]);
@@ -3573,13 +3586,15 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
-     Several teachers, one owner per student
+     Classes and co-teachers
 
-     Ownership is a `teacher` field the rules check on every document.
-     These pin the dashboard's half: an import never takes another
-     teacher's student, every write names the owner, the admin's
-     migration gives every unowned document an owner exactly once, and a
-     move rewrites the four documents that say whose a student is.
+     A class is a named group with one or more teachers; every document
+     about a student carries the class's id and a copy of its teachers,
+     which is what the rules check. These pin the dashboard's half: an
+     import never takes a student out of a class the importer doesn't
+     teach, rows land in the right class, the admin's migration turns
+     periods into classes exactly once, self-heal brings stale copies back
+     in line, and a move or a co-teacher change rewrites the right docs.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
     var T = window.EITeacher._internals;
@@ -3589,130 +3604,168 @@
       for(var k in (extra || {})) s[k] = extra[k];
       return s;
     }
+    var CLASSES = function(){
+      return {
+        x: { name: "P3 Intensive", teachers: [ME, B] },
+        z: { name: "Period 5",     teachers: [ME] },
+        y: { name: "P6",           teachers: [B] }
+      };
+    };
 
     // ---- what one lookup says ----
-    eq("a refused lookup is another teacher's student", T.classifyProbe({ denied:true }, ME), "other");
+    eq("a refused lookup is a student in another class", T.classifyProbe({ denied:true }, ME), "other");
     eq("no row anywhere is new", T.classifyProbe({ exists:false }, ME), "new");
-    eq("a row with no owner can be claimed", T.classifyProbe({ exists:true, teacher:"" }, ME), "free");
-    eq("a row that names me is mine", T.classifyProbe({ exists:true, teacher:"A@seq.org" }, ME), "mine");
-    eq("a row that names someone else (the admin can see it) is theirs",
-       T.classifyProbe({ exists:true, teacher:B }, ME), "other");
+    eq("a row in no class (from before classes) can be claimed", T.classifyProbe({ exists:true }, ME), "free");
+    eq("a row whose class I teach is mine", T.classifyProbe({ exists:true, teachers:[B, "A@seq.org"] }, ME), "mine");
+    eq("a row in a class I don't teach (the admin can see it) is another class's",
+       T.classifyProbe({ exists:true, teachers:[B] }, ME), "other");
 
     // ---- which rows an import writes ----
-    T.feed({ me: ME, students: [], assignments: {}, roster: {
-        "1@seq.org": { email:"1@seq.org", name:"One", teacher: ME }
+    T.feed({ me: ME, classes: CLASSES(), students: [], assignments: {}, roster: {
+        "1@seq.org": { email:"1@seq.org", name:"One", classId: "x", teachers: [ME, B] }
       }, probe: { "2@seq.org":"other", "3@seq.org":"new", "4@seq.org":"free" } });
     var rows = [
       { id:"1", name:"One",   email:"1@seq.org", period:"3" },
       { id:"2", name:"Two",   email:"2@seq.org", period:"3" },
-      { id:"3", name:"Three", email:"3@seq.org", period:"3" },
-      { id:"4", name:"Four",  email:"4@seq.org", period:"3" }
+      { id:"3", name:"Three", email:"3@seq.org", period:"5" },
+      { id:"4", name:"Four",  email:"4@seq.org", period:"9" },
+      { id:"5", name:"Five",  email:"5@seq.org", period:"" }
     ];
     var plan = T.importPlan(rows);
-    eq("an import skips the student another teacher has", plan.skip.map(function(r){ return r.id; }).join(","), "2");
-    eq("…and writes mine, the new one and the unowned one",
-       plan.take.map(function(r){ return r.id; }).join(","), "1,3,4");
+    eq("an import skips the student in a class the importer doesn't teach",
+       plan.skip.map(function(r){ return r.id; }).join(","), "2");
+    eq("…and writes the rest", plan.take.map(function(r){ return r.id; }).join(","), "1,3,4,5");
     eq("the preview says the skipped one is skipped", T.rosterStatus(rows[1]).key, "other");
-    eq("the skip message tells the teacher what to do",
-       /already in another teacher.s class \(Two\) . ask the admin to move them\./.test(T.skippedText(plan.skip)), true);
+    eq("the skip message says what to do",
+       /already in another class \(Two\) . ask a teacher on that class or the admin to move them\./.test(T.skippedText(plan.skip)), true);
     eq("nothing skipped says nothing", T.skippedText([]), "");
-    var body = T.importBody(plan.take, 5);
-    eq("every row an import writes names the importer",
-       Object.keys(body.roster).every(function(e){ return body.roster[e].teacher === ME; }), true);
+
+    // ---- which class each row goes into ----
+    var mine = ["x", "z"];
+    var t = T.importTargets(plan.take, "", "", mine);
+    eq("period 3 matches the class called P3 Intensive", t.target["1@seq.org"], "x");
+    eq("period 5 matches the class called Period 5", t.target["3@seq.org"], "z");
+    eq("a period that matches nothing makes a new class", t.target["4@seq.org"], "new:Period 9");
+    eq("a row with no period goes to No class yet", t.target["5@seq.org"], "new:No class yet");
+    eq("…and each new class is made once", t.create.join("|"), "Period 9|No class yet");
+    eq("a class I don't teach is never matched", T.importTargets([rows[0]], "", "", ["y"]).target["1@seq.org"], "new:Period 3");
+    eq("choosing a class puts everyone in it", T.importTargets(plan.take, "z", "", mine).create.length, 0);
+    eq("…or a new class, by name", T.importTargets(plan.take, "+new", "P7 Support", mine).target["3@seq.org"], "new:P7 Support");
+    eq("name matching: 3 ↔ P3", T.nameMatchesPeriod("P3", "3"), true);
+    eq("…but not 3 ↔ P30", T.nameMatchesPeriod("P30 Intensive", "3"), false);
+
+    var body = T.importBody(plan.take, 5, function(email){ return email === "3@seq.org" ? "z" : "x"; });
+    eq("every row an import writes carries its class's id",
+       body.roster["3@seq.org"].classId + "," + body.roster["1@seq.org"].classId, "z,x");
+    eq("…and a copy of that class's teachers",
+       JSON.stringify(body.roster["1@seq.org"].teachers), JSON.stringify([ME, B]));
 
     // The admin can read every row, so the answer comes from the row itself.
-    T.feed({ me: ADMIN, admin: true, students: [], assignments: {}, roster: {
-        "5@seq.org": { email:"5@seq.org", name:"Five", teacher: B }
+    T.feed({ me: ADMIN, admin: true, classes: CLASSES(), students: [], assignments: {}, roster: {
+        "6@seq.org": { email:"6@seq.org", name:"Six", classId: "y", teachers: [B] }
       } });
-    eq("the admin's import doesn't take a row another teacher owns either",
-       T.importPlan([{ id:"5", name:"Five", email:"5@seq.org", period:"" }]).skip.length, 1);
-
-    // ---- the assignment fill-in ----
-    eq("no assignment is blank", T.blankAssignment(undefined), true);
-    eq("one carrying only an owner (left by a move) is blank", T.blankAssignment({ teacher: B }), true);
-    eq("one with a period is not", T.blankAssignment({ period: "" }), false);
-    eq("one with lists is not", T.blankAssignment({ lists: [] }), false);
-
-    // ---- whose a student is ----
-    T.feed({ me: ME, students: [kid("u1", "1@seq.org", { teacher: B })], assignments: {}, roster: {
-      "1@seq.org": { email:"1@seq.org", name:"U1", teacher: "C@seq.org" } } });
-    eq("the roster row decides whose a student is", T.ownerOf(T.studentByUid("u1")), "c@seq.org");
-    T.feed({ me: ME, students: [kid("u1", "1@seq.org", { teacher: B })], assignments: {} });
-    eq("…then their own doc", T.ownerOf(T.studentByUid("u1")), B);
-    T.feed({ me: ME, students: [kid("u1", "1@seq.org")], assignments: {} });
-    eq("…then whoever is signed in", T.ownerOf(T.studentByUid("u1")), ME);
+    eq("the admin's import doesn't take a row from a class the admin isn't on either",
+       T.importPlan([{ id:"6", name:"Six", email:"6@seq.org", period:"" }]).skip.length, 1);
 
     // ---- the admin's migration ----
     var raw = {
       students: [
-        { id:"u1", email:"1@seq.org", teacher:"" },        // nobody's
-        { id:"u2", email:"2@seq.org", teacher:B },         // B's, and the roster agrees
-        { id:"u3", email:"3@seq.org", teacher:ADMIN },     // the roster says B now
-        { id:"t1", email:"b@seq.org", teacher:"" }         // a teacher's own record
+        { id:"u1", email:"1@seq.org", classId:"", teachers:null },               // period 3 on the assignment
+        { id:"u2", email:"2@seq.org", classId:"", teachers:null },               // no period anywhere
+        { id:"u3", email:"3@seq.org", classId:"x", teachers:[ME, B] },           // already in a class
+        { id:"t1", email:"b@seq.org", classId:"", teachers:null }                // a teacher's own record
       ],
-      assignments: { u1:"", u2:B, u3:ADMIN, orphan:"" },
-      notes: { u2:"" },
-      roster: { "2@seq.org":B, "3@seq.org":B, "9@seq.org":"" },
-      classesExists: false,
-      configPeriods: ["3","5"]
+      assignments: { u1: { classId:"", teachers:null, period:"3" }, u3: { classId:"", teachers:null, period:"3" },
+                     orphan: { classId:"", teachers:null, period:"8" } },
+      notes: { u1: { classId:"", teachers:null } },
+      roster: { "1@seq.org": { classId:"", teachers:null, period:"4" },
+                "9@seq.org": { classId:"", teachers:null, period:"5" } },
+      configPeriods: ["3", "11"]
     };
-    var teachersKnown = {}; teachersKnown[ADMIN] = true; teachersKnown[B] = true;
-    var w = T.migrationBody(raw, ADMIN, teachersKnown);
-    function wrote(col, id){
-      var hit = w.filter(function(x){ return x.col === col && x.id === id; })[0];
-      return hit ? hit.data.teacher || JSON.stringify(hit.data) : null;
-    }
-    eq("an unowned roster row goes to the admin", wrote("roster", "9@seq.org"), ADMIN);
-    eq("an owned one is left alone", wrote("roster", "2@seq.org"), null);
-    eq("an unowned student goes to the admin", wrote("students", "u1"), ADMIN);
-    eq("a student already right is left alone", wrote("students", "u2"), null);
-    eq("a student whose roster row moved follows it", wrote("students", "u3"), B);
+    var n = 0;
+    function newId(){ return "new" + (++n); }
+    var tk = {}; tk[ADMIN] = true; tk[B] = true;
+    var w = T.migrationBody(raw, [], ADMIN, tk, newId, 7);
+    function wrote(col, id){ return w.filter(function(x){ return x.col === col && x.id === id; })[0] || null; }
+    function made(name){ return w.filter(function(x){ return x.col === "classes" && x.data.name === name; })[0] || null; }
+    eq("each period becomes a class owned by the admin",
+       !!made("3") && JSON.stringify(made("3").data.teachers) === JSON.stringify([ADMIN]), true);
+    eq("…once, however many students are in it",
+       w.filter(function(x){ return x.col === "classes" && x.data.name === "3"; }).length, 1);
+    eq("the assignment's period wins over the roster's, as it always did",
+       wrote("students", "u1").data.classId, made("3").id);
+    eq("…and the roster row follows the student", wrote("roster", "1@seq.org").data.classId, made("3").id);
+    eq("…with its period field deleted", wrote("roster", "1@seq.org").data.period, T.DELETE);
+    eq("a student with no period goes to No class yet", wrote("students", "u2").data.classId, made("No class yet").id);
+    eq("a pending roster row gets its own period's class", wrote("roster", "9@seq.org").data.classId, made("5").id);
+    eq("a note follows its student", wrote("notes", "u1").data.classId, made("3").id);
+    eq("a student already in a class is left to self-heal", wrote("students", "u3"), null);
+    eq("…and so is their assignment", wrote("assignments", "u3"), null);
+    eq("an orphan assignment goes by its own period", wrote("assignments", "orphan").data.classId, made("8").id);
     eq("a teacher's own practice record is nobody's student", wrote("students", "t1"), null);
-    eq("an assignment follows its student", wrote("assignments", "u3"), B);
-    eq("…an unowned one too", wrote("assignments", "u1"), ADMIN);
-    eq("…one with no student behind it goes to the admin", wrote("assignments", "orphan"), ADMIN);
-    eq("a note follows its student", wrote("notes", "u2"), B);
-    eq("the old shared periods are copied to the admin's own class",
-       wrote("classes", ADMIN), JSON.stringify({ periods: ["3","5"] }));
-    eq("every write is one field (or the periods), so it can't clobber anything",
-       w.every(function(x){ return Object.keys(x.data).length === 1; }), true);
-    // Run it again over what the first pass produced: nothing left to do.
-    var after = {
-      students: [
-        { id:"u1", email:"1@seq.org", teacher:ADMIN }, { id:"u2", email:"2@seq.org", teacher:B },
-        { id:"u3", email:"3@seq.org", teacher:B }, { id:"t1", email:"b@seq.org", teacher:"" }
-      ],
-      assignments: { u1:ADMIN, u2:B, u3:B, orphan:ADMIN }, notes: { u2:B },
-      roster: { "2@seq.org":B, "3@seq.org":B, "9@seq.org":ADMIN },
-      classesExists: true, configPeriods: ["3","5"]
+    eq("the first time, config/class periods become classes even when empty", !!made("11"), true);
+    var again = T.migrationBody(raw, [{ id:"old", name:"3", teachers:[ADMIN] }], ADMIN, tk, newId, 7);
+    eq("an existing class with the period's name is reused, not duplicated",
+       again.filter(function(x){ return x.col === "students" && x.id === "u1"; })[0].data.classId, "old");
+    eq("…and config/class is only read when there are no classes at all",
+       again.filter(function(x){ return x.col === "classes" && x.data.name === "11"; }).length, 0);
+    var done = {
+      students: [{ id:"u1", email:"1@seq.org", classId:"k", teachers:[ADMIN] }],
+      assignments: { u1: { classId:"k", teachers:[ADMIN] } }, notes: {},
+      roster: { "1@seq.org": { classId:"k", teachers:[ADMIN] } }, configPeriods: ["3"]
     };
-    eq("a second run writes nothing — it's safe on every load",
-       T.migrationBody(after, ADMIN, teachersKnown).length, 0);
+    eq("a migrated database migrates to nothing — safe on every load",
+       T.migrationBody(done, [{ id:"k", name:"3", teachers:[ADMIN] }], ADMIN, tk, newId, 7).length, 0);
 
-    // ---- moving students ----
-    T.feed({ me: ADMIN, admin: true, students: [kid("u1", "1@seq.org", { teacher: ME })],
-      assignments: { u1: { period:"3", teacher: ME } },
-      roster: { "1@seq.org": { email:"1@seq.org", name:"U1", teacher: ME },
-                "7@seq.org": { email:"7@seq.org", name:"Seven", period:"3", teacher: ME } } });
-    var mv = T.moveBody([T.studentByUid("u1"), T.studentByUid("roster:7@seq.org")], B);
+    // ---- self-heal ----
+    var cmap = { x: { teachers: [ME] }, y: { teachers: [B] } };
+    var stale = {
+      students: [{ id:"u1", email:"1@seq.org", classId:"x", teachers:[ME, B] },
+                 { id:"u2", email:"2@seq.org", classId:"x", teachers:[ME] }],
+      assignments: { u1: { classId:"x", teachers:[ME, B] }, u2: { classId:"x", teachers:[ME] } },
+      notes: { u1: { classId:"x", teachers:[ME] } },
+      roster: { "1@seq.org": { classId:"x", teachers:[ME, B] }, "7@seq.org": { classId:"x", teachers:[B] } }
+    };
+    var h = T.healBody(stale, cmap, ME, false);
+    function healed(col, id){ return h.filter(function(x){ return x.col === col && x.id === id; })[0] || null; }
+    eq("a half-finished co-teacher change is finished: the student doc", JSON.stringify(healed("students", "u1").data.teachers), JSON.stringify([ME]));
+    eq("…the assignment", !!healed("assignments", "u1"), true);
+    eq("…the roster row", !!healed("roster", "1@seq.org"), true);
+    eq("…a pending student's row", !!healed("roster", "7@seq.org"), true);
+    eq("…and nothing already right is touched", healed("students", "u2") || healed("notes", "u1"), null);
+    eq("a teacher can't stamp a class they don't teach, so doesn't try",
+       T.healBody({ students: [{ id:"u9", email:"", classId:"y", teachers:[] }], assignments:{}, notes:{}, roster:{} }, cmap, ME, false).length, 0);
+    eq("…the admin can", T.healBody({ students: [{ id:"u9", email:"", classId:"y", teachers:[] }], assignments:{}, notes:{}, roster:{} }, cmap, ADMIN, true).length, 1);
+
+    // ---- moving students, and changing a class's teachers ----
+    T.feed({ me: ME, classes: CLASSES(), students: [kid("u1", "1@seq.org", { classId: "x" })],
+      assignments: { u1: { lists: [], classId: "x", teachers: [ME, B] } },
+      roster: { "1@seq.org": { email:"1@seq.org", name:"U1", classId: "x", teachers: [ME, B] },
+                "7@seq.org": { email:"7@seq.org", name:"Seven", classId: "x", teachers: [ME, B] } } });
+    var mv = T.moveBody([T.studentByUid("u1"), T.studentByUid("roster:7@seq.org")], "z");
     eq("a signed-in student's move writes four documents, a pending one's one",
        mv.map(function(x){ return x.col; }).join(","), "roster,students,assignments,notes,roster");
-    eq("…each naming the new teacher and nothing else",
-       mv.every(function(x){ return x.data.teacher === B && Object.keys(x.data).length === 1; }), true);
-    eq("students per teacher", T.teacherCounts()[ME], 2);
-    eq("a period move reaches everyone in it", T.periodMovers("3", "").length, 2);
-    eq("…and only those with the teacher named", T.periodMovers("3", B).length, 0);
+    eq("…each stamped with the new class and its teachers, and nothing else",
+       mv.every(function(x){ return x.data.classId === "z" && JSON.stringify(x.data.teachers) === JSON.stringify([ME]) &&
+                                    Object.keys(x.data).length === 2; }), true);
+    var rs = T.restampBody("x");
+    eq("a co-teacher change rewrites every member's docs that exist",
+       rs.map(function(x){ return x.col + ":" + x.id; }).join(","), "roster:1@seq.org,students:u1,assignments:u1,roster:7@seq.org");
+    eq("the classes a teacher is on", T.teacherClasses(B).join(","), "x,y");
+    eq("…and the ones they teach alone, which block removing them", T.soleClasses(B).join(","), "y");
 
-    // ---- store.js: the student copies their roster row's teacher ----
-    var copy = EIStore._internals.teacherToCopy;
-    eq("a roster teacher the doc doesn't have is copied", copy({ teacher:"A@seq.org" }, null), ME);
-    eq("…not when the doc already has it", copy({ teacher:ME }, ME), null);
-    eq("…and nothing when the row has no teacher", copy({ name:"x" }, B), null);
-    eq("…or there's no row at all", copy(null, B), null);
+    // ---- store.js: the student copies their roster row's class ----
+    var copy = EIStore._internals.classToCopy;
+    eq("a roster class the doc doesn't have is copied",
+       JSON.stringify(copy({ classId:"x", teachers:[ME] }, {})), JSON.stringify({ classId:"x", teachers:[ME] }));
+    eq("…and a changed teachers list is too", !!copy({ classId:"x", teachers:[ME, B] }, { classId:"x", teachers:[ME] }), true);
+    eq("…not when the doc already matches", copy({ classId:"x", teachers:[ME] }, { classId:"x", teachers:[ME] }), null);
+    eq("…and nothing when the row has no class", copy({ name:"x" }, { classId:"x" }), null);
+    eq("…or there's no row at all", copy(null, { classId:"x" }), null);
   })();
 
   /* ══════════════════════════════════════════════════════════════════
-     The console: the class-wide period filter, the summary cards,
+     The console: the class filter, the summary cards,
      archiving, Manage's sections, the backup file and Student view.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
@@ -3743,26 +3796,26 @@
 
     // ---- the filter, and its fallback ----
     T.feed(aClass({ period: "3" }));
-    eq("a period filter narrows the class", uids(T.classStudents()), "u1,u2");
+    eq("a class filter narrows the page", uids(T.classStudents()), "u1,u2");
     T.feed(aClass({ period: "7" }));
-    eq("a period nobody is in falls back to All", T.boardPeriod(), "");
+    eq("a class nobody is in falls back to All", T.boardClass(), "");
     eq("…so the class is all there, not a blank page", T.classStudents().length, 4);
     T.feed(aClass({ period: "gone" }));
-    eq("a remembered period that no longer exists falls back too", T.boardPeriod(), "");
-    T.feed(aClass({ period: T.NO_PERIOD }));
-    eq("Unassigned finds the student with no period", uids(T.classStudents()), "u4");
+    eq("a remembered class that no longer exists falls back too", T.boardClass(), "");
+    T.feed(aClass({ period: T.NO_CLASS }));
+    eq("No class finds the student in no class", uids(T.classStudents()), "u4");
     var all = aClass().students;
-    eq("effectiveFilter keeps a filter that matches someone", T.effectiveFilter("5", all), "5");
+    eq("effectiveFilter keeps a filter that matches someone", T.effectiveFilter("c5", all), "c5");
     eq("…and drops one that matches nobody", T.effectiveFilter("9", all), "");
 
     T.feed(aClass());
     var seg = T.filterSegments(T.classStudents());
-    eq("the filter offers All, each period someone is in, and Unassigned with its count",
-       seg.map(function(o){ return o.label; }).join("|"), "All|3|5|Unassigned (1)");
+    eq("the filter offers All, each class someone is in, and No class with its count",
+       seg.map(function(o){ return o.label; }).join("|"), "All|Period 3|Period 5|No class (1)");
     var placed = aClass(); placed.assignments.u4 = { period:"5" };
     T.feed(placed);
-    eq("Unassigned disappears at zero",
-       T.filterSegments(T.classStudents()).map(function(o){ return o.label; }).join("|"), "All|3|5");
+    eq("No class disappears at zero",
+       T.filterSegments(T.classStudents()).map(function(o){ return o.label; }).join("|"), "All|Period 3|Period 5");
 
     // ---- the summary cards ----
     function solidKey(listId){ return Adaptive.keyFor(listId, WordLists.wordsOf(listId)[0]); }
@@ -3780,16 +3833,18 @@
 
     // ---- archiving ----
     var arc = aClass();
-    arc.classCfg.archived = { u2: true, u3: false, "roster:9@seq.org": true };
+    var ARCH = { u2: true, u3: false, "roster:9@seq.org": true };
+    // Archiving lives on the class doc, shared by its teachers.
+    arc.classes = { c3: { name: "Period 3", teachers: ["t@seq.org"], archived: ARCH } };
     arc.roster = { "9@seq.org": { email:"9@seq.org", name:"Nine", period:"3" } };
     T.feed(arc);
     eq("an archived student is gone from the class", uids(T.classStudents()), "u1,u3,u4");
     eq("…and from the board", T.visibleStudents().map(function(s){ return s.uid; }).indexOf("u2"), -1);
     eq("…a pending one archived by roster key too", T.classStudents().filter(function(s){ return s.pending; }).length, 0);
     eq("false means not archived (that is how unarchive is written)",
-       T.isArchived({ uid:"u3", email:"u3@seq.org" }, arc.classCfg.archived), false);
+       T.isArchived({ uid:"u3", email:"u3@seq.org" }, ARCH), false);
     eq("a student archived while pending stays archived once signed in",
-       T.isArchived({ uid:"newuid", email:"9@SEQ.org" }, arc.classCfg.archived), true);
+       T.isArchived({ uid:"newuid", email:"9@SEQ.org" }, ARCH), true);
     var split = T.splitArchived([kid("u1"), kid("u2")], { u2: true });
     eq("splitArchived puts each student on one side", uids(split.active) + "/" + uids(split.archived), "u1/u2");
     eq("…but their page still opens", !!T.studentByUid("u2"), true);
@@ -3823,6 +3878,25 @@
     eq("the Students view draws four summary cards", body.querySelectorAll(".sumCard").length, 4);
     eq("…and a row per student in the filter", body.querySelectorAll("tr.clickable").length, 4);
     eq("…with no period box of its own any more", !!body.querySelector("#tStepsPeriod"), false);
+
+    // ---- the Classes view and Manage draw ----
+    var cc = aClass({ me: "jhoffman@seq.org", admin: true,
+      teachers: [{ email: "b@seq.org", name: "Ms. B" }] });
+    cc.classes = { c3: { name: "Period 3", teachers: ["jhoffman@seq.org", "b@seq.org"] },
+                   c5: { name: "Period 5", teachers: ["jhoffman@seq.org"] },
+                   c7: { name: "Period 7", teachers: ["jhoffman@seq.org"] } };
+    T.feed(cc);
+    T.renderGroups();
+    eq("the Classes view draws a card per class", body.querySelectorAll(".clsCard").length, 3);
+    eq("…a co-teacher can be removed where more than one is left", body.querySelectorAll("[data-unco]").length, 2);
+    eq("…only an empty class offers Delete", body.querySelectorAll("[data-delclass]").length, 1);
+    eq("…and every student has a class box", body.querySelectorAll("[data-class-for]").length, 4);
+    try{ localStorage.setItem("ei.manage.section", "teachers"); }catch(e){}
+    T.renderManage();
+    eq("Manage draws its tabs, Teachers among them for the admin", body.querySelectorAll('[role="tab"]').length, 3);
+    eq("…and the Teachers section lists each teacher with their classes",
+       /Period 3/.test((body.querySelector("#mPanel tbody tr:nth-child(2)") || {}).textContent || ""), true);
+    try{ localStorage.removeItem("ei.manage.section"); }catch(e){}
     body.innerHTML = "";
   })();
 
