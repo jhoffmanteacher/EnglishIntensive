@@ -127,17 +127,17 @@ Deploy in this order:
    every existing student, roster row, assignment and note to you, and
    copies the old periods across. It does this quietly; reload once and
    everyone is still there.
-4. **Add the teachers**: Teachers → *Add a teacher*, one at a time, with
+4. **Add the teachers**: Manage → Teachers → *Add a teacher*, one at a time, with
    their @seq.org address and a name. Each gets the dashboard the next time
    they sign in, with an empty class.
-5. **Move their students to them**: Teachers → *Move a whole period*, or
+5. **Move their students to them**: Manage → Teachers → *Move a whole period*, or
    the *Teacher* box on one student's page. Or have them import their own
    roster — an import claims a student who has no roster row yet, and skips
    (and names) any student who is already in another teacher's class.
 
 ## Later: adding or removing a teacher
 
-Teachers → *Add a teacher* writes a `teachers/{email}` document; *Remove*
+Manage → Teachers → *Add a teacher* writes a `teachers/{email}` document; *Remove*
 deletes it. Only the admin can do either — the rules refuse that collection
 to everyone else. A new teacher sees only the students they import or that
 you move to them. Removing a teacher deletes nothing else: their students

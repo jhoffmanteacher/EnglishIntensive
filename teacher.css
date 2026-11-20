@@ -1,18 +1,107 @@
 /* Teacher dashboard only. Tokens and buttons come from site.css. */
 
-body.teacher{padding:70px 32px 60px;display:block}
-.twrap{width:100%;margin:0 auto}
-.thead{margin-bottom:22px}
-.thead h1{font-size:clamp(26px,4vw,38px);margin:0 0 6px;letter-spacing:-.5px}
+/* ---------------- the console ----------------
+   Full width: a 216px sidebar that sticks and scrolls on its own, and
+   the content beside it. Below 900px the sidebar becomes one strip that
+   scrolls sideways above the content, with the group headings dropped. */
+body.teacher{padding:0;display:block}
+.tShell{display:grid;grid-template-columns:216px minmax(0,1fr);min-height:100vh}
 
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
-.tabs[hidden]{display:none}
-.tab{
-  background:var(--panel);border:1px solid var(--line);color:var(--muted);
-  font-size:15px;font-weight:700;padding:10px 18px;border-radius:12px;
+.tSide{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  background:var(--panel);border-right:1px solid var(--line);
+  padding:16px 12px 24px;
 }
-.tab:hover{border-color:var(--accent);color:var(--ink)}
-.tab.on{background:var(--accent);color:#1a1206;border-color:var(--accent)}
+.tBrand{
+  display:flex;align-items:center;gap:9px;padding:6px 10px 16px;
+  color:var(--ink);text-decoration:none;font-weight:800;font-size:15px;
+}
+.tBrand:hover{color:var(--accent)}
+.tSide nav[hidden]{display:none}
+.tGroup{margin-bottom:14px}
+.tGroupHead{
+  font-size:13px;font-weight:700;color:var(--muted);margin:0 0 4px;padding:0 10px;
+  font-variant-caps:all-small-caps;letter-spacing:.09em;
+}
+.tNav{
+  display:flex;align-items:center;gap:10px;width:100%;
+  background:transparent;color:var(--muted);text-align:left;
+  font-size:14.5px;font-weight:700;padding:8px 10px;border-radius:10px;margin-bottom:2px;
+}
+.tNav:hover{color:var(--ink);background:var(--panel2)}
+.tNav[aria-current="page"]{background:rgba(255,201,77,.16);color:var(--accent)}
+.tNav svg,.tBrand svg{
+  width:16px;height:16px;flex:none;fill:none;stroke:currentColor;
+  stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+}
+
+.tMain{min-width:0;padding:16px 28px 60px}
+/* The top bar. Right padding keeps its tools clear of auth.js's user
+   chip, which is fixed to the top-right corner of every page. */
+.tTop{
+  display:flex;align-items:center;justify-content:space-between;gap:12px 18px;flex-wrap:wrap;
+  padding:4px 150px 14px 0;margin-bottom:18px;border-bottom:1px solid var(--line);
+}
+.tTitleBox{min-width:0}
+.tTop h1{font-size:24px;margin:0 0 2px;letter-spacing:-.3px}
+.tTop .sub{font-size:14px;line-height:1.4}
+.tTools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tTools[hidden]{display:none}
+.tTools .btn.sm{font-size:14px;padding:8px 14px;border-radius:10px}
+
+/* The segmented period filter. */
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+.seg[hidden]{display:none}
+.seg button{
+  background:transparent;color:var(--muted);font-size:13.5px;font-weight:700;
+  padding:7px 12px;border-right:1px solid var(--line);
+}
+.seg button:last-child{border-right:none}
+.seg button:hover{color:var(--ink);background:var(--panel2)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#1a1206}
+
+/* The four count cards on Students. */
+.sumCards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:20px}
+.sumCard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 18px}
+.sumCard .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.sumCard .v{font-size:30px;font-weight:800;letter-spacing:-.5px;margin:4px 0 2px}
+.sumCard .s{color:var(--muted);font-size:12.5px}
+.sumCard.warn .v{color:var(--accent)}
+.sumCard.bad .v{color:var(--bad)}
+
+/* Manage's section tabs. */
+.mTabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;border-bottom:1px solid var(--line)}
+.mTabs button{
+  background:transparent;color:var(--muted);font-size:15px;font-weight:700;
+  padding:9px 16px;border-bottom:3px solid transparent;margin-bottom:-1px;
+}
+.mTabs button:hover{color:var(--ink)}
+.mTabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.mTabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* The Student view chooser. */
+.tPrevPop{min-width:250px}
+.tPrevPop select{width:100%;margin-bottom:10px}
+.tPrevPop .abPopFoot{gap:10px}
+
+@media (max-width:900px){
+  .tShell{grid-template-columns:minmax(0,1fr)}
+  .tSide{
+    height:auto;z-index:25;display:flex;align-items:center;gap:6px;
+    overflow-x:auto;overflow-y:hidden;padding:8px 10px;scrollbar-width:thin;
+    border-right:none;border-bottom:1px solid var(--line);
+  }
+  .tBrand{padding:6px 8px;flex:none}
+  .tBrand span,.tGroupHead{display:none}
+  .tSide nav{display:flex;gap:4px}
+  .tGroup{display:flex;gap:4px;margin:0}
+  .tNav{width:auto;white-space:nowrap;margin:0}
+  .tMain{padding:14px 16px 60px}
+  .tTop{padding-right:0}
+  .sumCards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* The chip would sit on the strip; park it at the bottom instead. */
+  body.teacher .ei-chip{top:auto;bottom:14px}
+}
 
 .panel{
   background:var(--panel);border:1px solid var(--line);border-radius:20px;

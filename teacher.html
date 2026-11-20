@@ -25,25 +25,61 @@
 <link rel="stylesheet" href="teacher.css">
 </head>
 <body class="teacher">
-<a class="home" href="index.html">🏠 Games</a>
 
-<div class="twrap">
-  <header class="thead">
-    <h1>Teacher Dashboard</h1>
-    <p class="sub" id="tSub">Loading…</p>
-  </header>
+<!-- The console: a grouped sidebar, a slim top bar, one view at a time.
+     The nav and the top-bar tools stay hidden until teacher.js has
+     checked the account and loaded the class. Icons are inline SVG
+     (stroke, currentColor), so they need no font and no request. -->
+<div class="tShell">
+  <aside class="tSide">
+    <a class="tBrand" href="index.html" title="Back to the games">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>
+      <span>English Intensive</span>
+    </a>
+    <nav id="tNav" aria-label="Dashboard" hidden>
+      <div class="tGroup">
+        <h2 class="tGroupHead">Students</h2>
+        <button type="button" class="tNav" data-view="roster">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.3 0 4 1.5 4.6 4"/></svg>
+          <span>Students</span></button>
+        <button type="button" class="tNav" data-view="trouble">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg>
+          <span>Trouble spots</span></button>
+      </div>
+      <div class="tGroup">
+        <h2 class="tGroupHead">Assign</h2>
+        <button type="button" class="tNav" data-view="assign">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+          <span>Assign board</span></button>
+      </div>
+      <div class="tGroup">
+        <h2 class="tGroupHead">Set up</h2>
+        <button type="button" class="tNav" data-view="groups">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+          <span>Periods</span></button>
+        <button type="button" class="tNav" data-view="manage">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+          <span>Manage</span></button>
+      </div>
+    </nav>
+  </aside>
 
-  <nav class="tabs" id="tTabs" hidden>
-    <button class="tab on" data-view="roster">Students</button>
-    <button class="tab" data-view="assign">Assign</button>
-    <button class="tab" data-view="groups">Periods</button>
-    <button class="tab" data-view="trouble">Trouble Spots</button>
-    <!-- Admin only: teacher.js unhides it. Hiding is cosmetic — the
-         rules refuse the teachers/ collection to everyone else. -->
-    <button class="tab" data-view="teachers" id="tTabTeachers" hidden>Teachers</button>
-  </nav>
+  <main class="tMain">
+    <header class="tTop">
+      <div class="tTitleBox">
+        <h1 id="tTitle">Teacher Dashboard</h1>
+        <p class="sub" id="tSub">Loading…</p>
+      </div>
+      <div class="tTools" id="tTools" hidden>
+        <!-- The class-wide period filter. teacher.js draws the buttons. -->
+        <div class="seg" id="tFilter" role="group" aria-label="Period"></div>
+        <button type="button" class="btn ghost sm" id="tRefresh">Refresh</button>
+        <button type="button" class="btn ghost sm" id="tPreview" aria-haspopup="dialog">Student view</button>
+      </div>
+    </header>
 
-  <div id="tBody"></div>
+    <div id="tBody"></div>
+  </main>
 </div>
 
 <!-- Same load order as every other page. teacher.js checks the signed-in

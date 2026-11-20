@@ -28,7 +28,7 @@ const firebaseConfig = {
    rules are what's enforced. One address: the rules name exactly one.
 
    Other teachers are NOT listed here. The admin adds them on the
-   dashboard's Teachers section, which writes a teachers/{email}
+   dashboard (Manage → Teachers), which writes a teachers/{email}
    document; auth.js reads that document at sign-in. Each teacher sees
    only their own students. */
 const ADMIN_EMAILS = [

@@ -36,6 +36,14 @@
    teacher's dashboard, since a teacher can only list students whose own
    doc names them. firestore.rules allows the student exactly that
    change and no other.
+
+   ── Preview ───────────────────────────────────────────────────────────
+   index.html?preview=<uid | roster:email>, opened by a TEACHER from the
+   dashboard's Student view button, loads that student's assignment,
+   roster row and progress instead of the teacher's own, so myLists() is
+   what the student would see. Nothing is written while previewing — not
+   to the student (the rules would refuse it anyway) and not to the
+   teacher's own doc either. Ignored for anyone who isn't a teacher.
    ════════════════════════════════════════════════════════════════════ */
 
 window.EIStore = (function(){
@@ -55,6 +63,7 @@ window.EIStore = (function(){
   var rosterRow = null;         // roster/{email} — the imported class list
   var docTeacher = null;        // `teacher` as stored on students/{uid}
   var dirtyTeacher = null;      // the roster's teacher, when it needs copying
+  var preview = null;           // { id, name, failed } while a teacher previews
   var loadFailed = false;
   var dirty = {};               // stat keys changed since the last write
   var dirtyHeard = {};          // heard keys changed since the last write
@@ -112,9 +121,58 @@ window.EIStore = (function(){
     return t === (current || null) ? null : t;
   }
 
+  // ?preview=<id> from the address, or null. Pure.
+  function previewParam(search){
+    var m = /[?&]preview=([^&#]*)/.exec(String(search || ""));
+    if(!m) return null;
+    try{ return decodeURIComponent(m[1].replace(/\+/g, " ")) || null; }catch(e){ return null; }
+  }
+
+  /* A teacher looking at one student's home page. Read-only from start
+     to finish: `preview` being set is what turns every write below into
+     a no-op, and the local mirror is never touched. A read that fails
+     leaves the student's lists empty and says so on the banner, rather
+     than quietly showing the teacher's own. */
+  function loadPreview(id){
+    preview = { id: id, name: "", failed: false };
+    stats = {}; heard = {}; fluency = {}; totals = { n:0, r:0 }; recent = [];
+    return EIAuth.db().then(function(db){
+      if(!db) throw new Error("no db");
+      if(id.indexOf("roster:") === 0){
+        var em = id.slice(7).toLowerCase();
+        return db.collection("roster").doc(em).get().then(function(r){
+          rosterRow = r.exists ? r.data() : null;
+          preview.name = (rosterRow && rosterRow.name) || em;
+        });
+      }
+      return Promise.all([
+        db.collection("students").doc(id).get(),
+        db.collection("assignments").doc(id).get()
+      ]).then(function(snaps){
+        var d = snaps[0].exists ? (snaps[0].data() || {}) : {};
+        stats  = Adaptive.sanitizeStats(d.words);
+        heard  = Adaptive.sanitizeHeard(d.heard);
+        fluency = Adaptive.sanitizeFluency(d.fluency);
+        assignment = snaps[1].exists ? snaps[1].data() : null;
+        preview.name = d.name || d.email || "this student";
+        var em = String(d.email || "").toLowerCase();
+        return em ? db.collection("roster").doc(em).get().then(function(r){
+          rosterRow = r.exists ? r.data() : null;
+        }).catch(function(){}) : null;
+      });
+    }).catch(function(){
+      preview.failed = true;
+    }).then(function(){
+      readyResolve({ preview:true });
+      return readyPromise;
+    });
+  }
+
   /* ── loading ─────────────────────────────────────────────────────── */
   function load(u){
     uid = u.uid; user = u;
+    var pv = previewParam(location.search);
+    if(pv && !u._dev && EIAuth.isTeacher()) return loadPreview(pv);
     stats = readLocal();       // something sensible to work with either way
 
     if(u._dev){                // dev bypass never authenticates — stay local
@@ -173,7 +231,7 @@ window.EIStore = (function(){
 
   /* ── saving ──────────────────────────────────────────────────────── */
   function scheduleSave(){
-    if(loadFailed || !uid || (user && user._dev)) return;
+    if(loadFailed || preview || !uid || (user && user._dev)) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function(){ flush(); }, SAVE_DEBOUNCE_MS);
   }
@@ -207,7 +265,7 @@ window.EIStore = (function(){
      two tabs of the same account can be open at once. */
   function flush(){
     clearTimeout(saveTimer); saveTimer = null;
-    if(loadFailed || !uid || (user && user._dev)) return Promise.resolve();
+    if(loadFailed || preview || !uid || (user && user._dev)) return Promise.resolve();
     if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length &&
        !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyTeacher) return inFlight || Promise.resolve();
     var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
@@ -262,7 +320,7 @@ window.EIStore = (function(){
      flip); everything else omits it and the timing stays 0. `kind` is
      what sort of wrong it was, which only Say It can say. */
   function record(listId, word, correct, ms, kind){
-    if(!uid) return;
+    if(!uid || preview) return;
     var key = Adaptive.keyFor(listId, WordLists.plain(word));
     stats[key] = Adaptive.updateStat(stats[key], !!correct, Date.now(), ms, kind);
     totals.n += 1; if(correct) totals.r += 1;
@@ -277,7 +335,7 @@ window.EIStore = (function(){
      Separate from record() because it is teacher-facing evidence, not a
      score: nothing in the scheduler reads it. */
   function recordHeard(listId, word, text){
-    if(!uid) return;
+    if(!uid || preview) return;
     var key = Adaptive.keyFor(listId, WordLists.plain(word));
     var next = Adaptive.pushHeard(heard[key], text, Adaptive.heardCap);
     if(!next.length) return;
@@ -290,7 +348,7 @@ window.EIStore = (function(){
      tail is what makes the dashboard's sparkline, and a single latest
      number would say nothing about whether anything is changing. */
   function recordFluency(listId, run){
-    if(!uid) return;
+    if(!uid || preview) return;
     var key = String(listId);
     var r = { at: Date.now(), cwpm: run && run.cwpm, errors: run && run.errors, n: run && run.n };
     var next = Adaptive.pushRun(fluency[key], r, Adaptive.fluencyCap);
@@ -304,7 +362,7 @@ window.EIStore = (function(){
   // One finished round, for the teacher's "last active" column and the
   // student's own history. Capped — this is a tail, not a log.
   function finishRound(listId, right, total){
-    if(!uid) return;
+    if(!uid || preview) return;
     recent.push({ list:String(listId), at:Date.now(), right:right|0, total:total|0 });
     if(recent.length > RECENT_CAP) recent = recent.slice(-RECENT_CAP);
     dirtyMeta = true;
@@ -323,11 +381,13 @@ window.EIStore = (function(){
   }
 
   function myLists(){
-    /* The teacher's preview shows what is on offer, so a mode the library
-       has retired stops appearing on their home page. A STUDENT who still
-       holds a retired id keeps it: it is in their assignment, so it is in
-       the list below, and it plays. */
-    var ids = seesEverything()
+    /* The teacher's own view shows what is on offer, so a mode the
+       library has retired stops appearing on their home page. A STUDENT
+       who still holds a retired id keeps it: it is in their assignment,
+       so it is in the list below, and it plays. A teacher previewing a
+       student gets that student's list, exactly. */
+    var ids = preview ? effectiveLists(assignment, rosterRow)
+            : seesEverything()
       ? WordLists.all.filter(function(l){ return !l.retired; }).map(function(l){ return l.id; })
       : effectiveLists(assignment, rosterRow);
     // Drop assignments naming a list that no longer exists, so a deleted
@@ -370,7 +430,10 @@ window.EIStore = (function(){
     },
     roster: function(){ return rosterRow; },
     failed: function(){ return loadFailed; },
+    // { id, name, failed } while a teacher previews a student, else null.
+    preview: function(){ return preview ? { id: preview.id, name: preview.name, failed: preview.failed } : null; },
     _internals: {
+      previewParam: previewParam,
       effectiveLists: effectiveLists,
       teacherToCopy: teacherToCopy,
       // The write body, for a test that can assert its shape without a

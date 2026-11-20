@@ -98,7 +98,7 @@ and a refusal at write time (a race) re-checks and retries once so one row
 can't sink the batch. `importPlan()`/`classifyProbe()` are the pure half.
 
 **Moving** is admin-only: one student from their page, or a whole period
-from the Teachers section. `moveBody()` set-merges `{teacher}` onto the
+from Manage → Teachers. `moveBody()` set-merges `{teacher}` onto the
 roster row, the student's doc (the admin may change exactly that field on
 it), the assignment and the note — the last two written even when missing,
 so a moved student always has documents whose owner the rules check.
@@ -1425,28 +1425,111 @@ change to this repo.
 
 `teacher.html` — for teachers only (see *Teachers and the admin* above),
 with a link on the home page for those accounts. Each teacher's dashboard
-holds their own students; the admin's holds everyone, plus a **Teachers**
-tab (add, remove, student counts, move a whole period) and a *Teacher*
-select on each student's page. Four tabs for everyone:
+holds their own students; the admin's holds everyone.
 
-- **Students** — roster with accuracy, words solid, words shaky, last
-  activity, and a **Lists** column that says in words what each student
-  currently gets — *"Red Words: 1–3 🃏"*, or a *nothing yet* pill. Above
-  it, when it's true, a callout: *"7 students have no games yet"*, with a
-  button to the Assign tab. Click through for a student's hardest words
-  (worst first, with which list each came from), their per-list
-  breakdown, their games picker and their **note**. Two CSV exports live
-  here too. On an empty class the tab is a three-step *Get started*.
-- **Assign** — every student's games as one grid. This is the section
-  below.
-- **Periods** — roster import, naming periods, and the table that drops
-  students into them. Periods group students on the dashboard (the
-  board, the filters, Trouble spots); they never decide what anybody
-  sees.
+### The console
+
+The layout is ported from the guitar-class site's teacher console — the
+structure, not its colours; everything here is `site.css`'s dark tokens.
+
+- **A grouped sidebar** (216px, sticky, scrolls on its own): small-caps
+  group headings and icon + label items (16px stroke SVGs, inline, so no
+  icon font and no request), the current one on an accent background.
+  Below 900px it becomes one strip that scrolls sideways above the
+  content, the group headings dropped and the user chip parked at the
+  bottom. The groups:
+  - *Students* — **Students**, **Trouble spots**
+  - *Assign* — **Assign board**
+  - *Set up* — **Periods**, **Manage**
+- **A slim top bar**: the view's title and a one-line subtitle on the
+  left; on the right the **period filter**, **Refresh** and **Student
+  view**. Its right padding keeps clear of `auth.js`'s fixed user chip.
+- **The period filter is the class's, not a view's.** A segmented control
+  — *All*, each period somebody is in, and *Unassigned (n)*, which
+  disappears at zero — that the Students table, its cards, *What should
+  change*, the Assign board and Trouble spots all follow. It is remembered
+  in `localStorage` (`ei.class.period`; the board's old `ei.assign.period`
+  is read once so nobody's choice is lost), and a filter that matches
+  nobody — a period since emptied by a move, a stale key — **falls back to
+  All** (`effectiveFilter()`) rather than drawing an empty page under a
+  button that claims otherwise. The three per-view period selects it
+  replaced are gone. Periods and Manage hide it: it means nothing there.
+- **Refresh** re-runs `loadAll()` and draws the current view again with no
+  page reload, so the open student, the filter and the Manage section all
+  hold. With unsaved board edits it asks first, exactly as leaving the
+  board does.
+- **Student view** opens a small chooser (defaulting to the student whose
+  page is open), then `index.html?preview=<uid | roster:email>` in a new
+  tab — see *Previewing a student* below.
+
+The views:
+
+- **Students** — four **summary cards**, all counts of students, all
+  inside the filter: *Students*; *Practiced this week* (a word attempted
+  in the last seven days, by the stats' own clock — not `lastSeen`, which
+  `store.js` stamps on every sign-in); *No games yet* (an empty home
+  page); and *Have shaky words* — students with any word the table's
+  **Shaky** column counts (`Adaptive.summarize().struggling`: not solid,
+  under 60 %). No new metric; `summaryCounts()` is pure and tested. Below
+  them, the roster with accuracy, words solid, words shaky, last activity,
+  and a **Lists** column that says in words what each student currently
+  gets — *"Red Words: 1–3 🃏"*, or a *nothing yet* pill; when it's true, a
+  callout: *"7 students have no games yet"*. Click through for a student's
+  hardest words, per-list breakdown, games picker, **note**, the
+  **Archive** button and, for the admin, the **Teacher** select. Two CSV
+  exports live here too. On an empty class the view is a three-step *Get
+  started*.
 - **Trouble spots** — the same words aggregated across the class, sorted
   by *how many students* are struggling with each rather than by raw
-  accuracy, so one student's bad day doesn't top the list. Filterable by
-  period. This is the "what do I reteach tomorrow" view.
+  accuracy, so one student's bad day doesn't top the list. This is the
+  "what do I reteach tomorrow" view.
+- **Assign board** — every student's games as one grid. The section below.
+- **Periods** — roster import, naming periods, and the table that drops
+  students into them. Periods group students on the dashboard; they never
+  decide what anybody sees.
+- **Manage** — one page, one section at a time behind a row of tabs: a
+  real `role="tablist"` (arrows, Home and End move between tabs), the open
+  one remembered in `localStorage` (`ei.manage.section`).
+  - **Archived** — every archived student, with *Unarchive* and *Open*.
+  - **Backup** — one JSON file of everything this account can read,
+    fetched fresh from the database rather than from the page (which has
+    sanitized and folded it): the teacher's roster rows, assignments,
+    notes, students' docs and `classes/` doc; for the admin, every
+    collection including `teachers/` and the old `config/class`. Named
+    `english-intensive-backup-YYYY-MM-DD.json`. There is no restore, on
+    purpose: putting data back is a decision for a person in the console.
+  - **Teachers** — admin only, and absent entirely for anyone else: each
+    teacher with their student count (archived included), add by @seq.org
+    address and name, remove (with a confirm; nothing else is deleted), and
+    *Move a whole period* to another teacher.
+
+### Archive
+
+An archived student is **hidden from every view and deleted from
+nothing**: the table, the cards, the board, the suggestions, Trouble
+spots. They keep practising whatever they were given. The flag is per
+teacher, in `classes/{me}.archived` as `{<key>: true}`, keyed by the id the
+page uses — the uid, or `roster:<email>` before they've signed in — and
+both keys are checked, so a student archived while pending stays archived
+once they sign in. Unarchive writes `false` (a set-merge can't delete a
+map key without `FieldValue`, and `false` reads the same). In `teacher.js`
+`students` is the class with them taken out and `everyone` still has them,
+for the lookups a hidden row must not fool: whose student this is, whether
+an address has signed in, a whole-period move.
+
+### Previewing a student
+
+`index.html?preview=<id>` is the home page as one student sees it. Only a
+**teacher** gets it (`EIAuth.isTeacher()`; anyone else's `?preview=` is
+ignored): `store.js` loads that student's `students/{uid}`, assignment and
+roster row — all readable by their teacher — so `myLists()` returns the
+student's effective lists and the tiles carry the student's progress. A
+one-line banner says *"Previewing Ana's games — nothing you play here is
+saved to them."*, and **nothing is written**: while `preview` is set every
+save path in `store.js` is a no-op, including the teacher's own doc and the
+local mirror. A tile still opens the game page, which has no `?preview` and
+so plays as the teacher, saving only to the teacher's own record — which is
+what the banner promises.
 
 ### One rule: a student sees what they were given
 

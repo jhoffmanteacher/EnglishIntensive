@@ -3711,6 +3711,121 @@
     eq("…or there's no row at all", copy(null, B), null);
   })();
 
+  /* ══════════════════════════════════════════════════════════════════
+     The console: the class-wide period filter, the summary cards,
+     archiving, Manage's sections, the backup file and Student view.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals;
+    var DAY = 86400000, NOW = Date.now();
+    function kid(uid, extra){
+      var s = { uid:uid, name:uid.toUpperCase(), email:uid + "@seq.org", stats:{}, heard:{}, fluency:{}, totals:{n:0,r:0}, recent:[], lastSeen:0 };
+      for(var k in (extra || {})) s[k] = extra[k];
+      return s;
+    }
+    function aClass(extra){
+      var c = {
+        students: [
+          kid("u1"), kid("u2"), kid("u3"), kid("u4")
+        ],
+        assignments: {
+          u1: { period:"3", lists:["red-1-cards"] },
+          u2: { period:"3" },
+          u3: { period:"5", lists:["nonsense"] },
+          u4: {}
+        },
+        classCfg: { periods: ["3","5","7"] }
+      };
+      for(var k in (extra || {})) c[k] = extra[k];
+      return c;
+    }
+    function uids(list){ return list.map(function(s){ return s.uid; }).join(","); }
+
+    // ---- the filter, and its fallback ----
+    T.feed(aClass({ period: "3" }));
+    eq("a period filter narrows the class", uids(T.classStudents()), "u1,u2");
+    T.feed(aClass({ period: "7" }));
+    eq("a period nobody is in falls back to All", T.boardPeriod(), "");
+    eq("…so the class is all there, not a blank page", T.classStudents().length, 4);
+    T.feed(aClass({ period: "gone" }));
+    eq("a remembered period that no longer exists falls back too", T.boardPeriod(), "");
+    T.feed(aClass({ period: T.NO_PERIOD }));
+    eq("Unassigned finds the student with no period", uids(T.classStudents()), "u4");
+    var all = aClass().students;
+    eq("effectiveFilter keeps a filter that matches someone", T.effectiveFilter("5", all), "5");
+    eq("…and drops one that matches nobody", T.effectiveFilter("9", all), "");
+
+    T.feed(aClass());
+    var seg = T.filterSegments(T.classStudents());
+    eq("the filter offers All, each period someone is in, and Unassigned with its count",
+       seg.map(function(o){ return o.label; }).join("|"), "All|3|5|Unassigned (1)");
+    var placed = aClass(); placed.assignments.u4 = { period:"5" };
+    T.feed(placed);
+    eq("Unassigned disappears at zero",
+       T.filterSegments(T.classStudents()).map(function(o){ return o.label; }).join("|"), "All|3|5");
+
+    // ---- the summary cards ----
+    function solidKey(listId){ return Adaptive.keyFor(listId, WordLists.wordsOf(listId)[0]); }
+    var c = aClass();
+    c.students[0].stats[solidKey("red-1-cards")] = { n: 5, r: 1, w: 1, box: 0, last: NOW - DAY };          // shaky, this week
+    c.students[2].stats[solidKey("nonsense")]    = { n: 5, r: 5, w: 0, box: 2, last: NOW - 10 * DAY };    // fine, last week
+    T.feed(c);
+    var sc = T.summaryCounts(T.classStudents(), NOW);
+    eq("Students counts the class in the filter", sc.students, 4);
+    eq("Practiced this week counts a word attempted in the last 7 days", sc.week, 1);
+    eq("No games yet counts empty home pages", sc.none, 2);
+    eq("Have shaky words counts students with any shaky word", sc.shaky, 1);
+    T.feed(aClass({ period: "5" }));
+    eq("…and every card follows the filter", T.summaryCounts(T.classStudents(), NOW).students, 1);
+
+    // ---- archiving ----
+    var arc = aClass();
+    arc.classCfg.archived = { u2: true, u3: false, "roster:9@seq.org": true };
+    arc.roster = { "9@seq.org": { email:"9@seq.org", name:"Nine", period:"3" } };
+    T.feed(arc);
+    eq("an archived student is gone from the class", uids(T.classStudents()), "u1,u3,u4");
+    eq("…and from the board", T.visibleStudents().map(function(s){ return s.uid; }).indexOf("u2"), -1);
+    eq("…a pending one archived by roster key too", T.classStudents().filter(function(s){ return s.pending; }).length, 0);
+    eq("false means not archived (that is how unarchive is written)",
+       T.isArchived({ uid:"u3", email:"u3@seq.org" }, arc.classCfg.archived), false);
+    eq("a student archived while pending stays archived once signed in",
+       T.isArchived({ uid:"newuid", email:"9@SEQ.org" }, arc.classCfg.archived), true);
+    var split = T.splitArchived([kid("u1"), kid("u2")], { u2: true });
+    eq("splitArchived puts each student on one side", uids(split.active) + "/" + uids(split.archived), "u1/u2");
+    eq("…but their page still opens", !!T.studentByUid("u2"), true);
+    eq("…and the summary cards don't count them", T.summaryCounts(T.classStudents(), NOW).students, 3);
+
+    // ---- Manage's sections ----
+    eq("a teacher gets Archived and Backup", T.manageSections(false).join(","), "archived,backup");
+    eq("the admin also gets Teachers", T.manageSections(true).join(","), "archived,backup,teachers");
+
+    // ---- the backup file ----
+    eq("the backup is named for the day", /^english-intensive-backup-\d{4}-\d\d-\d\d\.json$/.test(T.backupName(NOW)), true);
+    var bj = JSON.parse(T.backupJson({ roster: { "1@seq.org": { name: "O'Brien, \"Al\"" } } }, 0));
+    eq("…and is JSON that reads back exactly", bj.collections.roster["1@seq.org"].name, "O'Brien, \"Al\"");
+    eq("…stamped with when", bj.exportedAt, "1970-01-01T00:00:00.000Z");
+
+    // ---- Student view ----
+    eq("Student view links to the home page in preview", T.previewHref("roster:9@seq.org"), "index.html?preview=roster%3A9%40seq.org");
+    var PP = EIStore._internals.previewParam;
+    eq("store.js reads the preview id back", PP("?preview=roster%3A9%40seq.org"), "roster:9@seq.org");
+    eq("…among other parameters", PP("?x=1&preview=abc&y=2"), "abc");
+    eq("…and there is none on a normal visit", PP("?list=red-1-cards"), null);
+    var PT = EIPractice._internals.previewText;
+    eq("the preview banner names the student and says nothing is saved",
+       PT({ name: "Ana" }), "Previewing Ana's games — nothing you play here is saved to them.");
+    eq("…and says so plainly when it couldn't load", PT({ failed: true }), "We couldn't load this student's games.");
+
+    // ---- the Students view draws, cards and all ----
+    T.feed(aClass());
+    T.renderRoster();
+    var body = document.getElementById("tBody");
+    eq("the Students view draws four summary cards", body.querySelectorAll(".sumCard").length, 4);
+    eq("…and a row per student in the filter", body.querySelectorAll("tr.clickable").length, 4);
+    eq("…with no period box of its own any more", !!body.querySelector("#tStepsPeriod"), false);
+    body.innerHTML = "";
+  })();
+
   // ---- render ----
   var rows = document.getElementById("rows");
   var pass = 0;

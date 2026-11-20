@@ -257,6 +257,14 @@ window.EIPractice = (function(){
       .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
 
+  /* The line over a teacher's preview of one student's home page (the
+     dashboard's Student view). Short and plain: it sits where a student's
+     own page would be, so it is written the way that page is. */
+  function previewText(pv){
+    if(pv.failed) return "We couldn't load this student's games.";
+    return "Previewing " + (pv.name || "this student") + "'s games — nothing you play here is saved to them.";
+  }
+
   /* ── the home page ────────────────────────────────────────────────
      Tiles for the lists this student is assigned, grouped into the two
      shelves sectionsOf() names — words you sound out, and words you
@@ -283,10 +291,12 @@ window.EIPractice = (function(){
       /* The teacher's own home page shows every game, so they can try one
          before assigning it. Said out loud, or it reads as what the class
          sees. */
-      if(EIAuth.isTeacher()){
+      var pv = EIStore.preview && EIStore.preview();
+      if(pv || EIAuth.isTeacher()){
         var tv = document.createElement("p");
         tv.className = "teacherView";
-        tv.textContent = "Teacher view: you see every game. Each student sees only what you assign them on the dashboard.";
+        tv.textContent = pv ? previewText(pv)
+          : "Teacher view: you see every game. Each student sees only what you assign them on the dashboard.";
         mount.appendChild(tv);
       }
 
@@ -389,5 +399,5 @@ window.EIPractice = (function(){
   }
 
   return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
-           _internals: { queryList: queryList, pageName: pageName } };
+           _internals: { queryList: queryList, pageName: pageName, previewText: previewText } };
 })();
