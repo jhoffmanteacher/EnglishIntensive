@@ -180,6 +180,37 @@ await ok("a student reads their own assignment", () => s1.doc("assignments/s1").
 await no("a student can't read their own note", () => s1.doc("notes/s1").get());
 await no("a student can't write their assignment", () => s1.doc("assignments/s1").set({ lists: ["z"] }, { merge: true }));
 
+/* ── sequences ──────────────────────────────────────────────────────────
+   A teacher writes a `plan` (steps, a bar, where to start) on a student's
+   assignment, or on their roster row if they haven't signed in. The
+   student's browser works out where they are and records only a high-water
+   mark, `seq`, on their OWN document. The student must never be able to
+   write the plan: that is the rule that keeps "the site moves a student on
+   by itself" from meaning "a student moves themselves on". No rule
+   changed for any of this; these cases are what says so. */
+const PLAN = { steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 1795563000000 };
+await ok("a student writes their own high-water mark (seq)", () =>
+  s1.doc("students/s1").set({ seq: { at: 1, of: PLAN.setAt, when: 1795563000001 } }, { merge: true }));
+await no("…but not another student's", () =>
+  s1.doc("students/s2").set({ seq: { at: 1, of: 1, when: 1 } }, { merge: true }));
+await no("a student can't write the plan on their own assignment", () =>
+  s1.doc("assignments/s1").set({ plan: PLAN }, { merge: true }));
+await no("…or replace the assignment with one that has a plan", () =>
+  s1.doc("assignments/s1").set({ plan: PLAN, lists: ["red-1-say"], ...inX }));
+await no("…or write a plan on their roster row", () =>
+  s1.doc("roster/101@seq.org").set({ plan: PLAN }, { merge: true }));
+await ok("a teacher on the class writes a plan and the lists of its current step", () =>
+  tA.doc("assignments/s1").set({ plan: PLAN, lists: ["red-1-say", "red-1-cards"], updatedAt: 1, ...inX }, { merge: true }));
+await ok("…and may move the student on (at) or hold them (hold)", () =>
+  tA.doc("assignments/s1").set({ plan: { ...PLAN, at: 1, hold: true, setAt: PLAN.setAt + 1 }, ...inX }, { merge: true }));
+await ok("a co-teacher on the class does the same", () =>
+  tB.doc("assignments/s1").set({ plan: PLAN, ...inX }, { merge: true }));
+await no("a teacher not on the class can't", () =>
+  tC.doc("assignments/s1").set({ plan: PLAN, ...inX }, { merge: true }));
+await ok("a teacher writes a plan on a roster row for a student who hasn't signed in", () =>
+  tA.doc("roster/101@seq.org").set({ plan: PLAN, ...inX }, { merge: true }));
+await ok("the student still reads their own assignment, plan and all", () => s1.doc("assignments/s1").get());
+
 /* The Assign board saves a whole class in ONE batch. Each write's stamp
    is checked with a get() of the same class doc, which Firestore counts
    once; this is the case that proves a class of thirty saves. */

@@ -265,6 +265,62 @@ window.EIPractice = (function(){
     return "Previewing " + (pv.name || "this student") + "'s games — nothing you play here is saved to them.";
   }
 
+  /* The shelves of tiles for a set of list ids, appended to `container`;
+     returns how many lists were drawn. Used for a student's current list
+     and, again, for the finished fold. */
+  function appendSections(container, mine){
+    var shown = 0;
+    WordLists.sectionsOf().forEach(function(sec){
+      var lists = WordLists.all.filter(function(l){
+        return l.section === sec.key && mine.indexOf(l.id) !== -1;
+      });
+      if(!lists.length) return;
+      shown += lists.length;
+
+      var wrap = document.createElement("div");
+      wrap.className = "section";
+      var h2 = document.createElement("h2"); h2.textContent = sec.title; wrap.appendChild(h2);
+      var note = document.createElement("p"); note.className = "sectionNote"; note.textContent = sec.note; wrap.appendChild(note);
+      var grid = document.createElement("div"); grid.className = "grid";
+
+      // One tile per LIST, with a Play row per mode the student has
+      // for it — so a student assigned both modes of three red lists
+      // sees three tiles, not six, and "Blend Words" is one tile with
+      // three ways in rather than three tiles of the same words.
+      var byList = {}, order = [];
+      lists.forEach(function(l){
+        var k = l.family + ":" + l.listNum;
+        if(!byList[k]){ byList[k] = []; order.push(k); }
+        byList[k].push(l);
+      });
+      order.forEach(function(k){ grid.appendChild(familyTile(byList[k])); });
+      wrap.appendChild(grid);
+      container.appendChild(wrap);
+    });
+    return shown;
+  }
+
+  /* The one line above a sequence student's tiles, or "". Three things it
+     can say, and these are the only new words a student sees: that they
+     have finished everything, or — the first time the page loads after
+     they moved to a new list — which one. "The first time" is a note kept
+     in localStorage (per student, per sequence: a teacher saving a new
+     sequence starts it afresh, and the first ever load announces nothing).
+     A teacher previewing a student reads nothing and writes nothing. */
+  function planNotice(pl, pv){
+    if(pv) return pl.finished ? "You finished all your lists. Ask your teacher what comes next." : "";
+    var key = "ei.plan.seen:" + pl.uid, prev = null, text = "";
+    try{ prev = JSON.parse(localStorage.getItem(key)); }catch(e){}
+    if(pl.finished){
+      text = "You finished all your lists. Ask your teacher what comes next.";
+    } else if(prev && prev.setAt === pl.setAt && prev.index < pl.index){
+      var first = WordLists.byId(pl.current[0]);
+      if(first) text = "New list: " + first.listTitle + ".";
+    }
+    try{ localStorage.setItem(key, JSON.stringify({ setAt: pl.setAt, index: pl.index })); }catch(e){}
+    return text;
+  }
+
   /* ── the home page ────────────────────────────────────────────────
      Tiles for the lists this student is assigned, grouped into the two
      shelves sectionsOf() names — words you sound out, and words you
@@ -285,7 +341,6 @@ window.EIPractice = (function(){
         return;
       }
       var mine = EIStore.myLists();
-      var sections = WordLists.sectionsOf();
       mount.innerHTML = "";
       var shown = 0;
       /* The teacher's own home page shows every game, so they can try one
@@ -300,39 +355,38 @@ window.EIPractice = (function(){
         mount.appendChild(tv);
       }
 
-      sections.forEach(function(sec){
-        var lists = WordLists.all.filter(function(l){
-          return l.section === sec.key && mine.indexOf(l.id) !== -1;
-        });
-        if(!lists.length) return;
-        shown += lists.length;
-
-        var wrap = document.createElement("div");
-        wrap.className = "section";
-        var h2 = document.createElement("h2"); h2.textContent = sec.title; wrap.appendChild(h2);
-        var note = document.createElement("p"); note.className = "sectionNote"; note.textContent = sec.note; wrap.appendChild(note);
-        var grid = document.createElement("div"); grid.className = "grid";
-
-        // One tile per LIST, with a Play row per mode the student has
-        // for it — so a student assigned both modes of three red lists
-        // sees three tiles, not six, and "Blend Words" is one tile with
-        // three ways in rather than three tiles of the same words.
-        var byList = {}, order = [];
-        lists.forEach(function(l){
-          var k = l.family + ":" + l.listNum;
-          if(!byList[k]){ byList[k] = []; order.push(k); }
-          byList[k].push(l);
-        });
-        order.forEach(function(k){ grid.appendChild(familyTile(byList[k])); });
-        wrap.appendChild(grid);
-        mount.appendChild(wrap);
-      });
-
-      if(!shown){
-        var empty = document.createElement("div");
-        empty.className = "empty";
-        empty.textContent = "No games for you yet. Your teacher will add them soon.";
-        mount.appendChild(empty);
+      /* A student with a sequence sees the list they are on, in its
+         section; the lists they have finished sit in one closed fold under
+         it, still playable; lists they have not reached are not there at
+         all — no locks, no "coming soon". A student with no sequence sees
+         their set exactly as before. */
+      var pl = EIStore.plan && EIStore.plan();
+      if(pl){
+        var note = planNotice(pl, pv);
+        if(note){
+          var pn = document.createElement("p");
+          pn.className = "planLine";
+          pn.textContent = note;
+          mount.appendChild(pn);
+        }
+        shown = appendSections(mount, pl.current);
+        if(pl.finishedIds.length){
+          var fold = document.createElement("details");
+          fold.className = "finishedFold";
+          var sum = document.createElement("summary");
+          sum.textContent = "Lists you finished (" + pl.finishedCount + ")";
+          fold.appendChild(sum);
+          appendSections(fold, pl.finishedIds);
+          mount.appendChild(fold);
+        }
+      } else {
+        shown = appendSections(mount, mine);
+        if(!shown){
+          var empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No games for you yet. Your teacher will add them soon.";
+          mount.appendChild(empty);
+        }
       }
       EIAuth.unlock();
     }).catch(function(e){
@@ -399,5 +453,6 @@ window.EIPractice = (function(){
   }
 
   return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
-           _internals: { queryList: queryList, pageName: pageName, previewText: previewText } };
+           _internals: { queryList: queryList, pageName: pageName, previewText: previewText,
+                         planNotice: planNotice, appendSections: appendSections } };
 })();

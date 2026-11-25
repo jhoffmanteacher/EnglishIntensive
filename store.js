@@ -5,10 +5,14 @@
 
      students/{uid}      their own. Read/write by them, read-only to the
                          teacher. Holds the per-word stats (adaptive.js
-                         owns their shape), lifetime totals, and a short
-                         tail of finished rounds.
+                         owns their shape), lifetime totals, a short
+                         tail of finished rounds, and `seq` — how far
+                         through a teacher's sequence they have got (see
+                         "A sequence" below).
      assignments/{uid}   written by the TEACHER, read-only to the student:
-                         which lists they get, and which class they're in.
+                         which lists they get — a plain set, or a
+                         sequence of steps (`plan`) — and which class
+                         they're in.
                          Separate from students/{uid} precisely so the
                          teacher never needs write access to a student's
                          work — see firestore.rules.
@@ -37,6 +41,34 @@
    teacher can only list students whose own doc names them.
    firestore.rules allows the student exactly that change and no other.
 
+   ── A sequence ────────────────────────────────────────────────────────
+   When the assignment (or roster row) carries a `plan`, the student's
+   lists are not a fixed set: they are the current step, plus every step
+   before it (finished lists stay playable). Later steps are never shown.
+   Where the student IS is worked out here, in their browser, from their
+   own stats, by the same Adaptive.planState the dashboard runs.
+
+   Why not on the teacher's page and written down? Because the student
+   can never write assignments/{uid} (firestore.rules), and a teacher's
+   browser does not have a student's stats until it opens the dashboard.
+   So position is a pure function of two documents the student can read
+   and one they can write.
+
+   It is worked out ONCE per page load, never in the middle of a round: a
+   student who finishes the last word of a list mid-round plays out the
+   round on that list and meets the next one on the next page.
+
+   THE HIGH-WATER MARK. A finished list can be replayed, and a word can
+   drop out of the top box. So position is never recomputed from nothing:
+   when it comes out further on than what was stored for this plan, the
+   new index is written to students/{uid}.seq = { at, of, when }, and next
+   time the walk starts from there. `of` is the plan's `setAt`, so a mark
+   made under an older plan is ignored the moment a teacher saves a new
+   one. A student could edit their own `seq` (the rules let them write
+   their own document); the worst that does is move themselves along or
+   back their own sequence, which the dashboard shows on the student's
+   page as where they are.
+
    ── Preview ───────────────────────────────────────────────────────────
    index.html?preview=<uid | roster:email>, opened by a TEACHER from the
    dashboard's Student view button, loads that student's assignment,
@@ -62,6 +94,9 @@ window.EIStore = (function(){
   var assignment = null;        // { lists, classId, teachers } or null
   var rosterRow = null;         // roster/{email} — the imported class list
   var docClass = null;          // { classId, teachers } as stored on students/{uid}
+  var seq = null;               // students/{uid}.seq — the high-water mark (sanitized)
+  var pos = null;               // this page load's position in a sequence, or null
+  var dirtySeq = false;         // the mark moved and hasn't been written
   var dirtyClass = null;        // the roster's, when it needs copying
   var preview = null;           // { id, name, failed } while a teacher previews
   var loadFailed = false;
@@ -113,6 +148,58 @@ window.EIStore = (function(){
     return [];
   }
 
+  /* The student's sequence, or null: the assignment is the source when it
+     has a valid `plan` or a `lists` array, otherwise the roster row is.
+     From the source, its plan if valid; `lists` (no plan) is null here and
+     is handled by effectiveLists, so a student with no plan is exactly
+     what they were before. Pure. */
+  function planOf(d){ return d ? Adaptive.sanitizePlan(d.plan) : null; }
+  function effectivePlan(assignment, roster){
+    if(assignment && (planOf(assignment) || Array.isArray(assignment.lists))) return planOf(assignment);
+    return planOf(roster);
+  }
+
+  /* Everything the home page and the games need to know about one
+     student's lists, in one place. With no plan it is effectiveLists and
+     nothing else. With one: the current step's ids, the finished steps'
+     ids, and where they are. Pure — stats, seq and totalOf come in. */
+  function resolve(assignment, roster, st, sq, totalOf){
+    var plan = effectivePlan(assignment, roster);
+    if(!plan) return { plan: null, ids: effectiveLists(assignment, roster) };
+    var state = Adaptive.planState(plan, st, totalOf, sq);
+    var current = state.finished ? [] : plan.steps[state.index].ids.slice();
+    var done = [], i, j, n = Math.min(state.index, plan.steps.length);
+    for(i=0;i<n;i++){
+      for(j=0;j<plan.steps[i].ids.length;j++){
+        var id = plan.steps[i].ids[j];
+        if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id);
+      }
+    }
+    return { plan: plan, state: state, current: current, finishedIds: done, ids: done.concat(current) };
+  }
+
+  function totalOf(id){
+    return WordLists.exists(id) ? WordLists.wordsOf(id).length : 0;
+  }
+
+  /* Work out this page load's position, once, and move the high-water
+     mark if it went forward. Nothing here for the teacher's own page (it
+     shows every game and ignores plans) or when the read failed. */
+  function settle(){
+    pos = null;
+    if(loadFailed) return;
+    if(!preview && seesEverything()) return;
+    var r = resolve(assignment, rosterRow, stats, seq, totalOf);
+    if(!r.plan) return;
+    pos = r;
+    var stored = (seq && seq.of === r.plan.setAt && seq.at > r.plan.at) ? seq.at : r.plan.at;
+    if(r.state.index > stored && !preview){
+      seq = { at: r.state.index, of: r.plan.setAt, when: Date.now() };
+      dirtySeq = true;
+      scheduleSave();
+    }
+  }
+
   /* The roster row's class stamp, when it isn't already on the student's
      own doc — the only fields store.js ever copies from the roster. Copied
      exactly as the row has them: the rules compare them for equality. */
@@ -157,6 +244,7 @@ window.EIStore = (function(){
         heard  = Adaptive.sanitizeHeard(d.heard);
         fluency = Adaptive.sanitizeFluency(d.fluency);
         assignment = snaps[1].exists ? snaps[1].data() : null;
+        seq = Adaptive.sanitizeSeq(d.seq);
         preview.name = d.name || d.email || "this student";
         var em = String(d.email || "").toLowerCase();
         return em ? db.collection("roster").doc(em).get().then(function(r){
@@ -166,6 +254,7 @@ window.EIStore = (function(){
     }).catch(function(){
       preview.failed = true;
     }).then(function(){
+      settle();
       readyResolve({ preview:true });
       return readyPromise;
     });
@@ -213,9 +302,11 @@ window.EIStore = (function(){
         }
         assignment = snaps[1] && snaps[1].exists ? snaps[1].data() : null;
         rosterRow  = snaps[2] && snaps[2].exists ? snaps[2].data() : null;
+        seq = d ? Adaptive.sanitizeSeq(d.seq) : null;
         docClass = d ? { classId: d.classId, teachers: d.teachers } : null;
         dirtyClass = classToCopy(rosterRow, docClass);
         writeLocal();
+        settle();
         // Stamp identity on every sign-in: it is what turns an opaque uid
         // into a name on the teacher's roster, and it keeps up with a
         // student whose display name changes mid-year.
@@ -251,6 +342,7 @@ window.EIStore = (function(){
     if(anyHeard) p.heard = heardOut;
     if(anyFl) p.fluency = flOut;
     if(dirtyClass){ p.classId = dirtyClass.classId; p.teachers = dirtyClass.teachers; }
+    if(dirtySeq && seq) p.seq = { at: seq.at, of: seq.of, when: seq.when };
     if(dirtyMeta){
       p.name  = (user && user.displayName) || null;
       p.email = (user && user.email) || null;
@@ -270,11 +362,11 @@ window.EIStore = (function(){
     clearTimeout(saveTimer); saveTimer = null;
     if(loadFailed || preview || !uid || (user && user._dev)) return Promise.resolve();
     if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length &&
-       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyClass) return inFlight || Promise.resolve();
+       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyClass && !dirtySeq) return inFlight || Promise.resolve();
     var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
-    var sendingClass = dirtyClass;
+    var sendingClass = dirtyClass, sendingSeq = dirtySeq;
     var body = payload();
-    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyClass = null;
+    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyClass = null; dirtySeq = false;
     /* Chained behind whatever is already on the wire, never alongside it:
        two overlapping writes could land out of order, and the older
        one's cleanup must not make inFlight look empty while this one is
@@ -297,6 +389,7 @@ window.EIStore = (function(){
       for(k in sendingFluency){ if(has(sendingFluency, k)) dirtyFluency[k] = true; }
       if(sendingMeta) dirtyMeta = true;
       if(sendingClass && !dirtyClass) dirtyClass = sendingClass;
+      if(sendingSeq) dirtySeq = true;
       console.warn("EIStore: save failed", err);
       /* A denied write will be denied again; the next round's own flush
          can still try, but a timer hammering the rules would not help.
@@ -389,10 +482,14 @@ window.EIStore = (function(){
        who still holds a retired id keeps it: it is in their assignment,
        so it is in the list below, and it plays. A teacher previewing a
        student gets that student's list, exactly. */
-    var ids = preview ? effectiveLists(assignment, rosterRow)
+    /* With a sequence, the current step and the ones before it — see "A
+       sequence" at the top. `pos` is this page load's, so the answer does
+       not change under a student in the middle of a round. */
+    var mine = pos ? pos.ids.slice() : effectiveLists(assignment, rosterRow);
+    var ids = preview ? mine
             : seesEverything()
       ? WordLists.all.filter(function(l){ return !l.retired; }).map(function(l){ return l.id; })
-      : effectiveLists(assignment, rosterRow);
+      : mine;
     // Drop assignments naming a list that no longer exists, so a deleted
     // list doesn't render a broken tile.
     return ids.filter(function(id){ return WordLists.exists(id); });
@@ -421,6 +518,25 @@ window.EIStore = (function(){
     recent: function(){ return recent.slice(); },
     myLists: myLists,
     seesEverything: seesEverything,
+    /* null for a student with no sequence (and for the teacher's own
+       page); otherwise what the home page draws: the current step's ids,
+       the ids of the finished ones, how many finished, whether that is
+       all of them, and where they are. Ids the library no longer has are
+       left out. */
+    plan: function(){
+      if(!pos || !pos.plan) return null;
+      var alive = function(id){ return WordLists.exists(id); };
+      var n = Math.min(pos.state.index, pos.plan.steps.length), fin = 0, i;
+      for(i=0;i<n;i++) if(pos.plan.steps[i].ids.some(alive)) fin++;
+      return {
+        uid: uid, setAt: pos.plan.setAt,
+        index: pos.state.index, count: pos.plan.steps.length,
+        finished: pos.state.finished, hold: pos.state.hold,
+        current: pos.current.filter(alive),
+        finishedIds: pos.finishedIds.filter(alive),
+        finishedCount: fin
+      };
+    },
     // The class this student is in, by id, or null. Their roster row is
     // the record of it; their own doc follows it (see classToCopy).
     classId: function(){
@@ -433,6 +549,9 @@ window.EIStore = (function(){
     _internals: {
       previewParam: previewParam,
       effectiveLists: effectiveLists,
+      effectivePlan: effectivePlan,
+      resolve: resolve,
+      settle: settle,
       classToCopy: classToCopy,
       // The write body, for a test that can assert its shape without a
       // Firestore. Reads the module's live state, so a test drives it
@@ -444,7 +563,12 @@ window.EIStore = (function(){
         dirty = st.dirty || {}; dirtyHeard = st.dirtyHeard || {};
         dirtyFluency = st.dirtyFluency || {}; dirtyMeta = !!st.dirtyMeta;
         totals = st.totals || { n:0, r:0 }; recent = st.recent || [];
-      }
+        assignment = st.assignment || null; rosterRow = st.roster || null;
+        seq = st.seq ? Adaptive.sanitizeSeq(st.seq) : null; dirtySeq = false;
+        preview = st.preview || null; loadFailed = !!st.loadFailed; pos = null;
+      },
+      seq: function(){ return seq; },
+      dirtySeq: function(){ return dirtySeq; }
     }
   };
 })();

@@ -479,16 +479,139 @@ window.Adaptive = (function(){
   function listShare(stats, listId, totalOf){
     var total = typeof totalOf === "function" ? (totalOf(listId) || 0) : 0;
     if(!total) return 0;
+    return listSolid(stats, listId) / total;
+  }
+
+  /* The count behind listShare: how many of one list's words are solid and
+     at pace. Solid AND at pace, where anything timed it; a word that was
+     never timed has lat 0 and is simply solid, which is every mode but the
+     flash cards. */
+  function listSolid(stats, listId){
     var prefix = listId + "|", solid = 0;
     for(var k in stats){
       if(!has(stats, k) || k.indexOf(prefix) !== 0) continue;
       var s = sanitizeStat(stats[k]);
-      // Solid AND at pace, where anything timed it. A word that was
-      // never timed has lat 0 and is simply solid, which is every mode
-      // but the flash cards.
       if(isMastered(s) && !isSlow(s)) solid++;
     }
-    return solid / total;
+    return solid;
+  }
+
+  /* ── a sequence: one student's lists, in order ─────────────────────
+     A teacher gives a student a PLAN instead of a set: steps, in order, and
+     the student moves to the next step when they have finished this one.
+
+       plan: {
+         steps: [ { ids: ["red-1-say", "red-1-cards"] }, ... ],
+         bar:   0.9,     // 0.5 to 1 in steps of 0.05: how much of a list must be solid
+         at:    0,       // the step the teacher last set as current (0-based)
+         hold:  false,   // true: stay on step `at` until the teacher moves them
+         setAt: <ms>     // when the teacher saved it
+       }
+
+     A step is a map, not a bare array: Firestore refuses an array directly
+     inside an array. Every id in a step is one way of playing the same
+     list. All of this is pure and has no clock and no word library of its
+     own (`totalOf(id)` is injected, as it is for listShare), so the
+     teacher's dashboard and the student's page run the SAME code on the
+     same numbers and cannot disagree about where a student is.
+
+     Position is worked out in the STUDENT'S browser, from their own
+     stats, because only the student's browser has them while they play;
+     see store.js for why that, and for the high-water mark that keeps a
+     student from sliding backwards. */
+  var DEFAULT_BAR = 0.9;
+  var PLAN_MAX_STEPS = 60, STEP_MAX_IDS = 12, ID_MAX_LEN = 80;
+
+  function sanitizeBar(v){
+    // To the nearest 5 %, in whole twentieths so 0.9 stays 0.9.
+    return Math.round(clamp(num(v, DEFAULT_BAR), 0.5, 1) * 20) / 20;
+  }
+
+  /* Nothing read back is trusted: this lives in a document a teacher
+     writes and a student's browser reads, and outlives every version of
+     this file. Wrong types are dropped, a bar or a position outside its
+     range is pulled back in, and a plan with no usable step is null — no
+     plan at all, which is the way a student is shown the lists they were
+     given the old way. */
+  function sanitizePlan(raw){
+    if(!raw || typeof raw !== "object" || !Array.isArray(raw.steps)) return null;
+    var steps = [], i, j;
+    for(i=0;i<raw.steps.length && steps.length<PLAN_MAX_STEPS;i++){
+      var st = raw.steps[i];
+      var list = st && typeof st === "object" && Array.isArray(st.ids) ? st.ids : [];
+      var ids = [];
+      for(j=0;j<list.length && ids.length<STEP_MAX_IDS;j++){
+        var id = list[j];
+        if(typeof id === "string" && id && id.length <= ID_MAX_LEN && ids.indexOf(id) === -1) ids.push(id);
+      }
+      if(ids.length) steps.push({ ids: ids });
+    }
+    if(!steps.length) return null;
+    return {
+      steps: steps,
+      bar: sanitizeBar(raw.bar),
+      at: clamp(Math.floor(num(raw.at, 0)), 0, steps.length - 1),
+      hold: raw.hold === true,
+      setAt: Math.max(0, Math.floor(num(raw.setAt, 0)))
+    };
+  }
+
+  /* The student's high-water mark: { at, of, when }. `of` is the plan's
+     setAt it belongs to, so a mark made under an older plan is ignored the
+     moment a teacher saves a new one. `at` may equal the number of steps
+     (finished everything). null when there is nothing usable. */
+  function sanitizeSeq(raw){
+    if(!raw || typeof raw !== "object" || typeof raw.at !== "number" || !isFinite(raw.at)) return null;
+    return {
+      at: clamp(Math.floor(raw.at), 0, PLAN_MAX_STEPS),
+      of: Math.max(0, Math.floor(num(raw.of, 0))),
+      when: Math.max(0, Math.floor(num(raw.when, 0)))
+    };
+  }
+
+  /* How many words must be solid for a list of `total` words at `bar`.
+     WHOLE WORDS, never two fractions compared: the number the dashboard
+     prints ("18 of 20") is then the number that was measured. 20 words at
+     90 % is 18; 28 words is 26. The 1e-9 is for floats (0.9 * 20 can come
+     out a hair over 18, and would ask for 19). */
+  function stepNeed(bar, total){
+    var t = Math.max(0, Math.floor(num(total, 0)));
+    return Math.ceil(clamp(num(bar, DEFAULT_BAR), 0, 1) * t - 1e-9);
+  }
+
+  /* Finished: every way of playing the teacher ticked has reached the bar.
+     An id the library no longer has (total 0) is skipped, not waited on —
+     a student must not be stuck behind a list that cannot be played. A
+     step whose ids are ALL gone is therefore skipped whole. */
+  function stepFinished(step, bar, stats, totalOf){
+    for(var i=0;i<step.ids.length;i++){
+      var total = Math.floor(num(totalOf(step.ids[i]), 0));
+      if(total <= 0) continue;
+      if(listSolid(stats, step.ids[i]) < stepNeed(bar, total)) return false;
+    }
+    return true;
+  }
+
+  /* Where a student is: { index, finished, hold }, or null for no plan.
+     Start at the step the teacher set. If the student's own mark belongs to
+     THIS plan and is further on, start there instead (so a list replayed
+     and missed a few times cannot put them back). If the teacher is holding
+     them, stop. Otherwise walk forward while the step is finished.
+     `finished` means past the last step.
+
+     Without `totalOf` there is no evidence, so nothing moves: the safe way
+     to be wrong, as in listShare. */
+  function planState(plan, stats, totalOf, seq){
+    var p = sanitizePlan(plan);
+    if(!p) return null;
+    var n = p.steps.length, start = p.at;
+    var sq = sanitizeSeq(seq);
+    if(sq && sq.of === p.setAt && sq.at > start) start = Math.min(sq.at, n);
+    if(p.hold && start === p.at) return { index: start, finished: false, hold: true };
+    if(typeof totalOf !== "function") return { index: start, finished: start >= n, hold: false };
+    var i = start;
+    while(i < n && stepFinished(p.steps[i], p.bar, stats || {}, totalOf)) i++;
+    return { index: i, finished: i >= n, hold: false };
   }
 
   /* ── what should change ────────────────────────────────────────────
@@ -645,6 +768,12 @@ window.Adaptive = (function(){
     isSlow: isSlow,
     solidEnough: SOLID_ENOUGH,
     listShare: listShare,
+    listSolid: listSolid,
+    defaultBar: DEFAULT_BAR,
+    sanitizePlan: sanitizePlan,
+    sanitizeSeq: sanitizeSeq,
+    stepNeed: stepNeed,
+    planState: planState,
     nextSteps: nextSteps,
     schoolDaysBetween: schoolDaysBetween,
     errorKinds: ERROR_KINDS.slice(),

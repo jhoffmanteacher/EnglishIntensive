@@ -3900,6 +3900,316 @@
     body.innerHTML = "";
   })();
 
+  /* ══════════════════════════════════════════════════════════════════
+     Sequences — a student moves through their lists in order
+
+     Pure functions in adaptive.js (sanitizePlan, listSolid, stepNeed,
+     planState) and the store's use of them (effectivePlan, resolve,
+     the high-water mark, myLists). The student's browser works out where
+     they are; the dashboard runs the same functions, so what is pinned
+     here is what a teacher is shown.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var A3 = window.Adaptive, W3 = window.WordLists, S3 = window.EIStore._internals;
+    function solid(listId, n, lat){
+      var out = {}, i;
+      for(i=0;i<n;i++) out[listId + "|w" + i] = A3.sanitizeStat({ n:12, r:12, box:5, last:1, lat: lat == null ? 900 : lat });
+      return out;
+    }
+    function merge(){
+      var out = {}, i, k;
+      for(i=0;i<arguments.length;i++) for(k in arguments[i]) out[k] = arguments[i][k];
+      return out;
+    }
+    /* A section that throws must show up as a red row, not take the whole
+       page's results with it (a throw before the render below leaves no
+       summary at all). `after` always runs, so the store is put back. */
+    function guard(name, fn, after){
+      try{ fn(); }
+      catch(e){ results.push({ pass:false, desc: name + " — threw", detail: String(e && e.message || e) }); }
+      finally{ if(after) after(); }
+    }
+    // Every list is 20 words except the ones named; an id it doesn't know has none.
+    var TOT20 = function(id){ return ({ a:20, b:20, c:20, d:28, gone:0 })[id] || 0; };
+    function plan(steps, extra){
+      var p = { steps: steps.map(function(ids){ return { ids: ids }; }), bar: 0.9, at: 0, hold: false, setAt: 1000 };
+      for(var k in (extra || {})) p[k] = extra[k];
+      return p;
+    }
+
+    guard("pure sequence functions", function(){
+    /* ---- stepNeed: whole words ---- */
+    eq("20 words at 90% need 18 solid", A3.stepNeed(0.9, 20), 18);
+    eq("28 words at 90% need 26 solid", A3.stepNeed(0.9, 28), 26);
+    eq("100% needs every word", A3.stepNeed(1, 20), 20);
+    eq("50% of an odd list rounds up", A3.stepNeed(0.5, 31), 16);
+    eq("an empty list needs none", A3.stepNeed(0.9, 0), 0);
+
+    /* ---- sanitizePlan: nothing read back is trusted ---- */
+    eq("no plan is null", A3.sanitizePlan(null), null);
+    eq("a string is no plan", A3.sanitizePlan("steps"), null);
+    eq("a plan with no steps is null", A3.sanitizePlan({ steps: [] }), null);
+    eq("steps that are not maps are dropped, and so is the plan", A3.sanitizePlan({ steps: [["a"], "b", 3] }), null);
+    eq("a step with no ids is dropped", A3.sanitizePlan({ steps: [{ ids: [] }, { ids: ["a"] }] }).steps.length, 1);
+    eq("non-string and duplicate ids are dropped",
+       A3.sanitizePlan({ steps: [{ ids: ["a", 7, "a", "", null, "b"] }] }).steps[0].ids.join(","), "a,b");
+    eq("a bar above 1 is pulled to 1", A3.sanitizePlan(plan([["a"]], { bar: 2 })).bar, 1);
+    eq("a bar below 0.5 is pulled to 0.5", A3.sanitizePlan(plan([["a"]], { bar: 0.1 })).bar, 0.5);
+    eq("a bar goes to the nearest 5%", A3.sanitizePlan(plan([["a"]], { bar: 0.93 })).bar, 0.95);
+    eq("a missing bar is 90%", A3.sanitizePlan({ steps: [{ ids: ["a"] }] }).bar, 0.9);
+    eq("0.9 stays exactly 0.9", A3.sanitizePlan(plan([["a"]], { bar: 0.9 })).bar, 0.9);
+    eq("a position past the end is pulled in", A3.sanitizePlan(plan([["a"], ["b"]], { at: 9 })).at, 1);
+    eq("a negative position is pulled to 0", A3.sanitizePlan(plan([["a"], ["b"]], { at: -3 })).at, 0);
+    eq("hold is true only for true", A3.sanitizePlan(plan([["a"]], { hold: "yes" })).hold, false);
+    eq("hold true survives", A3.sanitizePlan(plan([["a"]], { hold: true })).hold, true);
+    eq("setAt is kept", A3.sanitizePlan(plan([["a"]], { setAt: 1795563000000 })).setAt, 1795563000000);
+    eq("a bad setAt is 0", A3.sanitizePlan(plan([["a"]], { setAt: "now" })).setAt, 0);
+    eq("sanitizing a clean plan changes nothing",
+       JSON.stringify(A3.sanitizePlan(plan([["a", "b"], ["c"]], { at: 1 }))),
+       JSON.stringify(plan([["a", "b"], ["c"]], { at: 1 })));
+
+    /* ---- sanitizeSeq ---- */
+    eq("no mark is null", A3.sanitizeSeq(undefined), null);
+    eq("a mark with no position is null", A3.sanitizeSeq({ of: 5 }), null);
+    eq("a mark keeps its three fields", JSON.stringify(A3.sanitizeSeq({ at: 2, of: 1000, when: 5 })), '{"at":2,"of":1000,"when":5}');
+    eq("a negative mark is pulled to 0", A3.sanitizeSeq({ at: -4, of: 1, when: 1 }).at, 0);
+
+    /* ---- listSolid is the count behind listShare ---- */
+    eq("listSolid counts solid words", A3.listSolid(solid("a", 7), "a"), 7);
+    eq("…not another list's", A3.listSolid(solid("b", 7), "a"), 0);
+    eq("…and not a slow word", A3.listSolid(solid("a", 7, 9000), "a"), 0);
+    eq("listShare is listSolid over the total", A3.listShare(solid("a", 7), "a", TOT20), 7 / 20);
+
+    /* ---- planState ---- */
+    var P = plan([["a"], ["b"], ["c"]]);
+    eq("a fresh student starts on step 1", A3.planState(P, {}, TOT20).index, 0);
+    eq("18 of 20 solid finishes step 1", A3.planState(P, solid("a", 18), TOT20).index, 1);
+    eq("17 of 20 does not", A3.planState(P, solid("a", 17), TOT20).index, 0);
+    eq("a slow word does not count", A3.planState(P, solid("a", 18, 9000), TOT20).index, 0);
+    eq("another list's words do not count", A3.planState(P, solid("b", 20), TOT20).index, 0);
+    eq("the walk goes on while steps are finished",
+       A3.planState(P, merge(solid("a", 18), solid("b", 20)), TOT20).index, 2);
+    eq("a student already solid on steps 1 and 2 lands on step 3 at first load",
+       A3.planState(P, merge(solid("a", 20), solid("b", 19)), TOT20).index, 2);
+    eq("every step finished is past the end", A3.planState(P, merge(solid("a", 20), solid("b", 20), solid("c", 20)), TOT20).index, 3);
+    eq("…and says it is finished", A3.planState(P, merge(solid("a", 20), solid("b", 20), solid("c", 20)), TOT20).finished, true);
+    eq("…while one short of it is not finished",
+       A3.planState(P, merge(solid("a", 20), solid("b", 20), solid("c", 17)), TOT20).finished, false);
+    eq("the bar is the plan's: 28 words at 90% need 26 (25 is not enough)",
+       A3.planState(plan([["d"], ["a"]]), solid("d", 25), TOT20).index, 0);
+    eq("…and 26 is", A3.planState(plan([["d"], ["a"]]), solid("d", 26), TOT20).index, 1);
+    eq("a lower bar finishes sooner (70% of 20 is 14)",
+       A3.planState(plan([["a"], ["b"]], { bar: 0.7 }), solid("a", 14), TOT20).index, 1);
+    eq("100% takes every word", A3.planState(plan([["a"], ["b"]], { bar: 1 }), solid("a", 19), TOT20).index, 0);
+
+    /* two ways of playing: every one the teacher ticked must reach the bar */
+    var TWO = plan([["a", "b"], ["c"]]);
+    eq("both ways at the bar finishes the step",
+       A3.planState(TWO, merge(solid("a", 18), solid("b", 18)), TOT20).index, 1);
+    eq("one way one word short does not",
+       A3.planState(TWO, merge(solid("a", 18), solid("b", 17)), TOT20).index, 0);
+    eq("one way untouched does not", A3.planState(TWO, solid("a", 20), TOT20).index, 0);
+
+    /* the teacher's hold */
+    var HELD = plan([["a"], ["b"]], { hold: true });
+    eq("hold stops the walk even when the step is finished",
+       A3.planState(HELD, solid("a", 20), TOT20).index, 0);
+    eq("…and says it is holding", A3.planState(HELD, solid("a", 20), TOT20).hold, true);
+    eq("hold on a later step holds there", A3.planState(plan([["a"], ["b"], ["c"]], { hold: true, at: 1 }), merge(solid("a", 20), solid("b", 20)), TOT20).index, 1);
+    eq("without hold, the same student walks on", A3.planState(plan([["a"], ["b"], ["c"]], { at: 1 }), merge(solid("a", 20), solid("b", 20)), TOT20).index, 2);
+
+    /* the student's own mark: forward only, and only for this plan */
+    var SEQ = { at: 2, of: 1000, when: 1 };
+    eq("a mark further on than the plan is where they start",
+       A3.planState(P, {}, TOT20, SEQ).index, 2);
+    eq("a mark from an older plan is ignored",
+       A3.planState(P, {}, TOT20, { at: 2, of: 999, when: 1 }).index, 0);
+    eq("a mark behind the plan changes nothing",
+       A3.planState(plan([["a"], ["b"], ["c"]], { at: 2 }), {}, TOT20, { at: 1, of: 1000, when: 1 }).index, 2);
+    eq("replaying a finished list and missing words does not move them back",
+       A3.planState(P, merge(solid("a", 3), solid("b", 2)), TOT20, SEQ).index, 2);
+    eq("a mark at the end means finished", A3.planState(P, {}, TOT20, { at: 3, of: 1000, when: 1 }).finished, true);
+    eq("hold beats a mark that is not this plan's", A3.planState(HELD, solid("a", 20), TOT20, { at: 1, of: 5, when: 1 }).index, 0);
+
+    /* a list the library no longer has is skipped, never waited on */
+    eq("a deleted list is skipped",
+       A3.planState(plan([["gone"], ["a"]]), {}, TOT20).index, 1);
+    eq("a step with some ids gone waits only on the rest",
+       A3.planState(plan([["gone", "a"], ["b"]]), solid("a", 18), TOT20).index, 1);
+    eq("…and still waits on those", A3.planState(plan([["gone", "a"], ["b"]]), {}, TOT20).index, 0);
+    eq("a plan of only deleted lists is finished", A3.planState(plan([["gone"]]), {}, TOT20).finished, true);
+    eq("no totalOf, no evidence: nobody moves on", A3.planState(P, solid("a", 20)).index, 0);
+    eq("…not even past a finished step", A3.planState(P, merge(solid("a", 20), solid("b", 20))).finished, false);
+    eq("no plan is no position", A3.planState(null, {}, TOT20), null);
+
+    /* a walk-through: round by round, a three-step plan */
+    (function(){
+      var stats = {}, trace = [], rounds = [
+        ["a", 6], ["a", 12], ["a", 18], ["b", 10], ["b", 18], ["c", 17], ["c", 18]
+      ];
+      rounds.forEach(function(r){
+        var cur = r[0], n = r[1];
+        stats = merge(stats, solid(cur, n));
+        var st = A3.planState(P, stats, TOT20);
+        trace.push(st.finished ? "done" : String(st.index + 1));
+      });
+      eq("held on step 1 until the bar, then 2, then 3, then finished",
+         trace.join(" "), "1 1 2 2 3 3 done");
+    })();
+
+    });
+
+    guard("which plan, which lists", function(){
+    /* ---- the store: which plan, and which lists ---- */
+    var EP = S3.effectivePlan, EL = S3.effectiveLists;
+    var PL = { steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 5 };
+    eq("an assignment with a plan gives that plan", EP({ plan: PL }, null).steps.length, 2);
+    eq("an assignment with a plan beats a roster's lists", EP({ plan: PL }, { lists: ["x"] }).setAt, 5);
+    eq("an assignment with lists is no plan", EP({ lists: ["x"] }, null), null);
+    eq("…and an assignment's lists beat a roster row's plan", EP({ lists: ["x"] }, { plan: PL }), null);
+    eq("a roster row with a plan gives it", EP(null, { plan: PL }).setAt, 5);
+    eq("a roster row with only lists is no plan", EP(null, { lists: ["x"] }), null);
+    eq("nothing anywhere is no plan", EP(null, null), null);
+    eq("an assignment with a broken plan and no lists falls to the roster", EP({ plan: { steps: [] } }, { plan: PL }).setAt, 5);
+    eq("an assignment with a plan and stale lists uses the plan", EP({ plan: PL, lists: ["x"] }, null).setAt, 5);
+
+    /* Old and new on the same inputs: a student with no plan sees exactly
+       what effectiveLists gave them. */
+    (function(){
+      var inputs = [
+        [null, null], [null, undefined], [{ lists: ["d"] }, null], [{ lists: [] }, { lists: ["c"] }],
+        [{ period: "3" }, { period: "3" }], [null, { lists: ["c"] }], [{ period: "3" }, { lists: ["c"] }],
+        [{ lists: ["d"] }, { lists: ["c"] }], [null, { name: "Ana" }],
+        [{ lists: ["initial-blends", "blends-start-1-blendit"] }, null],
+        [{ plan: { steps: [] }, lists: ["z"] }, null], [{ plan: "no" }, { lists: ["c"] }], [{ classId: "x" }, null]
+      ];
+      var same = inputs.every(function(a){
+        return JSON.stringify(S3.resolve(a[0], a[1], {}, null, TOT20).ids) === JSON.stringify(EL(a[0], a[1]));
+      });
+      eq("with no plan, resolve gives exactly what effectiveLists gave (13 inputs)", same, true);
+      eq("…and says there is no plan", S3.resolve({ lists: ["d"] }, null, {}, null, TOT20).plan, null);
+    })();
+
+    /* resolve with a plan: the current step and the ones before it, never later ones */
+    (function(){
+      var P3 = { steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] }, { ids: ["red-3-say"] }],
+                 bar: 0.9, at: 0, hold: false, setAt: 5 };
+      function tot(id){ return W3.exists(id) ? W3.wordsOf(id).length : 0; }
+      var r0 = S3.resolve({ plan: P3 }, null, {}, null, tot);
+      eq("on step 1 you have step 1's lists", r0.ids.join(","), "red-1-say,red-1-cards");
+      eq("…and none of the later ones", r0.ids.indexOf("red-2-say") === -1 && r0.ids.indexOf("red-3-say") === -1, true);
+      eq("…and nothing is finished yet", r0.finishedIds.length, 0);
+      var st = merge(solid("red-1-say", 18), solid("red-1-cards", 18));
+      var r1 = S3.resolve({ plan: P3 }, null, st, null, tot);
+      eq("finish step 1 and step 2 is current", r1.current.join(","), "red-2-say,red-2-cards");
+      eq("…step 1 stays playable, in the finished set", r1.finishedIds.join(","), "red-1-say,red-1-cards");
+      eq("…the lists are finished-then-current", r1.ids.join(","), "red-1-say,red-1-cards,red-2-say,red-2-cards");
+      eq("…and step 3 is not there", r1.ids.indexOf("red-3-say"), -1);
+      var all = merge(st, solid("red-2-say", 18), solid("red-2-cards", 18), solid("red-3-say", 18));
+      var r2 = S3.resolve({ plan: P3 }, null, all, null, tot);
+      eq("everything finished: nothing is current", r2.current.length, 0);
+      eq("…and every list is still playable", r2.ids.length, 5);
+      eq("…and the state says finished", r2.state.finished, true);
+    })();
+
+    });
+
+    /* ---- the store, end to end: myLists, plan(), and the high-water mark ---- */
+    guard("the store end to end", function(){
+      var ST = window.EIStore, I = ST._internals;
+      var PLAN3 = { steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] }, { ids: ["red-3-say"] }],
+                    bar: 0.9, at: 0, hold: false, setAt: 777 };
+      function feed(o){ I._feed(o); I.settle(); }
+
+      feed({ assignment: { plan: PLAN3 }, stats: {} });
+      eq("myLists on step 1 is step 1's lists", ST.myLists().join(","), "red-1-say,red-1-cards");
+      eq("plan() says step 1 of 3", ST.plan().index + "/" + ST.plan().count, "0/3");
+      eq("nothing moved, so nothing is written", I.dirtySeq(), false);
+      eq("…and the payload has no seq", "seq" in I.payload(), false);
+
+      var done1 = merge(solid("red-1-say", 18), solid("red-1-cards", 18));
+      feed({ assignment: { plan: PLAN3 }, stats: done1 });
+      eq("finishing step 1 puts them on step 2", ST.plan().current.join(","), "red-2-say,red-2-cards");
+      eq("myLists is finished-then-current", ST.myLists().join(","), "red-1-say,red-1-cards,red-2-say,red-2-cards");
+      eq("plan() counts one finished list", ST.plan().finishedCount, 1);
+      eq("the high-water mark moves to step 2", I.seq().at, 1);
+      eq("…belongs to this plan", I.seq().of, 777);
+      eq("…and is queued for the student's own document", I.dirtySeq(), true);
+      eq("…in the payload", JSON.stringify(I.payload().seq && { at: I.payload().seq.at, of: I.payload().seq.of }), '{"at":1,"of":777}');
+
+      // Next visit: the stats have slipped, the mark has not.
+      feed({ assignment: { plan: PLAN3 }, stats: merge(solid("red-1-say", 3), solid("red-1-cards", 3)),
+             seq: { at: 1, of: 777, when: 1 } });
+      eq("replaying step 1 and missing words does not move them back", ST.plan().index, 1);
+      eq("…and nothing new is written", I.dirtySeq(), false);
+
+      // The mark belongs to a plan; a teacher saving a new one starts it afresh.
+      feed({ assignment: { plan: merge(PLAN3, { setAt: 888 }) }, stats: {}, seq: { at: 2, of: 777, when: 1 } });
+      eq("a mark from an older save of the plan is ignored", ST.plan().index, 0);
+
+      feed({ assignment: { plan: PLAN3 }, stats: {}, seq: { at: 1, of: 777, when: 1 } });
+      eq("a mark ahead of the stats is believed", ST.plan().index, 1);
+
+      var everything = merge(done1, solid("red-2-say", 18), solid("red-2-cards", 18), solid("red-3-say", 18));
+      feed({ assignment: { plan: PLAN3 }, stats: everything });
+      eq("every step finished is plan().finished", ST.plan().finished, true);
+      eq("…no list is current", ST.plan().current.length, 0);
+      eq("…all five are finished lists", ST.plan().finishedIds.length, 5);
+      eq("…the mark is at the end", I.seq().at, 3);
+
+      // A teacher's hold.
+      feed({ assignment: { plan: merge(PLAN3, { at: 0, hold: true }) }, stats: done1 });
+      eq("a held student stays on the held step", ST.plan().index, 0);
+      eq("…and plan() says held", ST.plan().hold, true);
+      eq("…and nothing is written for a student who has not moved", I.dirtySeq(), false);
+
+      // Not a student's business.
+      feed({ assignment: { plan: PLAN3 }, stats: done1, preview: { id: "u", name: "A", failed: false } });
+      eq("a teacher previewing a student sees that student's step", ST.plan().current.join(","), "red-2-say,red-2-cards");
+      eq("…and nothing is written for them", I.dirtySeq(), false);
+      eq("…and the mark is not touched", I.seq(), null);
+
+      feed({ assignment: { plan: PLAN3 }, stats: done1, loadFailed: true });
+      eq("a failed read gives no position", ST.plan(), null);
+
+      // A roster row's plan, for a student who has not signed in.
+      feed({ roster: { plan: PLAN3 }, stats: {} });
+      eq("a roster row's plan applies before they have an assignment", ST.myLists().join(","), "red-1-say,red-1-cards");
+
+      // A plan naming a list the library has since deleted.
+      feed({ assignment: { plan: { steps: [{ ids: ["not-a-list"] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 9 } }, stats: {} });
+      eq("a deleted list is skipped, not waited on", ST.myLists().join(","), "red-2-say");
+
+      // No plan: the old way, untouched.
+      feed({ assignment: { lists: ["red-1-say", "initial-blends"] }, stats: done1 });
+      eq("a student with only lists still gets exactly those", ST.myLists().join(","), "red-1-say,initial-blends");
+      eq("…and has no plan()", ST.plan(), null);
+      eq("…and no mark is written", I.dirtySeq(), false);
+
+    }, function(){ window.EIStore._internals._feed({}); });   // put the store back as the other tests expect it
+
+    /* ---- the home page's one-line notice ---- */
+    guard("the home page notice", function(){
+      var N = window.EIPractice._internals.planNotice;
+      function pl(index, finished, current, setAt, uid){
+        return { uid: uid || "notice-test", setAt: setAt || 5, index: index, finished: !!finished, current: current || [] };
+      }
+      var KEY = "ei.plan.seen:notice-test";
+      try{ localStorage.removeItem(KEY); }catch(e){}
+      eq("the first load ever announces nothing", N(pl(0, false, ["red-1-say"]), null), "");
+      eq("…and loading again with no move announces nothing", N(pl(0, false, ["red-1-say"]), null), "");
+      eq("the first load after moving forward names the new list",
+         N(pl(1, false, ["red-3-say", "red-3-cards"]), null), "New list: Red Words · List 3.");
+      eq("…once", N(pl(1, false, ["red-3-say", "red-3-cards"]), null), "");
+      eq("finishing everything says so", N(pl(3, true, []), null), "You finished all your lists. Ask your teacher what comes next.");
+      eq("a teacher saving a new sequence starts afresh: no announcement",
+         N(pl(1, false, ["red-3-say"], 99), null), "");
+      eq("a teacher's preview says nothing about a new list", N(pl(2, false, ["red-3-say"], 99), { id: "u" }), "");
+      eq("…but still says everything is finished", N(pl(3, true, [], 99), { id: "u" }), "You finished all your lists. Ask your teacher what comes next.");
+      try{ localStorage.removeItem(KEY); }catch(e){}
+    });
+  })();
+
   // ---- render ----
   var rows = document.getElementById("rows");
   var pass = 0;

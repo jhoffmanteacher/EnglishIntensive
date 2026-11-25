@@ -1440,6 +1440,9 @@ shared Chromebook can't leak one student's deck into the next student's
 session. It keeps word selection sensible if the network drops mid-round;
 it is never merged back up.
 
+The document also carries a `seq` — a student's high-water mark through a
+teacher's sequence, written by their own browser (see *Sequences*).
+
 The document also carries a `heard` map: for each word Say It marked wrong,
 the last **five** transcripts the recogniser returned, cleaned (lowercase,
 letters/digits/apostrophe/space, 40 characters) and deduplicated. It is
@@ -1598,10 +1601,15 @@ what the banner promises.
 
 There is no class default, no period list, no course, and no "everything
 when nothing is set". Each student has exactly one set of lists — their
-own — and that set is what their home page shows. `EIStore.effectiveLists`
-is the whole rule: the student's `assignments/{uid}` lists, else the lists
-on their roster row (set on the dashboard before they had signed in), else
-nothing.
+own — and that set is what their home page shows. It is still one level
+with no inheritance, but the set is no longer always fixed: a student the
+teacher gave a **sequence** (see *Sequences*, next) is shown the list they
+are on, and that moves with their progress. Without a sequence,
+`EIStore.effectiveLists` is the whole rule: the student's `assignments/{uid}`
+lists, else the lists on their roster row (set on the dashboard before they
+had signed in), else nothing. `EIStore.effectivePlan` decides which of the
+two a student has: the assignment is the source when it has a valid `plan`
+or a `lists` array, otherwise the roster row is.
 
 This replaced a precedence walk (own → roster → period course → period list →
 class default → everything) with inherited cells drawn dashed, copy-on-write
@@ -1609,6 +1617,93 @@ edits and an *own ↺* button to hand a student back to their group. All of it
 was correct and all of it needed explaining. With one level there is nothing
 to inherit: a row on the board is what that student sees, and "who has
 nothing" — the only question the old default answered — is asked out loud.
+
+### Sequences
+
+A teacher can give a student their lists **in order** instead of all at once.
+The student works on one list; when they have finished it, the next one
+replaces it on their home page. Finished lists move to one closed fold, *"Lists
+you finished (N)"*, where they stay playable and keep their stats; lists the
+student has not reached are not shown at all — no locks, no "coming soon".
+Three strings are the only new words a student sees: that fold's title,
+*"New list: Red Words · List 3."* (the first time the home page loads after
+they moved on) and *"You finished all your lists. Ask your teacher what comes
+next."*
+
+**What is stored.** On `assignments/{uid}`, or on `roster/{email}` for a student
+who has not signed in, next to `lists`:
+
+    plan: {
+      steps: [ { ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] } ],
+      bar:   0.9,    // 0.5 to 1 in steps of 0.05
+      at:    0,      // the step the teacher last set as current (0-based)
+      hold:  false,  // true: stay on `at` until the teacher moves them
+      setAt: 1795563000000   // Date.now() when the teacher saved it
+    }
+
+A step is a **map**, not a bare array — Firestore refuses an array directly
+inside an array. Every id in one step is a way of playing the same list; one
+list per step. With a valid `plan`, the plan decides and `lists` is ignored
+(whatever writes a plan should also write `lists` equal to the current step's
+ids, so anything that only reads `lists` still sees something sensible). All of it is sanitized on
+the way in (`Adaptive.sanitizePlan`): wrong types are dropped, a bar or a
+position out of range is pulled in, and a plan with no usable step is `null`.
+
+**What "finished" means.** A step is finished when, for **every** id in it,
+the number of words that are solid and at pace (`Adaptive.listSolid`, the
+count behind `listShare`) is at least `Adaptive.stepNeed(bar, total)` — `ceil(bar ×
+total)`, in whole words. So 20 words at 90 % is 18 and 28 words is 26. Whole
+words, never two fractions compared, so the number a teacher is shown ("18 of
+20") is the number that was measured, and a float cannot decide it. "Every
+way the teacher ticked" means a student ticked for Say it *and* Cards has to
+get both to the bar. An id the library no longer has is skipped, not waited on.
+This is the same measure the site has always used (`isMastered` and not
+`isSlow`); only the bar changed, from four-in-five to 90 % by default and
+settable per student.
+
+**Where the position is worked out, and why there.** In the *student's*
+browser, in `store.js`, by `Adaptive.planState(plan, stats, totalOf, seq)`: start
+at `plan.at`; if the student's own mark is this plan's and further on, start
+there; if the teacher is holding them, stop; otherwise walk forward while the
+step is finished. It is pure and has no clock, so the dashboard can run exactly the same
+function on the same stats and the two cannot disagree. It has to be the
+student's browser because a student can never write `assignments/{uid}`
+(`firestore.rules`) and a teacher's browser has no student's stats until it
+opens the dashboard. It runs **once per page load** — never mid-round: a student
+who finishes a list's last word partway through a round plays the round out
+on that list and meets the next one on the next page. With no `totalOf`
+nothing moves (the safe way to be wrong, as in `listShare`).
+
+**The high-water mark.** A finished list can be replayed, and a word can drop
+out of the top box, so position is not recomputed from nothing each time. When
+it comes out further on than what was stored for this plan, the student's
+browser writes `students/{uid}.seq = { at, of, when }` (through the same
+debounced save as everything else, under the same guards: no write on a failed
+read, in preview, or for the dev user) and the next load starts from there. `of`
+is the plan's `setAt`: a mark made under an older save of the plan is ignored
+the moment a teacher saves a new one, so re-saving a sequence recomputes from
+what the student has actually learned. `at` may equal the number of steps (past
+the last one). Without it, replaying List 1 and missing a few words would put a
+student back on List 1.
+
+**What a student could do.** `students/{uid}` is write-your-own-document, not a
+whitelist, so `seq` needed no rules change, and a student *could* edit their own
+`seq`. The worst that does is move themselves along or back in a sequence the
+teacher set, and the same `planState` on the dashboard's side is how a teacher
+sees where each student really is. They can never write the plan itself (`assignments/`
+and `roster/` are read-only to them), change the bar, or reach a step the
+teacher has not set. A teacher's own home page ignores plans (it shows every
+game) and a teacher previewing a student sees that student's position without
+anything being written for them.
+
+**What exists so far.** The engine and the student's home page. No teacher
+screen writes a `plan` yet, so no document has one and every student's home page
+is exactly what it was; a plan written by hand in the console is honoured.
+
+`tests.html` pins every function (a bar of 18 of 20 finishes and 17 does not,
+two ticked ways with one short, a slow word, `hold`, an old `seq`, replaying a
+finished list, a deleted id, and the old-versus-new check that a student with
+no plan gets exactly what `effectiveLists` gave them).
 
 ### The picker
 
@@ -1774,22 +1869,28 @@ sixteen. The per-list cell on the student page keeps its own shape, *"20 /
 20 (3 slow)"*, where the slow words are counted *inside* the twenty — that
 cell answers "how many do they own", this line "how many did the bar see".
 
-It does not act on its own, on two counts. Auto-advancing would move a
-student on the strength of a scoring heuristic with nobody who has met them
-in the loop — and "solid" here means solid on a screen, which is not always
-solid on paper. And the arithmetic runs on the **teacher's** page, where the
-decision belongs; `firestore.rules` is what actually holds that line (a
-student can read `assignments/{uid}` and never write it), but there is no
-reason to ship the policy to their browser either.
+This board suggestion does not act on its own, and it is for students who
+have a plain set of lists. A student a teacher has given a **sequence** (see
+*Sequences*) is different, and reverses what this section used to say about
+auto-advancing: the site moves them on itself, and works it out in the
+*student's* browser rather than on the teacher's page — the policy now ships to
+the student's browser on purpose, because only there are their stats at hand
+while they play. What still holds, and what `firestore.rules` is there to
+enforce, is that a student can read `assignments/{uid}` and never write it, so
+a student cannot move *themselves* onto a list the teacher did not set.
 
-The bar is **four words in five solid** (`SOLID_ENOUGH`), not all of them:
-one stubborn word — a name, a word whose synthesised reading is poor —
-should not hold a student on a list for a term. Each mode advances on its
-own, because a student can be solid on List 3 as flash cards and still be
-finding it in Match It. And the suggestion is **additive**: it doesn't take
-the finished list away, since each list is its own tile with its own
-adaptive deck, so keeping List 3 alongside List 4 costs nothing and keeps
-those words in rotation. Dropping one stays a judgement call.
+The board's bar is **four words in five solid** (`SOLID_ENOUGH`), not all of
+them: one stubborn word — a name, a word whose synthesised reading is poor —
+should not hold a student on a list for a term. (A sequence's bar is 90 % by
+default and set per student; `SOLID_ENOUGH` remains for this suggestion.) Each
+mode advances on its own here, because a student can be solid on List 3 as flash
+cards and still be finding it in Match It; in a sequence a step is finished only
+when every way the teacher ticked has reached the bar. And the suggestion is
+**additive**: it doesn't take the finished list away, since each list is its own
+tile with its own adaptive deck, so keeping List 3 alongside List 4 costs nothing
+and keeps those words in rotation. (In a sequence a finished list leaves the main
+home page and sits in the fold, but stays playable and keeps its stats.) Dropping
+one stays a judgement call.
 
 ### Patterns
 
@@ -1875,7 +1976,8 @@ em dash are not something to hand a screen reader.
 ### What actually gets stored
 
 A flat array of list ids in `assignments/{uid}` — or, for a student who
-hasn't signed in yet, on their `roster/{email}` row. The families, the
+hasn't signed in yet, on their `roster/{email}` row — and, for a student given
+a sequence, a `plan` beside it (see *Sequences*). The families, the
 modes, the grid and the board are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.
@@ -1918,4 +2020,7 @@ unpublished rules change fails quietly rather than loudly.
 
 The `heard` map added with the sound-level feedback needed no rules change
 either: `students/{uid}` is write-your-own-document, not a whitelist of
-fields.
+fields. Neither did `seq`, and neither did `plan`: `assignments/{uid}` and
+`roster/{email}` were already teacher-written and student-read, which is
+exactly the access a plan needs. `tools/rules-test.mjs` has the cases that
+pin it (a student writes their own `seq` and cannot write a plan).
