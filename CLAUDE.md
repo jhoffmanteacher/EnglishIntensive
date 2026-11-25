@@ -58,6 +58,15 @@ keeps a student's data in `localStorage` or `sessionStorage`. A failing line
 ends with the command that replays that one case. GitHub runs all four on
 every push (`.github/workflows/checks.yml`).
 
+A Stop hook (`.claude/settings.json`, `.claude/hooks/stop-checks.mjs`) runs the
+fast, Node-only checks at the end of every Claude Code turn that changed a
+site file: `node --check` on every root-level `.js` and every `tools/*.mjs`,
+and `node tools/save-loop.mjs`. It is silent when all is well and hands a
+failure back to the session so it is fixed in the same turn. It does **not**
+run the Chrome checks (`run-tests.sh`, `check-pages.sh`, `boot-check.sh`):
+those still have to be run by hand before a commit. GitHub runs them on every
+push. Set `EI_STOP_CHECKS=0` to switch the hook off.
+
 `firestore.rules` is the only thing enforcing who may read what. It does not
 deploy itself — re-publish it in the Firebase console whenever it changes.
 
