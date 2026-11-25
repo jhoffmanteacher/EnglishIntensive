@@ -226,13 +226,24 @@ window.EIPractice = (function(){
       });
       var assigned = sorted.filter(function(l){ return mine.indexOf(l.id) !== -1; });
 
+      /* Two lists can share a title: Multisyllable has a Cards list and a
+         Split it list, and both are served by this page. Where a title
+         repeats, add the mode's own name so the tiles can be told apart. */
+      var titleCount = {};
+      sorted.forEach(function(l){ titleCount[l.listTitle] = (titleCount[l.listTitle] || 0) + 1; });
+      function labelOf(l){
+        if(titleCount[l.listTitle] < 2) return l.listTitle;
+        var m = WordLists.modeOf(l.mode);
+        return m ? l.listTitle + " · " + m.title : l.listTitle;
+      }
+
       function opt(l){
         var sum = Adaptive.summarize(EIStore.statsFor(l.id));
         var total = WordLists.wordsOf(l.id).length;
         var note = sum.attempts
           ? "<em>" + sum.mastered + "</em> of " + total + " solid" + (sum.struggling ? " · " + sum.struggling + " shaky" : "")
           : "Not started yet";
-        return '<a class="opt" href="' + WordLists.hrefOf(l.id) + '"><b>' + esc(l.listTitle) + "</b><small>" + note + "</small></a>";
+        return '<a class="opt" href="' + WordLists.hrefOf(l.id) + '"><b>' + esc(labelOf(l)) + "</b><small>" + note + "</small></a>";
       }
       var mount = document.getElementById("app") || document.body;
       mount.className = "";

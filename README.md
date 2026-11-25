@@ -387,7 +387,9 @@ opening the game.
 
 A shared page with no `?list=`, or a stale one, isn't an error: it shows a
 chooser of the student's own lists that have that mode, so a bookmarked or
-hand-typed address still lands somewhere useful. A list id belonging to a
+hand-typed address still lands somewhere useful. Where two lists in the
+chooser would carry the same title (Multisyllable has a Cards list and a
+Split it list), each tile adds its mode's name. A list id belonging to a
 different page redirects there.
 
 A student only ever plays what they were given. Opening a list they weren't

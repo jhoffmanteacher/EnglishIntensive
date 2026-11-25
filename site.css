@@ -229,3 +229,16 @@ html.ei-locked{overflow:hidden}
   .ei-chip-name{display:none}
   .ei-chip-out{font-size:12px;padding:4px 9px}
 }
+
+/* ---- narrow screens (phones) ----
+   The Home button and the signed-in chip are fixed to the top corners, which
+   on a laptop is empty margin but on a phone is the page's own first line.
+   Two causes. They float over the page, so below this width they scroll with
+   it instead; and the game pages centre a fixed-height body, so content
+   taller than a phone screen overflowed UPWARD, up under those two. The body
+   grows with its content here, so the padding the pages already reserve at
+   the top (76px) is real. Wider screens are untouched. */
+@media(max-width:560px){
+  html,body{height:auto;min-height:100%}
+  .home,.ei-chip{position:absolute}
+}
