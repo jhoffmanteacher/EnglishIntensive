@@ -45,7 +45,10 @@
 }
 
 *{box-sizing:border-box}
-html,body{height:100%}
+html{height:100%}
+/* min-height, not height: a body of exactly window height centres tall
+   content and pushes its top above y=0 where it can't be scrolled to. */
+body{min-height:100%}
 body{
   margin:0;
   background:radial-gradient(1200px 700px at 50% -10%, #1e2a44 0%, var(--bg) 60%);
@@ -233,12 +236,7 @@ html.ei-locked{overflow:hidden}
 /* ---- narrow screens (phones) ----
    The Home button and the signed-in chip are fixed to the top corners, which
    on a laptop is empty margin but on a phone is the page's own first line.
-   Two causes. They float over the page, so below this width they scroll with
-   it instead; and the game pages centre a fixed-height body, so content
-   taller than a phone screen overflowed UPWARD, up under those two. The body
-   grows with its content here, so the padding the pages already reserve at
-   the top (76px) is real. Wider screens are untouched. */
+   Below this width they scroll with the page instead. */
 @media(max-width:560px){
-  html,body{height:auto;min-height:100%}
   .home,.ei-chip{position:absolute}
 }
