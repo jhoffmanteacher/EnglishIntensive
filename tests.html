@@ -4856,7 +4856,8 @@
     guard("two sequences: stopping one", function(){
       feed(twoFixture());
       var s2 = T.stopBody("u1", 7000, 1);
-      eq("stopping the second deletes plan2 and nothing else", Object.keys(s2).sort().join(",") + "/" + s2.plan2, "classId,lists,plan2,teachers,updatedAt/\u0000delete");
+      eq("stopping the second deletes plan2 and writes the first back", Object.keys(s2).sort().join(",") + "/" + s2.plan2, "classId,lists,plan,plan2,teachers,updatedAt/\u0000delete");
+      eq("…exactly as stored (same setAt: its mark keeps counting)", JSON.stringify(s2.plan), JSON.stringify(A4.sanitizePlan(planDoc())));
       eq("…`lists` is the first's current list", s2.lists.join(","), "red-2-say,red-2-cards");
       var s1 = T.stopBody("u1", 7000, 0);
       eq("stopping the first while a second exists promotes the second", JSON.stringify(s1.plan.steps), JSON.stringify(plan2Doc().steps));
@@ -5004,11 +5005,12 @@
       eq("no sequence: it becomes their first", Object.keys(gb("u1", snd, "add")).sort().join(","), "classId,lists,plan,teachers,updatedAt");
       eq("games and no sequence: it becomes their first (the games are replaced)", gb("u2", snd, "add").plan.steps.length, 4);
       var b3 = gb("u3", snd, "add");
-      eq("one sequence: it becomes their second, and the first is not touched", Object.keys(b3).sort().join(","), "classId,lists,plan2,teachers,updatedAt");
+      eq("one sequence: it becomes their second, and the first is not changed", Object.keys(b3).sort().join(","), "classId,lists,plan,plan2,teachers,updatedAt");
+      eq("…it is written back exactly as stored (same setAt)", JSON.stringify(b3.plan), JSON.stringify(A4.sanitizePlan(planDoc())));
       eq("…`lists` is the union of the two current lists", b3.lists.join(","), "red-1-say,red-1-cards," + snd[0].ids.join(","));
       eq("…and it leaves out lists already in their first", gb("u3", red, "add").plan2.steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "4,5,6,7,8,9,10");
       var b4 = gb("u4", red, "add");
-      eq("two sequences: it replaces their second", b4.plan2.setAt + "/" + b4.plan2.steps.length + "/" + ("plan" in b4), NOWT + "/7/false");
+      eq("two sequences: it replaces their second, the first written back as stored", b4.plan2.setAt + "/" + b4.plan2.steps.length + "/" + b4.plan.setAt, NOWT + "/7/" + SETAT);
       eq("a student whose first already holds every list in it is skipped", gb("u5", snd, "add"), null);
       var r4 = gb("u4", snd, "replace");
       eq("Replace what they have takes the second with it", r4.plan.steps.length + "/" + r4.plan2, "4/\u0000delete");
@@ -5022,6 +5024,118 @@
          T.giveWarning(ca, 5, "add"), "1 of these 5 students already has two sequences. This replaces their second. 1 has games and no sequence. This replaces those games. 1 is skipped: every list in it is already in their first sequence.");
       eq("adding to students with nothing to replace asks nothing", T.giveConfirm("X", T.giveCounts([T.studentByUid("u1"), T.studentByUid("u3")], snd, "add"), 2, "add"), "");
       eq("…and with something, asks, saying it is a second sequence", /^Give X to 5 students as a second sequence\?/.test(T.giveConfirm("X", ca, 5, "add")), true);
+    });
+
+    /* ---- a write about the second sequence keeps the first, wherever it lived ----
+       A signed-in student whose plans are on their roster row (set before they
+       signed in) is written at assignments/{uid}. A body that gave that
+       assignment `lists` and `plan2` but no `plan` would make it the source,
+       holding no sequence at all. Each case below writes the body over the
+       documents the way a Firestore merge does, then checks the dashboard
+       and the student's code read the same thing back. */
+    function mergeInto(doc, body){
+      var out = doc ? JSON.parse(JSON.stringify(doc)) : {};
+      for(var k in body){ if(body[k] === "\u0000delete") delete out[k]; else out[k] = JSON.parse(JSON.stringify(body[k])); }
+      return out;
+    }
+    guard("a write about the second sequence keeps the first, when the plans live on the roster row", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      var snd = T.readyMadeSteps("sounding"), NOWT = 1795563000000, EM = "u1@seq.org";
+      var marks = { seq: { at: 1, of: SETAT, when: 1 }, seq2: { at: 1, of: SETAT2, when: 1 } };
+      function stu(){ return kid("u1", "Ana", merge({ stats: solid(TB1, 28) }, marks)); }
+      // What the student's code makes of the documents, and whether the dashboard agrees once it holds the same ones.
+      function agree(label, assignment, row){
+        var mine = ST4.effectivePlans(assignment, row);
+        var as = {}; if(assignment) as.u1 = assignment;
+        feed({ students: [stu()], assignments: as, roster: { "u1@seq.org": row } });
+        eq(label + ": the dashboard's plansFor is the student's effectivePlans", JSON.stringify(T.plansFor("u1")), JSON.stringify(mine));
+        var tp = T.positionsOf("u1"), sp = ST4.resolve(assignment, row, solid(TB1, 28), [marks.seq, marks.seq2], tot);
+        eq(label + ": …and the positions agree", JSON.stringify(tp.map(function(p){ return p.state; })),
+           JSON.stringify((sp.positions || []).map(function(p){ return p.state; })));
+        return mine;
+      }
+      [["no assignment", null], ["an assignment with only the class stamp", merge({}, stamp)]].forEach(function(c){
+        var name = c[0], a0 = c[1];
+        // One sequence on the roster row: add as a second.
+        var row1 = merge({ name: "Ana", plan: planDoc() }, stamp), as0 = {};
+        if(a0) as0.u1 = a0;
+        feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row1 } });
+        eq(name + ": the dashboard reads the roster row's one sequence", T.plansFor("u1").length, 1);
+        var b = T.giveBody(T.studentByUid("u1"), snd, 0.9, NOWT, "add");
+        var a1 = mergeInto(a0, b), got = agree(name + ", added as a second", a1, row1);
+        eq(name + ": add as a second keeps the first and gains the second", got.length, 2);
+        eq(name + ": …the first exactly as stored, same setAt (its mark still counts)", JSON.stringify(got[0]), JSON.stringify(A4.sanitizePlan(planDoc())));
+        eq(name + ": …the second is what was given", got[1] && got[1].setAt + "/" + got[1].steps.length, NOWT + "/" + snd.length);
+
+        // Two sequences on the roster row: stop the second.
+        var row2 = merge({ name: "Ana", plan: planDoc(), plan2: plan2Doc() }, stamp);
+        feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
+        eq(name + ": the dashboard reads the roster row's two sequences", T.plansFor("u1").length, 2);
+        var s2 = T.stopBody("u1", 7000, 1), got2 = agree(name + ", second stopped", mergeInto(a0, s2), row2);
+        eq(name + ": stopping the second leaves exactly the first", JSON.stringify(got2), JSON.stringify([A4.sanitizePlan(planDoc())]));
+
+        // Two on the roster row: add as a second replaces the second, keeps the first.
+        feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
+        var got3 = agree(name + ", second replaced", mergeInto(a0, T.giveBody(T.studentByUid("u1"), T.readyMadeSteps("red"), 0.9, NOWT, "add")), row2);
+        eq(name + ": adding over two keeps the first and replaces the second",
+           got3.length + "/" + (got3[0] || {}).setAt + "/" + (got3[1] && got3[1].setAt), "2/" + SETAT + "/" + NOWT);
+
+        // The mirror cases: stop the first (promote), and Replace.
+        feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
+        var got4 = agree(name + ", first stopped", mergeInto(a0, T.stopBody("u1", 7000, 0)), row2);
+        eq(name + ": stopping the first leaves the second, promoted", got4.length + "/" + JSON.stringify((got4[0] || {}).steps), "1/" + JSON.stringify(plan2Doc().steps));
+        feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
+        var got5 = agree(name + ", replaced", mergeInto(a0, T.giveBody(T.studentByUid("u1"), snd, 0.9, NOWT, "replace")), row2);
+        eq(name + ": Replace leaves exactly the new one", got5.length + "/" + (got5[0] || {}).setAt, "1/" + NOWT);
+        // And Save from the editor, with the second edited.
+        feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
+        T.draftBar(T.ensureDraft("u1", 1), -1);
+        var got6 = agree(name + ", saved", mergeInto(a0, T.saveBody("u1", 8000)), row2);
+        eq(name + ": Save with the second edited keeps the first as stored", got6.length + "/" + (got6[0] || {}).setAt + "/" + (got6[1] || {}).setAt, "2/" + SETAT + "/8000");
+        T.reset();
+      });
+    });
+
+    guard("a saved or copied sequence that adds nothing changes nothing", function(){
+      body.hidden = false;
+      var TB3 = W4.idFor("oi-oy", 1, "say");
+      eq("(the fixture's third list exists)", !!TB3, true);
+      function fx(){
+        var o = merge({ classes: { c3: { name: "Period 3", teachers: [ME],
+                        sequences: { s1: { name: "Red Words 1 and 2", steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] }], bar: 0.85, createdAt: 5 } } } } }, { students: [anaTwo(), kid("u2", "Ben Ortiz")],
+          assignments: { u1: merge({ plan: planDoc(), plan2: plan2Doc({ steps: [{ ids: [TB1] }, { ids: [TB2] }, { ids: [TB3] }] }) }, stamp),
+                         u2: merge({ plan: planDoc({ steps: [{ ids: ["red-1-say"] }, { ids: ["red-2-say"] }], setAt: 3000 }) }, stamp) } });
+        return o;
+      }
+      feed(fx()); T.open("u1"); T.renderDetail();
+      var ed = body.querySelectorAll(".seqEditor")[1];
+      eq("(the second is on its second list, with one still to come)", tags(ed), "Finished,Now,Next");
+      asked = [];
+      body.querySelector("#seqReady2").value = "sv:c3/s1";   // Red Words 1 and 2: both in the first
+      body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
+      eq("a saved sequence whose lists are all in the other: the lists still to come stay", tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Now,Next");
+      eq("…nothing to save", T.seqDirty() + "/" + body.querySelector("#seqSave").hidden, "false/true");
+      eq("…no confirm was asked", asked.length, 0);
+      eq("…and it says nothing was added", body.querySelector("#seqFlash2").textContent, "Nothing added: every list in it is already in one of their sequences.");
+
+      T.reset(); feed(fx()); T.open("u1"); T.renderDetail();
+      asked = [];
+      body.querySelector("#seqCopy2").value = "u2";      // Ben's Red Words 1 and 2: both in Ana's first
+      body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="copy-go"]').click();
+      eq("copying a student whose lists are all in the other: the lists still to come stay", tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Now,Next");
+      eq("…nothing to save, no confirm", T.seqDirty() + "/" + asked.length, "false/0");
+      eq("…and it says nothing was added", body.querySelector("#seqFlash2").textContent, "Nothing added: every list in it is already in one of their sequences.");
+
+      T.reset(); feed(fx()); T.open("u1"); T.renderDetail();
+      body.querySelector("#seqReady2").value = "rm:red";  // Red Words 4 to 10 are new
+      body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
+      eq("one that adds something still replaces what is still to come", T.getDraft2().steps.length + "/" + T.seqDirty(), "9/true");
+      eq("addsAny asks on a copy: the draft is not touched", (function(){
+        var d = { steps: [{ ids: [TB1] }, { ids: [TB2] }, { ids: [TB3] }], at: 1 };
+        var r = T.addsAny(d, 1, [{ ids: ["red-1-say"] }], ["red:1"]);
+        return r + "/" + d.steps.length;
+      })(), "false/3");
+      body.hidden = true;
     });
 
     /* ---- saved sequences ---- */
@@ -5087,15 +5201,25 @@
       sel.value = "sv:c3/s1";
       asked.length = 0;
       body.querySelector('[data-seq="ready-go"]').click();
+      // Its two lists are the finished one and the one they are on: it would add nothing.
+      eq("one whose lists they already have before Now asks nothing", asked.length, 0);
+      eq("…and changes nothing: the list still to come stays, the percent too",
+         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | ") + "/" + T.getDraft().bar + "/" + T.seqDirty(),
+         "red-1-say+red-1-cards | red-2-say+red-2-cards | red-3-say/0.9/false");
+      eq("…and says nothing was added", body.querySelector("#seqFlash").textContent, "Nothing added: every list in it is already in one of their sequences.");
+      sel = body.querySelector("#seqReady");
+      sel.value = "sv:c5/z9";
+      asked.length = 0;
+      body.querySelector('[data-seq="ready-go"]').click();
       eq("using one asks first, naming what it replaces and the percent it brings",
-         /replaces the lists still to come \(Red Words · List 3\) with Red Words, Lists 1 to 10\..*The percent becomes 85%\./.test(asked[0] || ""), true);
-      eq("it keeps the finished list and the one they are on, and puts the saved ones after (a list is never in twice)",
-         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards | red-2-say+red-2-cards");
-      eq("…and takes the saved percent", T.getDraft().bar, 0.85);
+         /replaces the lists still to come \(Red Words · List 3\) with Period 5's\..*The percent becomes 100%\./.test(asked[0] || ""), true);
+      eq("it keeps the finished list and the one they are on, and puts the saved ones after",
+         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards | red-2-say+red-2-cards | nonsense");
+      eq("…and takes the saved percent", T.getDraft().bar, 1);
       // A copy: changing the saved one afterwards does not touch the draft.
-      var saved = T.savedSequences().filter(function(x){ return x.key === "s1"; })[0];
+      var saved = T.savedSequences().filter(function(x){ return x.key === "z9"; })[0];
       var before = JSON.stringify(T.getDraft().steps);
-      saved.steps[1].ids.push("zzz"); saved.steps.pop();
+      saved.steps[0].ids.push("zzz"); saved.steps.pop();
       eq("a copy, not a link: changing the saved one afterwards leaves the draft as it was", JSON.stringify(T.getDraft().steps), before);
       body.hidden = true;
     });
@@ -5392,7 +5516,7 @@
       return T.seqAct("stop", body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="stop"]')).then(function(){
         var d = (db.log[0] || {}).data || {};
         eq("it asks, saying the first stays", /Stop using the second sequence for Ana Lopez\?[\s\S]*Their first sequence stays as it is\./.test(asked[0] || ""), true);
-        eq("plan2 is deleted and plan is not written", d.plan2 + "/" + ("plan" in d), "DEL/false");
+        eq("plan2 is deleted and the first is written back exactly as stored", d.plan2 + "/" + JSON.stringify(d.plan), "DEL/" + JSON.stringify(A4.sanitizePlan(planDoc())));
         eq("the page keeps the first", T.plansFor("u1").length + "/" + T.planFor("u1").setAt, "1/" + SETAT);
       });
     });

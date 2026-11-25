@@ -636,9 +636,12 @@ window.Adaptive = (function(){
 
      `plan2` without a usable `plan` is ignored (the dashboard promotes a
      second to first when the first is stopped, so this only happens to a
-     document edited by hand). A list is in one of the two only: an id
-     already in the first is dropped from the second, and a second left with
-     nothing is no second. Pure; returns [], [plan] or [plan, plan2]. */
+     document edited by hand). An id already in the first is dropped from
+     the second, and a second left with nothing is no second. That is ids,
+     not lists: there is no word library here, so `red-1-say` in the first
+     and `red-1-cards` in the second both stay. Keeping a list in one
+     sequence only is the dashboard's job. Pure; returns [], [plan] or
+     [plan, plan2]. */
   var PLAN_FIELDS = ["plan", "plan2"];
   var SEQ_FIELDS  = ["seq", "seq2"];
   function sanitizePlans(doc){

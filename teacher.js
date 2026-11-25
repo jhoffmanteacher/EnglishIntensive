@@ -2025,6 +2025,13 @@
     return added;
   }
 
+  /* Would draftReplaceLater bring in at least one step? Asked on a copy,
+     before anything changes, so a sequence that adds nothing leaves the
+     draft exactly as it was. */
+  function addsAny(d, idx, steps, exclude){
+    return draftReplaceLater({ steps: cloneSteps(d.steps), at: d.at }, idx, steps, exclude) > 0;
+  }
+
   /* The ready-made sequences are built from the library when asked for,
      not stored: nothing to go stale when a list is added or retired. Each
      has Say it and Cards ticked, where the family offers them. */
@@ -2529,12 +2536,16 @@
      where the student really is in it and saved afresh (its old mark, seq2,
      belongs to plan2 and would not count as plan's; a setAt that the first's
      mark could match is never used), and plan2 goes. The second: plan2
-     goes, and `lists` is the first's current list. */
+     goes, the first is written back as stored, and `lists` is the first's
+     current list. Every body that writes or deletes plan2 carries a plan. */
   function stopBody(uid, now, which){
     which = which ? 1 : 0;
     var ps = positionsOf(uid);
     if(!ps[which]) return null;
-    if(which === 1) return withStamp({ plan2: DELETE, lists: nowIds(ps[0]), updatedAt: now }, uid);
+    // The first goes with it, exactly as stored (same setAt, so its mark keeps
+    // counting): the plans may have come from the roster row, and an
+    // assignment given `lists` and no `plan` would become the source with none.
+    if(which === 1) return withStamp({ plan: ps[0].plan, plan2: DELETE, lists: nowIds(ps[0]), updatedAt: now }, uid);
     if(ps.length < 2) return withStamp({ plan: DELETE, lists: nowIds(ps[0]), updatedAt: now }, uid);
     var d2 = draftFromSaved(uid, 1);
     var stamp = now === ps[0].plan.setAt ? now + 1 : now;
@@ -2656,14 +2667,19 @@
         d = ensureDraft(uid, which); idx = draftIndex(d);
         var rm = sequenceSources(false).filter(function(x){ return x.key === $(sid(which, "seqReady")).value; })[0];
         if(!rm) return;
+        // One that would bring nothing changes nothing: no confirm, and the
+        // lists still to come stay (cutting them would leave a draft that
+        // Save makes permanent, for a sequence that added no list).
+        if(rm.steps.length && !addsAny(d, idx, rm.steps, otherKeys(uid, which))){
+          repaintLists(F('[data-seq="ready-go"]'), which); allTaken(which); return;
+        }
         // A saved sequence brings its own percent; a ready-made one leaves it.
         var takesBar = rm.saved && rm.bar !== d.bar;
         var msg = replaceText(d, idx, rm.label);
         if(msg && takesBar) msg += " The percent becomes " + Math.round(rm.bar * 100) + "%.";
         if(msg && !window.confirm(msg)) return;
-        var got = draftReplaceLater(d, idx, rm.steps, otherKeys(uid, which));
+        draftReplaceLater(d, idx, rm.steps, otherKeys(uid, which));
         if(takesBar) d.bar = rm.bar;
-        if(!got && rm.steps.length){ repaintLists(F('[data-seq="ready-go"]'), which); allTaken(which); return; }
         break;
       case "savedo-open": ui.naming = !ui.naming; ensureDraft(uid, which); focus = ui.naming ? "#" + sid(which, "seqName") : null; break;
       case "savedo-cancel": ui.naming = false; focus = F('[data-seq="savedo-open"]'); break;
@@ -2695,10 +2711,13 @@
         d = ensureDraft(uid, which); idx = draftIndex(d);
         var from = copyChoice(s, $(sid(which, "seqCopy")).value);
         if(!from) return;
+        // As with a saved sequence: one that would bring nothing changes nothing.
+        if(!addsAny(d, idx, from.plan.steps, otherKeys(uid, which))){
+          repaintLists(F('[data-seq="copy-go"]'), which); allTaken(which); return;
+        }
         var msg2 = replaceText(d, idx, from.label.replace(/ \((first|second)\)$/, "") + "’s lists");
         if(msg2 && !window.confirm(msg2)) return;
-        var got2 = draftReplaceLater(d, idx, from.plan.steps, otherKeys(uid, which));
-        if(!got2){ repaintLists(F('[data-seq="copy-go"]'), which); allTaken(which); return; }
+        draftReplaceLater(d, idx, from.plan.steps, otherKeys(uid, which));
         break;
       case "discard":
         dropDraft();
@@ -3946,7 +3965,11 @@
     var left = stepsLeaving(steps, ps[0].plan.steps.map(function(st){ return listKeyOf(st.ids[0]); }));
     if(!left.length) return null;
     var g2 = givePlan(s, left, bar, now);
-    return withStamp({ plan2: g2.plan, lists: unionIds([nowIds(ps[0]), g2.lists]), updatedAt: now }, s.uid);
+    // The first is written back exactly as stored (same setAt, so its mark
+    // keeps counting). It must be: a signed-in student's plans may live on
+    // their roster row, and an assignment that gained `lists` and `plan2`
+    // but no `plan` would become the source and hold no sequence at all.
+    return withStamp({ plan: ps[0].plan, plan2: g2.plan, lists: unionIds([nowIds(ps[0]), g2.lists]), updatedAt: now }, s.uid);
   }
   /* What the dialog warns about, in counts of students, for the choice made:
      replacing — everyone who already has games or a sequence; adding as a
@@ -4847,7 +4870,7 @@
       copyChoices: copyChoices, ensureDraft: ensureDraft,
       draftIndex: draftIndex, draftMove: draftMove, draftRemove: draftRemove, draftWays: draftWays,
       draftAdd: draftAdd, draftBar: draftBar, draftMoveOn: draftMoveOn, draftGoBack: draftGoBack,
-      draftReplaceLater: draftReplaceLater, stepsFromIds: stepsFromIds, readyMadeSteps: readyMadeSteps,
+      draftReplaceLater: draftReplaceLater, addsAny: addsAny, stepsFromIds: stepsFromIds, readyMadeSteps: readyMadeSteps,
       READY_MADE: READY_MADE, planBody: planBody, stopBody: stopBody, wayLine: wayLine, stuLine: stuLine,
       stepTitle: stepTitle, stepWays: stepWays, seqPanelHtml: seqPanelHtml, seqDirty: seqDirty,
       leaveDraftOk: leaveDraftOk,

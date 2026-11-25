@@ -1740,10 +1740,18 @@ who has not signed in, next to `lists`:
 A second sequence is `plan2`, the same shape, beside it on the same document,
 with its own `setAt`. Everything below is true of each separately.
 `Adaptive.sanitizePlans(doc)` reads both: `[]`, `[plan]` or `[plan, plan2]`.
-A `plan2` without a usable `plan` is ignored (the dashboard never writes one:
-stopping the first while a second exists promotes the second to `plan`), and
-an id already in the first is dropped from the second, so a hand-edited
-document cannot put one list in both. A document with no `plan2` is exactly
+A `plan2` without a usable `plan` is ignored. The dashboard never writes one:
+every body that writes or deletes `plan2` carries `plan` too (the first written
+back exactly as stored when it is not the one changing), and stopping the first
+while a second exists promotes the second to `plan`. Carrying `plan` matters
+because a signed-in student's sequences can live on their roster row: a write
+to their assignment that gave it `lists` and `plan2` but no `plan` would make
+the assignment the source, holding no sequence at all. An id already in the
+first is dropped from the second, so no id is in both. That is ids, not lists:
+`adaptive.js` has no word library, so it cannot tell that `red-1-say` and
+`red-1-cards` are one list. Keeping a list (family and list number) in one
+sequence only is the dashboard's job — Add a list, ready-made, saved and copied
+sequences all leave out what the other already holds. A document with no `plan2` is exactly
 what it was before there could be two — every test written for one sequence
 still passes unchanged in meaning.
 
@@ -1919,7 +1927,8 @@ nothing gets the editor with no rows and the same fold.
 **Stop using a sequence** (after a confirm that says what leaves) deletes the plan
 from the document and leaves `lists` as the current step's ids — so the lists
 they had finished leave the home page, though their practice record is kept.
-With two (`stopBody(uid, now, which)`): stopping the **second** deletes `plan2`;
+With two (`stopBody(uid, now, which)`): stopping the **second** deletes `plan2`
+and writes the first back exactly as stored;
 stopping the **first** writes the second as `plan` — at the step the student is
 really on in it, with a fresh `setAt` that the first's old `seq` can never
 match — and deletes `plan2`. The student's `seq2` then belongs to nothing and is
@@ -1991,8 +2000,10 @@ saved now, plus `lists` equal to the ids of the list they will land on, because
 the plan is worked out from their own stats: a student already solid on the
 first two lands on the third, one who has never practiced on the first. A
 student who has not signed in is written to their roster row. Added as a
-second, the body is `plan2` and `lists` (the union of both current lists) and
-`plan` is not touched. Nothing on `firestore.rules` changed.
+second, the body is `plan2`, `lists` (the union of both current lists) and
+`plan` written back exactly as stored (same `setAt`, so the student's `seq`
+still counts) — the first is not changed, but it is in the body so an
+assignment can never be left with a second and no first. Nothing on `firestore.rules` changed.
 
 ### Saved sequences
 
