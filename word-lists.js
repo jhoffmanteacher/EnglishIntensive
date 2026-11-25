@@ -280,7 +280,7 @@ var RED_NOTE_CARDS = `
     <b>said</b> gives you "sayed". Sounding out <b>would</b> gives you
     "wold". So you learn them <b>by sight</b>, as whole words.</p>
     <p>Rate each word as you really read it. A word you mark <b>Not yet</b> comes
-    back next time; a word you mark <b>Got it</b> leaves the list for good.</p>`;
+    back next time. A word you mark <b>Got it</b> comes up less often.</p>`;
 
 var RED_NOTE_SAY = `
     <p><b>Red words</b> break the rules. Sounding out <b>said</b> gives you
