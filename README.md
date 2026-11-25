@@ -965,9 +965,19 @@ student:
   the dashboard's page for their roster row said.
 - **S8 the preview** — Student view shows what the student's own page shows,
   and writes nothing.
+- **S9 Say it in every step** — every stored step (after the dashboard's
+  upkeep) and every saved sequence holds its list's Say it; the home page shows
+  the Say it tile of each current list, healed or not; no step is walked past
+  with its Say it below the bar; Say it is ticked and locked in Add a list and
+  Change ways (the harness tries to untick it), with the line that says why;
+  the upkeep note says what the key counts, moves nobody (setAt, at, hold, bar
+  unchanged) and goes with OK.
 
-Seven families (`--list`) play seeded schedules: one-sequence, two-sequences,
-teacher-steps-in, re-plan, bulk, roster-first, stop. Every failing line names
+Eight families (`--list`) play seeded schedules: one-sequence, two-sequences,
+teacher-steps-in, re-plan, bulk, roster-first, stop, and legacy — documents
+saved before Say it was in every step, some students on a Cards-only step at the
+bar, some already past one, and in half the cases students opening their page
+before the teacher opens the dashboard. Every failing line names
 the seed, case, step, expected and got, and ends with its replay command:
 `node tools/sequence-loop.mjs --seed=1 --case=16 --verbose` prints that case's
 whole timeline. `--root=DIR` serves another copy of the site (a fix, or a
@@ -2016,6 +2026,44 @@ This is the same measure the site has always used (`isMastered` and not
 `isSlow`); only the bar changed, from four-in-five to 90 % by default and
 settable per student.
 
+**Say it is in every step of every sequence** (decided by the teacher,
+2026-11-25: *"say it must be in every step sequence"*). Cards is a
+self-rating — the student presses *Got it*, and a Got it counts as right — and
+a step finishes when every way of playing it reaches the bar, so a Cards-only
+(or Match-only) step let a student move on without anything having heard them
+read. One pure function, `WordLists.withSay(ids)` in `word-lists.js` (both
+sides load it; `adaptive.js` keeps no word library, "ids, not lists"), returns
+a step's ids with that list's Say it id present and first; a list that offers
+no Say it is left alone. Everything below goes through it:
+
+- **Making and editing.** Every step the dashboard makes — Add a list, Change
+  ways, a ready-made, saved or copied order, Put these in order, Add a second
+  sequence, Give a sequence to N selected (replace and add-as-second), and
+  Save this sequence — has Say it. In Add a list and Change ways the Say it box
+  is ticked and disabled, with one line under the boxes: *"Say it is always
+  part of a sequence. It is the one mode that hears the student read."* (and
+  `draftWays` / `draftAdd` put it back if anything else took it out).
+- **Reading.** Both sides read every stored step through
+  `WordLists.docWithSay` (`store.js` `effectivePlans`, `teacher.js`
+  `plansFor`), so a step from a document nobody has healed yet cannot finish
+  on Cards alone and the home page shows its Say it tile — even before the
+  teacher next opens the dashboard.
+- **Healing what is stored.** The dashboard's load-time upkeep (`maintain`,
+  after migration and self-heal, in the same batches and retries) runs
+  `sayHealBody`: any `plan` / `plan2` on an assignment or roster row, and any
+  saved sequence on a class, with a step missing its Say it is written back
+  with it added and **nothing else changed** — `setAt`, `at`, `hold` and `bar`
+  stay exactly as they were (`WordLists.planWithSay`), so nobody's place, hold
+  or high-water mark moves. Only documents of a class the teacher teaches (the
+  admin: all), as `healBody`; no `firestore.rules` change. When it wrote
+  anything the dashboard shows one note above the view until **OK** is
+  pressed: *"Say it was added to N steps for M students."*, *"It was also added
+  to S steps of saved sequences."* when there were any, and *"K students now
+  need Say it on their current list."* for students who were on a Cards-only
+  step at the bar there and had not moved on yet. A student whose mark is
+  already past such a step stays past it (the high-water mark).
+- **Lists given without a sequence are unchanged.**
+
 **Where the position is worked out, and why there.** In the *student's*
 browser, in `store.js`, by `Adaptive.planState(plan, stats, totalOf, seq)`
 (wrapped, with the lists that follow from it, as `Adaptive.planPosition`,
@@ -2096,10 +2144,12 @@ marked **Now**: a bar for each way of playing with a tick at the percent, and
 the count in whole words — *"Say it: 14 of 20 solid. 4 more to finish (18 of
 20). 2 more are right but slow."* — with **Move on now** (not on the last list,
 which finishes at the bar). Later rows — the first is *Next* — can be moved
-earlier or later (buttons, not drag), have their ways of playing changed, or be
-taken out. Under the rows: **Add a list** (one list not already there, at least
-one way ticked; the ticks start as a copy of the step above when it is the same
-family, and the chooser opens on the next list of that family),
+earlier or later (buttons, not drag), have their ways of playing changed
+(**Change ways**: Say it stays ticked, locked, with the line that says why —
+*Say it is in every step*, above), or be taken out. Under the rows: **Add a list** (one list not already there, at least
+one way ticked; Say it is always ticked and cannot be unticked, and the other
+ticks start as a copy of the step above when it is the same family; the chooser
+opens on the next list of that family),
 **Use a saved sequence** (the ready-made ones, then each class's saved ones —
 *Saved sequences*, below) and **Copy from another student**, and **Save this
 sequence** to keep what is on the screen for the whole class. Above
@@ -2154,7 +2204,9 @@ first of two all leave them where they were or further on — a finished student
 stays finished — and lists added after the end start them on the first added
 list they have not already finished. A **raised** percent measures again from
 where they are: a finished student is measured again on the last list, and is
-on it again if it no longer meets the new bar. Go back holds them where the
+on it again if it no longer meets the new bar. A saved sequence used in the
+editor that brings a higher percent than the student's is raising the percent
+too (its confirm says *"The percent becomes 75%."*). Go back holds them where the
 teacher put them. Before this, `at` could not say "past the end" (it was pulled
 in to the last step), so any re-save of a finished sequence started the walk on
 its last list, and a student who had slipped on it was put back there — the

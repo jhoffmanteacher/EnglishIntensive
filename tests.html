@@ -4345,11 +4345,13 @@
          Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).length, 2);
       var sel = body.querySelector("#seqAddList");
       sel.value = "blends-start:1"; sel.dispatchEvent(new Event("change", { bubbles: true }));
-      eq("choosing a list of another family starts with nothing ticked", Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).length, 0);
-      eq("…and Add is disabled until a way is ticked", body.querySelector("#seqAddGo").disabled, true);
-      body.querySelector("[data-addway]").checked = true;
-      body.querySelector("[data-addway]").dispatchEvent(new Event("change", { bubbles: true }));
-      eq("…ticking one enables it", body.querySelector("#seqAddGo").disabled, false);
+      eq("choosing a list of another family starts with Say it alone ticked (Say it is in every step of a sequence)",
+         Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).map(function(c){ return c.dataset.addway; }).join(","), "initial-blends");
+      eq("…locked: it cannot be unticked", body.querySelector('[data-addway="initial-blends"]').disabled, true);
+      eq("…with one line saying why", body.querySelector("#seqSayWhy").textContent, "Say it is always part of a sequence. It is the one mode that hears the student read.");
+      eq("…and Add is ready", body.querySelector("#seqAddGo").disabled, false);
+      body.querySelector('[data-addway="initial-blends"]').click();
+      eq("…a click on the locked box changes nothing", body.querySelector('[data-addway="initial-blends"]').checked, true);
       sel = body.querySelector("#seqAddList");
       sel.value = "red:4"; sel.dispatchEvent(new Event("change", { bubbles: true }));
       body.querySelector('[data-seq="add-go"]').click();
@@ -4928,6 +4930,99 @@
       var sp = T.stopBody("u1", 9300, 0);
       eq("Stop on the first promotes it past the end", sp.plan.at + "/" + sp.plan.steps.length, "2/2");
       eq("…so they are still finished in it", A4.planState(sp.plan, T.positionOf("u1", 1) && fin({ stats: merge(fin().stats, solid(TB1, 28), solid(TB2, 5)) }).stats, function(id){ return W4.wordsOf(id).length; }, null).finished, true);
+    });
+
+    /* SAY IT IN EVERY STEP OF EVERY SEQUENCE (decided 2026-11-25). */
+    guard("Say it in every step of a sequence", function(){
+      eq("withSay adds the list's Say it, first", W4.withSay(["red-3-cards"]).join(","), "red-3-say,red-3-cards");
+      eq("…moves it first when it is there", W4.withSay(["red-3-match", "red-3-say"]).join(","), "red-3-say,red-3-match");
+      eq("…uses the family's own Say it id", W4.withSay(["oi-oy-spell"]).join(","), "oi-oy-read,oi-oy-spell");
+      eq("…leaves a step it does not know alone", W4.withSay(["not-a-list"]).join(","), "not-a-list");
+      eq("…and an empty step", W4.withSay([]).length, 0);
+      eq("…and never adds twice", W4.withSay(W4.withSay(["red-3-cards"])).join(","), "red-3-say,red-3-cards");
+      var raw = { steps: [{ ids: ["red-1-cards"] }, { ids: ["red-2-say"] }], bar: 0.75, at: 1, hold: true, setAt: 4242, extra: "kept" };
+      var hp = W4.planWithSay(raw);
+      eq("planWithSay adds it to every step", hp.steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards | red-2-say");
+      eq("…and changes nothing else (setAt, at, hold, bar)", [hp.setAt, hp.at, hp.hold, hp.bar, hp.extra].join(","), "4242,1,true,0.75,kept");
+      eq("…without touching what it was given", raw.steps[0].ids.join(","), "red-1-cards");
+      eq("docWithSay does both plans and leaves lists alone",
+         JSON.stringify((function(d){ return [d.plan.steps[0].ids, d.plan2.steps[0].ids, d.lists]; })(W4.docWithSay({ plan: raw, plan2: { steps: [{ ids: [TB1C] }] }, lists: ["red-1-cards"] }))),
+         JSON.stringify([["red-1-say", "red-1-cards"], [TB1, TB1C], ["red-1-cards"]]));
+
+      // The student's side: a Cards-only step from a document not healed yet cannot finish on Cards alone.
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      var legacy = { steps: [{ ids: ["red-1-cards"] }, { ids: ["red-2-cards"] }], bar: 0.9, at: 0, hold: false, setAt: 77 };
+      var cardsDone = solid("red-1-cards", 20);
+      var r = ST4.resolve({ plan: legacy }, null, cardsDone, null, tot);
+      eq("a legacy Cards-only step with Cards at the bar does not finish without Say it", r.positions[0].state.index, 0);
+      eq("…and the home page is given its Say it tile", r.current.join(","), "red-1-say,red-1-cards");
+      eq("…while with Say it at the bar too, it finishes",
+         ST4.resolve({ plan: legacy }, null, merge(cardsDone, solid("red-1-say", 18)), null, tot).positions[0].state.index, 1);
+      eq("…a mark already past it is not pulled back",
+         ST4.resolve({ plan: legacy }, null, cardsDone, [{ at: 1, of: 77, when: 1 }, null], tot).positions[0].state.index, 1);
+      eq("lists given without a sequence are unchanged", ST4.resolve({ lists: ["red-1-cards"] }, null, {}, null, tot).ids.join(","), "red-1-cards");
+      // The dashboard reads it the same way.
+      feed({ students: [kid("u1", "Lee Gray", { stats: cardsDone })], assignments: { u1: merge({ plan: legacy }, stamp) } });
+      eq("the dashboard agrees: on step 1, which now has Say it", T.positionOf("u1").state.index + " " + T.positionOf("u1").current.join(","), "0 red-1-say,red-1-cards");
+
+      // Every way a step is made.
+      var d = { steps: [{ ids: ["red-1-say", "red-1-cards"] }], bar: 0.9, at: 0, hold: false };
+      T.draftWays(d, 0, ["red-1-cards"]);
+      eq("Change ways cannot take Say it out", d.steps[0].ids.join(","), "red-1-say,red-1-cards");
+      T.draftAdd(d, ["red-2-match"]);
+      eq("Add a list adds its Say it", d.steps[1].ids.join(","), "red-2-say,red-2-match");
+      T.draftReplaceLater(d, 0, [{ ids: ["red-3-cards"] }]);
+      eq("a saved, ready-made or copied order brings Say it", d.steps[1].ids.join(","), "red-3-say,red-3-cards");
+      eq("putting games in order gives each list its Say it", T.stepsFromIds(["red-4-cards"])[0].ids.join(","), "red-4-say,red-4-cards");
+      eq("Add a list's ticks start with Say it", T.defaultAddIds({ steps: [] }, "red:5").join(","), "red-5-say");
+      eq("a saved sequence is saved with Say it", T.savedBody("x", [{ ids: ["red-6-match"] }], 0.9, 1).steps[0].ids.join(","), "red-6-say,red-6-match");
+      eq("Give a sequence gives Say it", T.giveBody(T.positionOf("u1") && kid("u2", "Bo"), [{ ids: ["red-7-cards"] }], 0.9, 1, "replace").plan.steps[0].ids.join(","), "red-7-say,red-7-cards");
+      eq("…as a second sequence too", T.giveBody(kid("u1", "Lee Gray", { stats: cardsDone }), [{ ids: ["red-8-cards"] }], 0.9, 1, "add").plan2.steps[0].ids.join(","), "red-8-say,red-8-cards");
+      T.reset();
+
+      // The ways editor: Say it ticked, locked, and why.
+      feed({ students: [kid("u1", "Lee Gray")], assignments: { u1: merge({ plan: planDoc() }, stamp) } });
+      var dr = T.ensureDraft("u1", 0);
+      var div = document.createElement("div"); div.innerHTML = T.waysEditorHtml(dr, 2, 0);
+      eq("Change ways shows Say it ticked and locked", div.querySelector('[data-ways="red-3-say"]').checked + "/" + div.querySelector('[data-ways="red-3-say"]').disabled, "true/true");
+      eq("…the other ways can still be ticked", div.querySelector('[data-ways="red-3-cards"]').disabled, false);
+      eq("…with the reason, in one line", div.querySelector(".seqSayWhy").textContent, T.SAY_WHY);
+      T.reset();
+    });
+
+    guard("Say it: the upkeep pass on existing documents", function(){
+      var legacy = { steps: [{ ids: ["red-1-cards"] }, { ids: ["red-2-say"] }, { ids: ["red-3-match"] }], bar: 0.85, at: 1, hold: true, setAt: 4321 };
+      // Ana on a Cards-only step with Cards at the bar and no mark past it: she will now need Say it.
+      var ready = merge(solid("red-1-cards", 20));
+      feed({ students: [kid("u1", "Ana Lopez"), kid("u2", "Ben Ortiz", { stats: ready }), kid("u3", "Cy Park", { stats: ready, seq: { at: 1, of: 999, when: 1 } })],
+             assignments: {
+               u1: merge({ plan: legacy, plan2: { steps: [{ ids: [TB1C] }], bar: 0.9, at: 0, hold: false, setAt: 5555 } }, stamp),
+               u2: merge({ plan: { steps: [{ ids: ["red-1-cards"] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 6666 } }, stamp),
+               u3: merge({ plan: { steps: [{ ids: ["red-1-cards"] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 999 } }, stamp),
+               u4: merge({ plan: { steps: [{ ids: ["red-1-say"] }], bar: 0.9, at: 0, hold: false, setAt: 1 } }, stamp)
+             },
+             classes: { c3: { name: "Period 3", teachers: [ME], sequences: { k1: { name: "Old", steps: [{ ids: ["red-9-cards"] }], bar: 0.9, createdAt: 1 } } } } });
+      var h = T.sayHealBody();
+      var aw = h.writes.filter(function(w){ return w.col === "assignments"; });
+      eq("it rewrites exactly the documents with a step missing Say it", aw.map(function(w){ return w.id; }).sort().join(","), "u1,u2,u3");
+      var u1 = aw.filter(function(w){ return w.id === "u1"; })[0].data;
+      eq("…adding Say it to every such step", u1.plan.steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards | red-2-say | red-3-say+red-3-match");
+      eq("…and plan2's", u1.plan2.steps[0].ids.join(","), TB1 + "," + TB1C);
+      eq("…keeping setAt, at, hold and bar exactly (nobody's place or mark moves)", [u1.plan.setAt, u1.plan.at, u1.plan.hold, u1.plan.bar, u1.plan2.setAt].join(","), "4321,1,true,0.85,5555");
+      eq("…with the class stamp the rules want", u1.classId + "/" + u1.teachers.join(","), "c3/" + ME);
+      eq("…and a saved sequence on the class too", JSON.stringify(h.writes.filter(function(w){ return w.col === "classes"; })[0].data.sequences.k1.steps), '[{"ids":["red-9-say","red-9-cards"]}]');
+      eq("it counts steps and students", h.steps + " steps, " + h.students + " students, " + h.saved + " saved", "5 steps, 3 students, 1 saved");
+      eq("…and who now needs Say it on their current list (Ben; not Cy, whose mark is past it)", h.need, 1);
+      eq("the note says so, plainly", T.sayNoteText(h), "Say it was added to 5 steps for 3 students. It was also added to 1 step of saved sequences. 1 student now needs Say it on their current list.");
+      eq("…in the singular too", T.sayNoteText({ steps: 1, students: 1, saved: 0, need: 0 }), "Say it was added to 1 step for 1 student.");
+      T.reset();
+      // A class this teacher does not teach is left alone (the rules allow no other).
+      feed({ students: [kid("u1", "Ana Lopez")], assignments: { u1: merge({ plan: legacy }, { classId: "c9", teachers: ["other@seq.org"] }) },
+             classes: { c3: { name: "Period 3", teachers: [ME] }, c9: { name: "Not mine", teachers: ["other@seq.org"] } } });
+      eq("a document of a class they do not teach is not written", T.sayHealBody().writes.length, 0);
+      T.reset();
+      feed({ students: [kid("u1", "Ana Lopez")], assignments: { u1: merge({ plan: planDoc() }, stamp) } });
+      eq("nothing to do once every step has Say it", T.sayHealBody().writes.length, 0);
     });
 
     guard("two sequences: stopping one", function(){

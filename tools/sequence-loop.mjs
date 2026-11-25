@@ -12,7 +12,7 @@
    WHEN TO RUN IT. After any change to teacher.js (the sequence editor, Save, Stop, Give a sequence, the Students
    rows), to store.js (resolve, settle, the marks, plan()), to adaptive.js (planState, planPosition, sanitizePlans,
    listSolid, stepNeed, isMastered), or to practice.js (the home page: renderHome, planNotice, the finished fold).
-   About 90 s for the default 56 cases on two cores (fewer with more). Needs Node 22 and a Chrome (CHROME=…, else chromium,
+   About 70-90 s for the default 56 cases on two cores. Needs Node 22 and a Chrome (CHROME=…, else chromium,
    google-chrome or chrome on the PATH); no dependencies, no network, no server of your own — it serves the site
    itself on a free localhost port.
 
@@ -55,7 +55,7 @@
 
    WHAT IS FAKE (self-tested at the start of every batch: T1-T10) — see the header of tools/sequence-loop.js.
 
-   THE CHECKS (S1-S8) and THE FAMILIES — see the header of tools/sequence-loop.js; `--list` names them.
+   THE CHECKS (S1-S9) and THE FAMILIES — see the header of tools/sequence-loop.js; `--list` names them.
 
    KNOWN (printed as "~ known", not failed) — see KNOWN in tools/sequence-loop.js.
 */
@@ -69,7 +69,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Kept in step with FAMILIES and FAKE_FAULTS in tools/sequence-loop.js (the self-test checks the names agree).
-const FAMILIES = ["one-sequence", "two-sequences", "teacher-steps-in", "re-plan", "bulk", "roster-first", "stop"];
+const FAMILIES = ["one-sequence", "two-sequences", "teacher-steps-in", "re-plan", "bulk", "roster-first", "stop", "legacy"];
 const FAKE_FAULTS = {
   merge: "set(…, {merge:true}) replaces top-level maps instead of merging them (a save of one word wipes the rest)",
   delete: "FieldValue.delete() is ignored: the field stays (a stopped sequence is never removed)",

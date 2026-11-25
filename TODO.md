@@ -166,8 +166,47 @@ section); the reasons are here.
 - **The chooser fix is in `site.css`**: `min-height:100%` on the body in place
   of `height:100%`, which still centres short content.
 
-<!-- Room for two more paragraphs, to be added by the sessions that wrote
-     them: the sequence loop, and the microphone work. -->
+- **`tools/sequence-loop.mjs`, the second closed loop.** It opens the real
+  dashboard and each student's real home page side by side in headless Chrome,
+  with one fake database between them. It plays seeded schedules of a teacher
+  giving, editing and stopping sequences (one or two per student, singly or in
+  bulk, before or after the student first signs in, and on documents saved
+  before Say it was in every step) while students practise. After every step it
+  checks that the dashboard, the student's page and the README's rules all say
+  the same thing about where each student is. It runs on every push after
+  save-loop. The day it was built it found K1, below.
+
+### Decided 2026-11-25: two rules for sequences
+
+- **Reversed: "a re-saved sequence is worked out afresh from `at`".** That
+  sentence in the README held for every student but one kind: a student who
+  had finished every list was past the end only by their own mark, and `at`
+  was pulled in to the last step, so any save that wrote the sequence afresh —
+  a *lowered* percent, a list added at the end, a saved order used, Stop on the
+  first of two — started them on their last list again, and one who had
+  slipped on it while replaying it was put back there (the loop's K1). The rule
+  now, set by the planning session: **nothing the teacher does moves a student
+  backwards, except Go back to this list and raising the percent.** A finished
+  student stays finished through any re-save; lists added after the end start
+  them on the first new one they have not finished; a raised percent checks the
+  list they are on again (for a finished student, the last one). A saved order
+  that brings a higher percent counts as raising it — its confirm says so. How:
+  a plan's `at` may now equal the number of steps, meaning past the end, on
+  both sides; old documents never hold it and read as before.
+- **Say it is in every step of every sequence** (the teacher: *"say it must be
+  in every step sequence"*). Reverses "each step holds whatever ways the
+  teacher ticked". Cards is a self-rating and Match It does not hear the
+  student, so a step without Say it could be finished without anything having
+  heard them read. Every step the dashboard makes has Say it, locked in the
+  choosers with one line saying why; both sides read stored steps with Say it
+  added; the dashboard's load-time upkeep writes it into existing plans, plan2s
+  and saved sequences without moving anybody (setAt, `at`, hold and bar kept),
+  and says how many steps and students in one note, and how many students now
+  need Say it on their current list. A student already past a Cards-only step
+  stays past it. Lists given without a sequence are unchanged.
+
+<!-- Room for one more paragraph, to be added by the session that wrote it:
+     the microphone work. -->
 
 ## Decided during the retire-modes build
 

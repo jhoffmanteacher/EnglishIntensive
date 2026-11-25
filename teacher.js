@@ -534,11 +534,109 @@
       ? migrationBody(raw, allClasses().map(function(id){ return classes[id]; }), me, knownTeachers(), newClassId, Date.now())
       : [];
     if(!writes.length) writes = healBody(raw, classes, me, admin);
+    var say = null;
+    if(!writes.length){ say = sayHealBody(); writes = say.writes; }
     if(!writes.length) return;
     // A failed pass is not a failed dashboard: the next load tries again.
-    return commitWrites(writes).then(function(){ return loadAll(pass + 1); }, function(e){
+    return commitWrites(writes).then(function(){
+      if(say) sayNote = say;
+      return loadAll(pass + 1);
+    }, function(e){
       if(window.console) console.warn("Class upkeep didn't finish; it will retry next load.", e);
     });
+  }
+
+  /* ---------------- Say it in every step ----------------
+     Decided 2026-11-25: every step of every sequence includes its list's Say
+     it (WordLists.withSay — the reason is there). Everything the dashboard
+     makes from now on goes through it; this pass brings the documents saved
+     before it into line, as part of the same upkeep as self-heal, on every
+     load until nothing is left to do.
+
+     It rewrites `plan` and `plan2` on any assignment or roster row with a step
+     missing its Say it, and any saved sequence on a class, adding the id and
+     touching NOTHING else — setAt, at, hold and bar are written back exactly
+     as they were (WordLists.planWithSay), so nobody's place, hold or
+     high-water mark moves. Only documents of a class this teacher teaches (the
+     admin: all), as healBody, because the rules allow no other. Pure apart
+     from reading the page's state: returns the writes and what the note says.
+
+     A student on a Cards-only step who had reached the bar there but had not
+     yet moved on (no mark past it) now also needs Say it: `need` counts them,
+     comparing where the plan put them before and after. A student whose mark
+     is already past such a step stays past it. */
+  function sayHealBody(){
+    var out = { writes: [], steps: 0, students: 0, saved: 0, need: 0 };
+    function changed(p){
+      if(!p || !Array.isArray(p.steps)) return 0;
+      var h = WordLists.planWithSay(p), n = 0;
+      p.steps.forEach(function(st, i){ if(st && Array.isArray(st.ids) && !sameList(st.ids, h.steps[i].ids)) n++; });
+      return n;
+    }
+    function may(cid){ var c = classes[cid]; return !!c && (admin || c.teachers.indexOf(me) !== -1); }
+    function heal(col, id, doc){
+      if(!doc || !may(doc.classId)) return;
+      var data = {}, any = false;
+      ["plan", "plan2"].forEach(function(f){
+        if(changed(doc[f])){ data[f] = WordLists.planWithSay(doc[f]); any = true; }
+      });
+      if(!any) return;
+      var st = stampFor(doc.classId);
+      for(var k in st) data[k] = st[k];
+      out.writes.push({ col: col, id: id, data: data });
+    }
+    Object.keys(assignments).forEach(function(uid){ heal("assignments", uid, assignments[uid]); });
+    Object.keys(roster).forEach(function(em){ heal("roster", em, roster[em]); });
+    // What it means for each student: their source document, as plansFor reads it.
+    everyone.concat(testStudent ? [testStudent] : []).forEach(function(s){
+      var a = assignments[s.uid];
+      var src = a && (Adaptive.sanitizePlan(a.plan) || Array.isArray(a.lists)) ? a : rosterFor(s);
+      if(!src || !may(src.classId)) return;
+      var before = Adaptive.sanitizePlans(src);
+      var n = before.length ? changed(src.plan) + (before.length > 1 ? changed(src.plan2) : 0) : 0;
+      if(!n) return;
+      out.steps += n; out.students++;
+      var after = Adaptive.sanitizePlans(WordLists.docWithSay(src));
+      if(after.some(function(p, k){
+        return before[k] && Adaptive.planState(p, s.stats, listTotal, markOf(s, k)).index <
+                            Adaptive.planState(before[k], s.stats, listTotal, markOf(s, k)).index;
+      })) out.need++;
+    });
+    allClasses().forEach(function(cid){
+      if(!may(cid)) return;
+      var seqs = classes[cid].sequences || {}, patch = {}, any = false;
+      Object.keys(seqs).forEach(function(k){
+        var e = seqs[k], n = changed(e);
+        if(!n) return;
+        out.saved += n; any = true;
+        patch[k] = { name: e.name, steps: WordLists.planWithSay(e).steps, bar: e.bar, createdAt: e.createdAt };
+      });
+      if(any) out.writes.push({ col: "classes", id: cid, data: { sequences: patch } });
+    });
+    return out;
+  }
+  /* The one note after the pass wrote something, until the teacher dismisses
+     it. It sits above the view (outside #tBody), so drawing a view keeps it. */
+  var sayNote = null;
+  function plural(n, one, many){ return n + " " + (n === 1 ? one : many); }
+  function sayNoteText(x){
+    var t = [];
+    if(x.steps) t.push("Say it was added to " + plural(x.steps, "step", "steps") + " for " + plural(x.students, "student", "students") + ".");
+    if(x.saved) t.push((x.steps ? "It was also added to " : "Say it was added to ") + plural(x.saved, "step", "steps") + " of saved sequences.");
+    if(x.need) t.push(plural(x.need, "student now needs", "students now need") + " Say it on their current list.");
+    return t.join(" ");
+  }
+  function renderSayNote(){
+    var el = $("tSayNote"), body = $("tBody");
+    if(!sayNote || !body){ if(el) el.parentNode.removeChild(el); return; }
+    if(!el){
+      el = document.createElement("div");
+      el.id = "tSayNote"; el.className = "panel callout"; el.setAttribute("role", "status");
+      body.parentNode.insertBefore(el, body);
+    }
+    el.innerHTML = "<p>" + esc(sayNoteText(sayNote)) + "</p>" +
+      '<div class="rowActions"><button type="button" class="btn ghost sm" id="tSayNoteOk">OK</button></div>';
+    $("tSayNoteOk").addEventListener("click", function(){ sayNote = null; renderSayNote(); var h = $("tTitle"); if(h && h.focus) h.focus(); });
   }
 
   /* ---------------- the roster ----------------
@@ -1377,6 +1475,7 @@
     closeGive();
     closePreviewPop();
     renderChrome();
+    renderSayNote();
     if(view === "roster") return detailUid ? renderDetail() : renderRoster();
     if(view === "sequences") return renderSequences();
     if(view === "groups") return renderGroups();
@@ -1826,9 +1925,10 @@
      EIStore.effectivePlans (and Adaptive.sanitizePlans on both sides),
      pinned against it by tests.html. */
   function plansFor(uid){
+    // Every step read with its Say it id (WordLists.docWithSay), as store.js reads it — see "Say it in every step".
     var a = assignments[uid];
-    if(a && (Adaptive.sanitizePlan(a.plan) || Array.isArray(a.lists))) return Adaptive.sanitizePlans(a);
-    return Adaptive.sanitizePlans(rosterFor(studentByUid(uid)));
+    if(a && (Adaptive.sanitizePlan(a.plan) || Array.isArray(a.lists))) return Adaptive.sanitizePlans(WordLists.docWithSay(a));
+    return Adaptive.sanitizePlans(WordLists.docWithSay(rosterFor(studentByUid(uid))));
   }
   // One of them — the first (which 0, the default) or the second (1) — or null.
   function planFor(uid, which){ return plansFor(uid)[which || 0] || null; }
@@ -1964,7 +2064,7 @@
       if(!groups[k]){ groups[k] = []; order.push(k); }
       groups[k].push(id);
     });
-    return order.map(function(k){ return { ids: groups[k] }; });
+    return order.map(function(k){ return { ids: WordLists.withSay(groups[k]) }; });
   }
   // Only the steps after Now can move, and only among themselves.
   function draftMove(d, i, delta, idx){
@@ -1983,7 +2083,7 @@
     if(i < 0 || i >= d.steps.length || !ids.length) return false;
     var k = listKeyOf(d.steps[i].ids[0]);
     for(var x=0;x<ids.length;x++) if(listKeyOf(ids[x]) !== k) return false;
-    d.steps[i] = { ids: orderIds(ids) };
+    d.steps[i] = { ids: WordLists.withSay(orderIds(ids)) };     // Say it stays, whatever was unticked
     return true;
   }
   /* One list at the end, once: a list already in the sequence is refused,
@@ -1994,7 +2094,7 @@
     for(var x=0;x<ids.length;x++) if(listKeyOf(ids[x]) !== k) return false;
     if(stepKeys(d).indexOf(k) !== -1) return false;
     if(exclude && exclude.indexOf(k) !== -1) return false;
-    d.steps.push({ ids: orderIds(ids) });
+    d.steps.push({ ids: WordLists.withSay(orderIds(ids)) });
     return true;
   }
   // The percent, in steps of 5 from 50 to 100.
@@ -2032,7 +2132,7 @@
     var added = 0;
     steps.forEach(function(st){
       var k = listKeyOf(st.ids[0]);
-      if(used.indexOf(k) === -1){ used.push(k); keep.push({ ids: st.ids.slice() }); added++; }
+      if(used.indexOf(k) === -1){ used.push(k); keep.push({ ids: WordLists.withSay(st.ids) }); added++; }
     });
     d.steps = keep;
     if(d.at > keep.length) d.at = keep.length;
@@ -2062,7 +2162,7 @@
         var offered = WordLists.idsOfList(fk, n);
         var ids = ["say", "cards"].map(function(m){ return WordLists.idFor(fk, n, m); })
           .filter(function(id){ return id && offered.indexOf(id) !== -1; });
-        if(ids.length) steps.push({ ids: ids });
+        if(ids.length) steps.push({ ids: WordLists.withSay(ids) });
       });
     });
     return steps;
@@ -2203,8 +2303,9 @@
     return '<div class="seqWays" role="group" aria-label="Ways of playing ' + esc(stepTitle(step)) + '">' +
       orderIds(ids).map(function(id){
         return '<label class="check"><input type="checkbox" data-ways="' + esc(id) + '"' +
-          (step.ids.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
+          (isSayId(id) ? sayLockAttrs(id, which) : step.ids.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
       }).join("") +
+      '<p class="muted tiny seqSayWhy" id="' + sid(which, "seqSayWhy") + '">' + esc(SAY_WHY) + "</p>" +
       '<div class="rowActions"><button type="button" class="btn sm" data-seq="ways-done" data-i="' + i + '">Done</button>' +
       '<button type="button" class="btn ghost sm" data-seq="ways-cancel" data-i="' + i + '">Cancel</button>' +
       '<span class="saveNote err" id="' + sid(which, "waysNote") + '" role="status"></span></div></div>';
@@ -2269,14 +2370,19 @@
   // The ways to tick to start with: a copy of the step above when it is the same family.
   function defaultAddIds(d, key){
     var fam = key.split(":")[0], n = Number(key.split(":")[1]);
+    var avail = WordLists.idsOfList(fam, n), say = WordLists.idFor(fam, n, "say");
+    var withSay = function(ids){ return say && avail.indexOf(say) !== -1 ? WordLists.withSay(ids.length ? ids : [say]) : ids; };
     var last = d.steps[d.steps.length - 1];
-    if(!last) return [];
+    if(!last) return withSay([]);
     var lastL = WordLists.byId(last.ids[0]);
-    if(!lastL || lastL.family !== fam) return [];
+    if(!lastL || lastL.family !== fam) return withSay([]);
     var modes = last.ids.map(function(id){ return WordLists.byId(id).mode; });
-    var avail = WordLists.idsOfList(fam, n);
-    return modes.map(function(m){ return WordLists.idFor(fam, n, m); }).filter(function(id){ return id && avail.indexOf(id) !== -1; });
+    return withSay(modes.map(function(m){ return WordLists.idFor(fam, n, m); }).filter(function(id){ return id && avail.indexOf(id) !== -1; }));
   }
+  /* In a sequence, Say it is ticked and cannot be unticked: the one line that says why, and the box itself. */
+  var SAY_WHY = "Say it is always part of a sequence. It is the one mode that hears the student read.";
+  function isSayId(id){ var l = WordLists.byId(id); return !!(l && l.mode === "say"); }
+  function sayLockAttrs(id, which){ return isSayId(id) ? ' checked disabled aria-describedby="' + sid(which, "seqSayWhy") + '"' : ""; }
   function addPanelHtml(d, which, exclude){
     var ui = seqUIs[which];
     var lists = addableLists(d, exclude);
@@ -2302,8 +2408,9 @@
       '<select class="sel seqAddSel" id="' + sid(which, "seqAddList") + '">' + opts + "</select>" +
       '<div class="seqWays" role="group" aria-label="Ways of playing">' + cur.ids.map(function(id){
         return '<label class="check"><input type="checkbox" data-addway="' + esc(id) + '"' +
-          (ui.addIds.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
+          (isSayId(id) ? sayLockAttrs(id, which) : ui.addIds.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
       }).join("") + "</div>" +
+      '<p class="muted tiny seqSayWhy" id="' + sid(which, "seqSayWhy") + '">' + esc(SAY_WHY) + "</p>" +
       '<div class="rowActions"><button type="button" class="btn sm" data-seq="add-go" id="' + sid(which, "seqAddGo") + '"' +
         (ui.addIds.length ? "" : " disabled") + ">Add to the end</button>" +
       '<button type="button" class="btn ghost sm" data-seq="add-cancel">Cancel</button>' +
@@ -3962,7 +4069,7 @@
      list already in their first — and a student left with nothing is
      skipped: the body is null. */
   function givePlan(s, steps, bar, now){
-    var plan = { steps: cloneSteps(steps), bar: bar, at: 0, hold: false, setAt: now };
+    var plan = { steps: steps.map(function(st){ return { ids: WordLists.withSay(st.ids) }; }), bar: bar, at: 0, hold: false, setAt: now };
     var st = Adaptive.planState(plan, s.stats, listTotal, null);
     var at = Math.max(0, Math.min(st ? st.index : 0, steps.length - 1));
     return { plan: plan, lists: steps[at].ids.slice() };
@@ -4014,7 +4121,7 @@
      changes nobody. */
   function newSeqKey(){ return "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function savedBody(name, steps, bar, now){
-    return { name: String(name).trim().slice(0, SAVED_NAME_MAX), steps: cloneSteps(steps), bar: bar, createdAt: now };
+    return { name: String(name).trim().slice(0, SAVED_NAME_MAX), steps: steps.map(function(st){ return { ids: WordLists.withSay(st.ids) }; }), bar: bar, createdAt: now };
   }
   // Every saved sequence in every class this teacher sees (all classes, for the admin).
   function savedSequences(){
@@ -4025,7 +4132,8 @@
         return seqs[a].name.localeCompare(seqs[b].name, undefined, { numeric: true, sensitivity: "base" });
       }).forEach(function(k){
         out.push({ id: cid + "/" + k, classId: cid, key: k, className: className(cid),
-                   name: seqs[k].name, steps: seqs[k].steps, bar: seqs[k].bar, createdAt: seqs[k].createdAt });
+                   name: seqs[k].name, steps: seqs[k].steps.map(function(st){ return { ids: WordLists.withSay(st.ids) }; }),
+                   bar: seqs[k].bar, createdAt: seqs[k].createdAt });
       });
     });
     return out;
@@ -4887,6 +4995,7 @@
       draftIndex: draftIndex, draftMove: draftMove, draftRemove: draftRemove, draftWays: draftWays,
       draftAdd: draftAdd, draftBar: draftBar, draftMoveOn: draftMoveOn, draftGoBack: draftGoBack,
       draftReplaceLater: draftReplaceLater, addsAny: addsAny, stepsFromIds: stepsFromIds, readyMadeSteps: readyMadeSteps,
+      sayHealBody: sayHealBody, sayNoteText: sayNoteText, defaultAddIds: defaultAddIds, waysEditorHtml: waysEditorHtml, SAY_WHY: SAY_WHY,
       READY_MADE: READY_MADE, planBody: planBody, stopBody: stopBody, wayLine: wayLine, stuLine: stuLine,
       stepTitle: stepTitle, stepWays: stepWays, seqPanelHtml: seqPanelHtml, seqDirty: seqDirty,
       leaveDraftOk: leaveDraftOk,

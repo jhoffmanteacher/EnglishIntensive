@@ -82,8 +82,14 @@
         the dashboard's page for them (as a roster row) said they would.
      S8 the preview. Student view (index.html?preview=…) shows the same current tiles, fold and finished line as the
         student's own page, and writes nothing.
+     S9 Say it in every step (2026-11-25). Every step of every stored sequence (after the dashboard's upkeep pass) and
+        of every saved sequence holds its list's Say it id; the home page shows each current list's Say it tile, a
+        document not healed yet included; no step is walked past while its Say it is below the bar; Add a list and
+        Change ways show Say it ticked and locked with the line that says why, and stay so when the harness tries to
+        untick it; the upkeep note says what the key counts and keeps setAt, at, hold and bar.
 
-   THE FAMILIES (round robin): one-sequence, two-sequences, teacher-steps-in, re-plan, bulk, roster-first, stop.
+   THE FAMILIES (round robin): one-sequence, two-sequences, teacher-steps-in, re-plan, bulk, roster-first, stop, legacy
+   (documents saved before Say it was in every step; in half the cases the students load before the teacher).
    Each case has 1-3 students, a class with three saved sequences (random lists, ways and percents), some students
    already solid on a list or two, some with games and no order; then 7-10 steps of the family's kind of mix.
 
@@ -95,11 +101,20 @@
   var OUT = document.getElementById("out"), FRAMES = document.getElementById("frames");
   var Q = new URLSearchParams(location.search);
   var FAULT = Q.get("fault") || "", VERBOSE = Q.get("verbose") === "1";
+  /* ?shots=1 (by hand only, never from the runner): at a few named moments the page sets its title to
+     "shot:<name>" and waits until window.SEQ_SHOT_DONE is that name, so a person (or Playwright) can look at, or
+     photograph, the frames. Off, it costs nothing. */
+  var SHOTS = Q.get("shots") === "1";
+  async function shot(name){
+    if(!SHOTS) return;
+    document.title = "shot:" + name;
+    await until(function(){ return window.SEQ_SHOT_DONE === name; }, 600000);
+  }
   var BATCH = Number(Q.get("batch") || 0), SEED = Number(Q.get("seed") || 1);
   var JOBS = String(Q.get("cases") || "").split(",").filter(Boolean).map(function(s){
     var p = s.split(":"); return { i: Number(p[0]), fam: p[1], seed: Number(p[2]) >>> 0 };
   });
-  var FAMILIES = ["one-sequence", "two-sequences", "teacher-steps-in", "re-plan", "bulk", "roster-first", "stop"];
+  var FAMILIES = ["one-sequence", "two-sequences", "teacher-steps-in", "re-plan", "bulk", "roster-first", "stop", "legacy"];
   var FAKE_FAULTS = ["merge", "delete", "where"];
   var ADMIN = "jhoffman@seq.org";                 // firebase-config.js's ADMIN_EMAILS; the loop's teacher is not it
   var TEACHER = { uid: "uid-teacher-01", email: "teacher.one@seq.org", displayName: "Teacher One" };
@@ -451,11 +466,26 @@
       W.listNumsOf(fk).forEach(function(n){
         var offered = W.idsOfList(fk, n);
         var ids = ["say", "cards"].map(function(m){ return W.idFor(fk, n, m); }).filter(function(id){ return id && offered.indexOf(id) !== -1; });
-        if(ids.length) steps.push({ ids: ids });
+        if(ids.length) steps.push({ ids: keySay(ids) });
       });
     });
     return steps;
   }
+
+  /* SAY IT IN EVERY STEP (the teacher, 2026-11-25: "say it must be in every step sequence"), in the key's own
+     words: a step of a sequence holds its list's Say it way, first, whatever else it holds; a list with no Say it
+     way is left as it is. */
+  function keySay(ids){
+    var l = null;
+    for(var i = 0; i < ids.length && !l; i++) l = W.byId(ids[i]);
+    if(!l) return ids.slice();
+    var say = null;
+    W.all.forEach(function(x){ if(x.family === l.family && x.listNum === l.listNum && x.mode === "say" && !x.retired) say = x.id; });
+    return say ? [say].concat(ids.filter(function(id){ return id !== say; })) : ids.slice();
+  }
+  function saySteps(steps){ return steps.map(function(st){ return { ids: keySay(st.ids) }; }); }
+  function sayIdOf(step){ var k = keySay(step.ids)[0], l = W.byId(k); return l && l.mode === "say" ? k : null; }
+  function lacksSay(step){ var k = sayIdOf(step); return !!k && step.ids.indexOf(k) === -1; }
 
   /* ════════════════════════════════════════════════════════════════════
      THE ANSWER KEY — the README's rules, written again
@@ -608,7 +638,7 @@
   function replaceLater(d, idx, steps, exclude){
     var keep = d.steps.slice(0, Math.min(d.steps.length, idx + 1));
     var used = stepKeysOf(keep).concat(exclude), added = 0;
-    steps.forEach(function(st){ var kk = listKey(st.ids[0]); if(used.indexOf(kk) === -1){ used.push(kk); keep.push({ ids: st.ids.slice() }); added++; } });
+    steps.forEach(function(st){ var kk = listKey(st.ids[0]); if(used.indexOf(kk) === -1){ used.push(kk); keep.push({ ids: keySay(st.ids) }); added++; } });
     return { steps: keep, added: added };
   }
 
@@ -777,6 +807,7 @@
     var seqs = {};
     ["sA", "sB", "sC"].forEach(function(key, j){
       var steps = randomSteps(c, r.int(2, 4)), bar = r.pick([0.6, 0.75, 0.9, 0.9, 1]);
+      if(!spec.legacy) steps = saySteps(steps);       // saved since the rule; the legacy family keeps the old ones
       seqs[key] = { name: "Saved " + "ABC"[j], steps: steps, bar: bar, createdAt: now - 86400000 * (j + 2) };
       c.saved.push({ key: "sv:" + CLASS_ID + "/" + key, label: "Saved " + "ABC"[j], steps: cloneSteps(steps), bar: bar, saved: true });
     });
@@ -805,15 +836,118 @@
       }
       s.frame = makeFrame("student", "s:" + s.uid);
     }
+    if(spec.legacy) seedLegacy(c, now);
     c.tf = makeFrame("teacher", "teacher");
     c.pf = makeFrame("preview", "teacher");
     HOOK.confirm = function(role, msg){ c.confirms.push(msg); c.log("confirm (" + role + "): " + msg.replace(/\n+/g, " / ")); };
     HOOK.open = function(role, url, win){ c.opened = new win.URL(url, win.location.href).href; };
     HOOK.write = function(w){ onWrite(c, w); };
+    // A student who opens their page BEFORE the teacher opens the dashboard: the documents are not healed yet.
+    if(spec.legacy && r.chance(0.5)){
+      c.studentsFirst = true;
+      for(var sf of c.students){
+        if(sf.pending) continue;
+        var hf = await loadHome(c, sf);
+        compareHome(c, sf, hf, "before the teacher opens the dashboard, the");
+        await shot("home-" + sf.letter);
+        if(!hf.failed) keyAfterHome(sf);
+        sf.home = hf;
+      }
+      await sleep(2500); await quiet(50);
+    }
+    var expNote = expectSayNote(c);
     await navigate(c.tf, "/teacher.html");
     var up = await until(function(){ var nav = tq(c, "#tNav"); return nav && !nav.hidden && tq(c, "#tBody").childElementCount > 0; }, 30000);
     if(!up) throw new Error("the dashboard did not load: " + (tq(c, "#tBody") ? tq(c, "#tBody").textContent.slice(0, 120) : "no body"));
     await teacherQuiet(c);
+    await until(function(){ return INFLIGHT === 0 && tq(c, "#tBody").childElementCount > 0; }, 30000);
+    // S9: the upkeep pass on the first load — its note, and that it moved nobody
+    var noteEl = tq(c, "#tSayNote"), got = noteEl ? noteEl.querySelector("p").textContent : "";
+    c.check("S9", "the note after the dashboard's first load", expNote || "(no note)", got || "(no note)");
+    if(noteEl){
+      await shot("note");
+      click(noteEl.querySelector("#tSayNoteOk"));
+      c.check("S9", "the note is dismissed with OK", "gone", tq(c, "#tSayNote") ? "still there" : "gone");
+    }
+    if(spec.legacy) c.students.forEach(function(s){
+      if(!s.seeded) return;
+      checkStored(c, s, [false, false], null);
+      var src = storedSource(s).doc;
+      [src.plan, src.plan && src.plan2].forEach(function(sp, k){
+        var seed = s.seeded[k]; if(!seed || !sp) return;
+        c.check("S9", "the upkeep pass kept " + s.letter + "'s plan " + (k + 1) + " in place", "setAt " + seed.setAt + ", at " + seed.at + ", hold " + seed.hold + ", " + Math.round(seed.bar * 100) + "%",
+          "setAt " + sp.setAt + ", at " + sp.at + ", hold " + sp.hold + ", " + Math.round(sp.bar * 100) + "%");
+      });
+    });
+    checkSayStored(c, "after the first load");
+  }
+
+  /* Documents saved before the rule: steps without Say it (a Cards-only first step, often), some students already at
+     the bar on its Cards (so they will now need Say it), some of those with a mark past it (so they will not). */
+  function seedLegacy(c, now){
+    var r = c.rng;
+    c.students.forEach(function(s){
+      if(r.chance(0.15)) return;
+      var steps = randomSteps(c, r.int(2, 4));
+      if(r.chance(0.7)){
+        var L = r.pick(LISTS.filter(function(x){ return stepKeysOf(steps).indexOf(x.key) === -1; }));
+        steps[0] = { ids: [r.pick(L.ids.filter(function(id){ return W.byId(id).mode !== "say"; }))] };
+      }
+      var plans = [{ steps: steps, bar: r.pick([0.75, 0.9]), at: 0, hold: false, setAt: now - 86400000 * r.int(2, 9) }, null];
+      if(r.chance(0.4)){
+        var st2 = randomSteps(c, r.int(1, 3), stepKeysOf(steps));
+        if(st2.length) plans[1] = { steps: st2, bar: 0.9, at: 0, hold: false, setAt: now - 86400000 * r.int(10, 19) };
+      }
+      var stamp = { classId: CLASS_ID, teachers: [TEACHER.email] };
+      var doc = s.pending ? SV.docs["roster/" + s.email] : (SV.docs["assignments/" + s.uid] = Object.assign({ updatedAt: now - 86400000 }, stamp));
+      doc.plan = copy(plans[0]); if(plans[1]) doc.plan2 = copy(plans[1]);
+      doc.lists = plans[0].steps[0].ids.concat(plans[1] ? plans[1].steps[0].ids : []);
+      if(!s.pending && lacksSay(steps[0]) && r.chance(0.6)){
+        var sd = SV.docs["students/" + s.uid];
+        steps[0].ids.forEach(function(id){ words(id).forEach(function(w){ sd.words[id + "|" + w] = solidStat(); s.stats[id + "|" + w] = { n: 5, r: 5, box: 5 }; }); });
+        if(r.chance(0.5)){ sd.seq = { at: 1, of: plans[0].setAt, when: now - 86400000 }; s.marks[0] = { at: 1, of: plans[0].setAt }; }
+      }
+      s.seeded = plans.map(function(p){ return p ? clonePlan(p) : null; });
+      s.plans = plans.map(function(p){ if(!p) return null; var q = clonePlan(p); q.steps = saySteps(p.steps); return q; });
+      s.plans.forEach(function(p, k){ if(p) s.setAts[k].push(p.setAt); });
+      // the seeded start, before any walk: their mark if it is this plan's, else at
+      s.seedStart = s.plans.map(function(p, k){ var m = s.marks[k]; return p ? { setAt: p.setAt, index: m && m.of === p.setAt && m.at > p.at ? Math.min(m.at, p.steps.length) : p.at } : null; });
+    });
+  }
+  /* What the dashboard should say after the upkeep pass, in the teacher's words (README, "Say it in every step"). */
+  function expectSayNote(c){
+    var steps = 0, students = 0, need = 0, saved = 0;
+    c.students.forEach(function(s){
+      if(!s.seeded) return;
+      var n = 0;
+      s.seeded.forEach(function(p){ if(p) p.steps.forEach(function(st){ if(lacksSay(st)) n++; }); });
+      if(!n) return;
+      steps += n; students++;
+      if(s.seeded.some(function(p, k){ return p && walk(p, s.stats, s.marks[k]).index > walk(s.plans[k], s.stats, s.marks[k]).index; })) need++;
+    });
+    var cl = SV.docs["classes/" + CLASS_ID];
+    Object.keys(cl.sequences || {}).forEach(function(k){ cl.sequences[k].steps.forEach(function(st){ if(lacksSay(st)) saved++; }); });
+    function pl(n, one, many){ return n + " " + (n === 1 ? one : many); }
+    var t = [];
+    if(steps) t.push("Say it was added to " + pl(steps, "step", "steps") + " for " + pl(students, "student", "students") + ".");
+    if(saved) t.push((steps ? "It was also added to " : "Say it was added to ") + pl(saved, "step", "steps") + " of saved sequences.");
+    if(need) t.push(pl(need, "student now needs", "students now need") + " Say it on their current list.");
+    return t.join(" ");
+  }
+  // S9: every step of every stored sequence, and of every saved sequence on the class, holds its list's Say it.
+  function checkSayStored(c, when){
+    c.students.forEach(function(s){
+      var d = storedSource(s).doc, bad = [];
+      [d.plan, d.plan && d.plan2].forEach(function(p, k){
+        if(!p || !Array.isArray(p.steps)) return;
+        p.steps.forEach(function(st, i){ if(st && Array.isArray(st.ids) && lacksSay(st)) bad.push((k + 1) + "." + (i + 1) + " " + st.ids.join("+")); });
+      });
+      if(bad.length) c.fail("S9", when + ": " + s.letter + "'s stored steps", "Say it in every step", "missing in " + bad.join(", "));
+      else if(d.plan) c.ok("S9", when + ": every stored step of " + s.letter + " has Say it");
+    });
+    var cl = SV.read("classes/" + CLASS_ID) || {}, sb = [];
+    Object.keys(cl.sequences || {}).forEach(function(k){ (cl.sequences[k].steps || []).forEach(function(st, i){ if(lacksSay(st)) sb.push(cl.sequences[k].name + " " + (i + 1)); }); });
+    if(sb.length) c.fail("S9", when + ": the class's saved sequences", "Say it in every step", "missing in " + sb.join(", "));
   }
 
   /* Every write that lands: the marks (S4), and anything written by the preview (S8). */
@@ -857,6 +991,13 @@
     var e = homeText(exp), g = homeText(got);
     if(e === g) c.ok("S1", label + " home page of " + s.letter + ": " + g);
     else c.fail("S1", label + " home page of " + s.letter, e, g);
+    // S9: the Say it of every current step is on the page (a step not healed yet included)
+    if(!got.failed) s.plans.forEach(function(p, k){
+      if(!p) return;
+      var pos = s.pos(k); if(pos.finished) return;
+      var sid = sayIdOf(p.steps[pos.index]); if(!sid) return;
+      c.check("S9", label + " home page of " + s.letter + ": the Say it tile of sequence " + (k + 1) + "'s current list", sid + " shown", got.current.indexOf(sid) !== -1 ? sid + " shown" : sid + " missing");
+    });
     // S2: nothing beyond where they are, nothing never given, nothing taken out
     if(!got.failed){
       var allowed = exp.current.concat(exp.fold || []);
@@ -976,6 +1117,25 @@
       s2.obsDash = dsh;
       if(s2.pending) s2.prediction = dsh.det;
     }
+    checkSayStored(c, "after Refresh");
+    // S9: no step was walked past with its Say it below the bar
+    c.students.forEach(function(s){
+      s.walkObs = s.walkObs || [null, null];
+      var seqs = s.obsDash && s.obsDash.row.seqs;
+      s.plans.forEach(function(p, k){
+        if(!p || !seqs || !seqs[k] || seqs[k].other) return;
+        var p1 = seqs[k].index, prev = s.walkObs[k], ss = s.seedStart && s.seedStart[k];
+        var p0 = prev && prev.setAt === p.setAt ? prev.index : ss && ss.setAt === p.setAt ? ss.index : p.at;
+        s.walkObs[k] = { setAt: p.setAt, index: p1 };
+        if(p.hold) return;
+        for(var i = p0; i < Math.min(p1, p.steps.length); i++){
+          var sid = sayIdOf(p.steps[i]); if(!sid) continue;
+          var have = solidCount(s.stats, sid), need = needOf(p.bar, total(sid));
+          if(have >= need) c.ok("S9", s.letter + " moved past step " + (i + 1) + " of sequence " + (k + 1) + " with Say it at the bar");
+          else c.fail("S9", s.letter + " moved past step " + (i + 1) + " of sequence " + (k + 1), "Say it at the bar (" + need + " of " + total(sid) + ")", "Say it at " + have + " of " + total(sid));
+        }
+      });
+    });
     // S3: what this step did not touch did not move
     c.students.forEach(function(s){
       var prev = s.prevDash, cur = s.obsDash;
@@ -1071,11 +1231,19 @@
      ════════════════════════════════════════════════════════════════════ */
   function sourceSteps(c, src){
     if(src.key.indexOf("rm:") === 0) return { steps: readyMade(src.key.slice(3)), bar: null };
-    return { steps: cloneSteps(src.steps), bar: src.saved ? src.bar : null };
+    return { steps: saySteps(src.steps), bar: src.saved ? src.bar : null };
   }
+  // S9: in a sequence's choosers, Say it is ticked and locked, with the one line that says why.
+  var SAY_WHY = "Say it is always part of a sequence. It is the one mode that hears the student read.";
+  function sayLocked(c, s, ed, sel, where){
+    var cb = ed && ed.querySelector(sel), why = ed && ed.querySelector(".seqSayWhy");
+    c.check("S9", where + " for " + s.letter + ": Say it", "ticked, locked, and why: " + SAY_WHY,
+      (cb ? (cb.checked ? "ticked" : "unticked") + ", " + (cb.disabled ? "locked" : "can be unticked") : "no Say it box") + ", and why: " + (why ? why.textContent : "(no line)"));
+  }
+
   /* One edit in editor k, on the dashboard and in the key together. Returns a short description, or null when the
      dashboard did not offer the control the key says it should (a failure, already recorded). */
-  function edit(c, s, k, e){
+  async function edit(c, s, k, e){
     var d = keyDraft(s, k), idx = draftNow(s, k, d), n = d.steps.length;
     var ed = editorEl(c, k);
     if(!ed && e.op !== "inorder" && !(k === 1 && e.op === "second-add")){ c.fail("S1", "editor " + (k + 1) + " of " + s.letter, "the editor is on the page", "it is not"); return null; }
@@ -1132,6 +1300,28 @@
         d.steps.splice(ri, 1);
         return "Take out step " + (ri + 1);
       }
+      case "ways": {
+        var wi = e.i;
+        if(!(wi > idx && wi < n)) return null;
+        if(!need(btn('[data-seq="ways"][data-i="' + wi + '"]'), "Change ways on step " + (wi + 1))) return null;
+        click(btn('[data-seq="ways"][data-i="' + wi + '"]'));
+        ed = editorEl(c, k);
+        var sayW = sayIdOf(d.steps[wi]);
+        if(sayW) sayLocked(c, s, ed, '[data-ways="' + sayW + '"]', "Change ways on step " + (wi + 1));
+        var others = Array.prototype.map.call(ed.querySelectorAll("[data-ways]"), function(cb){ return cb.getAttribute("data-ways"); })
+          .filter(function(id){ return id !== sayW && !W.byId(id).retired; });
+        var chosen = c.rng.shuffle(others).slice(0, c.rng.int(0, others.length));
+        Array.prototype.forEach.call(ed.querySelectorAll("[data-ways]"), function(cb){
+          var id = cb.getAttribute("data-ways"), want = chosen.indexOf(id) !== -1;
+          if(cb.checked !== want) click(cb);       // for Say it, the harness tries to untick it
+        });
+        await shot("ways");
+        var wd = ed.querySelector('[data-seq="ways-done"][data-i="' + wi + '"]');
+        if(!need(wd, "Done (Change ways)")) return null;
+        click(wd);
+        d.steps[wi] = { ids: keySay(libSort(chosen.concat(sayW ? [sayW] : []))) };
+        return "Change ways on step " + (wi + 1) + " to " + d.steps[wi].ids.join("+");
+      }
       case "add": {
         var used = stepKeysOf(d.steps).concat(otherKeysOf(s, k));
         var L = e.list;
@@ -1145,14 +1335,18 @@
         if(!has){ c.fail("S1", "Add a list in editor " + (k + 1) + " of " + s.letter, L.key + " offered", "not offered"); click(ed.querySelector('[data-seq="add-cancel"]')); return null; }
         change(c, selEl, L.key);
         ed = editorEl(c, k);
+        var sayA = sayIdOf({ ids: L.ids });
+        if(sayA) sayLocked(c, s, ed, '[data-addway="' + sayA + '"]', "Add a list (" + L.key + ")");
         Array.prototype.forEach.call(ed.querySelectorAll("[data-addway]"), function(cb){
           var want = e.ids.indexOf(cb.getAttribute("data-addway")) !== -1;
-          if(cb.checked !== want) click(cb);
+          if(cb.checked !== want) click(cb);       // for Say it, the harness tries to untick it
         });
+        if(sayA){ var sb = ed.querySelector('[data-addway="' + sayA + '"]');
+          c.check("S9", "Add a list: Say it after trying to untick it", "ticked", sb && sb.checked ? "ticked" : "unticked"); }
         var go = ed.querySelector('[data-seq="add-go"]');
         if(!need(go, "Add to the end")) return null;
         click(go);
-        d.steps.push({ ids: libSort(e.ids) });
+        d.steps.push({ ids: keySay(libSort(e.ids)) });
         return "Add " + e.ids.join(" + ");
       }
       case "use": case "copy": {
@@ -1183,7 +1377,7 @@
         click(io);
         var groups = {}, order = [];
         libSort((s.plain || []).filter(exists)).forEach(function(id){ var kk = listKey(id); if(!groups[kk]){ groups[kk] = []; order.push(kk); } groups[kk].push(id); });
-        s.drafts[0] = { steps: order.map(function(kk){ return { ids: groups[kk] }; }), bar: 0.9, at: 0, hold: false, hasPlan: false, base: null };
+        s.drafts[0] = { steps: order.map(function(kk){ return { ids: keySay(groups[kk]) }; }), bar: 0.9, at: 0, hold: false, hasPlan: false, base: null };
         return "Put these in order";
       }
     }
@@ -1213,7 +1407,7 @@
     var before = storedPlans(s), said = [];
     s.drafts = [null, null];
     for(var e of edits){
-      var r = edit(c, s, e.k, e);
+      var r = await edit(c, s, e.k, e);
       if(r) said.push((e.k ? "[2nd] " : "") + r);
       await sleep(5);
     }
@@ -1302,7 +1496,7 @@
     if(!sel || !Array.prototype.some.call(sel.options, function(o){ return o.value === src.key; })){ c.fail("S1", "Give: the source " + src.label, "offered", "not offered"); return; }
     change(c, sel, src.key);
     if(mode === "add") click(tq(c, 'input[name="giveMode"][value="add"]'));
-    var ss = src.key.indexOf("rm:") === 0 ? readyMade(src.key.slice(3)) : cloneSteps(src.steps);
+    var ss = src.key.indexOf("rm:") === 0 ? readyMade(src.key.slice(3)) : saySteps(src.steps);
     var bar = src.bar;
     for(var x = 0; x < Math.abs(barSteps); x++){
       var bb = tq(c, barSteps > 0 ? "#giveMore" : "#giveLess");
@@ -1380,7 +1574,8 @@
     "re-plan":          { n: [1, 2], solid: 2 },
     "bulk":             { n: [2, 3], solid: 2, plain: 0.4 },
     "roster-first":     { n: [1, 2], solid: 0, pending: true },
-    "stop":             { n: [1, 2], solid: 1 }
+    "stop":             { n: [1, 2], solid: 1 },
+    "legacy":           { n: [1, 3], solid: 0, legacy: true, pending: true }
   };
   function pickSaved(c, avoidAll){ return c.rng.pick(c.saved); }
   function sourcesFor(c, s){
@@ -1422,6 +1617,7 @@
       var i = r.int(Math.min(idx + 1, n - 1), n - 1);
       edits.push({ k: k, op: r.pick(["up", "down", "remove"]), i: i });
     }
+    else if(f === "ways" && idx < n - 1) edits.push({ k: k, op: "ways", i: r.int(Math.min(idx + 1, n - 1), n - 1) });
     else if(f === "add"){
       var usedK = stepKeysOf(p.steps).concat(s.plans[1 - k] ? stepKeysOf(s.plans[1 - k].steps) : []);
       var free = LISTS.filter(function(L){ return usedK.indexOf(L.key) === -1; });
@@ -1473,6 +1669,10 @@
     while(c.script.length){ var sa = c.script.shift()(); if(sa) return sa; }
     var r = c.rng, fam = c.fam, ss = c.students, s = r.pick(ss.filter(function(x){ return !x.pending; }).concat(ss.filter(function(x){ return x.pending; })));
     var live = ss.filter(function(x){ return !x.pending; });
+    if(fam === "legacy"){
+      var pendL = ss.filter(function(x){ return x.pending; });
+      if(pendL.length && r.chance(0.3)) return { kind: "signin", s: r.pick(pendL) };
+    }
     if(fam === "roster-first"){
       var pend = ss.filter(function(x){ return x.pending; });
       if(pend.length && r.chance(0.35)) return { kind: "signin", s: r.pick(pend) };
@@ -1487,7 +1687,7 @@
     if(!s.plansList().length && fam !== "bulk") return { kind: "start", s: s, two: fam === "two-sequences" || fam === "stop" };
     switch(fam){
       case "one-sequence":
-        return r.chance(0.8) ? practiceAction(c, s) : teacherEditAction(c, s, ["bar", "add", "later"]);
+        return r.chance(0.8) ? practiceAction(c, s) : teacherEditAction(c, s, ["bar", "add", "later", "ways"]);
       case "two-sequences":
         if(s.plansList().length < 2 && r.chance(0.5)) return { kind: "start", s: s, two: true };
         return r.chance(0.75) ? practiceAction(c, s) : teacherEditAction(c, s, ["bar", "moveon", "add", "use"]);
@@ -1496,7 +1696,7 @@
       case "re-plan":
         if(r.chance(0.45)) return practiceAction(c, s);
         if(r.chance(0.3)) return { kind: "give", list: [s], mode: "replace" };
-        return teacherEditAction(c, s, ["use", "use", "copy", "later", "add"]);
+        return teacherEditAction(c, s, ["use", "use", "copy", "later", "add", "ways"]);
       case "bulk":
         if(r.chance(0.45)){
           var list = r.shuffle(ss).slice(0, r.int(1, ss.length));
@@ -1507,6 +1707,10 @@
       case "roster-first":
         if(!s.plansList().length) return { kind: "start", s: s };
         return r.chance(0.6) ? practiceAction(c, s) : teacherEditAction(c, s, ["moveon", "goback", "bar"]);
+      case "legacy":
+        if(!s.plansList().length) return { kind: "start", s: s, two: r.chance(0.3) };
+        if(r.chance(0.55)) return practiceAction(c, s);
+        return teacherEditAction(c, s, ["ways", "add", "moveon", "bar", "use", "goback"]);
       case "stop":
         if(s.plansList().length && r.chance(0.3)){
           var kk = r.pick(s.plans.map(function(p, k){ return p ? k : -1; }).filter(function(k){ return k >= 0; }));
@@ -1583,8 +1787,8 @@
     var sp = SPEC[c.fam];
     var n = c.rng.int(sp.n[0], sp.n[1]);
     var pending = [];
-    for(var k = 0; k < n; k++) pending.push(!!sp.pending && (k === 0 || c.rng.chance(0.5)));
-    await setup(c, { n: n, solid: sp.solid, plain: sp.plain, pending: pending });
+    for(var k = 0; k < n; k++) pending.push(!!sp.pending && (sp.legacy ? k > 0 && c.rng.chance(0.3) : k === 0 || c.rng.chance(0.5)));
+    await setup(c, { n: n, solid: sp.solid, plain: sp.plain, pending: pending, legacy: !!sp.legacy });
     c.students.forEach(function(s){ c.log("student " + s.letter + ": " + s.uid + " " + s.email + (s.pending ? " (on the roster, never signed in)" : "") +
       (s.plain ? " games " + s.plain.join(",") : "") + (Object.keys(s.stats).length ? " · already solid: " + uniq(Object.keys(s.stats).map(function(x){ return x.split("|")[0]; })).join(",") : "")); });
     c.saved.forEach(function(x){ c.log("saved " + x.label + ": " + x.steps.map(function(st){ return st.ids.join("+"); }).join(" → ") + " at " + Math.round(x.bar * 100) + "%"); });
@@ -1616,6 +1820,9 @@
           var pre = preDash[a.s.k] && preDash[a.s.k].row.seqs ? preDash[a.s.k].row.seqs[k] : null;
           var nowQ2 = a.s.obsDash && a.s.obsDash.row.seqs ? a.s.obsDash.row.seqs[k] : null;
           if(!pre || !nowQ2 || pre.other || nowQ2.other) return;
+          // A percent that went up, by − / + or with a saved order's own percent, is "raising the percent".
+          var pd = preDash[a.s.k].det.seqs && preDash[a.s.k].det.seqs[k], nd = a.s.obsDash.det.seqs && a.s.obsDash.det.seqs[k];
+          if(pd && nd && nd.pct > pd.pct) return;
           if(nowQ2.index >= pre.index) c.ok("S4", "edit (" + es.map(function(e){ return e.op; }).join(", ") + ") left " + a.s.letter + " at or past where they were");
           else c.fail("S4", "the teacher's edit (" + es.map(function(e){ return e.op + (e.dir ? (e.dir > 0 ? "+" : "−") : ""); }).join(", ") + ") of sequence " + (k + 1) + " of " + a.s.letter,
             "at or past " + seqText(pre), seqText(nowQ2));

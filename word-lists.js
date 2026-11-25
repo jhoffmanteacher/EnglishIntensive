@@ -693,6 +693,60 @@ window.WordLists = (function(){
     return null;
   }
 
+  function idFor(familyKey, listNum, modeKey){
+    for(var i=0;i<all.length;i++){
+      var l = all[i];
+      if(l.family === familyKey && l.listNum === listNum && l.mode === modeKey) return l.id;
+    }
+    return null;
+  }
+
+  /* SAY IT IS IN EVERY STEP OF EVERY SEQUENCE (decided by the teacher,
+     2026-11-25: "say it must be in every step sequence"). Cards is a
+     self-rating — the student presses Got it, and a Got it counts as right —
+     and a step finishes when every way of playing it reaches the bar, so a
+     Cards-only step let a student move on without anything having heard them
+     read. One step's ids in, the same ids out with that list's Say it id
+     present and first. A list that offers no Say it is left as it is, so a
+     future list without one does not break; so is a step of ids the library
+     does not know. Pure. The dashboard runs every step it makes through this,
+     and both sides read every stored step through planWithSay, below. */
+  function withSay(ids){
+    var out = Array.isArray(ids) ? ids.slice() : [];
+    var l = null;
+    for(var i=0;i<out.length && !l;i++) l = index[out[i]] || null;
+    if(!l) return out;
+    var say = idFor(l.family, l.listNum, "say");
+    if(!say || index[say].retired) return out;
+    return [say].concat(out.filter(function(id){ return id !== say; }));
+  }
+  /* A stored plan ({ steps: [{ ids }], … }) with withSay on every step, and
+     every other field exactly as it was — setAt, at, hold and bar included, so
+     nobody's place or high-water mark moves. Anything that is not a plan comes
+     back unchanged (sanitizePlan judges it later). Pure; a copy. */
+  function planWithSay(plan){
+    if(!plan || typeof plan !== "object" || !Array.isArray(plan.steps)) return plan;
+    var out = {};
+    for(var k in plan) if(Object.prototype.hasOwnProperty.call(plan, k)) out[k] = plan[k];
+    out.steps = plan.steps.map(function(st){
+      if(!st || typeof st !== "object" || !Array.isArray(st.ids)) return st;
+      var c = {};
+      for(var j in st) if(Object.prototype.hasOwnProperty.call(st, j)) c[j] = st[j];
+      c.ids = withSay(st.ids);
+      return c;
+    });
+    return out;
+  }
+  // A document (assignment or roster row) with planWithSay on `plan` and `plan2`. Pure; a shallow copy.
+  function docWithSay(doc){
+    if(!doc || typeof doc !== "object") return doc;
+    var out = {};
+    for(var k in doc) if(Object.prototype.hasOwnProperty.call(doc, k)) out[k] = doc[k];
+    if(doc.plan) out.plan = planWithSay(doc.plan);
+    if(doc.plan2) out.plan2 = planWithSay(doc.plan2);
+    return out;
+  }
+
   function idsOfList(familyKey, listNum){
     return all.filter(function(l){ return l.family === familyKey && l.listNum === listNum && !l.retired; })
               .map(function(l){ return l.id; });
@@ -787,13 +841,10 @@ window.WordLists = (function(){
       all.forEach(function(l){ if(l.family === familyKey) seen[l.listNum] = true; });
       return Object.keys(seen).map(Number).sort(function(a,b){ return a-b; });
     },
-    idFor: function(familyKey, listNum, modeKey){
-      for(var i=0;i<all.length;i++){
-        var l = all[i];
-        if(l.family === familyKey && l.listNum === listNum && l.mode === modeKey) return l.id;
-      }
-      return null;
-    },
+    idFor: idFor,
+    withSay: withSay,
+    planWithSay: planWithSay,
+    docWithSay: docWithSay,
     // Every OFFERED id in one family — what a column toggle on the board
     // sets. Retired ids are left out, so no bulk action can add one.
     idsOfFamily: function(familyKey){

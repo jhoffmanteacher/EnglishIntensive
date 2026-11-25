@@ -182,10 +182,16 @@ window.EIStore = (function(){
      always come from the same document. `lists` (no plan) is [] here and is
      handled by effectiveLists, so a student with no plan is exactly what
      they were before. Pure. */
+  /* SAY IT IN EVERY STEP (2026-11-25): every step is read with its list's
+     Say it id present and first (WordLists.docWithSay), so a step from a
+     document the dashboard has not healed yet cannot finish on Cards — a
+     self-rating — alone, and the home page shows its Say it tile. Done here,
+     where the plan is read, because adaptive.js keeps no word library. The
+     dashboard reads the same way (teacher.js plansFor). */
   function planOf(d){ return d ? Adaptive.sanitizePlan(d.plan) : null; }
   function effectivePlans(assignment, roster){
-    if(assignment && (planOf(assignment) || Array.isArray(assignment.lists))) return Adaptive.sanitizePlans(assignment);
-    return Adaptive.sanitizePlans(roster);
+    if(assignment && (planOf(assignment) || Array.isArray(assignment.lists))) return Adaptive.sanitizePlans(WordLists.docWithSay(assignment));
+    return Adaptive.sanitizePlans(WordLists.docWithSay(roster));
   }
   // The first sequence, or null — what there was before there could be two.
   function effectivePlan(assignment, roster){
