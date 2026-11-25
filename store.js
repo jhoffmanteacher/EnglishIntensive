@@ -30,7 +30,7 @@
       would overwrite a term of practice with nothing. So `loadFailed`
       latches and every write is held back until a reload succeeds.
    2. Writes are debounced, and the debounce has to be flushed before
-      sign-out. A round of practice that ends with the student clicking
+      sign-out (and when the page is hidden or closed — flushOnHide). A round of practice that ends with the student clicking
       "Sign out" is exactly the round most likely to be lost.
 
    ── Whose class ───────────────────────────────────────────────────────
@@ -484,6 +484,26 @@ window.EIStore = (function(){
     return me;
   }
 
+  /* The debounce means the last ~1.2 s of answers are only in memory.
+     Closing the tab or the Chromebook lid would drop them, so commit them
+     the moment the page is hidden or going away. `pagehide` covers a
+     close or navigation; `visibilitychange` to "hidden" covers a lid,
+     a tab switch, and phones that never fire pagehide. Just flush():
+     its own guards (failed read, preview, dev user, nothing to send)
+     decide whether anything is written. Returns flush()'s promise when it
+     flushed, so a test can tell, and undefined when it didn't. */
+  function flushOnHide(type, visibility){
+    if(type === "pagehide" || (type === "visibilitychange" && visibility === "hidden")) return flush();
+  }
+  if(typeof window !== "undefined" && window.addEventListener){
+    window.addEventListener("pagehide", function(){ flushOnHide("pagehide"); });
+  }
+  if(typeof document !== "undefined" && document.addEventListener){
+    document.addEventListener("visibilitychange", function(){
+      flushOnHide("visibilitychange", document.visibilityState);
+    });
+  }
+
   /* ── the two things a game calls ──────────────────────────────────── */
 
   /* One answer. `correct` means right on the FIRST try — the engines pass
@@ -660,6 +680,7 @@ window.EIStore = (function(){
       // Firestore. Reads the module's live state, so a test drives it
       // through the same recordHeard() a game calls.
       payload: payload,
+      flushOnHide: flushOnHide,
       _feed: function(st){
         uid = st.uid || "test"; user = { _dev:true };
         stats = st.stats || {}; heard = st.heard || {}; fluency = st.fluency || {};

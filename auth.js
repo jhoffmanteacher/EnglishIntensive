@@ -311,19 +311,47 @@ window.EIAuth = (function(){
     }
   }
 
+  /* Waits for `p` to settle, but never longer than `ms`. Resolves true if
+     `p` settled (either way) in time, false if the timer won. Never
+     rejects. A plain setTimeout on purpose: the Node test harness swaps
+     it for a virtual clock. */
+  function settleWithin(p, ms){
+    return new Promise(function(resolve){
+      var t = setTimeout(function(){ resolve(false); }, ms);
+      var won = function(){ clearTimeout(t); resolve(true); };
+      Promise.resolve(p).then(won, won);
+    });
+  }
+  /* How long sign-out waits for the last save. Long enough for a write on
+     a slow school network; short enough that a student doesn't give up
+     and walk away still signed in. */
+  var SIGNOUT_FLUSH_MS = 4000;
+  var signingOut = false;
+
   /* Sign-out on a shared Chromebook has to be a hard reset, not a state
      reset: per-student state lives in module closures, sessionStorage and
      rendered DOM as well as in the variables here, and an ever-growing
      manual reset list drifts out of sync. Reloading clears the lot. */
   function signOut(){
+    // One sign-out at a time. A second click would start a second wait
+    // and a second auth.signOut() racing the first reload.
+    if(signingOut) return;
+    signingOut = true;
+    // Show the click landed. The wait below can take a few seconds, and a
+    // button that looks dead gets clicked again or abandoned.
+    var btn = document.getElementById("ei-chip-out");
+    if(btn){ btn.disabled = true; btn.textContent = "Signing out…"; }
     var done = function(){ location.reload(); };
     try{
       // Flush anything the store still has queued while we're still
       // authenticated as this student — a save dropped here is a round of
       // practice the next sign-in won't know happened.
       var flush = (window.EIStore && window.EIStore.flush) ? window.EIStore.flush() : Promise.resolve();
-      Promise.resolve(flush)
-        .catch(function(){})
+      /* But never wait on it for ever. Firestore's set() promise doesn't
+         settle while the device is offline or the network stalls, and a
+         sign-out that hangs leaves the NEXT student on this Chromebook in
+         the previous student's account — worse than losing one save. */
+      settleWithin(flush, SIGNOUT_FLUSH_MS)
         .then(function(){ try{ sessionStorage.clear(); }catch(e){} })
         .then(function(){ return auth ? auth.signOut().catch(function(){}) : null; })
         .then(done, done);
@@ -421,6 +449,6 @@ window.EIAuth = (function(){
     signOut: signOut,
     unlock: unlock,
     fail: function(title, body){ showSetupError(title, body); },
-    _internals: { wrongDomain: wrongDomain, firstName: firstName }
+    _internals: { wrongDomain: wrongDomain, firstName: firstName, settleWithin: settleWithin }
   };
 })();

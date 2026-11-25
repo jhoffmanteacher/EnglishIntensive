@@ -1433,7 +1433,13 @@ rules in that file matter before touching it:
   every write until a reload succeeds.
 - **Writes are debounced and must be flushed before sign-out.** The round
   that ends with a student clicking "Sign out" is exactly the round most
-  likely to be lost.
+  likely to be lost. Sign-out waits for that flush, but for four seconds at
+  most (the button reads "Signing out…" meanwhile): Firestore's write never
+  settles on a stalled network, and a sign-out that hangs leaves the next
+  student on the Chromebook in the last one's account, which is worse than
+  losing one save. The store also flushes when the page is hidden or closed
+  (`pagehide`, or `visibilitychange` to hidden), so the answers from the
+  last second before a closed tab or lid aren't lost to the debounce.
 
 There's also a per-device mirror in `localStorage`, scoped by uid so a
 shared Chromebook can't leak one student's deck into the next student's

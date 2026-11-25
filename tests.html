@@ -6309,6 +6309,42 @@
     window.__pendingTests.push(chain);
   })();
 
+  /* ---- sign-out never hangs, and hiding the page commits the last answers ----
+     settleWithin is what stops a stalled Firestore write from keeping the
+     next student on a shared Chromebook in the last one's account. Short
+     real timers here; the 4-second one in signOut is the same code. */
+  (function(){
+    var SW = window.EIAuth._internals.settleWithin;
+    window.__pendingTests = window.__pendingTests || [];
+    var t0 = Date.now();
+    var settled = SW(Promise.resolve("x"), 5000).then(function(won){
+      eq("settleWithin: a promise that settles first wins", won, true);
+      eq("…without waiting out the timer", Date.now() - t0 < 1000, true);
+    });
+    var failed = SW(Promise.reject(new Error("denied")), 5000).then(function(won){
+      eq("settleWithin: a rejection counts as settled, and is not passed on", won, true);
+    }, function(){ eq("settleWithin never rejects", false, true); });
+    var t1 = Date.now();
+    var stalled = SW(new Promise(function(){}), 50).then(function(won){
+      eq("settleWithin: a promise that never settles loses to the timer", won, false);
+      eq("…once the timer has run", Date.now() - t1 >= 40, true);
+    });
+    window.__pendingTests.push(Promise.all([settled, failed, stalled]).then(null, function(e){
+      results.push({ pass:false, desc: "settleWithin — threw", detail: String(e && e.message || e) });
+    }));
+
+    var ST = window.EIStore._internals;
+    try{
+      ST._feed({});       // a dev user: flush() is a no-op, so nothing is written
+      var hid = ST.flushOnHide("pagehide");
+      eq("pagehide flushes", !!(hid && typeof hid.then === "function"), true);
+      hid = ST.flushOnHide("visibilitychange", "hidden");
+      eq("hiding the page flushes", !!(hid && typeof hid.then === "function"), true);
+      eq("showing it again does not", ST.flushOnHide("visibilitychange", "visible"), undefined);
+    }catch(e){ results.push({ pass:false, desc: "flushOnHide — threw", detail: String(e && e.message || e) }); }
+    finally{ ST._feed({}); }
+  })();
+
   // ---- render ----
   function renderResults(){
   var rows = document.getElementById("rows");
