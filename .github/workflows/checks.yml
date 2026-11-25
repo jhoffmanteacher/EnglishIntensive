@@ -51,3 +51,7 @@ jobs:
 
       - name: save-loop.mjs (the closed loop)
         run: node tools/save-loop.mjs
+
+      # Serves the site itself on a free port; needs no server step.
+      - name: sequence-loop.mjs (the second closed loop)
+        run: CHROME=google-chrome node tools/sequence-loop.mjs

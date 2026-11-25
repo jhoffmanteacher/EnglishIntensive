@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Build-time check, not part of the site: the harness page of
+     tools/sequence-loop.mjs, which serves it and runs it in headless Chrome.
+     It holds the one fake Firestore and Auth, opens the real teacher.html and
+     index.html in iframes beside it, and drives both. See the header of
+     tools/sequence-loop.js. Opened by hand it does nothing useful: the runner
+     passes the cases in the address and collects the results. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self'; base-uri 'self'; object-src 'none';
+  img-src 'self' data: https:; media-src 'self' blob:; font-src 'self' data:;
+  style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self';">
+<title>sequence loop</title>
+<style>
+  body{margin:0;font:13px/1.4 monospace;background:#fff;color:#000}
+  #frames iframe{width:1366px;height:900px;border:0;display:block}
+  #out{white-space:pre-wrap;padding:8px}
+</style>
+</head>
+<body>
+<pre id="out"></pre>
+<div id="frames"></div>
+<script src="/word-lists.js"></script>
+<script src="/tools/sequence-loop.js"></script>
+</body>
+</html>

@@ -55,8 +55,16 @@ browser, about a second). Its last line must say `failures: none`, and it
 must exit 0. Run it after any change to `store.js`, to sign-in or sign-out
 in `auth.js`, to anything that writes `students/{uid}`, or to anything that
 keeps a student's data in `localStorage` or `sessionStorage`. A failing line
-ends with the command that replays that one case. GitHub runs all four on
-every push (`.github/workflows/checks.yml`).
+ends with the command that replays that one case.
+
+Then the second closed loop, `node tools/sequence-loop.mjs` (Node 22 and a
+Chrome — set `CHROME` as above; it serves the site itself, no server needed,
+about 90 s). Run it after any change to the sequence editor, Save, Stop or
+Give a sequence in `teacher.js`, to `resolve`, `settle` or `plan()` in
+`store.js`, to the plan functions in `adaptive.js`, or to the home page in
+`practice.js`. Its last line must say `failures: none`, and it must exit 0;
+`~ known` lines are site faults already reported, not failures. GitHub runs
+all five on every push (`.github/workflows/checks.yml`).
 
 A Stop hook (`.claude/settings.json`, `.claude/hooks/stop-checks.mjs`) runs the
 fast, Node-only checks at the end of every Claude Code turn that changed a

@@ -899,6 +899,83 @@ If a student's correct answers keep getting marked wrong, check the meter on
 the mic-check screen first: a quiet input is an OS-level microphone setting
 (ChromeOS → Settings → Device → Audio → Input), not something the page can fix.
 
+### The second closed loop: sequences
+
+`node tools/sequence-loop.mjs` answers what the save loop can't reach,
+because it never opens the dashboard: when a teacher gives, changes and
+removes sequences and students practise, do the dashboard and the student's
+own home page **agree** about which list the student is on, which lists they
+can play and which are finished — with one sequence and with two — and is
+that what *Sequences*, *A student's page*, *The class page* and *Saved
+sequences* say? Node 22 and a Chrome (`CHROME=…`, as for the other scripts),
+no dependencies, no server of your own: it serves the site itself on a free
+port and runs headless Chrome under a virtual clock, so store.js's debounce
+costs nothing. About 90 s for the default 56 cases on two cores.
+
+**What is real:** the pages. `teacher.html` and `index.html` are served as
+they are on disk except that their two gstatic Firebase tags become one
+`tools/sequence-loop-fake.js`; each keeps its own CSP, and each runs in a
+same-origin iframe of the harness page `tools/sequence-loop.html` — the
+dashboard with `teacher.js`, each student's home page with `store.js` and
+`practice.js`, and Student view at the address its button opens. The teacher
+acts only through the dashboard's own controls (Use a saved sequence, Copy
+from another student, Add a list, ▲ ▼, Take out, the percent, Move on now, Go
+back to this list, Add a second sequence, Put these in order, Save, Stop
+using a sequence, and Give a sequence to N selected with Replace or Add as a
+second), and every write goes through `teacher.js`'s own batch. A student
+practises through their own page's `EIStore.record`, and a student set up on
+the roster before signing in meets the real sign-in wall and its button.
+**What is fake:** one Firestore (merge writes, `FieldValue.delete()`,
+`where`, batches, minimal rules) and one Auth, shared by every frame; `confirm`
+always says yes; `window.open` is caught so Student view opens in a frame.
+The fake checks itself before every batch (T1–T10), and
+`--fake-fault=merge|delete|where` breaks it on purpose to show the run goes red.
+
+The **answer key** is the README written again — it never calls
+`adaptive.js`: a ledger of every answer (a word is solid in the top box with
+90 % right), whole-word bars, the walk, the high-water mark, and each
+dashboard control as this README words it. After every step, for every
+student:
+
+- **S1 agree** — the Students row (Now on, Place) and the student's page
+  (the editor's rows, Now, the held line, the percent) state the same place
+  in each sequence as the key; the freshly loaded home page shows the key's
+  current tiles, *Lists you finished (N)* and notice; the dashboard's Now and
+  Finished rows name the home page's tiles; and what was stored is the plan
+  the key expects.
+- **S2 only theirs** — the home page never shows a later list, one never
+  given, or one taken out (unless the other sequence holds it).
+- **S3 independent** — a step on one sequence leaves the other's stored plan
+  byte for byte and its place unchanged.
+- **S4 no backwards** — replaying a finished list with misses never moves a
+  student back, nor does any edit but Go back or a raised percent; Go back
+  holds them through practice until Move on now; a stored mark never goes
+  down for the same plan.
+- **S5 new plan, fresh start** — a sequence saved afresh has a setAt new for
+  that slot, and the student lands where the walk from its `at` puts them;
+  Give starts each on the first list they haven't finished.
+- **S6 one list, one sequence** — no list is in both stored sequences; Stop
+  on the first of two keeps the student's place in the second.
+- **S7 before sign-in** — a roster-only student's first home page is what
+  the dashboard's page for their roster row said.
+- **S8 the preview** — Student view shows what the student's own page shows,
+  and writes nothing.
+
+Seven families (`--list`) play seeded schedules: one-sequence, two-sequences,
+teacher-steps-in, re-plan, bulk, roster-first, stop. Every failing line names
+the seed, case, step, expected and got, and ends with its replay command:
+`node tools/sequence-loop.mjs --seed=1 --case=16 --verbose` prints that case's
+whole timeline. `--root=DIR` serves another copy of the site (a fix, or a
+planted fault). The same seed gives the same output byte for byte. A real site
+fault the loop has found is listed as **KNOWN** in `tools/sequence-loop.js`
+and prints `~ known` instead of failing: K1, a student who finished every
+list of a sequence is put back on its last list (once that list has slipped
+below the bar from replaying it) by any save that writes the sequence afresh —
+a lowered percent, a list added at the end, a saved sequence used, or Stop on
+the first of two promoting it. The headers of `tools/sequence-loop.mjs` and
+`tools/sequence-loop.js` have the flags, the exact rules of the fake and the
+checks.
+
 ### Which part went wrong
 
 A red ✗ tells a student they were wrong, not *which part*, and for a reader
