@@ -194,7 +194,15 @@ window.EIStore = (function(){
     pos = r;
     var stored = (seq && seq.of === r.plan.setAt && seq.at > r.plan.at) ? seq.at : r.plan.at;
     if(r.state.index > stored && !preview){
-      seq = { at: r.state.index, of: r.plan.setAt, when: Date.now() };
+      /* `when` is when they last MOVED ON by finishing a list, and the
+         dashboard reads it as news ("Moved to a new list on Tuesday"). The
+         first mark under a plan is not that: a teacher who gives a sequence to
+         students already solid on its first lists puts them on a later list
+         at once, which is where they LAND, not something they did that week.
+         So a landing is marked with when 0, and only a later move (a mark for
+         this plan already exists) carries the time. */
+      var landing = !(seq && seq.of === r.plan.setAt);
+      seq = { at: r.state.index, of: r.plan.setAt, when: landing ? 0 : Date.now() };
       dirtySeq = true;
       scheduleSave();
     }

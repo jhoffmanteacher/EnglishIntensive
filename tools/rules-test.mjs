@@ -121,6 +121,25 @@ await no("A can't create a class without A on it", () => tA.doc("classes/new2").
 await no("a student can't create a class", () => s1.doc("classes/new3").set({ name: "Mine", teachers: ["101@seq.org"] }));
 await ok("A renames X", () => tA.doc("classes/X").update({ name: "P3 Intensive" }));
 await no("C can't rename X", () => tC.doc("classes/X").update({ name: "Hijacked" }));
+
+/* Saved sequences live on the class document (classes/{id}.sequences.<key>),
+   so every teacher on the class sees and can use them and no rule changed:
+   the class rule already lets a teacher on the class write it, as long as
+   `teachers` stays a non-empty list. */
+let deleteField = null;
+try{ ({ deleteField } = require("firebase/firestore")); }catch(e){}
+const SEQ = { name: "Red Words, Lists 1 to 10", steps: [{ ids: ["red-1-say", "red-1-cards"] }], bar: 0.9, createdAt: 1795563000000 };
+await ok("a teacher on the class saves a sequence on it", () => tA.doc("classes/X").set({ sequences: { k1: SEQ } }, { merge: true }));
+await ok("a co-teacher on the class saves one too", () => tB.doc("classes/X").set({ sequences: { k2: { ...SEQ, name: "B's" } } }, { merge: true }));
+await ok("…and a co-teacher reads what was saved", () => tB.doc("classes/X").get());
+await ok("a teacher renames one (just its name)", () => tA.doc("classes/X").set({ sequences: { k1: { name: "Renamed" } } }, { merge: true }));
+if(deleteField) await ok("a teacher deletes one (a field delete under `sequences`)", () => tA.doc("classes/X").set({ sequences: { k2: deleteField() } }, { merge: true }));
+else console.log("SKIPPED the field-delete case: firebase/firestore could not be loaded from RULES_TEST_DEPS, so deleting a saved sequence is not covered by this run.");
+await no("a teacher not on the class can't save one", () => tC.doc("classes/X").set({ sequences: { k3: SEQ } }, { merge: true }));
+await no("…or read the class's", () => tC.doc("classes/X").get());
+await no("a student can't save one", () => s1.doc("classes/X").set({ sequences: { k4: SEQ } }, { merge: true }));
+await no("a save can't be used to empty the class's teachers", () => tA.doc("classes/X").set({ sequences: { k5: SEQ }, teachers: [] }, { merge: true }));
+await ok("the admin saves one on any class", () => admin.doc("classes/Y").set({ sequences: { k6: SEQ } }, { merge: true }));
 await no("a class can never have zero teachers", () => tA.doc("classes/Z").update({ teachers: [] }));
 await ok("A deletes a class A teaches", () => tA.doc("classes/new1").delete());
 

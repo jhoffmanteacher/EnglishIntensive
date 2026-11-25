@@ -1499,6 +1499,7 @@ teacher can tell at a glance which side of the site they are on.
   Below 900px it becomes one strip that scrolls sideways under the bar,
   the group headings dropped. The groups:
   - *Students* — **Students**, **Trouble spots**
+  - *Assign* — **Saved sequences**
   - *Set up* — **Classes**, **Manage**
 - **A slim top bar**: the view's title and a one-line subtitle on the
   left; on the right the **class filter**, **Refresh** and **Student
@@ -1533,6 +1534,8 @@ The views:
   by *how many students* are struggling with each rather than by raw
   accuracy, so one student's bad day doesn't top the list. This is the
   "what do I reteach tomorrow" view.
+- **Saved sequences** — the sequences kept for each class: rename, delete.
+  *Saved sequences*, below.
 - **Classes** — roster import (into a class — see above), a card per class
   with its size and teachers (add a co-teacher from the approved list,
   remove one while more than one is left, rename, delete when empty),
@@ -1675,7 +1678,13 @@ read, in preview, or for the dev user) and the next load starts from there. `of`
 is the plan's `setAt`: a mark made under an older save of the plan is ignored
 the moment a teacher saves a new one, so re-saving a sequence recomputes from
 what the student has actually learned. `at` may equal the number of steps (past
-the last one). Without it, replaying List 1 and missing a few words would put a
+the last one). `when` is when they last *moved on*, and the dashboard reads it as
+news (*"Moved to a new list on Tuesday"*, the *Moved to a new list this week*
+card). The **first** mark under a plan is a *landing*, not a move — a teacher who
+gives a sequence to students already solid on its first lists puts them on a
+later list at once, and that is where they land, not something they did that
+week — so it is written with `when: 0` and only a later move, once there is a
+mark for this plan, carries the time. Without it, replaying List 1 and missing a few words would put a
 student back on List 1.
 
 **What a student could do.** `students/{uid}` is write-your-own-document, not a
@@ -1725,7 +1734,9 @@ earlier or later (buttons, not drag), have their ways of playing changed, or be
 taken out. Under the rows: **Add a list** (one list not already there, at least
 one way ticked; the ticks start as a copy of the step above when it is the same
 family, and the chooser opens on the next list of that family),
-**Start from a ready-made sequence** and **Copy from another student**. Above
+**Use a saved sequence** (the ready-made ones, then each class's saved ones —
+*Saved sequences*, below) and **Copy from another student**, and **Save this
+sequence** to keep what is on the screen for the whole class. Above
 the rows: *"A list is finished when [−] 90% [+] of its words are solid."* in
 steps of 5 from 50 to 100; changing it redraws the counts at once.
 
@@ -1735,7 +1746,8 @@ stored, so nothing goes stale when a list is added or retired: *Red Words, Lists
 Multisyllable), each with Say it and Cards. Using one — or copying another
 student's — replaces only the lists still to come, after a confirm that names
 them; the finished lists and the one they are on stay, and no list is ever in a
-sequence twice.
+sequence twice. A *saved* sequence also brings its own percent, and the confirm
+says so.
 
 **Move on now** sets `at` to the next step and takes `hold` off. **Go back to
 this list** sets `at` to that step and puts `hold` on, and the row reads
@@ -1817,10 +1829,12 @@ yet"* callout has a **Select them** button that ticks exactly those rows.
 
 **Giving a sequence to several students.** Tick rows (the heading tick takes
 everyone shown), press **Give a sequence to N selected…**, choose a ready-made
-sequence or another student's, and the percent (a copied sequence brings its own
+sequence, a saved one, or another student's, and the percent (a copied sequence brings its own
 percent as the starting point). The dialog says how many of those students
 already have games or a sequence, which this replaces, and asks again in a
-confirm. It is written as **one batch** (`commitBodies`): every student, or none —
+confirm. It is written as **one batch** (`commitBodies`), so at most 400 students
+at a time (past that a batch would no longer be all-or-nothing; the dialog says
+so and Give it stays off): every student, or none —
 a failure puts every local copy back as it was and the dialog stays open with the
 ticks kept. Each student's body is `giveBody`: a `plan` with `at: 0` and no hold,
 saved now, plus `lists` equal to the ids of the list they will land on, because
@@ -1828,6 +1842,46 @@ the plan is worked out from their own stats: a student already solid on the
 first two lands on the third, one who has never practiced on the first. A
 student who has not signed in is written to their roster row. Nothing on
 `firestore.rules` changed.
+
+### Saved sequences
+
+A teacher can keep a sequence for a class and use it again. On a student's page,
+**Save this sequence** asks for a name (inline, not a pop-up) and stores what is
+on the screen — every step, and the percent — on the **class document**:
+
+    classes/{classId}.sequences.<key> = { name, steps: [{ ids: [...] }], bar, createdAt }
+
+Why on the class: every teacher on a class can already read and write its
+document, so co-teachers see and can use what is saved and **`firestore.rules`
+did not change** (a write is a merge onto the class that leaves `teachers` a
+non-empty list, which the class rule already requires; `tools/rules-test.mjs`
+pins it). The key is a plain id (no dots: it is a field path). Everything read
+back is cleaned (`cleanSaved`: a name that is not a string, or steps that are not
+a usable plan, drop that entry), a class holds at most 20 (checked on the page,
+not by the rules: two co-teachers saving between refreshes can pass it), and a
+name is at most 60 characters. The name box takes Enter to save and Escape to
+cancel, and a second press while it saves writes nothing more. Deleting an empty class takes its saved sequences with it, and the
+confirm says so.
+
+The **Saved sequences** view (sidebar, *Assign*) lists each class's, under a
+heading per class: the name, the class, the steps in words (*"10 lists: Red Words
+· List 1, … Red Words · List 10 — Say it · Cards, finished at 90%."*), and
+**Rename** (inline) and **Delete** (after a confirm that says deleting changes no
+student). A rename writes the whole entry again with its new name (so one a co-teacher
+deleted since the page loaded comes back whole, never as a bare name with no
+steps); a delete is a field delete under `sequences` (`FieldValue.delete()`), so
+nothing else on the class is touched. All three are optimistic and undone if the write fails.
+
+They are offered in two places, beside the ready-made ones and grouped by class
+(*"Saved in Period 3"*): the student editor's **Use a saved sequence**, and the
+**Give a sequence to N selected…** dialog — for every class the teacher is on (the
+admin sees every class). **Using one copies it**: the student gets their own
+`plan`; nothing links back, so renaming or deleting the saved one later changes
+nobody.
+
+A student with **no class** cannot be the source of a saved sequence (there is no
+class to keep it with), so the button is present but disabled, with the reason
+beside it in words, rather than failing when pressed.
 
 ### The picker
 

@@ -582,3 +582,16 @@ table.t tbody tr.clickable:focus-visible{outline:2px solid var(--accent);outline
 .giveReplace{margin:0 0 12px;font-size:14px;color:var(--warn);border-left:3px solid var(--warn);padding:4px 0 4px 10px}
 
 .stFoot{border-top:1px solid var(--line2);margin-top:6px}
+
+/* ---------------- saved sequences ---------------- */
+.svClass{font-family:var(--serif);font-weight:500;font-size:16px;margin:18px 0 8px}
+.svCard{background:var(--panel2);border-radius:var(--r-card);padding:12px 16px;margin-bottom:10px}
+.svHead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.svName{font-size:15px}
+.svSteps{margin:6px 0 10px;font-size:14px;line-height:1.5;color:var(--muted)}
+.svRename{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.svRename .txt{min-width:240px}
+#svNote:focus{outline:none}
+.seqSaveSeq{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:6px 0 10px}
+.seqSaveSeq .seqAdd{align-self:stretch}
+.seqSaveSeq .txt{min-width:260px}

@@ -173,6 +173,25 @@
     return !!(c && c.teachers.indexOf(me) !== -1);
   }
   // One stored class doc as the page holds it.
+  /* Sequences a teacher has kept for a class, on the class document
+     (classes/{id}.sequences.<key> = { name, steps, bar, createdAt }), so
+     every teacher on the class sees and can use them and firestore.rules
+     did not have to change. Nothing read back is trusted: a name that is
+     not a string, or steps that are not a usable plan, drops that entry. */
+  var SAVED_NAME_MAX = 60, SAVED_MAX = 20;
+  function cleanSaved(raw){
+    var out = {};
+    if(!raw || typeof raw !== "object") return out;
+    Object.keys(raw).forEach(function(k){
+      var v = raw[k];
+      if(!k || k.length > 40 || /[.\/]/.test(k) || !v || typeof v !== "object" || typeof v.name !== "string") return;
+      var name = v.name.trim().slice(0, SAVED_NAME_MAX);
+      var plan = Adaptive.sanitizePlan({ steps: v.steps, bar: v.bar });
+      if(!name || !plan) return;
+      out[k] = { name: name, steps: plan.steps, bar: plan.bar, createdAt: Math.max(0, Math.floor(Number(v.createdAt) || 0)) };
+    });
+    return out;
+  }
   function classRowOf(id, d){
     d = d || {};
     return {
@@ -180,6 +199,7 @@
       name: d.name || "",
       teachers: Array.isArray(d.teachers) ? d.teachers.map(low) : [],
       archived: (d.archived && typeof d.archived === "object") ? d.archived : {},
+      sequences: cleanSaved(d.sequences),
       createdAt: d.createdAt || 0,
       createdBy: d.createdBy || ""
     };
@@ -997,12 +1017,9 @@
       return offered.indexOf(m.key) !== -1 || held(m);
     });
   }
-  function pickerHtml(scopeId, selected, alsoShow){
+  function pickerHtml(scopeId, selected){
     var on = function(id){ return (selected || []).indexOf(id) !== -1; };
-    // Retired ids to draw a box for even though this scope doesn't hold
-    // them: the bulk dialog uses it so "Take these away" has something to tick.
-    var extra = Array.isArray(alsoShow) ? alsoShow : [];
-    var shown = function(id){ return on(id) || extra.indexOf(id) !== -1; };
+    var shown = on;
     var sc = esc(scopeId);
 
     function box(id){
@@ -1020,8 +1037,7 @@
       /* The modes on offer, plus any retired mode this scope already holds
          (see word-lists.js, "Retired modes"). The held one stays so the
          teacher can see it and untick it; it is never offered fresh, so a
-         scope that doesn't hold it (every bulk picker starts empty) gets
-         no box for it at all. */
+         scope that doesn't hold it gets no box for it at all. */
       var modes = modesToShow(fam.key, function(m){
         return WordLists.listNumsOf(fam.key).some(function(n){ return shown(WordLists.idFor(fam.key, n, m.key)); });
       });
@@ -1073,8 +1089,7 @@
   }
 
   /* The ids ticked in one picker. Queries the whole document rather than
-     #tBody because the bulk picker lives in a modal outside it; the scope
-     stamp is what keeps two pickers on one screen apart. */
+     #tBody; the scope stamp is what keeps two pickers on one screen apart. */
   function scopeSelection(scopeId){
     var ids = [];
     Array.prototype.forEach.call(document.querySelectorAll('input[data-scope="' + cssq(scopeId) + '"]'), function(cb){
@@ -1204,7 +1219,7 @@
      The sidebar, the top bar and the class filter. Painted on every
      render, so nothing in it can disagree with the view underneath. */
   var VIEW_TITLE = {
-    roster: "Students", trouble: "Trouble spots",
+    roster: "Students", trouble: "Trouble spots", sequences: "Saved sequences",
     groups: "Classes", manage: "Manage"
   };
   // The views the class filter means something on.
@@ -1348,6 +1363,7 @@
     closePreviewPop();
     renderChrome();
     if(view === "roster") return detailUid ? renderDetail() : renderRoster();
+    if(view === "sequences") return renderSequences();
     if(view === "groups") return renderGroups();
     if(view === "manage") return renderManage();
     return renderTrouble();
@@ -1608,7 +1624,7 @@
 
   // ---- the draft ----
   var seqDraft = null;     // { uid, steps, bar, at, hold, hasPlan, base } while there are unsaved edits
-  function seqUIFresh(){ return { adding: false, addKey: "", addIds: [], changing: -1 }; }
+  function seqUIFresh(){ return { adding: false, addKey: "", addIds: [], changing: -1, naming: false }; }
   var seqUI = seqUIFresh();   // which little panel is open: add a list / change the ways of one
   var detailTab = "lists";    // lists | data | notes
   var lastDetailUid = null;
@@ -1962,17 +1978,37 @@
     var others = students.filter(function(x){ return x.uid !== s.uid && planFor(x.uid); });
     return '<div class="seqControls">' +
       '<button type="button" class="btn ghost sm" data-seq="add-open"' + (seqUI.adding ? ' aria-expanded="true"' : ' aria-expanded="false"') + ">Add a list</button>" +
-      '<span class="seqPick"><label class="muted tiny" for="seqReady">Start from a ready-made sequence</label>' +
-        '<select class="sel" id="seqReady">' + READY_MADE.map(function(r){
-          return '<option value="' + esc(r.key) + '">' + esc(r.title) + "</option>";
-        }).join("") + '</select><button type="button" class="btn ghost sm" data-seq="ready-go">Use it</button></span>' +
+      '<span class="seqPick"><label class="muted tiny" for="seqReady">Use a saved sequence</label>' +
+        '<select class="sel" id="seqReady">' + sourceOptionsHtml(sequenceSources(false)) +
+        '</select><button type="button" class="btn ghost sm" data-seq="ready-go">Use it</button></span>' +
       (others.length
         ? '<span class="seqPick"><label class="muted tiny" for="seqCopy">Copy from another student</label>' +
           '<select class="sel" id="seqCopy">' + others.map(function(x){
             return '<option value="' + esc(x.uid) + '">' + esc(stuName(x)) + "</option>";
           }).join("") + '</select><button type="button" class="btn ghost sm" data-seq="copy-go">Copy</button></span>'
         : "") +
-      "</div>" + (seqUI.adding ? addPanelHtml(d) : "");
+      "</div>" + (seqUI.adding ? addPanelHtml(d) : "") + saveSeqHtml(s, d);
+  }
+  /* Keep what is on the screen for the whole class. A student in no class has
+     nowhere to keep it, so the button is there but says why it can't be
+     used, rather than failing when pressed. */
+  function saveSeqHtml(s, d){
+    var cid = studentClass(s.uid), can = !!cid && d.steps.length > 0;
+    var why = !cid ? "This student isn’t in a class yet, and sequences are kept with a class. Put them in one first."
+            : !d.steps.length ? "Add a list first." : "";
+    var full = cid && Object.keys(classes[cid].sequences || {}).length >= SAVED_MAX;
+    return '<div class="seqSaveSeq"><button type="button" class="btn ghost sm" data-seq="savedo-open"' +
+        ' aria-expanded="' + (seqUI.naming && can ? "true" : "false") + '"' +
+        (can && !full ? "" : " disabled") + (why ? ' aria-describedby="seqSaveWhy"' : "") + ">Save this sequence</button>" +
+      (why ? '<span class="muted tiny" id="seqSaveWhy">' + esc(why) + "</span>"
+           : full ? '<span class="muted tiny" id="seqSaveWhy">' + esc(className(cid)) + " already has " + SAVED_MAX + " saved sequences. Delete one first.</span>"
+           : '<span class="muted tiny">for ' + esc(className(cid)) + "</span>") +
+      (seqUI.naming && can ? '<div class="seqAdd"><label class="muted tiny" for="seqName">Name it</label>' +
+        '<input class="txt" id="seqName" maxlength="' + SAVED_NAME_MAX + '" placeholder="e.g. Red Words, Lists 1 to 10">' +
+        '<div class="rowActions"><button type="button" class="btn sm" data-seq="savedo-go">Save</button>' +
+        '<button type="button" class="btn ghost sm" data-seq="savedo-cancel">Cancel</button>' +
+        '<span class="saveNote err" id="seqSavedNote" role="status"></span></div></div>' : "") +
+      "</div>";
   }
 
   // The "Word lists" tab.
@@ -2109,6 +2145,7 @@
     var flash = $("seqFlash");
     if(flash){ flash.className = "saveNote err"; flash.textContent = msg; }
   }
+  var nameBusy = false;    // a saved sequence is being written: a second press must not write a second copy
   var seqSaving = false;   // a write is on the wire: edits wait, so none can be lost under it
   function saveSeq(){
     var d = seqDraft;
@@ -2215,12 +2252,42 @@
         break;
       case "ready-go":
         d = ensureDraft(uid); idx = draftIndex(d);
-        var rm = READY_MADE.filter(function(r){ return r.key === $("seqReady").value; })[0];
+        var rm = sequenceSources(false).filter(function(x){ return x.key === $("seqReady").value; })[0];
         if(!rm) return;
-        var msg = replaceText(d, idx, rm.title);
+        // A saved sequence brings its own percent; a ready-made one leaves it.
+        var takesBar = rm.saved && rm.bar !== d.bar;
+        var msg = replaceText(d, idx, rm.label);
+        if(msg && takesBar) msg += " The percent becomes " + Math.round(rm.bar * 100) + "%.";
         if(msg && !window.confirm(msg)) return;
-        draftReplaceLater(d, idx, readyMadeSteps(rm.key));
+        draftReplaceLater(d, idx, rm.steps);
+        if(takesBar) d.bar = rm.bar;
         break;
+      case "savedo-open": seqUI.naming = !seqUI.naming; ensureDraft(uid); focus = seqUI.naming ? "#seqName" : null; break;
+      case "savedo-cancel": seqUI.naming = false; focus = '[data-seq="savedo-open"]'; break;
+      case "savedo-go":
+        var nmEl = $("seqName"), nm = nmEl ? nmEl.value.trim() : "", sn = $("seqSavedNote");
+        if(nameBusy) return;
+        if(!nm){ if(sn) sn.textContent = "Give it a name."; if(nmEl) nmEl.focus(); return; }
+        nameBusy = true;
+        var goBtn = document.querySelector('#stuPanel-lists [data-seq="savedo-go"]');
+        if(goBtn) goBtn.disabled = true;
+        return saveSequenceFor(uid, nm).then(function(r){
+          nameBusy = false;
+          // The teacher may have moved to another student while it saved:
+          // the write stands, but this page is not theirs to repaint.
+          if(detailUid !== uid) return;
+          seqUI.naming = false;
+          repaintLists('[data-seq="savedo-open"]');
+          var flash = $("seqFlash");
+          if(flash){ flash.className = "saveNote ok"; flash.textContent = "Saved “" + nm + "” for " + className(r.classId) + "."; }
+        }, function(err){
+          nameBusy = false;
+          if(detailUid !== uid) return;
+          var g2 = document.querySelector('#stuPanel-lists [data-seq="savedo-go"]'); if(g2) g2.disabled = false;
+          var n2 = $("seqSavedNote");
+          if(n2) n2.textContent = err && err.message === "full" ? "This class already has " + SAVED_MAX + " saved sequences. Delete one first."
+            : "Didn’t save — check the network and try again.";
+        });
       case "copy-go":
         d = ensureDraft(uid); idx = draftIndex(d);
         var from = studentByUid($("seqCopy").value), fp = from && planFor(from.uid);
@@ -2249,6 +2316,12 @@
       var b = e.target.closest ? e.target.closest("[data-seq]") : null;
       if(!b || b.disabled || !root.contains(b)) return;
       seqAct(b.dataset.seq, b);
+    });
+    // The name box: Enter saves and Escape cancels, as in the Saved sequences view.
+    root.addEventListener("keydown", function(e){
+      if(!e.target || e.target.id !== "seqName") return;
+      if(e.key === "Enter"){ e.preventDefault(); seqAct("savedo-go", null); }
+      else if(e.key === "Escape"){ e.preventDefault(); seqAct("savedo-cancel", null); }
     });
     root.addEventListener("change", function(e){
       var t = e.target;
@@ -2877,7 +2950,9 @@
       } else {
         var did = b.getAttribute("data-delclass");
         if(membersOf(did).length) return;
-        if(!window.confirm("Delete the empty class " + className(did) + "?")) return;
+        var nSv = Object.keys(classes[did].sequences || {}).length;
+        if(!window.confirm("Delete the empty class " + className(did) + "?" +
+          (nSv ? "\n\nIts " + nSv + " saved " + (nSv === 1 ? "sequence goes" : "sequences go") + " with it." : ""))) return;
         db.collection("classes").doc(did).delete().then(function(){
           delete classes[did]; render();
         }, fail);
@@ -3401,22 +3476,192 @@
   function replacedCount(list){
     return list.filter(function(s){ return !!planFor(s.uid) || effectiveLists(s.uid).ids.length > 0; }).length;
   }
-  // The sources a teacher can choose from: the ready-made ones, then any student's sequence.
-  function giveSources(excludeUids){
-    var out = READY_MADE.map(function(r){
-      return { key: "rm:" + r.key, label: r.title, steps: readyMadeSteps(r.key), bar: Adaptive.defaultBar, group: "Ready-made" };
-    });
-    students.forEach(function(x){
-      var p = planFor(x.uid);
-      if(p) out.push({ key: "st:" + x.uid, label: stuName(x) + "’s sequence", steps: p.steps, bar: p.bar, group: "Copy a student’s" });
+  /* ---------------- saved sequences ----------------
+     A sequence a teacher keeps for a class, to use again: { name, steps,
+     bar } under classes/{id}.sequences.<key>. Using one COPIES it — a
+     student is never linked to it, so renaming or deleting it later
+     changes nobody. */
+  function newSeqKey(){ return "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function savedBody(name, steps, bar, now){
+    return { name: String(name).trim().slice(0, SAVED_NAME_MAX), steps: cloneSteps(steps), bar: bar, createdAt: now };
+  }
+  // Every saved sequence in every class this teacher sees (all classes, for the admin).
+  function savedSequences(){
+    var out = [];
+    allClasses().forEach(function(cid){
+      var seqs = classes[cid].sequences || {};
+      Object.keys(seqs).sort(function(a, b){
+        return seqs[a].name.localeCompare(seqs[b].name, undefined, { numeric: true, sensitivity: "base" });
+      }).forEach(function(k){
+        out.push({ id: cid + "/" + k, classId: cid, key: k, className: className(cid),
+                   name: seqs[k].name, steps: seqs[k].steps, bar: seqs[k].bar, createdAt: seqs[k].createdAt });
+      });
     });
     return out;
   }
+  // "10 lists: Red Words · List 1, … Red Words · List 10 — Say it · Cards, finished at 90%"
+  function sequencePreview(steps, bar){
+    var titles = steps.map(stepTitle);
+    var ways = {}; steps.forEach(function(st){ ways[stepWays(st)] = true; });
+    var wl = Object.keys(ways);
+    return titles.length + (titles.length === 1 ? " list: " : " lists: ") +
+      (titles.length > 4 ? titles.slice(0, 3).join(", ") + " … " + titles[titles.length - 1] : titles.join(", ")) +
+      (wl.length === 1 ? " — " + wl[0] : "") + (bar != null ? ", finished at " + Math.round(bar * 100) + "%" : "") + ".";
+  }
+  /* What a teacher can start from: the ready-made ones, then what has been
+     saved in each class, then (for the several-students dialog) any
+     student's own sequence. */
+  function sequenceSources(withStudents){
+    var out = READY_MADE.map(function(r){
+      return { key: "rm:" + r.key, label: r.title, steps: readyMadeSteps(r.key), bar: Adaptive.defaultBar, group: "Ready-made" };
+    });
+    savedSequences().forEach(function(x){
+      out.push({ key: "sv:" + x.id, label: x.name, steps: x.steps, bar: x.bar, group: "Saved in " + x.className, saved: true });
+    });
+    if(withStudents){
+      students.forEach(function(x){
+        var p = planFor(x.uid);
+        if(p) out.push({ key: "st:" + x.uid, label: stuName(x) + "’s sequence", steps: p.steps, bar: p.bar, group: "Copy a student’s" });
+      });
+    }
+    return out;
+  }
+  function giveSources(){ return sequenceSources(true); }
+  // <optgroup>s of <option>s for a list of sources.
+  function sourceOptionsHtml(sources){
+    var groups = {}, order = [];
+    sources.forEach(function(x){ if(!groups[x.group]){ groups[x.group] = []; order.push(x.group); } groups[x.group].push(x); });
+    return order.map(function(g){
+      return '<optgroup label="' + esc(g) + '">' + groups[g].map(function(x){
+        return '<option value="' + esc(x.key) + '">' + esc(x.label) + "</option>";
+      }).join("") + "</optgroup>";
+    }).join("");
+  }
+
+  // Writes: a merge onto the class document. Optimistic, put back on failure.
+  function classSeqWrite(cid, patch){
+    return db.collection("classes").doc(cid).set({ sequences: patch }, { merge: true });
+  }
+  function saveSequenceFor(uid, name){
+    var cid = studentClass(uid), d = draftFor(uid), nm = String(name || "").trim();
+    if(!cid) return Promise.reject(new Error("no class"));
+    if(!d || !d.steps.length) return Promise.reject(new Error("no steps"));
+    if(!nm) return Promise.reject(new Error("no name"));
+    var c = classes[cid]; c.sequences = c.sequences || {};
+    if(Object.keys(c.sequences).length >= SAVED_MAX) return Promise.reject(new Error("full"));
+    var key = newSeqKey(), body = savedBody(nm, d.steps, d.bar, Date.now()), patch = {};
+    patch[key] = body;
+    c.sequences[key] = cleanSaved(patch)[key];
+    return classSeqWrite(cid, patch).then(function(){ return { classId: cid, key: key }; }, function(err){
+      delete c.sequences[key]; throw err;
+    });
+  }
+  function renameSaved(cid, key, name){
+    var c = classes[cid], nm = String(name || "").trim().slice(0, SAVED_NAME_MAX);
+    if(!c || !c.sequences || !c.sequences[key] || !nm) return Promise.reject(new Error("nothing to rename"));
+    var before = c.sequences[key].name, e = c.sequences[key], patch = {};
+    c.sequences[key].name = nm;
+    /* The whole entry, not just its name: if a co-teacher deleted it since
+       this page loaded, a merge of {name} alone would leave a stub with no
+       steps — invisible, undeletable, and uncounted. Written whole, it simply
+       comes back as what the teacher was looking at. */
+    patch[key] = { name: nm, steps: cloneSteps(e.steps), bar: e.bar, createdAt: e.createdAt };
+    return classSeqWrite(cid, patch).then(null, function(err){ c.sequences[key].name = before; throw err; });
+  }
+  function deleteSaved(cid, key){
+    var c = classes[cid];
+    if(!c || !c.sequences || !c.sequences[key]) return Promise.reject(new Error("nothing to delete"));
+    var before = c.sequences[key], patch = {};
+    delete c.sequences[key];
+    patch[key] = firebase.firestore.FieldValue.delete();
+    return classSeqWrite(cid, patch).then(null, function(err){ c.sequences[key] = before; throw err; });
+  }
+
+  /* ---------------- the Saved sequences view ---------------- */
+  var svEditing = null;     // "classId/key" while one is being renamed
+  function renderSequences(){
+    var list = savedSequences(), byClass = {}, order = [];
+    list.forEach(function(x){ if(!byClass[x.classId]){ byClass[x.classId] = []; order.push(x.classId); } byClass[x.classId].push(x); });
+    var cards = order.map(function(cid){
+      return '<h3 class="svClass">' + esc(className(cid)) + "</h3>" + byClass[cid].map(function(x){
+        var editing = svEditing === x.id;
+        return '<div class="svCard" data-sv="' + esc(x.id) + '">' +
+          (editing
+            ? '<div class="svRename"><label class="muted tiny" for="svName">Name</label>' +
+              '<input class="txt" id="svName" maxlength="' + SAVED_NAME_MAX + '" value="' + esc(x.name) + '">' +
+              '<button type="button" class="btn sm" data-svsave="' + esc(x.id) + '">Save</button>' +
+              '<button type="button" class="btn ghost sm" data-svcancel="1">Cancel</button></div>'
+            : '<div class="svHead"><b class="svName">' + esc(x.name) + '</b><span class="pill">' + esc(x.className) + "</span></div>") +
+          '<p class="svSteps">' + esc(sequencePreview(x.steps, x.bar)) + "</p>" +
+          (editing ? "" :
+            '<div class="rowActions"><button type="button" class="btn ghost sm" data-svren="' + esc(x.id) + '" aria-label="Rename ' + esc(x.name) + '">Rename</button>' +
+            '<button type="button" class="btn ghost sm" data-svdel="' + esc(x.id) + '" aria-label="Delete ' + esc(x.name) + '">Delete</button></div>') +
+          "</div>";
+      }).join("");
+    }).join("");
+    $("tBody").innerHTML = '<div class="panel"><h2>Saved sequences</h2>' +
+      '<p class="note">A sequence you keep for a class, to use again. Every teacher on the class sees it. ' +
+      "Using one copies it onto a student: students are not linked to it, so renaming or deleting it later changes nobody.</p>" +
+      '<p class="saveNote ok" id="svNote" role="status" aria-live="polite" tabindex="-1"></p>' +
+      (cards || '<div class="empty">No saved sequences yet. On a student’s page, press <b>Save this sequence</b> to keep one for the whole class.</div>') +
+      "</div>";
+    function note(text, err){
+      var n = $("svNote"); if(!n) return;
+      n.className = "saveNote " + (err ? "err" : "ok"); n.textContent = text;
+    }
+    function find(id){ return list.filter(function(x){ return x.id === id; })[0]; }
+    function failed(){ note("Didn’t save — check the network and try again.", true); }
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-svren]"), function(b){
+      b.addEventListener("click", function(){ svEditing = b.getAttribute("data-svren"); renderSequences(); var i = $("svName"); if(i){ i.focus(); i.select(); } });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-svcancel]"), function(b){
+      b.addEventListener("click", function(){ var id = svEditing; svEditing = null; renderSequences(); var r = id && document.querySelector('[data-svren="' + cssq(id) + '"]'); if(r) r.focus(); });
+    });
+    function saveEdit(id){
+      var x = find(id), nm = ($("svName") || {}).value;
+      if(!x) return;
+      if(!String(nm || "").trim()){ note("Give it a name.", true); return; }
+      renameSaved(x.classId, x.key, nm).then(function(){
+        svEditing = null; renderSequences();
+        var r = document.querySelector('[data-svren="' + cssq(id) + '"]'); if(r) r.focus();
+        note("Renamed.");
+      }, failed);
+    }
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-svsave]"), function(b){
+      b.addEventListener("click", function(){ saveEdit(b.getAttribute("data-svsave")); });
+    });
+    var inp = $("svName");
+    if(inp) inp.addEventListener("keydown", function(e){
+      if(e.key === "Enter"){ e.preventDefault(); saveEdit(svEditing); }
+      else if(e.key === "Escape"){ e.preventDefault(); document.querySelector("[data-svcancel]").click(); }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-svdel]"), function(b){
+      b.addEventListener("click", function(){
+        var x = find(b.getAttribute("data-svdel"));
+        if(!x) return;
+        if(!window.confirm("Delete “" + x.name + "” from " + x.className + "?\n\nStudents who were given it keep their lists: deleting changes no student.")) return;
+        deleteSaved(x.classId, x.key).then(function(){
+          renderSequences();
+          note("Deleted “" + x.name + "”.");
+          var n = $("svNote"); if(n) n.focus();
+        }, failed);
+      });
+    });
+  }
 
   var giveWrap = null;
-  function closeGive(){
+  var GIVE_MAX = 400;   // commitWrites' chunk: past it a batch is no longer ONE batch
+  /* Close the dialog. `restore` puts focus back on the page behind it (for
+     Escape, a click outside, Cancel); a redraw closes it without, since the
+     page is being rebuilt anyway. */
+  function closeGive(restore){
+    var had = !!giveWrap;
     if(giveWrap && giveWrap.parentNode) giveWrap.parentNode.removeChild(giveWrap);
     giveWrap = null;
+    if(had && restore){
+      var b = $("stGive"), t = (b && !b.disabled) ? b : $("stSelAll");
+      if(t && t.focus) t.focus();
+    }
   }
   function openGive(list){
     if(!list.length) return;
@@ -3443,25 +3688,18 @@
           (replaced === 1 ? "it" : "them") + ".</p>" : "") +
         '<div class="rowActions stickyActions"><button class="btn sm" id="giveGo">Give it</button>' +
           '<button class="btn ghost sm" id="giveCancel">Cancel</button>' +
-          '<span class="saveNote" id="giveNote" role="status"></span></div>' +
+          '<span class="saveNote' + (list.length > GIVE_MAX ? " err" : "") + '" id="giveNote" role="status">' +
+            (list.length > GIVE_MAX ? "That is more than one batch can hold. Choose " + GIVE_MAX + " students or fewer." : "") + "</span></div>" +
       "</div>";
     document.body.appendChild(giveWrap);
 
     var sel = $("giveSrc");
-    var groups = {}, order = [];
-    sources.forEach(function(x){ if(!groups[x.group]){ groups[x.group] = []; order.push(x.group); } groups[x.group].push(x); });
-    sel.innerHTML = order.map(function(g){
-      return '<optgroup label="' + esc(g) + '">' + groups[g].map(function(x){
-        return '<option value="' + esc(x.key) + '">' + esc(x.label) + "</option>";
-      }).join("") + "</optgroup>";
-    }).join("");
+    sel.innerHTML = sourceOptionsHtml(sources);
     function paint(){
       $("givePct").textContent = Math.round(bar * 100) + "%";
       $("giveLess").disabled = bar <= 0.5; $("giveMore").disabled = bar >= 1;
-      var titles = cur.steps.map(function(st){ return stepTitle(st); });
-      $("givePreview").textContent = titles.length + (titles.length === 1 ? " list: " : " lists: ") +
-        (titles.length > 4 ? titles.slice(0, 3).join(", ") + " … " + titles[titles.length - 1] : titles.join(", ")) + ".";
-      $("giveGo").disabled = !cur.steps.length;
+      $("givePreview").textContent = sequencePreview(cur.steps);
+      $("giveGo").disabled = !cur.steps.length || list.length > GIVE_MAX;
     }
     sel.addEventListener("change", function(){
       cur = sources.filter(function(x){ return x.key === sel.value; })[0] || cur;
@@ -3469,8 +3707,17 @@
     });
     $("giveLess").addEventListener("click", function(){ bar = Math.max(0.5, Math.round(bar * 100 - 5) / 100); paint(); $("giveLess").disabled ? $("giveMore").focus() : $("giveLess").focus(); });
     $("giveMore").addEventListener("click", function(){ bar = Math.min(1, Math.round(bar * 100 + 5) / 100); paint(); $("giveMore").disabled ? $("giveLess").focus() : $("giveMore").focus(); });
-    $("giveCancel").addEventListener("click", function(){ closeGive(); if($("stGive")) $("stGive").focus(); });
-    giveWrap.addEventListener("mousedown", function(e){ if(e.target === giveWrap) closeGive(); });
+    $("giveCancel").addEventListener("click", function(){ closeGive(true); });
+    giveWrap.addEventListener("mousedown", function(e){ if(e.target === giveWrap) closeGive(true); });
+    // aria-modal means focus stays in the dialog: Tab wraps at either end.
+    giveWrap.addEventListener("keydown", function(e){
+      if(e.key !== "Tab") return;
+      var f = Array.prototype.filter.call(giveWrap.querySelectorAll("button, select, input"), function(el){ return !el.disabled && el.offsetParent !== null; });
+      if(!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+    });
     $("giveGo").addEventListener("click", function(){
       var msg = replaced
         ? "Give " + cur.label + " to " + list.length + (list.length === 1 ? " student" : " students") + "?\n\n" +
@@ -3500,13 +3747,15 @@
     sel.focus();
   }
   document.addEventListener("keydown", function(e){
-    if(e.key === "Escape"){ closeGive(); closePreviewPop(); }
+    if(e.key === "Escape"){ closeGive(true); closePreviewPop(); }
   });
 
   /* One batch for every student: local state moves first (the page redraws
      without waiting on school Wi-Fi) and `undo` puts every copy back if the
      batch fails, so nobody is left half-moved. */
   function giveSequence(uids, steps, bar){
+    // Past one batch it would no longer be all-or-nothing, so refuse.
+    if(uids.length > GIVE_MAX) return Promise.reject(new Error("too many"));
     var now = Date.now();
     return commitBodies(uids.map(function(uid){
       return { uid: uid, data: giveBody(studentByUid(uid), steps, bar, now) };
@@ -4047,6 +4296,10 @@
       lastMove: lastMove, flagFor: flagFor, rowFacts: rowFacts, studentRowHtml: studentRowHtml,
       giveBody: giveBody, giveSequence: giveSequence, replacedCount: replacedCount, giveSources: giveSources,
       openGive: openGive, closeGive: closeGive, commitBodies: commitBodies,
+      cleanSaved: cleanSaved, savedSequences: savedSequences, sequenceSources: sequenceSources,
+      sequencePreview: sequencePreview, savedBody: savedBody, saveSequenceFor: saveSequenceFor,
+      renameSaved: renameSaved, deleteSaved: deleteSaved, renderSequences: renderSequences,
+      SAVED_MAX: SAVED_MAX,
       getPicked: function(){ return picked; },
       // sequences
       planFor: planFor, positionOf: positionOf, draftFromSaved: draftFromSaved, emptyDraft: emptyDraft,
@@ -4059,7 +4312,7 @@
       renderDetail: renderDetail, seqAct: seqAct, commitStudentBody: commitStudentBody,
       switchView: switchView, render: render,
       getDraft: function(){ return seqDraft; },
-      reset: function(){ seqDraft = null; seqSaving = false; seqUI = seqUIFresh(); detailTab = "lists"; lastDetailUid = null; detailUid = null; view = "roster"; picked = {}; closeGive(); },
+      reset: function(){ seqDraft = null; seqSaving = false; seqUI = seqUIFresh(); detailTab = "lists"; lastDetailUid = null; detailUid = null; view = "roster"; picked = {}; closeGive(); svEditing = null; nameBusy = false; },
       open: function(uid){ view = "roster"; detailUid = uid; },
       setDb: function(d){ db = d; }
     }

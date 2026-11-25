@@ -3810,6 +3810,13 @@
       eq("…and is queued for the student's own document", I.dirtySeq(), true);
       eq("…in the payload", JSON.stringify(I.payload().seq && { at: I.payload().seq.at, of: I.payload().seq.of }), '{"at":1,"of":777}');
 
+      eq("…the first mark under a plan is a landing, not a move: when is 0 (the dashboard reads when as news)", I.seq().when, 0);
+      // A later move under the same plan carries the time.
+      var done2 = merge(done1, solid("red-2-say", 18), solid("red-2-cards", 18));
+      feed({ assignment: { plan: PLAN3 }, stats: done2, seq: { at: 1, of: 777, when: 0 } });
+      eq("a later move, once there is a mark for this plan, carries the time", I.seq().at + "/" + (I.seq().when > 0), "2/true");
+      feed({ assignment: { plan: PLAN3 }, stats: done1 });
+
       // Next visit: the stats have slipped, the mark has not.
       feed({ assignment: { plan: PLAN3 }, stats: merge(solid("red-1-say", 3), solid("red-1-cards", 3)),
              seq: { at: 1, of: 777, when: 1 } });
@@ -4472,6 +4479,48 @@
          Array.prototype.map.call(body.querySelectorAll(".sumCard .k"), function(k){ return k.textContent; }).join("|"),
          "Students|Practiced this week|Moved to a new list this week|No lists yet");
     });
+    guard("a landing is not news", function(){
+      var NOWT = Date.now(), DAYMS = 86400000, ST = window.EIStore._internals;
+      // Given a sequence while already solid on its first two lists: they land on the third, and have moved nowhere.
+      var stats = merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 20), solid("red-2-cards", 20));
+      ST._feed({ assignment: { plan: planDoc({ at: 0 }) }, stats: stats }); ST.settle();
+      var mark = ST.seq();
+      eq("the student's first load under the plan lands them on step 3", mark.at, 2);
+      eq("…marked as a landing (when 0)", mark.when, 0);
+      ST._feed({});
+      feed({ students: [kid("u1", "Ana", { stats: merge(stats, { "red-3-say|w0": A4.sanitizeStat({ n:1, r:1, box:1, last: NOWT - 1000, lat: 900 }) }), lastSeen: NOWT, seq: mark })],
+             assignments: { u1: merge({ plan: planDoc({ at: 0 }) }, stamp) } });
+      eq("the dashboard does not call it moving to a new list", T.lastMove(T.studentByUid("u1")), 0);
+      eq("…the flag line says nothing of the kind", ((T.flagFor(T.studentByUid("u1")) || {}).rule) === "moved", false);
+      eq("…and the card does not count them", T.summaryCounts(T.classStudents(), NOWT).moved, 0);
+      feed({ students: [kid("u1", "Ana", { stats: stats, seq: { at: 3, of: SETAT, when: NOWT - DAYMS } })], assignments: { u1: merge({ plan: planDoc({ at: 0 }) }, stamp) } });
+      eq("a real move (a mark with a time) still counts", T.summaryCounts(T.classStudents(), NOWT).moved, 1);
+    });
+    guard("the dialog holds focus", function(){
+      body.hidden = false;
+      feed(fixture());
+      T.renderRoster();
+      var all = body.querySelector("#stSelAll"); all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
+      body.querySelector("#stGive").click();
+      var cancel = document.getElementById("giveCancel"), first = document.getElementById("giveSrc");
+      cancel.focus();
+      cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+      eq("Tab from the last control wraps to the first, inside the dialog", document.activeElement.id, "giveSrc");
+      first.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+      eq("Shift+Tab from the first wraps to the last", document.activeElement.id, "giveCancel");
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      eq("Escape closes it and puts focus back on the page behind", !!document.getElementById("giveTitle") + "/" + document.activeElement.id, "false/stGive");
+      body.querySelector("#stGive").click();
+      document.querySelector(".abModal").dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      eq("a click outside does the same", !!document.getElementById("giveTitle") + "/" + document.activeElement.id, "false/stGive");
+      // More than a batch can hold.
+      var many = [], uids = [];
+      for(var i=0;i<401;i++){ many.push({ uid: "x" + i, name: "S" + i, email: "x" + i + "@seq.org", stats: {} }); uids.push("x" + i); }
+      T.openGive(many);
+      eq("401 students is more than one batch: Give it is off and says so", document.getElementById("giveGo").disabled + "/" + /Choose 400 students or fewer\./.test(document.getElementById("giveNote").textContent), "true/true");
+      T.closeGive();
+      body.hidden = true;
+    });
     guard("the rows on the page", function(){
       body.hidden = false;
       feed(fixture({ roster: { "pat@seq.org": { name: "Pat Roe", classId: "c3", teachers: [ME] } } }));
@@ -4579,6 +4628,154 @@
          T.replacedCount([T.studentByUid("u1"), T.studentByUid("u2"), T.studentByUid("u3")]), 1);
     });
 
+    /* ---- saved sequences ---- */
+    var SV = { s1: { name: "Red Words, Lists 1 to 10", steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] }], bar: 0.85, createdAt: 5 },
+               s2: { name: "A first one", steps: [{ ids: ["initial-blends"] }], bar: 0.9, createdAt: 3 } };
+    function withSaved(extra){
+      var o = fixture();
+      o.classes = { c3: { name: "Period 3", teachers: [ME, "b@seq.org"], sequences: JSON.parse(JSON.stringify(SV)) },
+                    c5: { name: "Period 5", teachers: [ME], sequences: { z9: { name: "Period 5's", steps: [{ ids: ["nonsense"] }], bar: 1 } } } };
+      for(var k in (extra || {})) o[k] = extra[k];
+      return o;
+    }
+    guard("what is kept is cleaned on the way in", function(){
+      var c = T.cleanSaved({
+        good: { name: "  Spaced  ", steps: [{ ids: ["red-1-say"] }], bar: 0.93, createdAt: 7 },
+        noName: { steps: [{ ids: ["red-1-say"] }], bar: 0.9 },
+        numName: { name: 5, steps: [{ ids: ["red-1-say"] }] },
+        noSteps: { name: "x", steps: [] },
+        badSteps: { name: "x", steps: [["red-1-say"]] },
+        "dot.ted": { name: "x", steps: [{ ids: ["red-1-say"] }] },
+        long: { name: new Array(90).join("x"), steps: [{ ids: ["red-1-say"] }] },
+        nothing: null
+      });
+      eq("a good one is kept, its name trimmed", c.good && c.good.name, "Spaced");
+      eq("…its bar to the nearest 5%", c.good.bar, 0.95);
+      eq("…and its time", c.good.createdAt, 7);
+      eq("one with no usable name, steps, or a key a field path cannot hold is dropped",
+         Object.keys(c).sort().join(","), "good,long");
+      eq("a very long name is cut to 60", c.long.name.length, 60);
+      eq("nothing at all is no sequences", Object.keys(T.cleanSaved(undefined)).length, 0);
+    });
+    guard("what a class has, and who sees it", function(){
+      feed(withSaved());
+      var list = T.savedSequences();
+      eq("every saved sequence in every class on the page, by class then name",
+         list.map(function(x){ return x.className + "/" + x.name; }).join(" | "), "Period 3/A first one | Period 3/Red Words, Lists 1 to 10 | Period 5/Period 5's");
+      eq("…each remembers its class and key", list[0].classId + "/" + list[0].key, "c3/s2");
+      eq("…and its percent", list[1].bar, 0.85);
+      eq("a class with none contributes none", (function(){ var o = withSaved(); o.classes.c5.sequences = {}; feed(o); return T.savedSequences().length; })(), 2);
+      feed(withSaved());
+      var src = T.sequenceSources(false);
+      eq("the editor offers the ready-made ones and then each class's saved ones",
+         src.map(function(x){ return x.group + ": " + x.label; }).join(" | "),
+         "Ready-made: Red Words, Lists 1 to 10 | Ready-made: Sounding it out | Saved in Period 3: A first one | Saved in Period 3: Red Words, Lists 1 to 10 | Saved in Period 5: Period 5's");
+      eq("…and the several-students dialog adds another student's", T.sequenceSources(true).filter(function(x){ return /^Copy a student/.test(x.group); }).map(function(x){ return x.label; }).join(","), "Ana Lopez’s sequence");
+      eq("a saved one says it is saved, a ready-made one does not", !!src[2].saved && !src[0].saved, true);
+      eq("a preview names the lists, the ways and the percent",
+         T.sequencePreview(T.readyMadeSteps("red"), 0.9), "10 lists: Red Words · List 1, Red Words · List 2, Red Words · List 3 … Red Words · List 10 — Say it · Cards, finished at 90%.");
+      eq("…one list is singular", T.sequencePreview([{ ids: ["initial-blends"] }]), "1 list: Starting Blends — Say it.");
+      var b = T.savedBody("  Mine  ", [{ ids: ["red-1-say"] }], 0.8, 99);
+      eq("what is saved is exactly a name, the steps, the bar and the time", Object.keys(b).sort().join(",") + "/" + b.name + "/" + b.bar + "/" + b.createdAt, "bar,createdAt,name,steps/Mine/0.8/99");
+      var steps = [{ ids: ["red-1-say"] }], b2 = T.savedBody("x", steps, 0.9, 1);
+      b2.steps[0].ids.push("y");
+      eq("…the steps are a copy", steps[0].ids.length, 1);
+    });
+    guard("using a saved sequence in the editor", function(){
+      body.hidden = false;
+      feed(withSaved());
+      T.open("u1"); T.renderDetail();
+      eq("the control is called Use a saved sequence", body.querySelector('label[for="seqReady"]').textContent, "Use a saved sequence");
+      eq("…its options are grouped: ready-made, then each class's", Array.prototype.map.call(body.querySelectorAll("#seqReady optgroup"), function(g){ return g.label; }).join(" | "), "Ready-made | Saved in Period 3 | Saved in Period 5");
+      var sel = body.querySelector("#seqReady");
+      sel.value = "sv:c3/s1";
+      asked.length = 0;
+      body.querySelector('[data-seq="ready-go"]').click();
+      eq("using one asks first, naming what it replaces and the percent it brings",
+         /replaces the lists still to come \(Red Words · List 3\) with Red Words, Lists 1 to 10\..*The percent becomes 85%\./.test(asked[0] || ""), true);
+      eq("it keeps the finished list and the one they are on, and puts the saved ones after (a list is never in twice)",
+         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards | red-2-say+red-2-cards");
+      eq("…and takes the saved percent", T.getDraft().bar, 0.85);
+      // A copy: changing the saved one afterwards does not touch the draft.
+      var saved = T.savedSequences().filter(function(x){ return x.key === "s1"; })[0];
+      var before = JSON.stringify(T.getDraft().steps);
+      saved.steps[1].ids.push("zzz"); saved.steps.pop();
+      eq("a copy, not a link: changing the saved one afterwards leaves the draft as it was", JSON.stringify(T.getDraft().steps), before);
+      body.hidden = true;
+    });
+    guard("Save this sequence, and the student who has no class", function(){
+      body.hidden = false;
+      feed(fixture());
+      T.open("u1"); T.renderDetail();
+      var btn = body.querySelector('[data-seq="savedo-open"]');
+      eq("a student in a class can have their sequence saved", btn.textContent + "/" + btn.disabled, "Save this sequence/false");
+      eq("…and it says for which class", /for Period 3/.test(body.querySelector(".seqSaveSeq").textContent), true);
+      btn.click();
+      eq("pressing it asks for a name", !!body.querySelector("#seqName"), true);
+      eq("…focus goes to the name", document.activeElement.id, "seqName");
+      body.querySelector('[data-seq="savedo-go"]').click();
+      eq("an empty name is refused, with words", body.querySelector("#seqSavedNote").textContent, "Give it a name.");
+      body.querySelector('[data-seq="savedo-cancel"]').click();
+      eq("Cancel closes it and returns focus to the button", !!body.querySelector("#seqName") + "/" + document.activeElement.getAttribute("data-seq"), "false/savedo-open");
+
+      feed({ students: [kid("u7", "Nia", { classId: "" })], assignments: { u7: { plan: planDoc(), lists: ["red-1-say"] } } });
+      T.open("u7"); T.renderDetail();
+      var b7 = body.querySelector('[data-seq="savedo-open"]');
+      eq("a student in no class cannot be the source: the button is disabled", b7.disabled, true);
+      eq("…and says why, in words, beside it", /isn’t in a class yet.*Put them in one first\./.test(body.querySelector("#seqSaveWhy").textContent), true);
+      eq("…the reason is tied to the button for a screen reader", b7.getAttribute("aria-describedby"), "seqSaveWhy");
+      feed({ students: [kid("u8", "Zed")], assignments: {} });
+      T.open("u8"); T.renderDetail();
+      eq("an empty sequence has nothing to save yet", body.querySelector('[data-seq="savedo-open"]').disabled, true);
+      body.hidden = true;
+    });
+    guard("the Saved sequences view", function(){
+      body.hidden = false;
+      feed(withSaved());
+      T.renderSequences();
+      eq("a card for each saved sequence", body.querySelectorAll(".svCard").length, 3);
+      eq("…under a heading per class", Array.prototype.map.call(body.querySelectorAll(".svClass"), function(h){ return h.textContent; }).join(","), "Period 3,Period 5");
+      var c = body.querySelector('.svCard[data-sv="c3/s1"]');
+      eq("a card says its name, class, steps in words and percent",
+         [c.querySelector(".svName").textContent, c.querySelector(".pill").textContent, /2 lists: Red Words · List 1, Red Words · List 2 — Say it · Cards, finished at 85%\./.test(c.querySelector(".svSteps").textContent)].join(" | "),
+         "Red Words, Lists 1 to 10 | Period 3 | true");
+      eq("…with Rename and Delete that name the sequence", c.querySelector("[data-svren]").getAttribute("aria-label") + " / " + c.querySelector("[data-svdel]").getAttribute("aria-label"),
+         "Rename Red Words, Lists 1 to 10 / Delete Red Words, Lists 1 to 10");
+      c.querySelector("[data-svren]").click();
+      eq("Rename edits in place", !!body.querySelector("#svName") && body.querySelector("#svName").value, "Red Words, Lists 1 to 10");
+      eq("…with focus in the box", document.activeElement.id, "svName");
+      body.querySelector("#svName").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      eq("Escape puts it back", !!body.querySelector("#svName") + "/" + body.querySelectorAll(".svCard").length, "false/3");
+      eq("…with focus back on Rename", document.activeElement.getAttribute("data-svren"), "c3/s1");
+      eq("a teacher with none sees what to do", (function(){ var o = withSaved(); o.classes.c3.sequences = {}; o.classes.c5.sequences = {}; feed(o); T.renderSequences(); return /No saved sequences yet\..*Save this sequence/.test(body.textContent); })(), true);
+      body.hidden = true;
+    });
+    guard("saved sequences in the dialog, and deleting a class", function(){
+      body.hidden = false;
+      feed(withSaved());
+      T.renderRoster();
+      var all = body.querySelector("#stSelAll"); all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
+      body.querySelector("#stGive").click();
+      eq("the give-a-sequence dialog offers the saved ones, grouped by class",
+         Array.prototype.map.call(document.querySelectorAll("#giveSrc optgroup"), function(g){ return g.label; }).join(" | "), "Ready-made | Saved in Period 3 | Saved in Period 5 | Copy a student’s");
+      var src = document.getElementById("giveSrc");
+      src.value = "sv:c3/s1"; src.dispatchEvent(new Event("change", { bubbles: true }));
+      eq("choosing one takes its percent", document.getElementById("givePct").textContent, "85%");
+      eq("…and previews it", /^2 lists: Red Words · List 1, Red Words · List 2/.test(document.getElementById("givePreview").textContent), true);
+      T.closeGive();
+      // Deleting an empty class says what goes with it.
+      var o = withSaved(); o.classes.c9 = { name: "Period 9", teachers: [ME], sequences: { k: SV.s2 } };
+      feed(o);
+      T.reset(); feed(o);
+      var rg = document.getElementById("tBody");
+      var T2 = window.EITeacher._internals; T2.renderGroups();
+      asked.length = 0; answer = false;
+      var del = rg.querySelector('[data-delclass="c9"]');
+      if(del) del.click();
+      eq("deleting an empty class says its saved sequences go with it", /Its 1 saved sequence goes with it\./.test(asked[0] || ""), true);
+      body.hidden = true;
+    });
+
     // The writes themselves: through a fake database that records what
     // reaches it. These run after everything above (they are promises), and
     // one at a time, since they share the page and the dashboard's state.
@@ -4596,7 +4793,14 @@
     }
     function fakeDb(fail){
       var db = { log: [], ops: 0 };
-      db.collection = function(c){ return { doc: function(id){ return { col: c, id: id }; } }; };
+      db.collection = function(c){ return { doc: function(id){
+        return { col: c, id: id, set: function(data, opts){
+          db.ops++;
+          if(fail) return Promise.reject(new Error("offline"));
+          db.log.push({ col: c, id: id, data: data, opts: opts, kind: "set" });
+          return Promise.resolve();
+        } };
+      } }; };
       db.batch = function(){
         var ops = [];
         return { set: function(ref, data, opts){ ops.push({ col: ref.col, id: ref.id, data: data, opts: opts }); },
@@ -4743,6 +4947,134 @@
         eq("…with Give it available to try again", document.getElementById("giveGo").disabled, false);
         eq("…and the ticks kept", Object.keys(T.getPicked()).length, 2);
         T.closeGive();
+      });
+    });
+    guardAsync("Save this sequence writes one merge onto the class document", function(){
+      feed(withSaved()); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="savedo-open"]').click();
+      body.querySelector("#seqName").value = "  Red, from Ana  ";
+      return T.seqAct("savedo-go").then(function(){
+        var w = db.log[0] || {}, sq = (w.data || {}).sequences || {}, k = Object.keys(sq)[0], v = sq[k] || {};
+        eq("one write", db.log.length, 1);
+        eq("to the class of the student the sequence came from", w.col + "/" + w.id, "classes/c3");
+        eq("as a merge", JSON.stringify(w.opts), '{"merge":true}');
+        eq("…containing only `sequences`, with one new key", Object.keys(w.data).join(",") + "/" + Object.keys(sq).length, "sequences/1");
+        eq("…the key is a plain id (no dots or slashes)", /^[a-z0-9]+$/.test(k), true);
+        eq("…holding exactly the name, the steps, the percent and the time", Object.keys(v).sort().join(","), "bar,createdAt,name,steps");
+        eq("…the name trimmed, the steps all three of Ana's, the percent hers", v.name + "/" + v.steps.length + "/" + v.bar, "Red, from Ana/3/0.9");
+        eq("…and not the teachers, the name of the class, or anything else of the class", "teachers" in w.data || "name" in w.data, false);
+        eq("the page's own copy has it, and the class's other saved ones are untouched", Object.keys(T.savedSequences().filter(function(x){ return x.classId === "c3"; })).length, 3);
+        eq("the status line says where it went", /^Saved “Red, from Ana” for Period 3\.$/.test(body.querySelector("#seqFlash").textContent), true);
+        eq("…and the name box is closed", !!body.querySelector("#seqName"), false);
+      });
+    });
+    guardAsync("saving refuses what cannot work, and a failed write is undone", function(){
+      feed(withSaved()); var db = fakeDb(true); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      var before = T.savedSequences().length;
+      return T.saveSequenceFor("u1", "Will fail").then(function(){ eq("(should have failed)", true, false); }, function(){
+        eq("a failed write leaves the class as it was", T.savedSequences().length, before);
+        return T.saveSequenceFor("u1", "   ");
+      }).then(function(){ eq("(should have failed)", true, false); }, function(e){
+        eq("a blank name is refused before any write", e.message + "/" + db.ops, "no name/1");
+        feed({ students: [kid("u7", "Nia", { classId: "" })], assignments: { u7: { plan: planDoc(), lists: ["red-1-say"] } } });
+        return T.saveSequenceFor("u7", "x");
+      }).then(function(){ eq("(should have failed)", true, false); }, function(e){
+        eq("a student in no class is refused, not written", e.message + "/" + db.ops, "no class/1");
+        var o = withSaved(); o.classes.c3.sequences = {};
+        for(var i=0;i<T.SAVED_MAX;i++) o.classes.c3.sequences["k" + i] = { name: "n" + i, steps: [{ ids: ["red-1-say"] }], bar: 0.9 };
+        feed(o); T.setDb(db); T.open("u1"); T.renderDetail();
+        return T.saveSequenceFor("u1", "one too many");
+      }).then(function(){ eq("(should have failed)", true, false); }, function(e){
+        eq("a class that already has 20 is refused", e.message, "full");
+        eq("…and the button says so, instead of failing", /already has 20 saved sequences\. Delete one first\./.test(body.querySelector("#seqSaveWhy").textContent) && body.querySelector('[data-seq="savedo-open"]').disabled, true);
+      });
+    });
+    guardAsync("rename and delete write the class document, and undo on failure", function(){
+      feed(withSaved()); var db = fakeDb(); T.setDb(db);
+      return T.renameSaved("c3", "s2", "  Renamed ").then(function(){
+        var w = db.log[0] || {};
+        eq("a rename writes the whole entry again with its new name, under that key (so one deleted meanwhile never comes back as a bare name)",
+           JSON.stringify(w.data), '{"sequences":{"s2":{"name":"Renamed","steps":[{"ids":["initial-blends"]}],"bar":0.9,"createdAt":3}}}');
+        eq("…onto classes/c3 as a merge", w.col + "/" + w.id + "/" + JSON.stringify(w.opts), 'classes/c3/{"merge":true}');
+        eq("…and the page has the new name", T.savedSequences().filter(function(x){ return x.key === "s2"; })[0].name, "Renamed");
+        return T.deleteSaved("c3", "s2");
+      }).then(function(){
+        var w = db.log[1] || {};
+        eq("a delete removes just that key (a field delete, not a new value)", JSON.stringify(w.data), '{"sequences":{"s2":"DEL"}}');
+        eq("…and the page no longer has it", T.savedSequences().some(function(x){ return x.key === "s2"; }), false);
+        eq("…and no student was written: deleting changes nobody", db.log.every(function(x){ return x.col === "classes"; }), true);
+        feed(withSaved()); var bad = fakeDb(true); T.setDb(bad);
+        return T.renameSaved("c3", "s2", "Nope");
+      }).then(function(){ eq("(should have failed)", true, false); }, function(){
+        eq("a failed rename puts the name back", T.savedSequences().filter(function(x){ return x.key === "s2"; })[0].name, "A first one");
+        return T.deleteSaved("c3", "s2");
+      }).then(function(){ eq("(should have failed)", true, false); }, function(){
+        eq("a failed delete puts the sequence back", T.savedSequences().some(function(x){ return x.key === "s2"; }), true);
+        return T.renameSaved("c3", "gone", "x");
+      }).then(function(){ eq("(should have failed)", true, false); }, function(){
+        eq("renaming or deleting one that is not there is refused", true, true);
+      });
+    });
+    guardAsync("the view's own buttons do it", function(){
+      feed(withSaved()); var db = fakeDb(); T.setDb(db);
+      body.hidden = false;
+      T.renderSequences();
+      var ren = body.querySelector('[data-svren="c3/s2"]'); ren.click();
+      body.querySelector("#svName").value = "Via the view";
+      body.querySelector("[data-svsave]").click();
+      return ticks(30).then(function(){
+        eq("Rename in the view writes the entry with the new name", JSON.stringify((db.log[0] || {}).data), '{"sequences":{"s2":{"name":"Via the view","steps":[{"ids":["initial-blends"]}],"bar":0.9,"createdAt":3}}}');
+        eq("…and the card shows it", body.querySelector('.svCard[data-sv="c3/s2"] .svName').textContent, "Via the view");
+        asked.length = 0;
+        body.querySelector('[data-svdel="c3/s2"]').click();
+        return ticks(30);
+      }).then(function(){
+        eq("Delete asks first, and says no student changes", /Delete “Via the view” from Period 3\?[\s\S]*deleting changes no student\./.test(asked[0] || ""), true);
+        eq("…then writes the field delete", JSON.stringify((db.log[1] || {}).data), '{"sequences":{"s2":"DEL"}}');
+        eq("…and the card is gone", !!body.querySelector('.svCard[data-sv="c3/s2"]'), false);
+        eq("…with a message", /^Deleted “Via the view”\.$/.test(body.querySelector("#svNote").textContent), true);
+      });
+    });
+    guardAsync("the name box: Enter saves, Escape cancels, a second press writes nothing more", function(){
+      feed(withSaved()); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      var open = body.querySelector('[data-seq="savedo-open"]');
+      eq("the button says whether the name box is open", open.getAttribute("aria-expanded"), "false");
+      open.click();
+      eq("…and true once it is", body.querySelector('[data-seq="savedo-open"]').getAttribute("aria-expanded"), "true");
+      body.querySelector("#seqName").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      eq("Escape in the name box cancels it", !!body.querySelector("#seqName"), false);
+      body.querySelector('[data-seq="savedo-open"]').click();
+      var box = body.querySelector("#seqName"); box.value = "Pressed twice";
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      body.querySelector('[data-seq="savedo-go"]') && body.querySelector('[data-seq="savedo-go"]').click();
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      return ticks(30).then(function(){
+        eq("Enter in the name box saves", db.log.length >= 1, true);
+        eq("…and pressing again while it saves writes nothing more (one write, not three)", db.log.length, 1);
+      });
+    });
+    guardAsync("switching student while a save finishes leaves the other student's page alone", function(){
+      feed(withSaved({ students: [ana(), kid("u2", "Ben Ortiz"), kid("u3", "Cy Park")] })); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="savedo-open"]').click();
+      body.querySelector("#seqName").value = "From Ana's page";
+      T.seqAct("savedo-go");
+      T.open("u2"); T.renderDetail();
+      var ben = body.querySelector("#seqFlash") && body.querySelector("#seqFlash").textContent;
+      return ticks(30).then(function(){
+        eq("the write stood", db.log.length, 1);
+        eq("…but Ben's page did not get Ana's message", (body.querySelector("#seqFlash") || { textContent: "" }).textContent.indexOf("From Ana") === -1, true);
+      });
+    });
+    guardAsync("giving a sequence to more than a batch is refused before any write", function(){
+      feed(fixture()); var db = fakeDb(); T.setDb(db);
+      var uids = []; for(var i=0;i<401;i++) uids.push("x" + i);
+      return T.giveSequence(uids, T.readyMadeSteps("red"), 0.9).then(function(){ eq("(should have been refused)", true, false); }, function(e){
+        eq("it is refused", e.message, "too many");
+        eq("…with nothing written", db.ops, 0);
       });
     });
     chain = chain.then(function(){ document.body.removeChild(chrome); });
