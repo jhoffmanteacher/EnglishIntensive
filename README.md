@@ -823,9 +823,11 @@ show the run goes red.
 It plays eight families of seeded schedules (`--list`) and compares the
 stored documents with its own ledger of what each virtual student did:
 
-- **C1 saved** — an answer on a page that loaded, followed by 3 s open with
+- **C1 saved** — an answer on a page that loaded, followed by 6 s open with
   the network up or by a hide, close, reload or Sign out with the network
-  up, is in `words[key]` with the right `n` and `r`.
+  up, is in `words[key]` with the right `n` and `r`. The 6 s is what the
+  store promises (a save within 5 s of the first unsent answer) plus the
+  slowest fake write and a margin — `OWED_OPEN_MS` in the tool.
 - **C2 no leak** — a student's doc holds only keys they answered, and a
   page's `EIStore.allStats()` only its own student's keys.
 - **C3 Sign out finishes** — within 10 s, offline or not, with the user
@@ -1483,9 +1485,13 @@ rules in that file matter before touching it:
   indistinguishable from a brand-new student. Writing then would overwrite
   a term of practice with nothing, so a failed load latches and holds back
   every write until a reload succeeds.
-- **Writes are debounced and must be flushed before sign-out.** The round
-  that ends with a student clicking "Sign out" is exactly the round most
-  likely to be lost. Sign-out waits for that flush, but for four seconds at
+- **Writes are debounced and must be flushed before sign-out.** A save
+  goes 1.2 s after the last answer, but never more than 5 s after the first
+  unsent one: a student clicking through Match it or the cards faster than
+  1.2 s an answer would otherwise put the save off until the round ended,
+  and a stalled network or a closed tab before then would take the whole
+  run with it. The round that ends with a student clicking "Sign out" is
+  exactly the round most likely to be lost. Sign-out waits for that flush, but for four seconds at
   most (the button reads "Signing out…" meanwhile): Firestore's write never
   settles on a stalled network, and a sign-out that hangs leaves the next
   student on the Chromebook in the last one's account, which is worse than

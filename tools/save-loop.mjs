@@ -70,10 +70,11 @@
    THE CHECKS. The answer key is the tool's own ledger of every answer (student, key, right first try, page, time)
    and of every tab event, network change and page load; it never asks store.js what was saved.
      C1 saved. An answer is OWED when it was recorded on a page whose load succeeded and afterwards EITHER the page
-        stayed open 3 s of virtual time with the network ok, OR the tab was hidden, closed, reloaded or signed out
-        while the network was ok. For every key with owed answers students/{uid}.words[key] exists; when every answer
-        to the key is owed its n and r equal the count of answers and of first-try-right answers, otherwise they lie
-        between the owed counts and all the counts. (two-tabs: words only.)
+        stayed open OWED_OPEN_MS (6 s: store.js's 5 s max wait + the slowest fake write + a margin) of virtual time
+        with the network ok, OR the tab was hidden, closed, reloaded or signed out while the network was ok. For every
+        key with owed answers students/{uid}.words[key] exists; when every answer to the key is owed its n and r equal
+        the count of answers and of first-try-right answers, otherwise they lie between the owed counts and all the
+        counts. (two-tabs: words only.)
      C2 no leak. Every key in students/{X}.words was answered by X, and the doc's email is X's. Every page, when its
         load finishes and at the end, holds in EIStore.allStats() only keys of its own student's doc or answers.
      C3 sign out finishes. Within 10 s of virtual time after Sign out is clicked, location.reload() was called and
@@ -111,7 +112,14 @@ const FAKE_FAULTS = {
 };
 const SITE_FILES = ["firebase-config.js", "auth.js", "adaptive.js", "word-lists.js", "store.js"];
 const EPOCH = Date.UTC(2026, 10, 2, 16, 0, 0);   // a Monday, 8 a.m. in California
-const OWED_OPEN_MS = 3000, SIGNOUT_LIMIT_MS = 10000;
+/* What the site promises, written down here rather than read from store.js, so a copy with the promise broken
+   (--root) is judged by the promise and not by itself. store.js sends a change no later than SAVE_MAX_WAIT_MS after
+   the first unsent one, however fast the answers come; the write then takes at most WRITE_RTT_MAX_MS on an ok
+   network; the margin covers the one write it may be queued behind (store.js chains writes) and the SDK's first load.
+   So an answer on a page that stays open OWED_OPEN_MS with the network ok must be on the server. */
+const SAVE_MAX_WAIT_MS = 5000, WRITE_RTT_MIN_MS = 40, WRITE_RTT_MAX_MS = 400, OWED_MARGIN_MS = 600;
+const OWED_OPEN_MS = SAVE_MAX_WAIT_MS + WRITE_RTT_MAX_MS + OWED_MARGIN_MS;   // 6 s
+const SIGNOUT_LIMIT_MS = 10000;
 
 /* ── arguments ─────────────────────────────────────────────────────── */
 function usage(msg) {
@@ -393,7 +401,7 @@ class Page {
   }
   send(op) {
     const w = this.w; op.state = "wire";
-    const t = Math.max(w.now + w.rng.int(40, 400), this.lastLand + 1);
+    const t = Math.max(w.now + w.rng.int(WRITE_RTT_MIN_MS, WRITE_RTT_MAX_MS), this.lastLand + 1);
     this.lastLand = t;
     w.at(t, () => this.land(op));          // no page: lands even if the tab has closed
   }

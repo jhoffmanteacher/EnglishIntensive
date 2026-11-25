@@ -1940,6 +1940,25 @@
     S._feed({ stats: {}, heard: {}, dirty: {}, dirtyHeard: {} });
     eq("payload omits heard when nothing changed",
        Object.prototype.hasOwnProperty.call(S.payload(), "heard"), false);
+
+    // The save debounce has a ceiling. A student answering faster than the
+    // debounce would otherwise never let it fire; the first unsent change
+    // goes out within SAVE_MAX_WAIT_MS however fast the next ones come.
+    var DB = S.SAVE_DEBOUNCE_MS, MX = S.SAVE_MAX_WAIT_MS, T9 = 1795563000000;
+    eq("the max wait is 5 s and longer than the debounce", MX === 5000 && MX > DB, true);
+    eq("a first change waits the plain debounce", S.saveDelay(T9, T9), DB);
+    eq("…and so does one with nothing older waiting", S.saveDelay(T9, 0), DB);
+    eq("a change 2 s into a burst still waits the debounce", S.saveDelay(T9 + 2000, T9), DB);
+    eq("4.5 s into a burst the save waits only what is left", S.saveDelay(T9 + 4500, T9), 500);
+    eq("at the ceiling it goes now", S.saveDelay(T9 + MX, T9), 0);
+    eq("past it, never a negative wait", S.saveDelay(T9 + MX + 900, T9), 0);
+    (function(){
+      // A burst of answers 400 ms apart: the old trailing debounce never
+      // fired while it lasted; with the ceiling a save is due by 5 s.
+      var first = T9, t = T9, due = Infinity;
+      for(var i = 0; i < 30 && t < due; i++){ due = t + S.saveDelay(t, first); t += 400; }
+      eq("a 400 ms burst is saved no later than 5 s after its first answer", due - first <= MX, true);
+    })();
   })();
 
   /* ══════════════════════════════════════════════════════════════════

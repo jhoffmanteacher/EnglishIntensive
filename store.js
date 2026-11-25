@@ -31,7 +31,9 @@
       latches and every write is held back until a reload succeeds.
    2. Writes are debounced, and the debounce has to be flushed before
       sign-out (and when the page is hidden or closed — flushOnHide). A round of practice that ends with the student clicking
-      "Sign out" is exactly the round most likely to be lost.
+      "Sign out" is exactly the round most likely to be lost. The debounce
+      also has a ceiling (SAVE_MAX_WAIT_MS): a student answering faster than
+      it would otherwise never let it fire — see scheduleSave.
 
    ── Whose class ───────────────────────────────────────────────────────
    The roster row's `classId` and `teachers` say which class this student
@@ -104,6 +106,7 @@ window.EIStore = (function(){
   "use strict";
 
   var SAVE_DEBOUNCE_MS = 1200;
+  var SAVE_MAX_WAIT_MS = 5000;  // the longest an answer waits unsent — see scheduleSave
   var RECENT_CAP = 40;          // finished rounds kept on the doc
   var LOCAL_KEY = "eiStats:";   // + uid — offline mirror, see below
 
@@ -128,6 +131,7 @@ window.EIStore = (function(){
   var dirtyFluency = {};        // fluency lists changed since the last write
   var dirtyMeta = false;
   var saveTimer = null, inFlight = null;
+  var firstUnsent = 0;          // Date.now() of the oldest change not yet taken by flush(); 0 = none
   var retryMs = 0;              // 0 = last save worked; else the next retry's wait
 
   var readyResolve = null;
@@ -397,10 +401,30 @@ window.EIStore = (function(){
   }
 
   /* ── saving ──────────────────────────────────────────────────────── */
+
+  /* How long to wait before the next save. A trailing debounce on its own
+     — wait 1.2 s after the LAST change — is starved by a fast student:
+     Match it clicks and "Got it" on the cards come quicker than that, so
+     every answer pushes the save back again and nothing is written until
+     the round ends. If the Wi-Fi stalls or the tab dies before then, the
+     whole run of answers goes with it. So the wait is also capped by the
+     age of the OLDEST unsent change: once that is SAVE_MAX_WAIT_MS old, the
+     save goes now, however fast the answers keep coming. 5 s bounds what a
+     dead network or a crashed tab can cost. It does not raise the write
+     rate for ordinary play, where answers are already more than 1.2 s
+     apart and each one is its own write; only a burst gets one write
+     every 5 s instead of none. Pure, so tests.html can pin it. */
+  function saveDelay(now, first){
+    if(!first) return SAVE_DEBOUNCE_MS;
+    return Math.max(0, Math.min(SAVE_DEBOUNCE_MS, first + SAVE_MAX_WAIT_MS - now));
+  }
+
   function scheduleSave(){
     if(loadFailed || preview || !uid || (user && user._dev)) return;
+    var now = Date.now();
+    if(!firstUnsent) firstUnsent = now;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(function(){ flush(); }, SAVE_DEBOUNCE_MS);
+    saveTimer = setTimeout(function(){ flush(); }, saveDelay(now, firstUnsent));
   }
 
   function payload(){
@@ -437,11 +461,20 @@ window.EIStore = (function(){
     clearTimeout(saveTimer); saveTimer = null;
     if(loadFailed || preview || !uid || (user && user._dev)) return Promise.resolve();
     if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length &&
-       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyClass && !dirtySeqs[0] && !dirtySeqs[1]) return inFlight || Promise.resolve();
+       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyClass && !dirtySeqs[0] && !dirtySeqs[1]){
+      firstUnsent = 0;            // nothing waiting, so nothing is old
+      return inFlight || Promise.resolve();
+    }
     var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
     var sendingClass = dirtyClass, sendingSeqs = dirtySeqs.slice();
     var body = payload();
     dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyClass = null; dirtySeqs = [false, false];
+    /* Everything waiting is taken, so the max-wait clock starts again with
+       the next change. A failed write below puts its keys back but NOT this
+       time: the retry timer owns them, and an old time here would make
+       every later answer save at once — a tight loop against a failing
+       write. The next answer starts a fresh 5 s like any other. */
+    firstUnsent = 0;
     /* Chained behind whatever is already on the wire, never alongside it:
        two overlapping writes could land out of order, and the older
        one's cleanup must not make inFlight look empty while this one is
@@ -484,7 +517,7 @@ window.EIStore = (function(){
     return me;
   }
 
-  /* The debounce means the last ~1.2 s of answers are only in memory.
+  /* The debounce means the last ~1.2 s of answers (5 s at most) are only in memory.
      Closing the tab or the Chromebook lid would drop them, so commit them
      the moment the page is hidden or going away. `pagehide` covers a
      close or navigation; `visibilitychange` to "hidden" covers a lid,
@@ -681,6 +714,9 @@ window.EIStore = (function(){
       // through the same recordHeard() a game calls.
       payload: payload,
       flushOnHide: flushOnHide,
+      saveDelay: saveDelay,
+      SAVE_DEBOUNCE_MS: SAVE_DEBOUNCE_MS,
+      SAVE_MAX_WAIT_MS: SAVE_MAX_WAIT_MS,
       _feed: function(st){
         uid = st.uid || "test"; user = { _dev:true };
         stats = st.stats || {}; heard = st.heard || {}; fluency = st.fluency || {};
