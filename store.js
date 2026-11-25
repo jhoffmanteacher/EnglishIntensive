@@ -76,6 +76,18 @@
    what the student would see. Nothing is written while previewing — not
    to the student (the rules would refuse it anyway) and not to the
    teacher's own doc either. Ignored for anyone who isn't a teacher.
+
+   ── The test student ──────────────────────────────────────────────────
+   index.html?as=test, opened from the dashboard's Test student panel,
+   turns a TEACHER's own account into a student for that browser tab:
+   seesEverything() goes false, so myLists() is only what the teacher gave
+   their test student (assignments/{their uid}), a sequence moves, and
+   everything played is saved — to the teacher's own students/{uid}, which
+   is the test student's record. Unlike a preview it IS written; that is
+   the point, it is how a sequence is tried for real. The mode lives in
+   sessionStorage, so it belongs to one tab: the teacher's other tabs stay
+   the teacher's, and closing the tab ends it. Ignored for anyone who
+   isn't a teacher.
    ════════════════════════════════════════════════════════════════════ */
 
 window.EIStore = (function(){
@@ -99,6 +111,7 @@ window.EIStore = (function(){
   var dirtySeq = false;         // the mark moved and hasn't been written
   var dirtyClass = null;        // the roster's, when it needs copying
   var preview = null;           // { id, name, failed } while a teacher previews
+  var asTest = false;           // a teacher playing as their test student, this tab
   var loadFailed = false;
   var dirty = {};               // stat keys changed since the last write
   var dirtyHeard = {};          // heard keys changed since the last write
@@ -226,6 +239,28 @@ window.EIStore = (function(){
     try{ return decodeURIComponent(m[1].replace(/\+/g, " ")) || null; }catch(e){ return null; }
   }
 
+  /* ?as=test in the address, or "" . Pure. */
+  function asParam(search){
+    var m = /[?&]as=([^&#]*)/.exec(String(search || ""));
+    return m ? m[1] : "";
+  }
+  var TEST_KEY = "ei.asTest";   // sessionStorage: one tab's mode, gone when it closes
+  /* Whether this page load plays as the test student. Only a teacher can;
+     ?as=test turns it on for this tab and it then holds across the pages a
+     tab walks through (home → game → home), none of which carry the
+     address. Anyone else's flag is ignored and left alone. */
+  function wantTest(search, isTeacher){
+    if(!isTeacher) return false;
+    try{
+      if(asParam(search) === "test") sessionStorage.setItem(TEST_KEY, "1");
+      return sessionStorage.getItem(TEST_KEY) === "1";
+    }catch(e){ return false; }
+  }
+  function leaveTest(){
+    try{ sessionStorage.removeItem(TEST_KEY); }catch(e){}
+    asTest = false;
+  }
+
   /* A teacher looking at one student's home page. Read-only from start
      to finish: `preview` being set is what turns every write below into
      a no-op, and the local mirror is never touched. A read that fails
@@ -253,7 +288,7 @@ window.EIStore = (function(){
         fluency = Adaptive.sanitizeFluency(d.fluency);
         assignment = snaps[1].exists ? snaps[1].data() : null;
         seq = Adaptive.sanitizeSeq(d.seq);
-        preview.name = d.name || d.email || "this student";
+        preview.name = (assignment && assignment.test === true) ? "Test student" : (d.name || d.email || "this student");
         var em = String(d.email || "").toLowerCase();
         return em ? db.collection("roster").doc(em).get().then(function(r){
           rosterRow = r.exists ? r.data() : null;
@@ -273,6 +308,7 @@ window.EIStore = (function(){
     uid = u.uid; user = u;
     var pv = previewParam(location.search);
     if(pv && !u._dev && EIAuth.isTeacher()) return loadPreview(pv);
+    asTest = !u._dev && wantTest(location.search, EIAuth.isTeacher());
     stats = readLocal();       // something sensible to work with either way
 
     if(u._dev){                // dev bypass never authenticates — stay local
@@ -479,9 +515,10 @@ window.EIStore = (function(){
   /* The teacher and the localhost dev bypass see every list: the teacher
      to try a game before assigning it, the bypass so a game can be opened
      locally without an account. Nobody else is handed a list they
-     weren't given. */
+     weren't given. A teacher playing as their test student is the one
+     teacher who doesn't: they see what the test student was given. */
   function seesEverything(){
-    return !!(window.EIAuth && (EIAuth.isTeacher() || EIAuth.isDev()));
+    return !asTest && !!(window.EIAuth && (EIAuth.isTeacher() || EIAuth.isDev()));
   }
 
   function myLists(){
@@ -554,8 +591,14 @@ window.EIStore = (function(){
     failed: function(){ return loadFailed; },
     // { id, name, failed } while a teacher previews a student, else null.
     preview: function(){ return preview ? { id: preview.id, name: preview.name, failed: preview.failed } : null; },
+    // True while a teacher is playing as their test student in this tab.
+    asTest: function(){ return asTest; },
+    leaveTest: leaveTest,
     _internals: {
       previewParam: previewParam,
+      asParam: asParam,
+      wantTest: wantTest,
+      TEST_KEY: TEST_KEY,
       effectiveLists: effectiveLists,
       effectivePlan: effectivePlan,
       resolve: resolve,
@@ -574,6 +617,7 @@ window.EIStore = (function(){
         assignment = st.assignment || null; rosterRow = st.roster || null;
         seq = st.seq ? Adaptive.sanitizeSeq(st.seq) : null; dirtySeq = false;
         preview = st.preview || null; loadFailed = !!st.loadFailed; pos = null;
+        asTest = !!st.asTest;
       },
       seq: function(){ return seq; },
       dirtySeq: function(){ return dirtySeq; }

@@ -1529,7 +1529,9 @@ The views:
   cards**, all counts of students and all inside the filter. Tick rows and
   **Give a sequence to N selected…** to put several students on one. Two CSV
   exports live here too. On an empty class the view is a three-step *Get
-  started*.
+  started*. Under the table, the **Test student** panel (*The test student*,
+  below) — a student of the teacher's own to try things on, kept out of every
+  count here.
 - **Trouble spots** — the same words aggregated across the class, sorted
   by *how many students* are struggling with each rather than by raw
   accuracy, so one student's bad day doesn't top the list. This is the
@@ -1589,6 +1591,82 @@ save path in `store.js` is a no-op, including the teacher's own doc and the
 local mirror. A tile still opens the game page, which has no `?preview` and
 so plays as the teacher, saving only to the teacher's own record — which is
 what the banner promises.
+
+### The test student
+
+A teacher can try the whole site — give a list, give a sequence, play it,
+watch the dashboard follow — without touching a real class. The **Test
+student** panel sits under the Students table (and under *Get started* when
+a teacher has no students yet): *Add a test student*, then *Open their page*
+and *Play as test student*.
+
+**It is the teacher's own account.** Nothing else could work without a
+rules change: a student writes only their own `students/{uid}`, so a made-up
+uid could never accumulate practice, and a roster-row ("pending") student
+can only be previewed, read-only. The teacher's own uid already has a
+`students/{uid}` they may write, an `assignments/{uid}` they may write for
+anyone, and no new collection is involved — **`firestore.rules` did not
+change**, so there is nothing to re-publish.
+
+**What marks it** is `test: true` on the teacher's own `assignments/{uid}`.
+That document carries its lists and sequence like anyone's, plus the class
+stamp the rules want on every write (`addTestStudent()`: the first class
+the teacher teaches by name, or a class called *Test class* made on the
+spot for a teacher with none; empty `lists` only when there was no
+assignment already, so adding never clobbers one). `buildTestStudent()`
+turns that doc and the teacher's own student doc into a student; the
+dashboard names it *Test student* whatever the account is called.
+
+**It is in no list.** It is not in `students` or `everyone`, and every
+count, table, class filter, Trouble spots, both CSVs and each class's size
+are made from those two, so none of them can include it and none had to be
+taught to leave it out. `studentByUid()` falls back to it, which is all its
+own page (the sequence editor, the numbers, notes) needs: `positionOf`,
+`planFor`, `saveSeq` and `notePanelHtml` all reach a student through it. Its
+page drops the Class, Roster-row and Archive panels — there is nothing to
+move, import or hide — and gains a strip with *Play as*, *Reset practice*
+and *Remove*. A class that holds it shows "· your test student" and has no
+Delete button (a class counts as empty without it, and deleting one under
+it would strand it); `restampBody()` includes its assignment when that
+class's teachers change. Self-heal (`healBody`) does not reach it — it
+works from `raw.students`, which leaves teachers out. Taking *yourself* off
+the class that holds it removes the test student first (`dropTestStudent()`),
+because afterwards the rules would no longer let you write it; add one again
+when you are on a class. If a *co-teacher* takes you off, or deletes the
+class, it is left holding a stamp you can't write with: its page opens but
+saving a list is refused, and *Remove* is the way out (it needs only that your
+address is still on the document).
+
+**Play as test student** opens `index.html?as=test`. `store.js` turns that,
+for a teacher, into a flag in `sessionStorage` (`ei.asTest`) — per tab, so
+the teacher's other tabs stay the teacher's and closing the tab ends it, and
+it holds across home → game → home, none of which carry the address.
+`seesEverything()` is then false, so `myLists()`, `plan()` and `settle()`
+are exactly a student's and a sequence moves (and writes its `seq` mark).
+Unlike a preview it **writes**: plays are saved to the teacher's own
+`students/{uid}`, which *is* the test student's practice. A thin strip
+(`#ei-testbar`, in `practice.js` so every game page gets it) says so and
+holds *Back to teacher view*, which flushes the last round before leaving.
+It is pinned to the top, the body is padded down by its height
+(`site.css` is border-box, so a `height:100%` body shrinks its content
+rather than scrolling), and the games' fixed Home link and account chip
+move down with it (`--ei-strip-h`). Two other places were tried and failed
+on the game pages: a floating pill and a bottom strip both covered Start and
+Shuffle, and a strip in the flow became a box beside the game, because those
+pages' `<body>` is a centred flex row.
+
+**Reset** (`resetBody()`) deletes `words`, `heard`, `fluency` and `seq` from
+the teacher's own student doc, zeroes the totals, and clears the device's
+mirror and "new list" note (`eiStats:<uid>`, `ei.plan.seen:<uid>`); the
+lists and sequence stay. **Remove** does that and then deletes the
+assignment — and the note only when there is one, because the rules error on
+deleting a document that doesn't exist (there is no `resource` to check).
+Both write a clear note beside the buttons and leave the panel as it was on
+failure.
+
+The admin's load reads every teacher's assignments, so other teachers'
+test-student documents are present on the admin's page; only the one for
+the admin's own uid is ever looked up.
 
 ### One rule: a student sees what they were given
 
@@ -2083,6 +2161,10 @@ a sequence, a `plan` beside it (see *Sequences*). The families, the
 modes and the picker's grid are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.
+
+A teacher's test student (see *The test student*) is the same
+`assignments/{uid}` with `test: true`, on the teacher's *own* uid; its
+practice is the teacher's own `students/{uid}`.
 
 `classes/{classId}` holds one class: its name, its teachers and its
 archived students, read and written by its teachers and the admin.

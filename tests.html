@@ -5080,6 +5080,637 @@
     chain = chain.then(function(){ document.body.removeChild(chrome); });
   })();
 
+  /* ══════════════════════════════════════════════════════════════════
+     The test student — a teacher's own account, acting as a student
+
+     The data model is one flag, `test: true`, on the teacher's own
+     assignments/{uid}. store.js turns ?as=test into a per-tab mode that
+     makes the teacher see only what that assignment gives; practice.js
+     draws a pill while it is on; teacher.js keeps the test student out of
+     `students` and `everyone`, so it is in no count, table, filter, export
+     or class size, and gives it a page, a panel and three writes (add,
+     reset, remove). Pinned here: the pure parts, what each page draws,
+     and the exact documents each write sends.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals, A5 = window.Adaptive, S5 = window.EIStore._internals;
+    var P5 = window.EIPractice._internals, ST5 = window.EIStore;
+    var body = document.getElementById("tBody");
+    var ME = "t@seq.org", MEUID = "me-uid";
+    var realConfirm = window.confirm, realOpen = window.open, realTeacher = window.EIAuth.isTeacher, realAuthDb = window.EIAuth.db;
+    var KEY = S5.TEST_KEY, LS_STATS = "eiStats:" + MEUID, LS_SEEN = "ei.plan.seen:" + MEUID;
+    var savedKey = null;
+    try{ savedKey = sessionStorage.getItem(KEY); sessionStorage.removeItem(KEY); }catch(e){}
+    function clearKey(){ try{ sessionStorage.removeItem(KEY); }catch(e){} }
+    function getKey(){ try{ return sessionStorage.getItem(KEY); }catch(e){ return "?"; } }
+    function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return "?"; } }
+    function lsSet(){ try{ localStorage.setItem(LS_STATS, "{}"); localStorage.setItem(LS_SEEN, "{}"); }catch(e){} }
+    function lsClear(){ try{ localStorage.removeItem(LS_STATS); localStorage.removeItem(LS_SEEN); }catch(e){} }
+    function asTeacher(on, fn){
+      window.EIAuth.isTeacher = function(){ return on; };
+      try{ return fn(); } finally{ window.EIAuth.isTeacher = realTeacher; }
+    }
+    function merge(){
+      var out = {}, i, k;
+      for(i=0;i<arguments.length;i++) for(k in arguments[i]) out[k] = arguments[i][k];
+      return out;
+    }
+    function solid(listId, n){
+      var out = {}, i;
+      for(i=0;i<n;i++) out[listId + "|w" + i] = A5.sanitizeStat({ n:12, r:12, box:5, last:1, lat:900 });
+      return out;
+    }
+    function guardS(name, fn){
+      try{ fn(); }
+      catch(e){ results.push({ pass:false, desc: name + " — threw", detail: String(e && e.message || e) }); }
+      finally{ T.reset(); T.feed({}); body.innerHTML = ""; body.hidden = true; }
+    }
+
+    /* The fixture: a teacher with two classes and one real student, plus —
+       when asked — the test student in Period 3. */
+    var PLAN = { steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] }], bar: 0.9, at: 0, hold: false, setAt: 1000 };
+    function testAssign(extra){ return merge({ test: true, lists: ["red-1-say"], classId: "c3", teachers: [ME] }, extra); }
+    function ownDoc(){ return { words: solid("red-1-say", 3), totals: { n: 7, r: 5 }, recent: [{ at: 5 }], lastSeen: 99 }; }
+    function kid(uid, name){
+      return { uid: uid, name: name, email: uid + "@seq.org", classId: "c3", stats: solid("red-1-say", 4), heard: {}, fluency: {},
+               totals: { n:0, r:0 }, recent: [], lastSeen: 0 };
+    }
+    function world(withTest, extra){
+      var assignments = { u1: { lists: ["red-1-say"], classId: "c3", teachers: [ME] } };
+      var ts = null;
+      if(withTest){
+        assignments[MEUID] = testAssign((extra || {}).assignment);
+        ts = T.buildTestStudent(MEUID, assignments[MEUID], ownDoc());
+      }
+      var st = { me: ME, meUid: MEUID, testStudent: ts, assignments: assignments, students: [kid("u1", "Ana Ruiz")],
+                 classes: { c3: { name: "Period 3", teachers: [ME] }, c5: { name: "Period 5", teachers: [ME] } } };
+      for(var k in (extra || {})) if(k !== "assignment") st[k] = extra[k];
+      return st;
+    }
+
+    // ---- store.js: ?as=test, and what a test student is given ----
+    guardS("store.js: the address and the flag", function(){
+      clearKey();
+      eq("asParam reads ?as=test", S5.asParam("?as=test"), "test");
+      eq("…among other parameters", S5.asParam("?x=1&as=test&y=2"), "test");
+      eq("…and finds nothing on a normal visit", S5.asParam(""), "");
+      eq("…nor in a parameter that merely ends in as", S5.asParam("?has=test"), "");
+      eq("…nor an empty one", S5.asParam("?as="), "");
+      eq("a student asking for test mode is ignored", S5.wantTest("?as=test", false), false);
+      eq("…and nothing is stored", getKey(), null);
+      eq("a teacher with no parameter and no flag is not testing", S5.wantTest("", true), false);
+      eq("…and one who asks for something else is not testing", S5.wantTest("?as=teacher", true), false);
+      eq("…and nothing is stored", getKey(), null);
+      eq("a teacher with ?as=test is testing", S5.wantTest("?as=test", true), true);
+      eq("…it is kept in sessionStorage (this tab only)", getKey(), "1");
+      eq("…and holds across pages that carry no address", S5.wantTest("", true), true);
+      eq("…but a student on that tab is not made a test student", S5.wantTest("", false), false);
+      eq("…and their being refused leaves the flag where it was", getKey(), "1");
+      try{ sessionStorage.setItem(KEY, "0"); }catch(e){}
+      eq("only the value 1 turns it on", S5.wantTest("", true), false);
+      ST5.leaveTest();
+      eq("leaveTest clears the flag", getKey(), null);
+      eq("…so the next page is a teacher's page again", S5.wantTest("", true), false);
+      S5._feed({ asTest: true });
+      eq("asTest() reports the mode", ST5.asTest(), true);
+      ST5.leaveTest();
+      eq("leaveTest turns it off in this page too", ST5.asTest(), false);
+      S5._feed({});
+      eq("a page that is not testing says so", ST5.asTest(), false);
+    });
+    guardS("store.js: a test student sees only what they were given", function(){
+      var LISTS = ["red-1-say", "initial-blends"];
+      asTeacher(true, function(){
+        S5._feed({ assignment: { lists: LISTS } });
+        eq("a teacher normally sees every list", ST5.seesEverything(), true);
+        eq("…more than the two they were given", ST5.myLists().length > LISTS.length, true);
+        S5._feed({ asTest: true, assignment: { lists: LISTS } });
+        eq("a teacher testing no longer sees everything", ST5.seesEverything(), false);
+        eq("…myLists is exactly the test student's lists", ST5.myLists().join(","), LISTS.join(","));
+        S5._feed({ asTest: true, assignment: null });
+        eq("…and with nothing given, nothing", ST5.myLists().length, 0);
+
+        var done1 = merge(solid("red-1-say", 18), solid("red-1-cards", 18));
+        S5._feed({ assignment: { plan: PLAN }, stats: done1 }); S5.settle();
+        eq("a teacher normally has no plan() and writes no mark", ST5.plan() === null && S5.dirtySeq() === false, true);
+        S5._feed({ asTest: true, assignment: { plan: PLAN }, stats: {} }); S5.settle();
+        eq("a test student has a plan(): step 1 of 2", ST5.plan().index + "/" + ST5.plan().count, "0/2");
+        eq("…and myLists is step 1's lists", ST5.myLists().join(","), "red-1-say,red-1-cards");
+        S5._feed({ asTest: true, assignment: { plan: PLAN }, stats: done1 }); S5.settle();
+        eq("finishing step 1 moves a test student to step 2", ST5.plan().index, 1);
+        eq("…and the mark is queued to be saved, as for any student", S5.dirtySeq(), true);
+        eq("…in the payload for the teacher's own students/ doc", S5.payload().seq && S5.payload().seq.at, 1);
+      });
+      S5._feed({});
+    });
+
+    // ---- practice.js: the pill ----
+    guardS("practice.js: the pill", function(){
+      var CSS = function(){ return Array.prototype.filter.call(document.head.querySelectorAll("style"), function(s){ return s.textContent.indexOf("#ei-testbar") !== -1; }); };
+      var styles0 = CSS().length;
+      try{
+        S5._feed({});
+        P5.testBar();
+        eq("no pill when not testing", document.getElementById("ei-testbar"), null);
+        S5._feed({ asTest: true });
+        P5.testBar();
+        var bar = document.getElementById("ei-testbar");
+        eq("the pill appears while testing", !!bar, true);
+        eq("…says whose practice this is", /test student/i.test(bar ? bar.textContent : ""), true);
+        eq("…is announced as status, not a dialog", bar && bar.getAttribute("role"), "status");
+        eq("…and has one button, back to the teacher view", Array.prototype.map.call(bar ? bar.querySelectorAll("button") : [], function(b){ return b.textContent; }).join("|"), "Back to teacher view");
+        P5.testBar();
+        eq("calling it again does not add a second pill", document.querySelectorAll("#ei-testbar").length, 1);
+        eq("…nor a second stylesheet", CSS().length - styles0, 1);
+      } finally {
+        var b2 = document.getElementById("ei-testbar"); if(b2) b2.parentNode.removeChild(b2);
+        CSS().slice(styles0).forEach(function(s){ s.parentNode.removeChild(s); });
+        S5._feed({});
+      }
+    });
+
+    // ---- teacher.js: building it ----
+    guardS("the test student is built from the assignment and the teacher's own doc", function(){
+      var a = testAssign();
+      eq("no uid, no test student", T.buildTestStudent("", a, null), null);
+      eq("no assignment, no test student", T.buildTestStudent(MEUID, undefined, null), null);
+      eq("an assignment without the flag is not one", T.buildTestStudent(MEUID, { lists: ["red-1-say"] }, null), null);
+      eq("…nor test: false", T.buildTestStudent(MEUID, { test: false }, null), null);
+      eq("…nor a flag that is merely truthy", T.buildTestStudent(MEUID, { test: "true" }, null), null);
+      var bare = T.buildTestStudent(MEUID, a, null);
+      eq("test: true builds one, with no practice yet", !!bare && bare.uid === MEUID && bare.test === true, true);
+      eq("…named Test student, with no email or photo", bare.name + "|" + bare.email + "|" + bare.photo, "Test student||");
+      eq("…in the class its assignment names", bare.classId, "c3");
+      eq("…with empty stats, heard and fluency", [bare.stats, bare.heard, bare.fluency].map(function(o){ return Object.keys(o).length; }).join(","), "0,0,0");
+      eq("…zero totals, no recent rounds, never seen", JSON.stringify(bare.totals) + JSON.stringify(bare.recent) + bare.lastSeen, '{"n":0,"r":0}[]0');
+      var full = T.buildTestStudent(MEUID, a, ownDoc());
+      eq("the teacher's own doc is their practice: words", Object.keys(full.stats).length, 3);
+      eq("…totals", JSON.stringify(full.totals), '{"n":7,"r":5}');
+      eq("…recent rounds and last seen", full.recent.length + "/" + full.lastSeen, "1/99");
+      eq("a class-less assignment still builds one, with no class", T.buildTestStudent(MEUID, { test: true }, null).classId, "");
+    });
+    guardS("resetBody clears the practice and nothing else", function(){
+      var w = T.resetBody(MEUID);
+      eq("it is the teacher's own students/ doc", w.col + "/" + w.id, "students/" + MEUID);
+      eq("…and exactly the practice fields", Object.keys(w.data).sort().join(","), "fluency,heard,lastSeen,recent,seq,totals,words");
+      eq("…words, heard, fluency and the place in a sequence are deleted (all the same marker)",
+         [w.data.heard, w.data.fluency, w.data.seq].every(function(v){ return v === w.data.words; }) && typeof w.data.words === "string", true);
+      eq("…totals, recent and last seen are zeroed", JSON.stringify([w.data.totals, w.data.recent, w.data.lastSeen]), '[{"n":0,"r":0},[],0]');
+    });
+
+    guardS("resetBody carries the address when it has one, so a doc it creates is never an anonymous student", function(){
+      var w = T.resetBody(MEUID, "T@seq.org");
+      eq("the address goes in exactly as given", w.data.email, "T@seq.org");
+      eq("…and not at all when there is none", "email" in T.resetBody(MEUID).data, false);
+    });
+    // ---- teacher.js: left out of every count ----
+    guardS("the test student is in no count, table, filter or export", function(){
+      T.feed(world(false));
+      var NOW = Date.now();
+      var without = { counts: JSON.stringify(T.summaryCounts(T.classStudents(), NOW)), uids: T.studentUids().join(","),
+                      roster: T.rosterCsv(), words: T.wordsCsv(), segs: JSON.stringify(T.filterSegments(T.classStudents())) };
+      T.feed(world(true));
+      eq("the real students are still counted: one", T.summaryCounts(T.classStudents(), NOW).students, 1);
+      eq("the four cards are the same with and without a test student", JSON.stringify(T.summaryCounts(T.classStudents(), NOW)), without.counts);
+      eq("studentUids leaves it out", T.studentUids().join(","), without.uids);
+      eq("…and so does the class filter", JSON.stringify(T.filterSegments(T.classStudents())), without.segs);
+      eq("the roster CSV is identical", T.rosterCsv(), without.roster);
+      eq("…and never names it", T.rosterCsv().indexOf("Test student"), -1);
+      eq("the words CSV is identical, though the test student has attempted words", T.wordsCsv(), without.words);
+      eq("…and has no rows from it", T.wordsCsv().indexOf("Test student"), -1);
+      eq("the class filter does not list it", T.classStudents().map(function(s){ return s.uid; }).join(","), "u1");
+      eq("studentByUid still finds it, for its page", !!T.studentByUid(MEUID) && T.studentByUid(MEUID).test === true, true);
+      eq("…and is the one getTestStudent returns", T.studentByUid(MEUID) === T.getTestStudent(), true);
+      eq("an unknown uid is still null", T.studentByUid("nobody"), null);
+      T.feed(world(false));
+      eq("with none, studentByUid finds nothing for that uid", T.studentByUid(MEUID), null);
+    });
+    guardS("a feed with no test student leaves none behind", function(){
+      T.feed(world(true));
+      T.feed(world(false));
+      eq("the next feed starts clean", T.getTestStudent(), null);
+    });
+
+    // ---- teacher.js: what the pages draw ----
+    guardS("the Students view offers the panel", function(){
+      T.feed(world(false));
+      T.renderRoster();
+      eq("without one: the panel offers to add it", !!body.querySelector("#tTestAdd"), true);
+      eq("…and has no Open or Play yet", !!body.querySelector("#tTestOpen") || !!body.querySelector("#tTestPlay"), false);
+      eq("…and says it is never counted in a class", /never counted in a class/.test(body.querySelector(".testPanel").textContent), true);
+      eq("…the table has just the real student", body.querySelectorAll("tr.clickable").length, 1);
+      T.feed(world(true));
+      T.renderRoster();
+      eq("with one: Open their page and Play as test student", !!body.querySelector("#tTestOpen") && !!body.querySelector("#tTestPlay"), true);
+      eq("…and no Add", !!body.querySelector("#tTestAdd"), false);
+      eq("…the table still has just the real student", body.querySelectorAll("tr.clickable").length, 1);
+      eq("…no row for the test student", !!body.querySelector('tr[data-uid="' + MEUID + '"]'), false);
+      eq("…the four cards are still four", body.querySelectorAll(".sumCard").length, 4);
+      eq("…and the panel says where it is", /Your own account, set up as a student/.test(body.querySelector(".testPanel").textContent), true);
+    });
+    guardS("the panel is under Get started when there are no real students", function(){
+      var w = world(false); w.students = []; w.assignments = {};
+      T.feed(w); T.renderRoster();
+      eq("Get started is drawn", /Get started/.test(body.textContent), true);
+      eq("…with the Add button under it", !!body.querySelector("#tTestAdd"), true);
+      w = world(true); w.students = []; delete w.assignments.u1;
+      T.feed(w); T.renderRoster();
+      eq("with a test student and no real ones: Get started and Open their page", /Get started/.test(body.textContent) && !!body.querySelector("#tTestOpen"), true);
+    });
+    guardS("the test student's own page", function(){
+      T.feed(world(true));
+      T.open(MEUID); T.renderDetail();
+      eq("it draws the strip: Play, Reset, Remove", ["tTestPlay", "tTestReset", "tTestRemove"].every(function(id){ return !!body.querySelector("#" + id); }), true);
+      eq("…headed Test student, as your own account", /Test student/.test(body.querySelector(".stuHead").textContent) && /Your account, as a student/.test(body.querySelector(".stuHead").textContent), true);
+      eq("…with no Class panel", !!body.querySelector("#tClass"), false);
+      eq("…no Archive panel", !!body.querySelector("#tArchive") || /Archive/.test(Array.prototype.map.call(body.querySelectorAll("h2"), function(h){ return h.textContent; }).join("|")), false);
+      eq("…no Roster row panel", /Roster row/.test(body.textContent), false);
+      eq("…and its lists tab is its own assignment's: Red Words · List 1", /Red Words/.test(body.textContent), true);
+      var opened = [], playBtn = body.querySelector("#tTestPlay");
+      window.open = function(){ opened.push([].slice.call(arguments).join(" ")); return null; };
+      try{ playBtn.click(); } finally{ window.open = realOpen; }
+      eq("Play as test student opens index.html?as=test in a new tab", opened.join("|"), "index.html?as=test _blank noopener");
+
+      T.feed(world(true));
+      T.open("u1"); T.renderDetail();
+      eq("a real student's page has Class and Archive and no test strip", !!body.querySelector("#tClass") && !!body.querySelector("#tArchive") && !body.querySelector("#tTestReset"), true);
+
+      T.feed(world(true)); T.reset(); T.renderRoster();
+      body.querySelector("#tTestOpen").click();
+      eq("Open their page goes to it", !!body.querySelector("#tTestReset"), true);
+      body.querySelector("#tBack").click();
+      eq("…and Back returns to the Students view", !!body.querySelector("#tTestOpen") && !body.querySelector("#tTestReset"), true);
+    });
+    guardS("the Classes view: the class holding the test student", function(){
+      T.feed(world(true));
+      T.renderGroups();
+      var cards = Array.prototype.slice.call(body.querySelectorAll(".clsCard"));
+      function card(name){ return cards.filter(function(c){ return c.querySelector("b").textContent === name; })[0]; }
+      eq("the class it lives in says so", /1 student · your test student/.test(card("Period 3").textContent), true);
+      eq("…the other class does not", /test student/.test(card("Period 5").textContent), false);
+      eq("…only the class without it offers Delete", Array.prototype.map.call(body.querySelectorAll("[data-delclass]"), function(b){ return b.getAttribute("data-delclass"); }).join(","), "c5");
+      var w = world(true); w.students = []; delete w.assignments.u1;
+      T.feed(w); T.renderGroups();
+      eq("with no real student in it, the class holding the test student is still not deletable", !!body.querySelector('[data-delclass="c3"]'), false);
+      eq("…and says 0 students · your test student", /0 students · your test student/.test(body.textContent), true);
+      w = world(false); w.students = []; delete w.assignments.u1;
+      T.feed(w); T.renderGroups();
+      eq("without a test student the same empty class can be deleted", !!body.querySelector('[data-delclass="c3"]'), true);
+    });
+    guardS("changing a class's teachers restamps the test student's documents", function(){
+      var w = world(true, { notes: {} });
+      w.classes.c3.teachers = [ME, "b@seq.org"];
+      T.feed(w);
+      var mine = T.restampBody("c3").filter(function(x){ return x.id === MEUID; });
+      eq("its assignment carries the new teachers", JSON.stringify(mine.map(function(x){ return [x.col, x.data]; })),
+         JSON.stringify([["assignments", { classId: "c3", teachers: [ME, "b@seq.org"] }]]));
+      w = world(true, { notes: {} });
+      w.classes.c3.teachers = [ME, "b@seq.org"];
+      w.notes[MEUID] = { text: "try the sequence", classId: "c3", teachers: [ME] };
+      T.feed(w);
+      eq("…and its note, when it has one", T.restampBody("c3").filter(function(x){ return x.id === MEUID; }).map(function(x){ return x.col; }).join(","), "assignments,notes");
+      eq("…nothing for the class it is not in", T.restampBody("c5").filter(function(x){ return x.id === MEUID; }).length, 0);
+      eq("…and nothing for its own students/ doc", T.restampBody("c3").some(function(x){ return x.col === "students" && x.id === MEUID; }), false);
+      T.feed(world(false));
+      eq("without a test student nothing is added", T.restampBody("c3").some(function(x){ return x.id === MEUID; }), false);
+    });
+    guardS("reset and remove with no test student do nothing", function(){
+      var asked = 0;
+      window.confirm = function(){ asked++; return true; };
+      try{
+        T.feed(world(false)); T.setDb({ batch: function(){ throw new Error("should not write"); } });
+        eq("reset returns at once", T.resetTestStudent(), undefined);
+        eq("remove returns at once", T.removeTestStudent(), undefined);
+        eq("…neither asks anything", asked, 0);
+      } finally { window.confirm = realConfirm; T.setDb(null); }
+    });
+
+    // ---- the writes, through a fake database that holds documents ----
+    var chain = Promise.resolve();
+    window.__pendingTests = window.__pendingTests || [];
+    chain = Promise.all(window.__pendingTests.slice()).then(null, function(){});
+    var answers = [], asked = [];
+    var chrome = document.createElement("div");
+    chrome.hidden = true;
+    chrome.innerHTML = '<h1 id="tTitle"></h1><p id="tSub"></p>';
+    /* Every promise here is already resolved, so a few hundred hops of the
+       microtask queue let a click's whole chain finish. No timers: the
+       runner reads the page as soon as it has loaded. */
+    function wait(){ var p = Promise.resolve(), i; for(i=0;i<300;i++) p = p.then(function(){}); return p; }
+    function clone(o){ return JSON.parse(JSON.stringify(o)); }
+    /* A database that remembers. `tried` is every write attempted, `log` the
+       ones that landed, `data` what is stored. `fail(kind, col, id)` makes
+       one write reject. Reads answer from what is stored, so the dashboard's
+       own reload after an add sees the add. */
+    function memDb(initial, fail){
+      var data = {}, db = { log: [], tried: [], ops: 0, data: data }, auto = 0;
+      Object.keys(initial || {}).forEach(function(c){
+        data[c] = {};
+        Object.keys(initial[c]).forEach(function(id){ data[c][id] = clone(initial[c][id]); });
+      });
+      function apply(c, id, d, opts){
+        data[c] = data[c] || {};
+        var next = (opts && opts.merge && data[c][id]) ? clone(data[c][id]) : {};
+        Object.keys(d).forEach(function(k){ if(d[k] === "DEL") delete next[k]; else next[k] = clone(d[k]); });
+        data[c][id] = next;
+      }
+      function snap(id, d){ return { id: id, exists: d !== undefined, data: function(){ return d && clone(d); } }; }
+      function qsnap(c, keep){
+        var docs = Object.keys(data[c] || {}).filter(function(id){ return !keep || keep(data[c][id]); }).map(function(id){ return snap(id, data[c][id]); });
+        return { docs: docs, forEach: function(f){ docs.forEach(f); } };
+      }
+      function docRef(c, id){
+        return {
+          col: c, id: id,
+          set: function(d, opts){
+            db.ops++; db.tried.push("set " + c + "/" + id);
+            if(fail && fail("set", c, id)) return Promise.reject(new Error("offline"));
+            db.log.push({ kind: "set", col: c, id: id, data: d, opts: opts });
+            apply(c, id, d, opts);
+            return Promise.resolve();
+          },
+          delete: function(){
+            db.ops++; db.tried.push("delete " + c + "/" + id);
+            if(fail && fail("delete", c, id)) return Promise.reject(new Error("offline"));
+            db.log.push({ kind: "delete", col: c, id: id });
+            if(data[c]) delete data[c][id];
+            return Promise.resolve();
+          },
+          get: function(){ return Promise.resolve(snap(id, (data[c] || {})[id])); }
+        };
+      }
+      function colRef(c, keep){
+        return {
+          doc: function(id){ return docRef(c, id === undefined ? "auto" + (++auto) : id); },
+          where: function(field, op, val){
+            return colRef(c, function(d){ return Array.isArray(d[field]) && d[field].indexOf(val) !== -1; });
+          },
+          get: function(){ return Promise.resolve(qsnap(c, keep)); }
+        };
+      }
+      db.collection = function(c){ return colRef(c); };
+      db.batch = function(){
+        var ops = [];
+        return {
+          set: function(ref, d, opts){ ops.push({ col: ref.col, id: ref.id, data: d, opts: opts }); },
+          commit: function(){
+            db.ops++;
+            ops.forEach(function(o){ db.tried.push("set " + o.col + "/" + o.id); });
+            if(fail && ops.some(function(o){ return fail("set", o.col, o.id); })) return Promise.reject(new Error("offline"));
+            ops.forEach(function(o){ db.log.push({ kind: "set", col: o.col, id: o.id, data: o.data, opts: o.opts }); apply(o.col, o.id, o.data, o.opts); });
+            return Promise.resolve();
+          }
+        };
+      };
+      return db;
+    }
+    function useDb(db){ window.EIAuth.db = function(){ return Promise.resolve(db); }; T.setDb(db); }
+    function guardA(name, fn){
+      chain = chain.then(function(){
+        document.body.appendChild(chrome);
+        answers = []; asked = [];
+        window.confirm = function(m){ asked.push(String(m)); return answers.length ? answers.shift() : true; };
+        window.firebase = { firestore: { FieldValue: { delete: function(){ return "DEL"; } } } };
+        body.hidden = false; lsClear();
+        var p; try{ p = Promise.resolve(fn()); }catch(e){ p = Promise.reject(e); }
+        return p.then(null, function(e){ results.push({ pass:false, desc: name + " — threw", detail: String(e && e.message || e) }); })
+          .then(function(){
+            T.reset(); T.setDb(null); T.feed({});
+            window.EIAuth.db = realAuthDb; window.EIAuth.isTeacher = realTeacher;
+            delete window.firebase; body.innerHTML = ""; body.hidden = true;
+            window.confirm = realConfirm; window.open = realOpen; lsClear();
+            if(chrome.parentNode) chrome.parentNode.removeChild(chrome);
+          });
+      });
+      window.__pendingTests.push(chain);
+    }
+    function cls(name, teachers){ return { name: name, teachers: teachers, archived: {}, createdAt: 1, createdBy: teachers[0] }; }
+    function dbWith(withTest, extra, fail){
+      var init = { classes: { c3: cls("Period 3", [ME]), c5: cls("Period 5", [ME]) },
+                   assignments: { u1: { lists: ["red-1-say"], classId: "c3", teachers: [ME] } },
+                   students: {} };
+      if(withTest){
+        init.assignments[MEUID] = testAssign((extra || {}).assignment);
+        init.students[MEUID] = merge({ email: ME }, ownDoc());
+      }
+      if((extra || {}).notes) init.notes = extra.notes;
+      var db = memDb(init, fail);
+      T.feed(world(withTest, extra)); useDb(db);
+      return db;
+    }
+
+    guardA("Reset and Remove write the address, even with no student doc yet", function(){
+      var db = memDb({ classes: { c3: cls("Period 3", [ME]) }, assignments: {} });
+      db.data.assignments[MEUID] = testAssign();
+      T.feed(merge(world(true), { meEmail: "T@seq.org" })); useDb(db);
+      var asked = []; var real = window.confirm; window.confirm = function(){ return true; };
+      return T.dropTestStudent().then(function(){
+        window.confirm = real;
+        var w = db.log[0] || {};
+        eq("the first write is the reset and it names the teacher", w.col + "/" + w.id + " " + (w.data || {}).email, "students/" + MEUID + " T@seq.org");
+        eq("the test student is gone from the page and the assignment from the database", !T.getTestStudent() && !db.data.assignments[MEUID], true);
+      }, function(e){ window.confirm = real; throw e; });
+    });
+
+    guardA("Add writes the flag and the class stamp, and nothing else", function(){
+      var db = memDb({ classes: { c0: cls("Aardvark", ["o@seq.org"]), c3: cls("Period 3", [ME]), c5: cls("Period 5", [ME]) } });
+      T.feed({ me: ME, meUid: MEUID, admin: true, classes: { c0: cls("Aardvark", ["o@seq.org"]), c3: cls("Period 3", [ME]), c5: cls("Period 5", [ME]) } });
+      useDb(db);
+      return T.addTestStudent().then(function(){
+        var w = db.log[0] || {}, d = w.data || {};
+        eq("one write", db.log.length, 1);
+        eq("a merge-set of the teacher's own assignment", w.kind + " " + w.col + "/" + w.id + " " + JSON.stringify(w.opts), "set assignments/" + MEUID + ' {"merge":true}');
+        eq("carrying the flag, empty lists, the time and the stamp, and nothing else", Object.keys(d).sort().join(","), "classId,lists,teachers,test,updatedAt");
+        eq("…test is exactly true and lists is empty", d.test === true && Array.isArray(d.lists) && d.lists.length === 0, true);
+        eq("…in the first class they teach by name, not another teacher's first", d.classId + "/" + d.teachers.join(","), "c3/" + ME);
+        eq("…stamped with a real time", d.updatedAt > 1e12, true);
+        eq("no class was created", db.log.some(function(x){ return x.col === "classes"; }), false);
+        eq("the reload found it: the page now holds a test student", !!T.getTestStudent() && T.getTestStudent().uid === MEUID, true);
+        eq("…in Period 3", T.getTestStudent().classId, "c3");
+        eq("…and the reload wrote nothing of its own", db.log.length, 1);
+        eq("the panel now offers Open their page", !!body.querySelector("#tTestOpen") && !body.querySelector("#tTestAdd"), true);
+        eq("…and focus is on it", document.activeElement && document.activeElement.id, "tTestOpen");
+      });
+    });
+    guardA("Add keeps the lists of an assignment that already exists", function(){
+      var init = { classes: { c3: cls("Period 3", [ME]) }, assignments: {} };
+      init.assignments[MEUID] = { lists: ["red-1-say"], classId: "c3", teachers: [ME] };
+      var db = memDb(init);
+      T.feed({ me: ME, meUid: MEUID, classes: { c3: cls("Period 3", [ME]) }, assignments: clone(init.assignments) });
+      useDb(db);
+      return T.addTestStudent().then(function(){
+        var d = (db.log[0] || {}).data || {};
+        eq("it writes no lists key", "lists" in d, false);
+        eq("…just the flag, the stamp and the time", Object.keys(d).sort().join(","), "classId,teachers,test,updatedAt");
+        eq("…so what was stored keeps its lists", db.data.assignments[MEUID].lists.join(","), "red-1-say");
+        eq("…and gains the flag", db.data.assignments[MEUID].test, true);
+        eq("…and the test student's lists are the old ones", T.effectiveLists(MEUID).ids.join(","), "red-1-say");
+      });
+    });
+    guardA("a teacher with no class gets one called Test class", function(){
+      var db = memDb({});
+      T.feed({ me: ME, meUid: MEUID, classes: {} });
+      useDb(db);
+      return T.addTestStudent().then(function(){
+        var c = db.log[0] || {}, a = db.log[1] || {};
+        eq("two writes: the class, then the assignment", db.log.length + " " + c.col + " " + a.col, "2 classes assignments");
+        eq("the class is named Test class and taught by them", (c.data || {}).name + "/" + ((c.data || {}).teachers || []).join(","), "Test class/" + ME);
+        eq("the assignment is stamped with that class", (a.data || {}).classId === c.id && (a.data || {}).teachers.join(",") === ME, true);
+        eq("…and flagged", a.data.test, true);
+        eq("the page holds the test student in it", !!T.getTestStudent() && T.getTestStudent().classId === c.id, true);
+      });
+    });
+    guardA("clicking Add, and a failed Add says so and adds nothing", function(){
+      var db = memDb({ classes: { c3: cls("Period 3", [ME]) } }, function(kind, col){ return col === "assignments"; });
+      T.feed({ me: ME, meUid: MEUID, classes: { c3: cls("Period 3", [ME]) } });
+      useDb(db);
+      T.renderRoster();
+      body.querySelector("#tTestAdd").click();
+      return wait().then(function(){
+        eq("the click tried the write", db.tried.join(","), "set assignments/" + MEUID);
+        eq("no test student", T.getTestStudent(), null);
+        var n = body.querySelector("#tTestNote");
+        eq("the page says so, beside the button", n && n.textContent, "Didn’t add — check the network and try again.");
+        eq("…as an error", n && /err/.test(n.className), true);
+        eq("…and the Add button is still there to try again", !!body.querySelector("#tTestAdd"), true);
+      });
+    });
+
+    guardA("Reset clears the practice, keeps the lists, and clears the device's copy", function(){
+      var db = dbWith(true);
+      lsSet();
+      T.open(MEUID); T.renderDetail();
+      body.querySelector("#tTestReset").click();
+      return wait().then(function(){
+        eq("it asked first, and said the lists stay", /Reset the test student/.test(asked[0] || "") && /lists you gave them stay/.test(asked[0] || ""), true);
+        eq("one batch, one write", db.ops + "/" + db.log.length, "1/1");
+        var w = db.log[0] || {}, d = w.data || {};
+        eq("to the teacher's own students/ doc, as a merge", w.col + "/" + w.id + " " + JSON.stringify(w.opts), "students/" + MEUID + ' {"merge":true}');
+        eq("words, heard, fluency and seq are deleted", [d.words, d.heard, d.fluency, d.seq].join(","), "DEL,DEL,DEL,DEL");
+        eq("totals, recent and last seen are zeroed", JSON.stringify([d.totals, d.recent, d.lastSeen]), '[{"n":0,"r":0},[],0]');
+        var st = db.data.students[MEUID];
+        eq("what is stored has no practice left", ["words", "heard", "fluency", "seq"].some(function(k){ return k in st; }), false);
+        eq("the assignment was not touched", db.data.assignments[MEUID].lists.join(",") + "/" + db.data.assignments[MEUID].test, "red-1-say/true");
+        eq("…and no note, class or other document was written", db.log.length, 1);
+        eq("the device's copy of the practice is gone", lsGet(LS_STATS), null);
+        eq("…and so is the 'you moved to a new list' note", lsGet(LS_SEEN), null);
+        eq("the page's test student has no words left", Object.keys(T.getTestStudent().stats).length, 0);
+        eq("…but still has its lists", T.effectiveLists(MEUID).ids.join(","), "red-1-say");
+        eq("the status line says Reset. on its page", (body.querySelector("#tTestNote") || {}).textContent, "Reset.");
+        eq("…and the page is still the test student's", !!body.querySelector("#tTestReset"), true);
+      });
+    });
+    guardA("declining Reset writes nothing and keeps everything", function(){
+      var db = dbWith(true);
+      lsSet(); answers = [false];
+      T.open(MEUID); T.renderDetail();
+      body.querySelector("#tTestReset").click();
+      return wait().then(function(){
+        eq("it asked", asked.length, 1);
+        eq("nothing was written or tried", db.ops, 0);
+        eq("the device's copy stays", lsGet(LS_STATS) !== null && lsGet(LS_SEEN) !== null, true);
+        eq("the practice stays", Object.keys(T.getTestStudent().stats).length, 3);
+      });
+    });
+    guardA("a failed Reset keeps the practice and says so", function(){
+      var db = dbWith(true, null, function(kind, col){ return col === "students"; });
+      lsSet();
+      T.open(MEUID); T.renderDetail();
+      body.querySelector("#tTestReset").click();
+      return wait().then(function(){
+        eq("a write was tried", db.ops, 1);
+        eq("the practice stays on the page", Object.keys(T.getTestStudent().stats).length, 3);
+        eq("…and on the device", lsGet(LS_STATS) !== null && lsGet(LS_SEEN) !== null, true);
+        eq("the page says so", (body.querySelector("#tTestNote") || {}).textContent, "Didn’t reset — check the network and try again.");
+      });
+    });
+
+    guardA("Remove: the reset, then the assignment; the note only if there is one", function(){
+      var db = dbWith(true);
+      lsSet();
+      T.open(MEUID); T.renderDetail();
+      body.querySelector("#tTestRemove").click();
+      return wait().then(function(){
+        eq("it asked first", /Remove the test student/.test(asked[0] || ""), true);
+        eq("the writes, in order: reset, then delete the assignment — no note", db.log.map(function(x){ return x.kind + " " + x.col + "/" + x.id; }).join(", "),
+           "set students/" + MEUID + ", delete assignments/" + MEUID);
+        eq("the reset is the same body Reset sends", JSON.stringify(db.log[0].data), JSON.stringify({ words: "DEL", heard: "DEL", fluency: "DEL", seq: "DEL", totals: { n:0, r:0 }, recent: [], lastSeen: 0 }));
+        eq("the assignment is gone from the database", db.data.assignments[MEUID], undefined);
+        eq("the real student's assignment is untouched", !!db.data.assignments.u1, true);
+        eq("the page has no test student", T.getTestStudent(), null);
+        eq("…and cannot find it by uid", T.studentByUid(MEUID), null);
+        eq("the device's copies are gone", lsGet(LS_STATS) === null && lsGet(LS_SEEN) === null, true);
+        eq("the page is back on the Students view, offering Add again", !!body.querySelector("#tTestAdd") && !body.querySelector("#tTestReset"), true);
+      });
+    });
+    guardA("Remove deletes the note too, when one exists", function(){
+      var notes = {}; notes[MEUID] = { text: "try the sequence", classId: "c3", teachers: [ME] };
+      var db = dbWith(true, { notes: notes });
+      T.feed(merge(world(true), { notes: clone(notes) })); useDb(db);
+      return T.removeTestStudent().then(function(){
+        eq("reset, note, then the assignment (the marker goes last)", db.log.map(function(x){ return x.kind + " " + x.col; }).join(", "), "set students, delete notes, delete assignments");
+        eq("…the note's document", db.log[2].id, MEUID);
+        eq("the note is gone from the database", db.data.notes[MEUID], undefined);
+        eq("…and from the page", T.noteOf(MEUID), "");
+      });
+    });
+    guardA("declining Remove writes nothing", function(){
+      var db = dbWith(true);
+      answers = [false];
+      T.removeTestStudent();
+      return wait().then(function(){
+        eq("it asked once", asked.length, 1);
+        eq("nothing was tried", db.ops, 0);
+        eq("the test student is still there", !!T.getTestStudent(), true);
+      });
+    });
+    guardA("a failed Remove leaves the marker, so it can be removed again", function(){
+      var notes = {}; notes[MEUID] = { text: "keep me", classId: "c3", teachers: [ME] };
+      var db = dbWith(true, { notes: notes }, function(kind, col){ return kind === "delete" && col === "assignments"; });
+      T.feed(merge(world(true), { notes: clone(notes) })); useDb(db);
+      lsSet();
+      T.open(MEUID); T.renderDetail();
+      body.querySelector("#tTestRemove").click();
+      return wait().then(function(){
+        eq("reset, then the note, then the assignment delete was tried", db.tried.join(", "), "set students/" + MEUID + ", delete notes/" + MEUID + ", delete assignments/" + MEUID);
+        eq("the note is gone, and the assignment (the marker) is not", db.data.notes[MEUID] === undefined && db.data.assignments[MEUID] !== undefined, true);
+        eq("the test student is still on the page", !!T.getTestStudent(), true);
+        eq("…and its note is not asked for again on a retry", T.noteOf(MEUID), "");
+        eq("the device's copies stay", lsGet(LS_STATS) !== null, true);
+        eq("the page says so", (body.querySelector("#tTestNote") || {}).textContent, "Didn’t remove — check the network and try again.");
+      });
+    });
+    guardA("a failed first write of Remove stops before the assignment is deleted", function(){
+      var db = dbWith(true, null, function(kind, col){ return col === "students"; });
+      T.open(MEUID); T.renderDetail();
+      body.querySelector("#tTestRemove").click();
+      return wait().then(function(){
+        eq("only the reset was tried", db.tried.join(", "), "set students/" + MEUID);
+        eq("the assignment is still there", !!db.data.assignments[MEUID], true);
+        eq("…and the test student too", !!T.getTestStudent(), true);
+      });
+    });
+    guardA("Remove asks before throwing away unsaved edits on the page", function(){
+      var db = dbWith(true, { assignment: { plan: PLAN } });
+      answers = [true, false];                       // yes, remove it — then no, keep my edits
+      T.open(MEUID); T.renderDetail();
+      body.querySelector('[data-seq="bar-"]').click();
+      eq("(there is an unsaved edit to lose)", T.seqDirty(), true);
+      body.querySelector("#tTestRemove").click();
+      return wait().then(function(){
+        eq("it asked twice: remove, then about the unsaved changes", asked.length + " " + /Remove the test student/.test(asked[0] || "") + " " + /haven.t been saved/.test(asked[1] || ""), "2 true true");
+        eq("…the second says what is being left", /Remove the test student and lose them/.test(asked[1] || ""), true);
+        eq("a No there writes nothing", db.ops, 0);
+        eq("…and keeps the test student and the edit", !!T.getTestStudent() && T.seqDirty(), true);
+      });
+    });
+    chain = chain.then(function(){
+      lsClear();
+      try{ if(savedKey === null) sessionStorage.removeItem(KEY); else sessionStorage.setItem(KEY, savedKey); }catch(e){}
+    });
+    window.__pendingTests.push(chain);
+  })();
+
   // ---- render ----
   function renderResults(){
   var rows = document.getElementById("rows");

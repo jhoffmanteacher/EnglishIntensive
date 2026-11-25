@@ -343,6 +343,11 @@ select.sel:focus,input.txt:focus,textarea.txt:focus{outline:none;border-color:va
 }
 .panel.callout p{margin:0;font-size:15.5px;line-height:1.5}
 .panel.callout b{color:var(--warn)}
+
+/* ---- the test student: the panel on Students, and the strip on its own page ---- */
+.panel.testPanel{border-left:4px solid var(--brand)}
+.panel.testPanel > .note{margin-bottom:12px}
+.panel.testPanel b{color:var(--ink)}
 ol.steps{margin:0 0 18px;padding-left:22px;line-height:1.7;font-size:15.5px}
 ol.steps li{margin-bottom:6px}
 .periodPills{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}

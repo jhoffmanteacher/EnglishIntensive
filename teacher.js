@@ -105,6 +105,9 @@
   var everyone = [];          // `students` plus the archived — see applyArchive
   var manageSection = null;   // Manage's open section; null until read from localStorage
   var detailUid = null;
+  var meUid = "";             // the signed-in teacher's uid — which is also their test student's
+  var meEmail = "";           // their address exactly as the sign-in token has it (the rules compare it with ==)
+  var testStudent = null;     // the teacher's own account as a student, or null: see "The test student"
 
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){
@@ -252,6 +255,8 @@
       return;
     }
     me = String(user.email || "").toLowerCase();
+    meUid = user.uid || "";
+    meEmail = user.email || "";
     admin = !!(EIAuth.isAdmin && EIAuth.isAdmin());
     return loadAll().then(function(){
       EIAuth.unlock();
@@ -300,7 +305,11 @@
         // Any teacher may list these: the co-teacher picker shows names.
         db.collection("teachers").get().catch(function(){ return null; }),
         // The old shared periods doc, read only to migrate it.
-        admin ? db.collection("config").doc("class").get().catch(function(){ return null; }) : null
+        admin ? db.collection("config").doc("class").get().catch(function(){ return null; }) : null,
+        // The teacher's own record, which is their test student's practice
+        // (see "The test student"). Always readable by its owner; a failure
+        // only means the test student shows no practice.
+        meUid ? db.collection("students").doc(meUid).get().catch(function(){ return null; }) : null
       ]);
     }).then(function(snaps){
       teacherDocs = [];
@@ -351,6 +360,7 @@
         assignments[doc.id] = doc.data() || {};
         raw.assignments[doc.id] = stampData(assignments[doc.id]);
       });
+      testStudent = buildTestStudent(meUid, assignments[meUid], snaps[7] && snaps[7].exists ? snaps[7].data() : null);
       notes = {};
       snaps[3].forEach(function(doc){
         notes[doc.id] = doc.data() || {};
@@ -1182,7 +1192,7 @@
     return '<div class="who">' + av + "<div style=\"min-width:0\">" +
       '<div class="nm">' + esc(s.name || s.email || s.uid) +
         (n ? ' <span class="noteDot" title="' + esc(noteOf(s.uid)) + '">✎</span>' : "") + "</div>" +
-      '<div class="em">' + esc(s.email) + "</div>" +
+      '<div class="em">' + esc(s.test ? "Your account, as a student" : s.email) + "</div>" +
       (n ? '<div class="noteLine" title="' + esc(noteOf(s.uid)) + '">' + esc(n) + "</div>" : "") +
       "</div></div>";
   }
@@ -1316,7 +1326,7 @@
     if(!students.length){
       previewPop.innerHTML = '<div class="abPopHead">Student view</div><p class="muted tiny">No students yet.</p>';
     } else {
-      var pick = detailUid && studentByUid(detailUid) ? detailUid : students[0].uid;
+      var pick = detailUid && students.some(function(x){ return x.uid === detailUid; }) ? detailUid : students[0].uid;
       previewPop.innerHTML =
         '<div class="abPopHead">See the home page as</div>' +
         '<select class="sel" id="tPrevWho" aria-label="Student">' + students.map(function(st){
@@ -1557,10 +1567,210 @@
     return out;
   }
 
-  // Archived ones too: their page still opens, from Manage → Archived.
+  // Archived ones too: their page still opens, from Manage → Archived. And
+  // the test student, who is in no list — a page of their own opens, though.
   function studentByUid(uid){
     for(var i=0;i<everyone.length;i++) if(everyone[i].uid === uid) return everyone[i];
+    if(testStudent && testStudent.uid === uid) return testStudent;
     return null;
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     The test student
+
+     A student the teacher can try everything on without touching a real
+     class: give them a list or a sequence, play as them, and watch this
+     dashboard follow along. It is the teacher's OWN account — their own
+     students/{uid} is its practice — made to look like a student. What
+     makes it a test student is one flag, `test: true`, on the teacher's
+     own assignments/{uid}: that document carries its lists and sequence
+     like anyone's, plus the class stamp the rules want on every write.
+     Nothing else is new, so firestore.rules did not change.
+
+     It is NOT in `students` or `everyone`. Every count, table, filter,
+     Trouble spots, both CSVs and each class's size are made from those two
+     lists, so the test student cannot reach any of them and no filter has
+     to remember to leave it out. studentByUid() finds it, which is all the
+     student's page, the sequence editor and the notes need.
+
+     "Play as" opens index.html?as=test (see store.js): the teacher's tab
+     then sees only what the test student was given, and what they play
+     is saved to that same record. Reset clears the practice; Remove clears
+     it and the flag.
+     ════════════════════════════════════════════════════════════════ */
+  var TEST_NAME = "Test student";
+
+  /* Pure: the test student as the page holds a student, or null when
+     there isn't one. `a` is the teacher's own assignment, `d` their own
+     student doc (the practice) — either may be missing. */
+  function buildTestStudent(uid, a, d){
+    if(!uid || !a || a.test !== true) return null;
+    d = d || {};
+    return {
+      uid: uid, name: TEST_NAME, email: "", photo: "", test: true,
+      classId: a.classId || "",
+      stats: Adaptive.sanitizeStats(d.words),
+      heard: Adaptive.sanitizeHeard(d.heard),
+      fluency: Adaptive.sanitizeFluency(d.fluency),
+      totals: d.totals || { n:0, r:0 },
+      recent: Array.isArray(d.recent) ? d.recent : [],
+      lastSeen: d.lastSeen || 0,
+      seq: Adaptive.sanitizeSeq(d.seq)
+    };
+  }
+
+  /* Pure: what clears the test student's practice — words, what the mic
+     heard, reading rates, the place in a sequence, the totals. The lists
+     and the sequence the teacher gave them stay. */
+  function resetBody(uid, email){
+    var data = {
+      words: DELETE, heard: DELETE, fluency: DELETE, seq: DELETE,
+      totals: { n: 0, r: 0 }, recent: [], lastSeen: 0
+    };
+    /* A merge-write makes the document if it isn't there, and a student doc
+       with no email is one the admin's page can't tell from a student (it
+       filters teachers out by address). So the address goes with it. */
+    if(email) data.email = email;
+    return { col: "students", id: uid, data: data };
+  }
+
+  // The device's own copies of that practice (store.js's mirror, and the
+  // "you moved to a new list" note), so a reset is one all the way down.
+  function forgetLocalTest(){
+    try{
+      localStorage.removeItem("eiStats:" + meUid);
+      localStorage.removeItem("ei.plan.seen:" + meUid);
+    }catch(e){}
+  }
+
+  function testNote(text, err){
+    var n = $("tTestNote");
+    if(!n) return;
+    n.className = "saveNote" + (err ? " err" : "");
+    n.textContent = text;
+  }
+
+  /* Turn the test student on. It goes in a class the teacher teaches (the
+     rules want a class stamp on every write), the first by name; a teacher
+     with no class gets one called "Test class". Only the flag and the
+     stamp are written, plus empty lists when there is no assignment yet —
+     an assignment that already exists keeps its lists. */
+  function addTestStudent(){
+    if(!meUid || !db) return;
+    testNote("Adding…");
+    // An assignment that is already there stays in its class, if I still teach it.
+    var had = assignments[meUid] && assignments[meUid].classId;
+    var home = (had && classes[had] && teachesClass(had)) ? had : allClasses().filter(teachesClass)[0];
+    return (home ? Promise.resolve(home) : createClass("Test class")).then(function(cid){
+      var body = { test: true, updatedAt: Date.now() };
+      if(!assignments[meUid]) body.lists = [];
+      var st = stampFor(cid);
+      body.classId = st.classId; body.teachers = st.teachers;
+      return db.collection("assignments").doc(meUid).set(body, { merge:true });
+    }).then(function(){ return loadAll(); }).then(function(){
+      render();
+      if($("tTestOpen")) $("tTestOpen").focus();
+    }, function(){
+      testNote("Didn’t add — check the network and try again.", true);
+    });
+  }
+
+  function resetTestStudent(){
+    if(!testStudent) return;
+    if(!window.confirm("Reset the test student’s practice?\n\nTheir words, numbers and place in the sequence start over. " +
+      "The lists you gave them stay.")) return;
+    testNote("Resetting…");
+    return commitWrites([resetBody(meUid, meEmail)]).then(function(){
+      forgetLocalTest();
+      testStudent = buildTestStudent(meUid, assignments[meUid], null);
+      render();
+      testNote("Reset.");
+      if($("tTestReset")) $("tTestReset").focus();
+    }, function(){
+      testNote("Didn’t reset — check the network and try again.", true);
+    });
+  }
+
+  /* The writes of Remove, with no questions and no page: practice, then the
+     note, then the assignment (the marker) last, each local copy dropped as
+     soon as its document is gone, so a failure part-way leaves a test student
+     that can be removed again. A missing document can't be deleted under the
+     rules (there is no resource to check), so the note only goes if one
+     exists. Also what runs before a teacher takes themselves off the class it
+     lives in: afterwards the rules would no longer let them write it. */
+  function dropTestStudent(){
+    return commitWrites([resetBody(meUid, meEmail)]).then(function(){
+      return notes[meUid]
+        ? db.collection("notes").doc(meUid).delete().then(function(){ delete notes[meUid]; })
+        : null;
+    }).then(function(){
+      return db.collection("assignments").doc(meUid).delete();
+    }).then(function(){
+      forgetLocalTest();
+      delete assignments[meUid];
+      testStudent = null;
+      if(detailUid === meUid) detailUid = null;
+    });
+  }
+
+  function removeTestStudent(){
+    if(!testStudent) return;
+    if(!window.confirm("Remove the test student?\n\nTheir practice and lists are cleared. You can add one again any time.")) return;
+    if(!leaveDraftOk("Remove the test student")) return;
+    testNote("Removing…");
+    return dropTestStudent().then(function(){
+      render();
+      testNote("Removed. Add one again any time.");
+      if($("tTestAdd")) $("tTestAdd").focus();
+    }, function(){
+      testNote("Didn’t remove — check the network and try again.", true);
+    });
+  }
+
+  function playTestStudent(){
+    window.open("index.html?as=test", "_blank", "noopener");
+  }
+
+  // The panel on the Students view: how to get one, or where it is.
+  function testPanelHtml(){
+    if(!testStudent){
+      return '<div class="panel testPanel"><h2>Test student</h2>' +
+        '<p class="note">Try the site the way a student does, without touching a real class. ' +
+        "It is your own account, set up as a student: give it lists or a sequence, play as it, " +
+        "and watch this dashboard follow along. It is never counted in a class.</p>" +
+        '<div class="rowActions"><button type="button" class="btn sm" id="tTestAdd">Add a test student</button>' +
+        '<span class="saveNote" id="tTestNote" role="status" aria-live="polite"></span></div></div>';
+    }
+    return '<div class="panel testPanel"><h2>Test student</h2>' +
+      '<p class="note">' + esc(stuLine(testStudent)) + ". Your own account, set up as a student, " +
+      "so it is never counted in a class.</p>" +
+      '<div class="rowActions"><button type="button" class="btn sm" id="tTestOpen">Open their page</button>' +
+      '<button type="button" class="btn ghost sm" id="tTestPlay">Play as test student</button>' +
+      '<span class="saveNote" id="tTestNote" role="status" aria-live="polite"></span></div></div>';
+  }
+
+  // The strip across the top of the test student's own page.
+  function testStripHtml(){
+    return '<div class="panel testPanel"><p class="note"><b>This is your test student.</b> ' +
+      "It is your own account, set up as a student, so nothing here counts toward a class. " +
+      "Give it lists below, then play as it to see what a student sees. " +
+      "<b>Play as test student</b> saves what you play; <b>Student view</b> only looks.</p>" +
+      '<div class="rowActions"><button type="button" class="btn sm" id="tTestPlay">Play as test student</button>' +
+      '<button type="button" class="btn ghost sm" id="tTestReset">Reset practice</button>' +
+      '<button type="button" class="btn ghost sm" id="tTestRemove">Remove test student</button>' +
+      '<span class="saveNote" id="tTestNote" role="status" aria-live="polite"></span></div></div>';
+  }
+
+  function wireTestPanel(){
+    var on = function(id, fn){ var b = $(id); if(b) b.addEventListener("click", fn); };
+    on("tTestAdd", addTestStudent);
+    on("tTestOpen", function(){
+      if(!leaveDraftOk("Leave this page")) return;
+      detailUid = testStudent.uid; render();
+    });
+    on("tTestPlay", playTestStudent);
+    on("tTestReset", resetTestStudent);
+    on("tTestRemove", removeTestStudent);
   }
 
   /* ════════════════════════════════════════════════════════════════
@@ -2474,13 +2684,16 @@
         ? '<div class="panel"><h2>Notes</h2><p class="note">Notes open once they have signed in.</p></div>'
         : notePanelHtml(s.uid)) +
 
-      '<div class="panel"><h2>Class</h2>' +
+      /* The test student has no class to move between, nothing to archive
+         and no roster row: it lives in the class it was made in until it is
+         removed, and removing it is its own button, above. */
+      (s.test ? "" : '<div class="panel"><h2>Class</h2>' +
         '<p class="note">' + (myCls ? "Taught by " + esc(classes[myCls].teachers.map(teacherName).join(", ")) + ". " : "") +
         "Moving them takes their games, note and practice with them; teachers who aren’t on the new class stop seeing them.</p>" +
         '<div class="rowActions"><label class="muted tiny" for="tClass">Class</label>' +
         '<select class="sel" id="tClass">' + classOptions(myCls, clsList, myCls ? "" : "— no class —") + "</select>" +
         '<span class="saveNote" id="tClassMoveNote"></span></div>' +
-      "</div>" +
+      "</div>") +
 
       (rosterRow ? '<div class="panel"><h2>Roster row</h2>' +
         '<p class="note">Imported ' + esc(rosterRow.importedAt ? ago(rosterRow.importedAt) : "at some point") +
@@ -2491,7 +2704,7 @@
         '<span class="saveNote" id="tRosterNote"></span></div>' +
       "</div>" : "") +
 
-      '<div class="panel"><h2>Archive</h2><div class="rowActions">' +
+      (s.test ? "" : '<div class="panel"><h2>Archive</h2><div class="rowActions">' +
         (!myCls ? '<span class="muted tiny">Put them in a class to be able to archive them.</span>' :
          isArchived(s, archivedMap())
           ? '<span class="pill warn">Archived</span> <button class="btn ghost sm" id="tArchive">Unarchive</button>' +
@@ -2499,7 +2712,7 @@
           : '<button class="btn ghost sm" id="tArchive">Archive</button>' +
             '<span class="muted tiny">Hides them from every view. Nothing is deleted; Manage → Archived brings them back.</span>') +
         '<span class="saveNote" id="tArchiveNote"></span>' +
-      "</div></div>";
+      "</div></div>");
 
     $("tBody").innerHTML =
       '<button class="backlink" id="tBack">← All students</button>' +
@@ -2508,6 +2721,7 @@
           '<div class="stuHead" id="stuHead" tabindex="-1">' + whoHtml(s) +
             '<p class="stuLine muted" id="stuLine">' + esc(stuLine(s)) + "</p>" +
             '<button type="button" class="btn ghost sm" id="tStuView">Student view</button></div>' +
+          (s.test ? testStripHtml() : "") +
           '<div class="mTabs stuTabs" role="tablist" aria-label="' + esc(stuName(s)) + '">' + STU_TABS.map(function(t){
             var on = t[0] === detailTab;
             return '<button type="button" role="tab" id="stab-' + t[0] + '" data-stab="' + t[0] + '" aria-selected="' + on +
@@ -2585,7 +2799,7 @@
         note.className = "saveNote err"; note.textContent = "Didn't save — check the network and try again.";
       });
     });
-    $("tClass").addEventListener("change", function(){
+    if($("tClass")) $("tClass").addEventListener("change", function(){
       var sel = this, to = sel.value, from = myCls || "";
       if(!to || to === from) return;
       if(!window.confirm("Move " + (s.name || s.email) + " to " + className(to) + "?")){
@@ -2622,6 +2836,7 @@
     });
     if($("tSaveA")) $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
     if(!s.pending) $("tNoteSave").addEventListener("click", function(){ saveNote(s.uid, $("tNote").value); });
+    wireTestPanel();
     bindPickers();
   }
 
@@ -2814,6 +3029,11 @@
       if(assignments[s.uid]) out.push({ col: "assignments", id: s.uid, data: data });
       if(notes[s.uid]) out.push({ col: "notes", id: s.uid, data: data });
     });
+    // The test student is in no member list, but its assignment carries the same copy.
+    if(testStudent && classIdOf(testStudent) === id){
+      out.push({ col: "assignments", id: testStudent.uid, data: { classId: st.classId, teachers: st.teachers } });
+      if(notes[testStudent.uid]) out.push({ col: "notes", id: testStudent.uid, data: { classId: st.classId, teachers: st.teachers } });
+    }
     return out;
   }
 
@@ -2847,6 +3067,8 @@
 
     var cards = ids.map(function(id){
       var c = classes[id], n = membersOf(id).length, mineToo = admin || teachesClass(id);
+      // The test student is in no count, but the class it lives in is not empty to delete.
+      var holdsTest = !!(testStudent && classIdOf(testStudent) === id);
       var chips = c.teachers.map(function(t){
         return '<span class="pill">' + esc(teacherName(t)) +
           (mineToo && c.teachers.length > 1
@@ -2856,7 +3078,8 @@
       var addable = approved.filter(function(e){ return c.teachers.indexOf(e) === -1; });
       return '<div class="clsCard">' +
         '<div class="clsHead"><b>' + esc(c.name || "Untitled class") + "</b>" +
-          '<span class="muted tiny">' + n + (n === 1 ? " student" : " students") + "</span></div>" +
+          '<span class="muted tiny">' + n + (n === 1 ? " student" : " students") +
+            (holdsTest ? " · your test student" : "") + "</span></div>" +
         '<div class="clsTeachers">' + chips + "</div>" +
         (mineToo ? '<div class="rowActions">' +
           (addable.length ? '<select class="sel" data-co-pick="' + esc(id) + '" aria-label="Add a co-teacher to ' + esc(c.name) + '">' +
@@ -2864,7 +3087,7 @@
               return '<option value="' + esc(e) + '">' + esc(teacherName(e)) + "</option>";
             }).join("") + "</select>" : "") +
           '<button type="button" class="btn ghost sm" data-rename="' + esc(id) + '">Rename</button>' +
-          (n ? "" : '<button type="button" class="btn ghost sm" data-delclass="' + esc(id) + '">Delete</button>') +
+          (n || holdsTest ? "" : '<button type="button" class="btn ghost sm" data-delclass="' + esc(id) + '">Delete</button>') +
         "</div>" : "") +
       "</div>";
     }).join("");
@@ -2937,7 +3160,10 @@
         if(!window.confirm("Remove " + teacherName(who) + " from " + className(id) + "?" +
           (who === me ? "\n\nYou will stop seeing this class and its students." : ""))) return;
         say("Saving…");
-        setClassTeachers(id, left).then(function(){
+        /* Off the class that holds my test student, I could no longer write
+           it (the rules want me on the doc or the class), so it goes first. */
+        (who === me && testStudent && classIdOf(testStudent) === id ? dropTestStudent() : Promise.resolve())
+        .then(function(){ return setClassTeachers(id, left); }).then(function(){
           return who === me && !admin ? loadAll() : null;
         }).then(function(){ render(); }, fail);
       } else if(b.hasAttribute("data-rename")){
@@ -2949,7 +3175,7 @@
         }, fail);
       } else {
         var did = b.getAttribute("data-delclass");
-        if(membersOf(did).length) return;
+        if(membersOf(did).length || (testStudent && classIdOf(testStudent) === did)) return;
         var nSv = Object.keys(classes[did].sequences || {}).length;
         if(!window.confirm("Delete the empty class " + className(did) + "?" +
           (nSv ? "\n\nIts " + nSv + " saved " + (nSv === 1 ? "sequence goes" : "sequences go") + " with it." : ""))) return;
@@ -3343,9 +3569,11 @@
           "<li><b>Students sign in</b> with their school account — their ID number @seq.org.</li>" +
         "</ol>" +
         '<div class="rowActions"><button class="btn sm" id="tGoGroups">Import a roster →</button></div>' +
-        '<p class="note" style="margin:16px 0 6px">Or add students one at a time:</p>' + quickAddHtml() + "</div>";
+        '<p class="note" style="margin:16px 0 6px">Or add students one at a time:</p>' + quickAddHtml() + "</div>" +
+        testPanelHtml();
       $("tGoGroups").addEventListener("click", function(){ switchView("groups"); });
       wireQuickAdd();
+      wireTestPanel();
       return;
     }
     var shown = classStudents();
@@ -3397,7 +3625,8 @@
           '<span class="muted tiny">One row per student, and one row per word they\'ve attempted. ' +
           "Opens in Excel, Sheets or Numbers.</span>" +
         "</div>" +
-      "</div></div>";
+      "</div></div>" +
+      testPanelHtml();
 
     function open(tr){ detailUid = tr.dataset.uid; render(); }
     Array.prototype.forEach.call(document.querySelectorAll("#tBody tr.clickable"), function(tr){
@@ -3447,6 +3676,7 @@
     $("stGive").addEventListener("click", function(){ openGive(shown.filter(function(s){ return picked[s.uid]; })); });
     syncPicks();
     wireQuickAdd();
+    wireTestPanel();
     $("tExportRoster").addEventListener("click", function(){ download(exportName("roster"), rosterCsv()); });
     $("tExportWords").addEventListener("click", function(){ download(exportName("words"), wordsCsv()); });
     // Back from a student's page: put focus on the row they came from, not on nothing.
@@ -4251,6 +4481,10 @@
       rosterStatus: rosterStatus,
       rosterRowOf: rosterRowOf,
       studentByUid: studentByUid,
+      buildTestStudent: buildTestStudent, resetBody: resetBody, testPanelHtml: testPanelHtml,
+      testStripHtml: testStripHtml, wireTestPanel: wireTestPanel, addTestStudent: addTestStudent,
+      resetTestStudent: resetTestStudent, removeTestStudent: removeTestStudent, dropTestStudent: dropTestStudent,
+      getTestStudent: function(){ return testStudent; },
       isPending: isPending,
       studentUids: function(){ return students.map(function(s){ return s.uid; }); },
       patternRows: patternRows,
@@ -4266,6 +4500,9 @@
         roster = st.roster || {};
         rosterReadable = st.rosterReadable !== false;
         me = String(st.me || "t@seq.org").toLowerCase();
+        meUid = st.meUid || "";
+        meEmail = st.meEmail || "";
+        testStudent = st.testStudent || null;
         admin = !!st.admin;
         teacherDocs = st.teachers || [];
         probe = st.probe || {};

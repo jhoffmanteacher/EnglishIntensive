@@ -347,7 +347,11 @@ window.EIPractice = (function(){
          before assigning it. Said out loud, or it reads as what the class
          sees. */
       var pv = EIStore.preview && EIStore.preview();
-      if(pv || EIAuth.isTeacher()){
+      /* Playing as the test student, the page is a student's page, and the
+         line that says "you see every game" would be false. The strip at the
+         top (testBar) says what is going on instead. */
+      var testing = EIStore.asTest && EIStore.asTest();
+      if(pv || (EIAuth.isTeacher() && !testing)){
         var tv = document.createElement("p");
         tv.className = "teacherView";
         tv.textContent = pv ? previewText(pv)
@@ -452,7 +456,66 @@ window.EIPractice = (function(){
     return d;
   }
 
+  /* ── the test student ─────────────────────────────────────────────
+     A teacher playing as their test student (store.js, ?as=test) is on
+     what looks exactly like a student's page, and it is worth one small
+     reminder that it isn't one: what they play is saved, to the test
+     student, and there is a way back. A thin strip pinned across the top, with
+     the body padded down by its height so the page lays out under it, and the
+     games' fixed Home link and account chip moved down by the same amount
+     (the game pages' <body> is a centred flex row: a strip in the flow became
+     a box beside the game, and a floating pill sat on top of Start and
+     Shuffle). Added to every page that loads
+     this file (home and every game), and only while the mode is on.
+     Teacher-facing, so it is not written for a struggling reader. */
+  var TESTBAR_ID = "ei-testbar";
+  var TESTBAR_CSS = [
+    "#ei-testbar{position:fixed;top:0;left:0;right:0;z-index:60;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px 14px;",
+    "padding:6px 12px;font-size:13px;line-height:1.3;background:var(--panel);color:var(--ink);",
+    "border-bottom:2px solid var(--accent)}",
+    "#ei-testbar button{font:inherit;font-weight:700;cursor:pointer;border-radius:999px;padding:4px 12px;",
+    "border:0;background:var(--accent);color:#111827;white-space:nowrap}",
+    "#ei-testbar button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}",
+    // The games' fixed Home link and account chip sit at top:14px; move them under the strip.
+    "body.ei-testing .home,body.ei-testing .ei-chip{top:calc(14px + var(--ei-strip-h,0px))}"
+  ].join("");
+  function testBar(){
+    if(!(window.EIStore && EIStore.asTest && EIStore.asTest())) return;
+    if(document.getElementById(TESTBAR_ID)) return;
+    var st = document.createElement("style");
+    st.textContent = TESTBAR_CSS;
+    document.head.appendChild(st);
+    var bar = document.createElement("div");
+    bar.id = TESTBAR_ID;
+    bar.setAttribute("role", "status");
+    var txt = document.createElement("span");
+    txt.textContent = "Playing as your test student. What you play here is saved to them.";
+    var back = document.createElement("button");
+    back.type = "button";
+    back.textContent = "Back to teacher view";
+    back.addEventListener("click", function(){
+      EIStore.leaveTest();
+      // The round that ends here is the one most likely to be lost: let it land first.
+      Promise.resolve(EIStore.flush()).then(function(){ location.href = "index.html"; },
+                                            function(){ location.href = "index.html"; });
+    });
+    bar.appendChild(txt);
+    bar.appendChild(back);
+    document.body.insertBefore(bar, document.body.firstChild);
+    // site.css is border-box, so padding comes out of a `height:100%` body
+    // rather than adding to it: the page fits under the strip, no new scroll.
+    function pad(){
+      var h = bar.offsetHeight + "px";
+      document.body.style.paddingTop = h;
+      document.documentElement.style.setProperty("--ei-strip-h", h);
+    }
+    document.body.classList.add("ei-testing");
+    pad();
+    window.addEventListener("resize", pad);
+  }
+  EIAuth.ready().then(function(){ return EIStore.ready(); }).then(testBar);
+
   return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
            _internals: { queryList: queryList, pageName: pageName, previewText: previewText,
-                         planNotice: planNotice, appendSections: appendSections } };
+                         planNotice: planNotice, appendSections: appendSections, testBar: testBar } };
 })();
