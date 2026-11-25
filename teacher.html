@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Light by default, dark when the computer is: teacher.css has both
+     palettes. This tells the browser so its own scrollbars, selects and
+     checkboxes follow. -->
+<meta name="color-scheme" content="light dark">
 <!-- Content-Security-Policy — index.html's policy, tightened: this page has
      no inline <script> or inline handlers (auth.js and teacher.js attach
      theirs with addEventListener), embeds no YouTube/Docs/Drive, and plays
@@ -30,12 +34,16 @@
      The nav and the top-bar tools stay hidden until teacher.js has
      checked the account and loaded the class. Icons are inline SVG
      (stroke, currentColor), so they need no font and no request. -->
+<!-- The plum bar: the way back to the games at the left, and the signed-in
+     chip at the right. auth.js fills #ei-user-chip when a page has one
+     (and leaves it where it is rather than pinning it to the corner). -->
+<header class="tBar">
+  <a class="tBarBrand" href="index.html" title="Back to the games">English Intensive</a>
+  <div id="ei-user-chip" class="tChip" hidden></div>
+</header>
+
 <div class="tShell">
   <aside class="tSide">
-    <a class="tBrand" href="index.html" title="Back to the games">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>
-      <span>English Intensive</span>
-    </a>
     <nav id="tNav" aria-label="Dashboard" hidden>
       <div class="tGroup">
         <h2 class="tGroupHead">Students</h2>

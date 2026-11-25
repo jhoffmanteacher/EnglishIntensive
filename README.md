@@ -1461,21 +1461,46 @@ every class.
 
 ### The console
 
-The layout is ported from the guitar-class site's teacher console — the
-structure, not its colours; everything here is `site.css`'s dark tokens.
+The layout *and the look* are ported from the guitar-class site's teacher
+console: light plum by default, the same palette in dark plum when the
+computer is set to dark (`prefers-color-scheme`), Fraunces for titles. It is
+deliberately nothing like the student pages (dark navy and gold), so a
+teacher can tell at a glance which side of the site they are on.
 
-- **A grouped sidebar** (216px, sticky, scrolls on its own): small-caps
+- **Where the colours live.** In `teacher.css`, as tokens redefined on
+  `body.teacher` (light) and in a `prefers-color-scheme: dark` block for the
+  same selector — not in `site.css`, which serves every student page and must
+  not change. Because the sign-in wall, the user chip and the dialogs are
+  children of `<body>`, they take the console's palette too. The tokens
+  that have no `site.css` counterpart (`--brand`, `--sel-*`, `--warn`,
+  `--info`, `--tint`, `--scrim`) exist because the old single gold did three
+  jobs — *selected*, *main button*, *accent text* — and a fourth, *warning*;
+  each now has its own colour, so a warning does not turn plum with the
+  accent. `site.css` still hard-codes dark text on its gold `.btn`, so
+  `teacher.css` restates the button here (the white Google sign-in button on
+  the wall is left alone).
+- **The type is the console's own.** System sans for text, self-hosted
+  Fraunces (`fonts/fraunces.woff2`, `FRAUNCES-OFL.txt`) for the title, panel
+  headings and the brand. A student's *Reading view* choice is made on a
+  shared computer and `game-core.js` applies it to every page; the dashboard
+  sets its own face and puts letter- and word-spacing back, so a student's
+  setting never restyles it.
+- **A plum bar across the top** holds the brand ("English Intensive", a link
+  back to the games) at the left and the signed-in chip at the right.
+  `auth.js` fills any element with `id="ei-user-chip"` and does not pin it
+  to the corner, so the bar hosts the chip and nothing needs padding to
+  avoid it. The sidebar sticks below the bar.
+- **A grouped sidebar** (216px, sticky, scrolls on its own): small uppercase
   group headings and icon + label items (16px stroke SVGs, inline, so no
-  icon font and no request), the current one on an accent background.
-  Below 900px it becomes one strip that scrolls sideways above the
-  content, the group headings dropped and the user chip parked at the
-  bottom. The groups:
+  icon font and no request), the current one on the *selected* colour.
+  Below 900px it becomes one strip that scrolls sideways under the bar,
+  the group headings dropped. The groups:
   - *Students* — **Students**, **Trouble spots**
   - *Assign* — **Assign board**
   - *Set up* — **Classes**, **Manage**
 - **A slim top bar**: the view's title and a one-line subtitle on the
   left; on the right the **class filter**, **Refresh** and **Student
-  view**. Its right padding keeps clear of `auth.js`'s fixed user chip.
+  view**.
 - **The class filter is the page's, not a view's.** A segmented control
   — *All*, each of my classes somebody is in, and *No class (n)*, which
   disappears at zero — that the Students table, its cards, *What should
@@ -1621,8 +1646,8 @@ columns get out of the way when you're working on blends. The first column
 and the two header rows are sticky, so a name and a list stay on screen
 however far you scroll. Above the grid is a key to the mode icons — cells are
 icons and nothing else — and, when it's true, a line counting the students
-shown who have nothing. Each name carries *"3 games"* or a gold *nothing
-yet*.
+shown who have nothing. Each name carries *"3 games"* or a
+warning-coloured *nothing yet*.
 
 - **A cell click** opens the modes for that one list, ticked live.
 - **A column's all** sets every offered mode of that list for every *visible*

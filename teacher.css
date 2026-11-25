@@ -1,89 +1,203 @@
-/* Teacher dashboard only. Tokens and buttons come from site.css. */
+/* Teacher dashboard only. Layout and behaviour tokens come from site.css;
+   the COLOURS and the type on this page are this file's own. */
+
+/* ---------------- the look ----------------
+   Light plum by default and the same palette in a dark plum when the
+   computer is set to dark, the way the guitar-class teacher console is.
+   It is meant to look nothing like the student pages, which are dark navy
+   and gold: a teacher should know at a glance which side of the site
+   they are on.
+
+   Every value is a token redefined on `body.teacher`, never in site.css:
+   site.css serves every student page, and those must not change. Because
+   the wall, the chip and the dialogs are all children of <body>, they pick
+   these up too. The new tokens (brand, selected, warn, info, tint, scrim)
+   have no site.css counterpart.
+
+   Three jobs that used to share one gold now have their own:
+     selected     --sel-bg / --sel-ink   the current nav item, a chosen tab
+     main button  --brand / --brand-ink  filled buttons, the avatar disc
+     accent       --accent               links on hover, focus rings, ticks
+   and "needs a look" has its own amber (--warn), so a warning does not
+   turn plum along with the accent. */
+@font-face{
+  font-family:"Fraunces";src:url(fonts/fraunces.woff2) format("woff2");
+  font-weight:400 700;font-display:swap;
+}
+body.teacher{
+  color-scheme:light dark;
+  --bg:#f7f6f2;--panel:#ffffff;--panel2:#eeece6;
+  --ink:#1e1c28;--muted:#545266;
+  --line:rgba(40,34,90,.17);--line2:rgba(40,34,90,.08);
+  --tint:rgba(40,34,90,.04);--scrim:rgba(30,27,70,.5);
+  --brand:#514a7d;--brand-hover:#5d5590;--brand-ink:#ffffff;
+  --sel-bg:#eeedfe;--sel-ink:#3c3489;
+  --accent:#5b52a8;
+  --good:#3b6d11;--good-bg:#eaf3de;
+  --warn:#854f0b;--warn-bg:#faeeda;
+  --bad:#b3372a;--bad-bg:#fbe9e7;
+  --info:#185fa5;--info-bg:#e6f1fb;
+  --shadow:0 1px 2px rgba(30,27,70,.05),0 3px 10px rgba(30,27,70,.05);
+  --shadow-raised:0 10px 36px rgba(30,27,70,.28);
+  --r-card:12px;--r-sm:8px;--r-btn:10px;
+  --serif:"Fraunces",ui-serif,Georgia,serif;
+  --bar:56px;
+}
+@media (prefers-color-scheme:dark){
+  body.teacher{
+    --bg:#26252d;--panel:#1e1d24;--panel2:#302f38;
+    --ink:#e9e7f0;--muted:#a3a1b3;
+    --line:rgba(220,214,255,.15);--line2:rgba(220,214,255,.08);
+    --tint:rgba(220,214,255,.05);--scrim:rgba(0,0,0,.6);
+    --brand:#494370;--brand-hover:#544d80;
+    --sel-bg:#2b2752;--sel-ink:#c7c1f5;
+    --accent:#8f85e8;
+    --good:#a8d070;--good-bg:#1e4208;
+    --warn:#f0b84a;--warn-bg:#4a2a04;
+    --bad:#f0968a;--bad-bg:#4a1710;
+    --info:#93c4f0;--info-bg:#0c3a6b;
+    --shadow:0 1px 2px rgba(0,0,0,.35),0 3px 10px rgba(0,0,0,.3);
+    --shadow-raised:0 10px 36px rgba(0,0,0,.6);
+  }
+}
+
+/* The dashboard's type is the dashboard's own. A student's Reading-view
+   choice (Lexend, Atkinson, wide spacing) is made on a shared computer
+   for reading words, and game-core.js applies it to every page; it does
+   not get to restyle a teacher's console. So the face is set here, not
+   through site.css's --font, and the spacing is put back. */
+body.teacher{
+  padding:0;display:block;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+html.view-wide body.teacher{letter-spacing:normal;word-spacing:normal}
+
+/* ---------------- buttons ----------------
+   site.css makes every .btn gold with dark text, and it cannot change.
+   The Google sign-in button on the wall stays white, as Google's own
+   guidelines have it. */
+body.teacher .btn:not(.ei-btn-google){
+  background:var(--brand);color:var(--brand-ink);font-weight:600;border-radius:var(--r-btn);
+}
+body.teacher .btn:not(.ei-btn-google):hover{background:var(--brand-hover);filter:none}
+body.teacher .btn.ghost:not(.ei-btn-google){
+  background:transparent;color:var(--ink);border:1px solid var(--line);
+}
+body.teacher .btn.ghost:not(.ei-btn-google):hover{background:var(--panel2);border-color:var(--accent)}
+
+/* ---------------- the plum bar ----------------
+   Across the top, above the sidebar and the content. The brand is a link
+   back to the games. The user chip lives at its right end: auth.js fills
+   an element with id="ei-user-chip" when the page has one, and then does
+   not make it fixed, so the bar no longer needs padding to dodge it. */
+.tBar{
+  position:sticky;top:0;z-index:40;height:var(--bar);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:0 20px;background:var(--brand);color:var(--brand-ink);
+}
+.tBarBrand{
+  font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:-.01em;line-height:1.2;
+  color:var(--brand-ink);text-decoration:none;white-space:nowrap;
+}
+.tBarBrand:hover{text-decoration:underline;text-underline-offset:4px}
+.tBar :focus-visible{outline:2px solid #fff;outline-offset:2px}
+.tChip{display:inline-flex;align-items:center;gap:10px;font-size:14px;min-width:0}
+.tChip[hidden]{display:none}
+.tChip img,.tChip .ei-chip-init{width:28px;height:28px;border-radius:50%;display:block;object-fit:cover;flex:none}
+.tChip .ei-chip-init{
+  background:rgba(255,255,255,.22);color:#fff;font-weight:700;font-size:14px;
+  display:flex;align-items:center;justify-content:center;
+}
+.tChip .ei-chip-name{color:#fff;font-weight:600;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tChip .ei-chip-out{
+  background:transparent;color:#fff;font-size:13px;font-weight:600;
+  border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:5px 12px;
+}
+.tChip .ei-chip-out:hover{background:rgba(255,255,255,.14);border-color:#fff;color:#fff}
 
 /* ---------------- the console ----------------
-   Full width: a 216px sidebar that sticks and scrolls on its own, and
-   the content beside it. Below 900px the sidebar becomes one strip that
-   scrolls sideways above the content, with the group headings dropped. */
-body.teacher{padding:0;display:block}
-.tShell{display:grid;grid-template-columns:216px minmax(0,1fr);min-height:100vh}
+   Full width: a 216px sidebar that sticks (under the bar) and scrolls on
+   its own, and the content beside it. Below 900px the sidebar becomes one
+   strip that scrolls sideways above the content, with the group headings
+   dropped. */
+.tShell{display:grid;grid-template-columns:216px minmax(0,1fr);min-height:calc(100vh - var(--bar))}
 
 .tSide{
-  position:sticky;top:0;height:100vh;overflow-y:auto;
-  background:var(--panel);border-right:1px solid var(--line);
-  padding:16px 12px 24px;
+  position:sticky;top:var(--bar);height:calc(100vh - var(--bar));overflow-y:auto;
+  background:var(--panel);border-right:1px solid var(--line2);
+  padding:14px 10px 24px;
 }
-.tBrand{
-  display:flex;align-items:center;gap:9px;padding:6px 10px 16px;
-  color:var(--ink);text-decoration:none;font-weight:800;font-size:15px;
-}
-.tBrand:hover{color:var(--accent)}
 .tSide nav[hidden]{display:none}
+/* Until the account is checked (and for "Not this account") the nav is
+   hidden and the sidebar would be an empty column, so it goes too. */
+.tShell:has(#tNav[hidden]){grid-template-columns:minmax(0,1fr)}
+.tShell:has(#tNav[hidden]) .tSide{display:none}
 .tGroup{margin-bottom:14px}
 .tGroupHead{
-  font-size:13px;font-weight:700;color:var(--muted);margin:0 0 4px;padding:0 10px;
-  font-variant-caps:all-small-caps;letter-spacing:.09em;
+  font-size:11px;font-weight:700;color:var(--muted);margin:0 0 4px;padding:0 10px;
+  text-transform:uppercase;letter-spacing:.07em;
 }
 .tNav{
   display:flex;align-items:center;gap:10px;width:100%;
   background:transparent;color:var(--muted);text-align:left;
-  font-size:14.5px;font-weight:700;padding:8px 10px;border-radius:10px;margin-bottom:2px;
+  font-size:14px;font-weight:500;line-height:1.25;padding:8px 10px;border-radius:var(--r-sm);margin-bottom:2px;
 }
 .tNav:hover{color:var(--ink);background:var(--panel2)}
-.tNav[aria-current="page"]{background:rgba(255,201,77,.16);color:var(--accent)}
-.tNav svg,.tBrand svg{
+.tNav[aria-current="page"]{background:var(--sel-bg);color:var(--sel-ink);font-weight:600}
+.tNav svg{
   width:16px;height:16px;flex:none;fill:none;stroke:currentColor;
   stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
 }
 
-.tMain{min-width:0;padding:16px 28px 60px}
-/* The top bar. Right padding keeps its tools clear of auth.js's user
-   chip, which is fixed to the top-right corner of every page. */
+.tMain{min-width:0;padding:18px 28px 60px}
+/* The page's own top strip: the view's title and subtitle, and its tools. */
 .tTop{
   display:flex;align-items:center;justify-content:space-between;gap:12px 18px;flex-wrap:wrap;
-  padding:4px 150px 14px 0;margin-bottom:18px;border-bottom:1px solid var(--line);
+  padding:0 0 14px;margin-bottom:18px;border-bottom:1px solid var(--line);
 }
 .tTitleBox{min-width:0}
-.tTop h1{font-size:24px;margin:0 0 2px;letter-spacing:-.3px}
+.tTop h1{font-family:var(--serif);font-size:22px;font-weight:500;margin:0 0 2px;letter-spacing:-.01em}
 .tTop .sub{font-size:14px;line-height:1.4}
 .tTools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .tTools[hidden]{display:none}
-.tTools .btn.sm{font-size:14px;padding:8px 14px;border-radius:10px}
+.tTools .btn.sm{font-size:14px;padding:8px 14px}
 
-/* The segmented period filter. */
-.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+/* The segmented class filter. The pressed segment is the page's ink on
+   the page's colour, inverted, so it reads as pressed in either scheme. */
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel)}
 .seg[hidden]{display:none}
 .seg button{
-  background:transparent;color:var(--muted);font-size:13.5px;font-weight:700;
-  padding:7px 12px;border-right:1px solid var(--line);
+  background:transparent;color:var(--muted);font-size:13px;font-weight:600;
+  padding:7px 13px;border-right:1px solid var(--line);
 }
 .seg button:last-child{border-right:none}
 .seg button:hover{color:var(--ink);background:var(--panel2)}
-.seg button[aria-pressed="true"]{background:var(--accent);color:#1a1206}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
 
 /* The four count cards on Students. */
-.sumCards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:20px}
-.sumCard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 18px}
-.sumCard .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
-.sumCard .v{font-size:30px;font-weight:800;letter-spacing:-.5px;margin:4px 0 2px}
+.sumCards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:20px}
+.sumCard{background:var(--panel2);border-radius:var(--r-card);padding:12px 14px}
+.sumCard .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.sumCard .v{font-size:24px;font-weight:500;margin:4px 0 2px}
 .sumCard .s{color:var(--muted);font-size:12.5px}
-.sumCard.warn .v{color:var(--accent)}
+.sumCard.warn .v{color:var(--warn)}
 .sumCard.bad .v{color:var(--bad)}
 
 /* Manage's section tabs. */
 .mTabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;border-bottom:1px solid var(--line)}
 .mTabs button{
-  background:transparent;color:var(--muted);font-size:15px;font-weight:700;
+  background:transparent;color:var(--muted);font-size:15px;font-weight:600;
   padding:9px 16px;border-bottom:3px solid transparent;margin-bottom:-1px;
 }
 .mTabs button:hover{color:var(--ink)}
-.mTabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.mTabs button[aria-selected="true"]{color:var(--sel-ink);border-bottom-color:var(--accent)}
 .mTabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 /* The Classes view: one card per class — its name and size, its
    teachers (each removable while more than one is left), and the
    add / rename / delete row. */
 .clsGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-.clsCard{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.clsCard{background:var(--panel2);border-radius:var(--r-card);padding:14px 16px}
 .clsHead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px;font-size:16px}
 .clsTeachers{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .clsTeachers .pkMini{padding:0 6px;margin-left:2px}
@@ -98,35 +212,35 @@ body.teacher{padding:0;display:block}
   .tSide{
     height:auto;z-index:25;display:flex;align-items:center;gap:6px;
     overflow-x:auto;overflow-y:hidden;padding:8px 10px;scrollbar-width:thin;
-    border-right:none;border-bottom:1px solid var(--line);
+    border-right:none;border-bottom:1px solid var(--line2);
   }
-  .tBrand{padding:6px 8px;flex:none}
-  .tBrand span,.tGroupHead{display:none}
+  .tGroupHead{display:none}
   .tSide nav{display:flex;gap:4px}
   .tGroup{display:flex;gap:4px;margin:0}
   .tNav{width:auto;white-space:nowrap;margin:0}
   .tMain{padding:14px 16px 60px}
-  .tTop{padding-right:0}
   .sumCards{grid-template-columns:repeat(2,minmax(0,1fr))}
-  /* The chip would sit on the strip; park it at the bottom instead. */
-  body.teacher .ei-chip{top:auto;bottom:14px}
+}
+@media (max-width:480px){
+  .tBar{padding:0 12px}
+  .tBarBrand{font-size:19px}
 }
 
 .panel{
-  background:var(--panel);border:1px solid var(--line);border-radius:20px;
-  padding:22px;margin-bottom:20px;box-shadow:0 18px 46px rgba(0,0,0,.35);
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);
+  padding:22px;margin-bottom:20px;box-shadow:var(--shadow);
 }
-.panel > h2{font-size:19px;margin:0 0 4px;letter-spacing:-.2px}
+.panel > h2{font-family:var(--serif);font-size:18px;font-weight:500;margin:0 0 4px}
 .panel > .note{color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 18px}
 
 table.t{width:100%;border-collapse:collapse;font-size:15px}
 table.t th{
-  text-align:left;color:var(--muted);font-size:12px;font-weight:700;
+  text-align:left;color:var(--muted);font-size:12px;font-weight:600;
   text-transform:uppercase;letter-spacing:.06em;
   padding:0 10px 10px;border-bottom:1px solid var(--line);white-space:nowrap;
 }
 table.t th.num,table.t td.num{text-align:right}
-table.t td{padding:12px 10px;border-bottom:1px solid rgba(49,64,92,.5);vertical-align:middle}
+table.t td{padding:12px 10px;border-bottom:1px solid var(--line2);vertical-align:middle}
 table.t tr:last-child td{border-bottom:none}
 table.t tbody tr.clickable{cursor:pointer}
 table.t tbody tr.clickable:hover{background:var(--panel2)}
@@ -134,38 +248,44 @@ table.t tbody tr.clickable:hover{background:var(--panel2)}
 
 .who{display:flex;align-items:center;gap:10px;min-width:0}
 .who img,.who .init{width:30px;height:30px;border-radius:50%;flex:none;object-fit:cover}
-.who .init{background:var(--accent);color:#1a1206;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:13px}
-.who .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .init{background:var(--brand);color:var(--brand-ink);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:13px}
+.who .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .who .em{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* On the student's own page the name is the page's heading (the card is
+   the only place .who sits directly in a panel; in the roster it is in a
+   table cell), so it takes the title face. */
+.panel > .who{gap:12px;margin-bottom:16px}
+.panel > .who img,.panel > .who .init{width:40px;height:40px;font-size:16px}
+.panel > .who .nm{font-family:var(--serif);font-weight:500;font-size:20px}
 
 .pill{
-  display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;
+  display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;
   background:var(--panel2);color:var(--muted);border:1px solid var(--line);
 }
-.pill.good{background:rgba(61,220,151,.13);color:var(--good);border-color:rgba(61,220,151,.35)}
-.pill.warn{background:rgba(255,201,77,.13);color:var(--accent);border-color:rgba(255,201,77,.35)}
-.pill.bad{background:rgba(255,107,107,.13);color:var(--bad);border-color:rgba(255,107,107,.35)}
+.pill.good{background:var(--good-bg);color:var(--good);border-color:var(--good-bg)}
+.pill.warn{background:var(--warn-bg);color:var(--warn);border-color:var(--warn-bg)}
+.pill.bad{background:var(--bad-bg);color:var(--bad);border-color:var(--bad-bg)}
 .muted{color:var(--muted)}
 .tiny{font-size:12px}
 
 .acc{display:flex;align-items:center;gap:8px;justify-content:flex-end}
 .acc .bar{width:64px;height:6px;border-radius:99px;background:var(--panel2);overflow:hidden;flex:none}
 .acc .bar span{display:block;height:100%;border-radius:99px;background:var(--good)}
-.acc .bar span.warn{background:var(--accent)}
+.acc .bar span.warn{background:var(--warn)}
 .acc .bar span.bad{background:var(--bad)}
 
-.statRow{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.statRow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
 .stat{
-  background:var(--panel2);border:1px solid var(--line);border-radius:14px;
-  padding:14px 18px;min-width:120px;flex:1 1 120px;
+  background:var(--panel2);border-radius:var(--r-card);
+  padding:12px 16px;min-width:120px;flex:1 1 120px;
 }
-.stat .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
-.stat .v{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.stat .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.stat .v{font-size:24px;font-weight:500}
 
 .listGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-bottom:16px}
 label.check{
   display:flex;align-items:center;gap:10px;cursor:pointer;
-  background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 14px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-btn);padding:11px 14px;
   font-size:15px;
 }
 label.check:hover{border-color:var(--accent)}
@@ -178,20 +298,20 @@ label.check input{width:17px;height:17px;accent-color:var(--accent);flex:none}
 label.check .sub2{color:var(--muted);font-size:12px;display:block}
 
 select.sel,input.txt{
-  background:var(--panel2);border:1px solid var(--line);color:var(--ink);
-  font-family:inherit;font-size:15px;padding:9px 12px;border-radius:10px;
+  background:var(--panel);border:1px solid var(--line);color:var(--ink);
+  font-family:inherit;font-size:15px;padding:9px 12px;border-radius:var(--r-sm);
 }
 select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 
 .rowActions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px}
-.btn.sm{font-size:15px;padding:10px 18px;border-radius:12px}
+.btn.sm{font-size:14px;padding:9px 16px;border-radius:var(--r-btn)}
 .saveNote{color:var(--muted);font-size:13px}
 .saveNote.ok{color:var(--good)}
 .saveNote.err{color:var(--bad)}
 
 .backlink{
-  background:transparent;color:var(--muted);font-size:14px;font-weight:700;
-  border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin-bottom:16px;
+  background:transparent;color:var(--muted);font-size:14px;font-weight:600;
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 14px;margin-bottom:16px;
 }
 .backlink:hover{border-color:var(--accent);color:var(--ink)}
 
@@ -208,14 +328,14 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
    and neither of them should have to save a file first. */
 .riBox{max-width:820px}
 .riDrop{
-  border:2px dashed var(--line);border-radius:16px;padding:22px;text-align:center;
+  border:2px dashed var(--line);border-radius:var(--r-card);padding:22px;text-align:center;
   background:var(--panel2);transition:border-color .15s ease, background .15s ease;
 }
-.riDrop.over{border-color:var(--accent);background:rgba(255,201,77,.08)}
+.riDrop.over{border-color:var(--accent);background:var(--sel-bg)}
 .riDrop input[type=file]{display:block;margin:12px auto 0;color:var(--muted);font:inherit;font-size:13px}
 .riPaste{
   width:100%;min-height:110px;resize:vertical;
-  background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:12px;
+  background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-sm);
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.6;padding:12px 14px;
 }
 .riPaste:focus{outline:none;border-color:var(--accent)}
@@ -228,38 +348,40 @@ select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
 .nsList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .nsRow{
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-  background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+  background:var(--panel2);border-radius:var(--r-btn);padding:10px 14px;
 }
-.nsWho{font-weight:800;min-width:130px}
+.nsWho{font-weight:700;min-width:130px}
 .nsText{flex:1 1 260px;color:var(--ink);font-size:14.5px;line-height:1.5}
 
 /* ---- the "nobody has given them anything" notice ---- */
 .panel.callout{
   display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:space-between;
-  border-color:rgba(255,201,77,.45);background:rgba(255,201,77,.07);
+  border-color:var(--warn);background:var(--warn-bg);
 }
 .panel.callout p{margin:0;font-size:15.5px;line-height:1.5}
-.panel.callout b{color:var(--accent)}
+.panel.callout b{color:var(--warn)}
 ol.steps{margin:0 0 18px;padding-left:22px;line-height:1.7;font-size:15.5px}
 ol.steps li{margin-bottom:6px}
 .periodPills{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
 
 /* A roster row with no account behind it yet. Present, clickable and
-   assignable — just visibly not here. */
-table.t tbody tr.pending td{opacity:.62}
-table.t tbody tr.pending .who .nm{font-weight:600}
+   assignable — just visibly not here. Greyed with colour, not opacity:
+   fading the whole cell dropped the pills and the email under 3:1. */
+table.t tbody tr.pending .who .nm{font-weight:500;color:var(--muted)}
+table.t tbody tr.pending .who .init{background:var(--panel2);color:var(--muted)}
+table.t tbody tr.pending .who img{opacity:.6}
 
 .wordchips{display:flex;flex-wrap:wrap;gap:8px}
 .wordchip{
-  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
-  padding:7px 12px;font-size:15px;font-weight:700;
+  background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:7px 12px;font-size:15px;font-weight:600;
 }
 .wordchip small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
 /* What the mic heard, under the word — the evidence behind a miss. Set
    apart from the counts above it because it is a quotation, not a number. */
 .wordchip small.heardline{color:var(--ink);opacity:.75;font-style:italic;margin-top:2px}
-.wordchip.bad{border-color:rgba(255,107,107,.45)}
-.wordchip.warn{border-color:rgba(255,201,77,.45)}
+.wordchip.bad{border-color:var(--bad)}
+.wordchip.warn{border-color:var(--warn)}
 
 .denied{max-width:520px;margin:60px auto;text-align:center}
 .empty{color:var(--muted);font-size:15px;line-height:1.7;padding:6px 2px}
@@ -272,26 +394,26 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 .picker{margin:6px 0 14px}
 .pkSection{margin-bottom:18px}
 .pkHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px}
-.pkHead h3{font-size:15px;margin:0;letter-spacing:-.1px}
+.pkHead h3{font-size:15px;margin:0}
 .pkTools{display:inline-flex;gap:6px}
 .pkMini{
-  font:inherit;font-size:11.5px;font-weight:700;letter-spacing:.02em;
+  font:inherit;font-size:11.5px;font-weight:600;letter-spacing:.02em;
   color:var(--muted);background:var(--panel2);border:1px solid var(--line);
-  border-radius:8px;padding:3px 9px;cursor:pointer;line-height:1.3;
+  border-radius:var(--r-sm);padding:3px 9px;cursor:pointer;line-height:1.3;
 }
 .pkMini:hover{color:var(--ink);border-color:var(--accent)}
 .redGrid{width:auto;min-width:420px;border-collapse:collapse;font-size:14px}
-.redGrid th{color:var(--muted);font-weight:700;text-align:center;padding:6px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+.redGrid th{color:var(--muted);font-weight:600;text-align:center;padding:6px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
 .redGrid th:first-child{text-align:left}
 .redGrid th .pkMini{display:block;margin:5px auto 0}
-.redGrid td{padding:5px 14px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
+.redGrid td{padding:5px 14px;border-bottom:1px solid var(--line2);text-align:center;vertical-align:middle}
 .redGrid td.pkList{text-align:left;white-space:nowrap}
 .redGrid td.pkList b{display:inline-block;min-width:54px}
 .redGrid td.pkList .preview{color:var(--muted);font-size:12.5px;font-style:italic;margin-left:8px}
-.redGrid tbody tr:hover td{background:rgba(255,255,255,.025)}
+.redGrid tbody tr:hover td{background:var(--tint)}
 .redGrid input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer;vertical-align:middle}
 .pkSummary{
-  margin-top:4px;padding:10px 14px;border-radius:12px;
+  margin-top:4px;padding:10px 14px;border-radius:var(--r-btn);
   background:var(--panel2);border:1px dashed var(--line);
   color:var(--muted);font-size:13.5px;line-height:1.5;
 }
@@ -311,7 +433,7 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 
 .abScroll{
   overflow:auto;max-height:66vh;
-  border:1px solid var(--line);border-radius:14px;background:var(--bg);
+  border:1px solid var(--line);border-radius:var(--r-card);background:var(--bg);
 }
 /* The name column's width is a variable because two other things have to
    know it: the sticky family label parks just to the right of it, and the
@@ -334,7 +456,7 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 .abGrid thead th.abCorner{z-index:4;top:0}
 
 .abGrid th.abFam{
-  color:var(--ink);font-size:13px;font-weight:800;text-align:left;white-space:nowrap;
+  color:var(--ink);font-size:13px;font-weight:700;text-align:left;white-space:nowrap;
   padding:9px 12px;border-bottom:1px solid var(--line);border-left:1px solid var(--line);
   height:38px;box-sizing:border-box;
 }
@@ -349,7 +471,7 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 
 .abGrid th.abCol{
   padding:7px 10px;border-bottom:1px solid var(--line);border-left:1px solid var(--line);
-  text-align:center;font-weight:700;vertical-align:top;min-width:96px;max-width:150px;
+  text-align:center;font-weight:600;vertical-align:top;min-width:96px;max-width:150px;
 }
 .abColName{display:block;color:var(--ink);font-size:12.5px;white-space:nowrap}
 /* Two lines, always: a fixed height is what keeps every column's "all"
@@ -361,56 +483,56 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 }
 .abGrid th.abCol .pkMini{margin-top:2px}
 
-.abGrid td,.abGrid tbody th{border-bottom:1px solid rgba(49,64,92,.5)}
+.abGrid td,.abGrid tbody th{border-bottom:1px solid var(--line2)}
 .abGrid tbody th.abName{padding:8px 12px;font-weight:400}
 .abNameIn{display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0}
-.abLabel{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.abLabel{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .abMeta{color:var(--muted);font-size:11.5px;line-height:1.35;max-width:100%}
 /* "nothing yet" under a name: that student's home page is empty. */
-.abGames.none{color:var(--accent);font-weight:700}
+.abGames.none{color:var(--warn);font-weight:700}
 .abGrid tr.abStudent.pending .abLabel{opacity:.7}
 .abPick{display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0}
 .abPick input{width:15px;height:15px;accent-color:var(--accent);flex:none}
 
 /* A period's heading row. Its checkbox selects everyone under it. */
-.abGrid tr.abGroup td{background:rgba(255,255,255,.035)}
+.abGrid tr.abGroup td{background:var(--tint)}
 /* background-image, not background: the tint has to sit ON TOP of the
    opaque background-color the sticky column depends on. */
-.abGrid tr.abGroup th.abName{background-image:linear-gradient(rgba(255,255,255,.035),rgba(255,255,255,.035))}
+.abGrid tr.abGroup th.abName{background-image:linear-gradient(var(--tint),var(--tint))}
 .abGrid tr.abGroup .abLabel{font-size:15px}
-.abGrid tr.abStudent:hover td{background:rgba(255,255,255,.03)}
+.abGrid tr.abStudent:hover td{background:var(--tint)}
 
 .abCell{
   text-align:center;padding:7px 10px;cursor:pointer;white-space:nowrap;
   border-left:1px solid var(--line);font-size:15px;line-height:1.5;
 }
 .abCell:focus{outline:2px solid var(--accent);outline-offset:-2px}
-.abCell.empty{color:rgba(140,158,190,.45)}
-.abCell:hover{background:rgba(255,199,89,.09)}
+.abCell.empty{color:var(--muted)}
+.abCell:hover{background:var(--sel-bg)}
 
 /* The key to the cells, which are icons and nothing else. */
 .abLegend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 16px;font-size:13.5px}
 .abKey{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .abKeyIcon{font-size:17px;line-height:1}
 .abWarn{
-  margin:-4px 0 14px;font-size:14px;color:var(--accent);
-  border-left:3px solid var(--accent);padding:4px 0 4px 10px;
+  margin:-4px 0 14px;font-size:14px;color:var(--warn);
+  border-left:3px solid var(--warn);padding:4px 0 4px 10px;
 }
 
 /* ---- the per-cell mode popover ---- */
 .abPop{
   position:fixed;z-index:60;min-width:190px;
-  background:var(--panel);border:1px solid var(--accent);border-radius:14px;
-  box-shadow:0 20px 50px rgba(0,0,0,.55);padding:12px;
+  background:var(--panel);border:1px solid var(--accent);border-radius:var(--r-card);
+  box-shadow:var(--shadow-raised);padding:12px;
 }
-.abPopHead{font-weight:800;font-size:13px;margin-bottom:8px}
+.abPopHead{font-weight:700;font-size:13px;margin-bottom:8px}
 .abPopBody label.check{margin-bottom:6px;padding:7px 10px}
 .abPopFoot{display:flex;gap:6px;align-items:center;margin-top:4px}
 .abPopFoot .btn{margin-left:auto}
 
 /* ---- the bulk dialog ---- */
 .abModal{
-  position:fixed;inset:0;z-index:70;background:rgba(6,10,20,.72);
+  position:fixed;inset:0;z-index:70;background:var(--scrim);
   display:flex;align-items:flex-start;justify-content:center;padding:40px 20px 0;overflow:auto;
 }
 /* No bottom padding on the overlay, a bottom margin on the box instead:
@@ -419,17 +541,17 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 .abModalBox{
   margin-bottom:40px;
   width:100%;max-width:720px;background:var(--panel);
-  border:1px solid var(--line);border-radius:20px;padding:24px;
-  box-shadow:0 30px 70px rgba(0,0,0,.6);
+  border:1px solid var(--line);border-radius:var(--r-card);padding:24px;
+  box-shadow:var(--shadow-raised);
 }
-.abModalBox h2{font-size:19px;margin:0 0 4px}
+.abModalBox h2{font-family:var(--serif);font-size:18px;font-weight:500;margin:0 0 4px}
 /* The buttons under a long picker, kept in view: the picker runs to six
    families, and a Save you have to scroll to find is a Save that gets
    missed. */
 .stickyActions{
   position:sticky;bottom:0;z-index:2;
   background:var(--panel);border-top:1px solid var(--line);
-  margin:12px -24px -24px;padding:14px 24px;border-radius:0 0 20px 20px;
+  margin:12px -24px -24px;padding:14px 24px;border-radius:0 0 var(--r-card) var(--r-card);
 }
 .panel .stickyActions{margin:12px -22px -22px;padding:14px 22px}
 .abModalBox .note{color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 16px}
@@ -438,11 +560,11 @@ table.t tbody tr.pending .who .nm{font-weight:600}
 .abBar{
   position:sticky;bottom:14px;z-index:20;
   display:flex;gap:12px;align-items:center;flex-wrap:wrap;
-  background:var(--panel);border:1px solid var(--accent);border-radius:16px;
-  padding:12px 18px;box-shadow:0 20px 50px rgba(0,0,0,.55);
+  background:var(--panel);border:1px solid var(--accent);border-radius:var(--r-card);
+  padding:12px 18px;box-shadow:var(--shadow-raised);
 }
 .abBar[hidden]{display:none}
-.abCount{font-weight:800;font-size:14px;color:var(--accent)}
+.abCount{font-weight:700;font-size:14px;color:var(--accent)}
 .abBar .btn{margin-left:0}
 .abBar #abSave{margin-left:auto}
 
@@ -455,17 +577,17 @@ table.t tbody tr.pending .who .nm{font-weight:600}
    Sits above the board, and only when it has something to say. Styled as
    a suggestion rather than an alert: nothing here is wrong, and a teacher
    who ignores it for a week has lost nothing. */
-.abReady{border-color:rgba(255,199,89,.35)}
+.abReady{border-color:var(--accent)}
 .abSugs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .abSug{
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-  padding:10px 14px;border:1px solid var(--line);border-radius:12px;
+  padding:10px 14px;border-radius:var(--r-btn);
   background:var(--panel2);font-size:14px;
 }
-.abSugWho{font-weight:700;min-width:120px}
+.abSugWho{font-weight:600;min-width:120px}
 .abSugWhat{flex:1;min-width:220px;color:var(--muted)}
 .abSugWhat b{color:var(--ink)}
-.abSugTo{color:var(--accent);font-weight:700;white-space:nowrap}
+.abSugTo{color:var(--sel-ink);font-weight:600;white-space:nowrap}
 .abSug .btn{flex:none}
 .abReady .rowActions{margin-top:14px}
 
@@ -473,8 +595,20 @@ table.t tbody tr.pending .who .nm{font-weight:600}
    Teacher-only by firestore.rules, and shown wherever a name is: a note
    you have to open a student to discover is a note nobody reads. */
 .noteBox{width:100%;resize:vertical;line-height:1.55;font-family:inherit;margin-bottom:12px}
-.noteDot{color:var(--accent);font-size:12px;cursor:help;vertical-align:1px}
+.noteDot{color:var(--sel-ink);font-size:12px;cursor:help;vertical-align:1px}
 .noteLine{
   color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;
 }
+
+/* ---------------- the sign-in wall ----------------
+   Drawn by auth.js and styled by site.css in the students' navy and gold.
+   On this page it takes the console's colours, so it is readable in both
+   schemes and the first thing a teacher sees already looks like the page
+   behind it. The Google button stays white. */
+body.teacher .ei-wall{background:var(--bg)}
+body.teacher .ei-wall-card{box-shadow:var(--shadow-raised);border-radius:var(--r-card)}
+body.teacher .ei-wall-card h1{font-family:var(--serif);font-weight:500}
+body.teacher .ei-wall-error{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+/* White on the light card has no edge; the dark scheme already shows one. */
+body.teacher .ei-btn-google{border:1px solid var(--line)}
