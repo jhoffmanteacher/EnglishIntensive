@@ -205,8 +205,25 @@ section); the reasons are here.
   need Say it on their current list. A student already past a Cards-only step
   stays past it. Lists given without a sequence are unchanged.
 
-<!-- Room for one more paragraph, to be added by the session that wrote it:
-     the microphone work. -->
+- **The microphone: measure first** (2026-11-25). The teacher wants the
+  listening "as accurate as possible", and it is always one voice in a quiet
+  room. No scoring rule changed. Every listening rule trades a false reject
+  (read right, marked wrong) against a false accept, and neither rate had ever
+  been measured, so the day built the instruments: `mic-takes.html`, a
+  teacher-only recorder that saves what Chrome's recogniser returned for a
+  scripted read (right, and wrong on purpose), and `tools/listen-loop.mjs`,
+  which replays reads through the real engines, counts both errors, scores a
+  candidate rule against today's, and pins the baseline on GitHub.
+
+  **Next: record the first takes.** Open `mic-takes.html` on a school
+  Chromebook with the class headset in the quiet room. Read Starting Blends,
+  Nonsense, Red List 1 and Multisyllable, each once "Right" and once "Wrong"
+  (about 25 minutes). Put the downloaded files in `tools/mic-takes/` and run
+  `node tools/listen-loop.mjs --source=takes`. Then use the numbers to decide,
+  in order: scoring on interims vs finals, top guess vs n-best, and the 0.35
+  quiet-read threshold. Separately, the loop shows that the cards' Listen, One
+  minute and Blend It lack Say It's nonsense-word and "up set" fences; bringing
+  them in line is a scoring change and needs its own before/after.
 
 ## Decided during the retire-modes build
 
