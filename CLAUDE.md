@@ -64,7 +64,7 @@ Give a sequence in `teacher.js`, to `resolve`, `settle` or `plan()` in
 `store.js`, to the plan functions in `adaptive.js`, or to the home page in
 `practice.js`. Its last line must say `failures: none`, and it must exit 0;
 `~ known` lines are site faults already reported, not failures. GitHub runs
-all five on every push (`.github/workflows/checks.yml`).
+all of these on every push (`.github/workflows/checks.yml`).
 
 A Stop hook (`.claude/settings.json`, `.claude/hooks/stop-checks.mjs`) runs the
 fast, Node-only checks at the end of every Claude Code turn that changed a
@@ -74,6 +74,19 @@ failure back to the session so it is fixed in the same turn. It does **not**
 run the Chrome checks (`run-tests.sh`, `check-pages.sh`, `boot-check.sh`):
 those still have to be run by hand before a commit. GitHub runs them on every
 push. Set `EI_STOP_CHECKS=0` to switch the hook off.
+
+Then the listening loop, `node tools/listen-loop.mjs` (Node 22 and a Chrome
+binary in `CHROME`; it serves the site itself on port 8051; about 45 s). It
+must exit 0 with `pin: every pinned count held`. Run it after any change to
+how a game LISTENS — `blend-game.js`'s onresult and matcher, `listen.js`,
+the cards' `judgeHeard`, One minute's alignment, Blend It's onresult, and
+`game-core.js`'s normalize / phonemes / ACCEPT / isNonAnswer / soundsLike /
+spokenMatch / resultGate, or a list's homophones, soundalikes, `phonetic` or
+`join`. **A listening rule changes only with a before/after from this loop**
+(`--json`, then `--against`), on the real takes in `tools/mic-takes/` when
+there are any; then re-pin with `--measure` in the same commit and say why.
+Virtual-reader numbers are the engines' logic under a model, not a
+measurement — the takes are.
 
 `firestore.rules` is the only thing enforcing who may read what. It does not
 deploy itself — re-publish it in the Firebase console whenever it changes.

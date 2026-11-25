@@ -543,12 +543,16 @@ row. A result, or a session ending without a network error, resets the
 count. Say It, Blend it, One minute and the flash cards' listening all use
 it. (`say-net`)
 
-Chrome 154 also offers on-device recognition (`processLocally`) and word
-boosting (`phrases`); neither is used yet. On-device would take the network
-out but needs testing for accuracy on struggling readers and for whether
-managed Chromebooks allow the language pack. Boosting the target word must
-never touch scoring — it makes the recogniser hear the word whether or not
-it was read.
+Chrome also offers on-device recognition (`processLocally`, with
+`SpeechRecognition.available()` / `install()` for the language pack;
+Chrome 138 on desktop, by its intent-to-ship thread) and word boosting
+(`phrases`, Chrome 140 desktop); neither is used. Chrome's own ship notes say on-device recognition
+is Windows, Mac and Linux, with ChromeOS "to follow" — the Chrome 150 notes
+still list ChromeOS as unsupported — so on the class Chromebooks it is not
+an option yet; `mic-takes.html` offers it as a variant where the browser has
+it. Boosting the target word must never touch scoring — it makes the
+recogniser hear the word whether or not it was read. The recorder offers it
+only as a variant labelled BIASED, to measure exactly that.
 
 ## Blend games
 
@@ -789,6 +793,7 @@ Three scripts in `tools/` run the checks headlessly, against a plain
 | `tools/run-tests.sh` | `tests.html` in headless Chrome; prints the summary line |
 | `tools/check-pages.sh <pages…>` | loads each page and reports console errors and CSP violations |
 | `tools/boot-check.sh` | **starts every engine** against its real list and clicks a few steps through it |
+| `tools/listen-loop.mjs` | replays recogniser output through the four engines that listen and counts false rejects and false accepts (below) |
 
 The last one exists for the gap the other two leave: `tests.html` covers
 pure logic, and page loads stop at the sign-in wall, so an engine's `start()`
@@ -975,6 +980,87 @@ a lowered percent, a list added at the end, a saved sequence used, or Stop on
 the first of two promoting it. The headers of `tools/sequence-loop.mjs` and
 `tools/sequence-loop.js` have the flags, the exact rules of the fake and the
 checks.
+
+### The listening loop, and recording takes
+
+Every rule above is a trade between two errors: a **false reject** (the
+student read the word right and was marked wrong) and a **false accept**
+(read it wrong, marked right). Until now neither rate had been measured;
+each rule was reasoned. Two tools make them measurable.
+
+**`mic-takes.html`** is a teacher-only recorder (the auth wall, then
+`EIAuth.isTeacher()`; anyone else gets "This page is for teachers."). It is
+linked from nowhere — open it by its address. The teacher picks a list and a
+script — `right` (read each word as written) or `wrong` (each word shows a
+specific misreading to say on purpose, plus four noise items: nothing, a
+cough, "um", "I don't know") — and reads. For each item the page opens a
+recogniser **exactly as Say It does** (`lang` en-US, `continuous`,
+`interimResults`, no `maxAlternatives`, `start()` with no track) and keeps
+everything Chrome sends: every result event with its time from the word
+appearing, every alternative with its confidence, errors, starts and ends.
+Enter moves on (the session is stopped gently, so a late final is still
+caught), A records the item again. **Download takes** saves one JSON file
+(`tools/mic-takes/README.md` has the schema). It writes nothing to Firestore,
+and nothing leaves the computer except the file the teacher downloads. Other
+settings can be recorded as named variants without touching the games:
+`nbest5` (five alternatives — the site reads only the top one, so these show
+whether the right word was in the list when the top guess was wrong),
+`on-device` (where the browser has it) and `biased-phrases`, labelled BIASED
+for the reason above. An optional audio copy of each item goes only into a
+separate "with audio" download, for replaying the same reads into the
+recogniser under other settings later (`start(audioTrack)`, Chrome 135+).
+
+The misreadings come from `tools/wrong-readings.js`, by rule from the
+lists' own data where a rule gives a sensible one: a blend sound dropped or
+swapped (*crab* → cab, clab), a final blend cut short (*gasp* → gas), the
+nonsense word's twin on the list (*sug* → sig), the oi/oy read as another
+vowel (*moist* → most), a syllable dropped (*fan·tas·tic* → fantic); for the
+red words a small hand table of classic misreadings (*said* → sayed,
+*island* → is land), then a short vowel for a one-vowel heart, then a
+look-alike red word.
+
+**`node tools/listen-loop.mjs`** is the closed loop. It replays event streams
+through the **real** engines — Say It, the cards' Listen, One minute and
+Blend It, with `game-core.js`, `word-lists.js` and the lists' real configs —
+in headless Chrome, one iframe per case, through a fake recogniser and a
+virtual clock (`tools/listen-fake.js`, self-tested on every run). A verdict
+is read off what the engine **did** — the card turning green or red, the
+"say it one more time" line, the rating button the flip pulses, the
+per-word result One minute reports — never by calling a matcher. Two sources:
+
+- **Takes** — every file in `tools/mic-takes/`, replayed with its original
+  timing; the script is the answer key. These are measurements.
+- **A virtual reader** with a recogniser model, for coverage and for now,
+  when there are no takes. Every behaviour of the model is copied from a
+  passage of this README or a boot-check case (late finals, revised
+  interims, homophone spellings, contractions written out, *upset* as "up
+  set", a nonsense word returned as the nearest real word, a quiet read at
+  low confidence, an interim that passes through the target on the way to a
+  misreading's final), and fifteen **directed** reads pin the cases this
+  README names. Its numbers show the engines' **logic** under the model's
+  stated assumptions. They are not measurements, and the output says so.
+
+It prints, per mode and family, false rejects and false accepts with their
+denominators, then every error with the target, what was said, the stream's
+key lines, what the engine did and a replay command (`--case=N --verbose`
+prints the whole timeline). For takes it also says, for each false reject,
+whether the target was in a lower-ranked alternative or an interim — the
+evidence for or against "top guess only" and scoring on interims.
+
+**Judging a candidate rule.** `--rule=NAME` rewrites a few lines of
+`blend-game.js` in memory (no file is edited; each rewrite must match exactly
+once): `final-only`, `stable-interim`, `nbest`, `conf-low`, `conf-high`,
+`no-quiet-rule`, and `same`, which changes nothing and must reproduce the
+base run. Run the base with `--json=base.json`, then the rule with
+`--against=base.json`: every verdict that moved is ranked better or worse by
+the answer key. A listening rule changes only with that before/after — on
+takes when there are any.
+
+The default run's virtual counts are pinned in
+`tools/listen-loop-pinned.json`, so a change that moves any verdict turns
+the check (and CI) red until it is re-pinned on purpose with `--measure`.
+About 45 seconds; `--list` names the modes, families, lists, rules and fake
+faults; the header of the file has the rest.
 
 ### Which part went wrong
 

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Build-time check, not part of the site: the host page of
+     tools/listen-loop.mjs. It runs each case in a fresh iframe of
+     listen-case.html (one engine per document, as boot-check.html has it)
+     and hands the results back to the Node runner over the DevTools
+     protocol. Opened by hand it does nothing: the runner drives it. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self'; base-uri 'self'; object-src 'none';
+  img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self';">
+<title>listen-loop host</title>
+</head>
+<body>
+<p>tools/listen-loop.mjs drives this page. Run <code>node tools/listen-loop.mjs</code>.</p>
+<div id="frames"></div>
+<script src="listen-host.js"></script>
+</body>
+</html>

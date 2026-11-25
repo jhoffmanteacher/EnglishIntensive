@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Build-time check, not part of the site: ONE case of tools/listen-loop.mjs.
+     tools/listen-loop.html makes one of these per case in an iframe, because
+     the engines own their page (shared element ids, timers left running) —
+     the reason tools/boot-check.html is one engine per page load.
+
+     listen-fake.js goes first and replaces, in this frame only, the clock,
+     SpeechRecognition, speechSynthesis, Audio, AudioContext and
+     getUserMedia; then it loads the site's own scripts. 'unsafe-inline' is
+     for one thing: a candidate rule (--rule=) is the engine's own source
+     with a few lines rewritten in memory, run as an inline script. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self'; base-uri 'self'; object-src 'none';
+  img-src 'self' data:; media-src 'self' blob:; font-src 'self' data:;
+  style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self';">
+<!-- The site root as the base: the engines fetch by relative path
+     (audio/ph/manifest.json), as they do from a page at the root. -->
+<base href="../">
+<title>listen-loop case</title>
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="blend-game.css">
+</head>
+<body>
+<div id="app"></div>
+<script src="tools/listen-fake.js"></script>
+</body>
+</html>
