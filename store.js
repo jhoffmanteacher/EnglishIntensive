@@ -131,6 +131,7 @@ window.EIStore = (function(){
   var dirtyFluency = {};        // fluency lists changed since the last write
   var dirtyMeta = false;
   var saveTimer = null, inFlight = null;
+  var handOver = Promise.resolve(); // settles once the latest flush's set() has been called — see flush()
   var firstUnsent = 0;          // Date.now() of the oldest change not yet taken by flush(); 0 = none
   var retryMs = 0;              // 0 = last save worked; else the next retry's wait
 
@@ -475,18 +476,45 @@ window.EIStore = (function(){
        every later answer save at once — a tight loop against a failing
        write. The next answer starts a fresh 5 s like any other. */
     firstUnsent = 0;
-    /* Chained behind whatever is already on the wire, never alongside it:
-       two overlapping writes could land out of order, and the older
-       one's cleanup must not make inFlight look empty while this one is
-       still pending — signOut waits on inFlight and would reload
-       mid-write. */
-    var prev = inFlight || Promise.resolve();
-    var me = prev.then(function(){
+    /* Handed to the SDK NOW, not after the previous write is acknowledged.
+       This used to be chained behind the write already on the wire, so that
+       two overlapping writes could not land out of order. The SDK already
+       promises that: one client's writes go through a single local queue
+       and are sent and acknowledged in the order set() was called. So the
+       chain bought no ordering, and it cost the save that matters most: a
+       flush on pagehide or a closed lid sat waiting for the earlier write's
+       reply, and a tab that closed first never issued it at all.
+
+       What IS still chained is the hand-over (`handOver`): each set() is
+       called only after the previous flush's set() has been called, never
+       before, so the SDK's queue order is the order flush() ran even when
+       EIAuth.db() answers one call faster than another (the first call
+       waits on the SDK script; later ones get a resolved promise). That
+       wait is a few microtasks, never a round trip.
+
+       ONE FAILS, A LATER ONE LANDS. With two writes outstanding the first
+       can be refused and the second succeed. Putting the first's keys back
+       and sending them again later is still right, because a retry never
+       re-sends the old `body`: flush() builds a fresh payload(), and every
+       field in it is the CURRENT whole value — words[k] the whole stat (its
+       `k` kind counts only ever go up), heard[k] and fluency[k] the whole
+       tail, totals both counts, recent the whole array, seq/seq2 the whole
+       mark, lastSeen now. So the re-send is never older than the write that
+       landed before it (the SDK sends it after), and nothing goes back.
+
+       `inFlight`, and the promise flush() returns, stay pending until EVERY
+       write issued so far has settled: signOut waits on it and must not
+       reload mid-write, and an older write settling must not make inFlight
+       look empty while a newer one is pending. */
+    var write = null;
+    var handed = handOver.then(function(){
       return EIAuth.db();
     }).then(function(db){
       if(!db) throw new Error("no db");
-      return db.collection("students").doc(uid).set(body, { merge:true });
-    }).then(function(){
+      write = db.collection("students").doc(uid).set(body, { merge:true });
+    });
+    handOver = handed.then(null, function(){});
+    var me = handed.then(function(){ return write; }).then(function(){
       retryMs = 0;
       if(sendingClass) docClass = sendingClass;
     }, function(err){
@@ -510,11 +538,15 @@ window.EIStore = (function(){
         clearTimeout(saveTimer);
         saveTimer = setTimeout(function(){ flush(); }, retryMs);
       }
-    }).then(function(){
-      if(inFlight === me) inFlight = null;
     });
-    inFlight = me;
-    return me;
+    // Every write so far, this one included. `me` never rejects (its
+    // failure branch handles the error), so neither does this.
+    var all = inFlight ? Promise.all([inFlight, me]) : me;
+    var tracked = all.then(function(){
+      if(inFlight === tracked) inFlight = null;
+    });
+    inFlight = tracked;
+    return tracked;
   }
 
   /* The debounce means the last ~1.2 s of answers (5 s at most) are only in memory.

@@ -804,7 +804,8 @@ Chromebooks — answers, finished rounds, tabs hidden and closed, the network
 dropping and stalling, Sign out and the next student signing in — does each
 student's `students/{uid}` hold what that student did, does nobody see or
 receive anyone else's work, and does Sign out always finish? Node 22, no
-dependencies, no browser, about a second for the default 160 cases.
+dependencies, no browser, about a second for the default 160 cases (plus
+the directed one).
 
 **What is real:** `firebase-config.js`, `auth.js`, `adaptive.js`,
 `word-lists.js` and `store.js`, unmodified, loaded into one Node `vm`
@@ -816,11 +817,20 @@ device with one `localStorage` for every tab and every student and one
 Firestore server with merge writes, minimal rules and a network that can be
 `ok`, `offline` or `stalled`. Offline, a write does **not** fail — it waits
 for the network, as the real SDK's does, and is lost if its tab closes or
-its student signs out first. The fake checks itself at the start of every
-run, and `--fake-fault=merge` / `--fake-fault=clock` break it on purpose to
-show the run goes red.
+its student signs out first. One page's writes land in the order they were
+issued, whatever latency each drew, because the real SDK sends one client's
+writes from a single queue in `set()` order — `store.js` relies on that and
+hands each write over at once rather than chaining it behind the last. The
+fake checks itself at the start of every run, and `--fake-fault=merge`,
+`--fake-fault=clock` and `--fake-fault=order` break it on purpose to show
+the run goes red. One limit: a write issued at `pagehide` here is on the
+wire and lands; a real browser may never send it (no keepalive), so a green
+close-fast means the save was handed to the SDK in time, not that it is
+certainly stored.
 
-It plays eight families of seeded schedules (`--list`) and compares the
+It plays eight families of seeded schedules (`--list`), then one directed
+case (`first-fails`: two writes outstanding, the first refused, the second
+landing, and the retry must not put anything back), and compares the
 stored documents with its own ledger of what each virtual student did:
 
 - **C1 saved** — an answer on a page that loaded, followed by 6 s open with
@@ -1491,13 +1501,17 @@ rules in that file matter before touching it:
   1.2 s an answer would otherwise put the save off until the round ended,
   and a stalled network or a closed tab before then would take the whole
   run with it. The round that ends with a student clicking "Sign out" is
-  exactly the round most likely to be lost. Sign-out waits for that flush, but for four seconds at
-  most (the button reads "Signing out…" meanwhile): Firestore's write never
-  settles on a stalled network, and a sign-out that hangs leaves the next
-  student on the Chromebook in the last one's account, which is worse than
-  losing one save. The store also flushes when the page is hidden or closed
-  (`pagehide`, or `visibilitychange` to hidden), so the answers from the
-  last second before a closed tab or lid aren't lost to the debounce.
+  exactly the round most likely to be lost. Sign-out waits for that flush,
+  but for four seconds at most (the button reads "Signing out…" meanwhile):
+  Firestore's write never settles on a stalled network, and a sign-out that
+  hangs leaves the next student on the Chromebook in the last one's
+  account, which is worse than losing one save. The store also flushes when
+  the page is hidden or closed (`pagehide`, or `visibilitychange` to
+  hidden), so the answers from the last second before a closed tab or lid
+  aren't lost to the debounce. Each write is handed to Firestore the moment
+  it is made, even with an earlier one still waiting for its reply: the SDK
+  already sends one client's writes in order, and waiting for the reply
+  first meant a tab that closed in the meantime never sent its last save.
 
 There's also a per-device mirror in `localStorage`, scoped by uid so a
 shared Chromebook can't leak one student's deck into the next student's

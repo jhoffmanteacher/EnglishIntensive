@@ -18,6 +18,8 @@
      --seed=S           base seed (default 1); the same seed gives the same stdout byte for byte
      --case=I           run only case I (with --verbose: its whole timeline, every write, the stored doc, every compare)
      --family=a,b       only these families (names: --list); the round robin is over these
+     --directed=NAME    run only this directed case (names: --list); without it every directed case runs once after
+                        the round robin, unless --case is given
      --root=DIR         load the five site scripts from another folder (a fixed copy, or one with a planted fault)
      --fake-fault=NAME  break the FAKE on purpose (names: --list): the self-test and the run must go red
      --json=FILE        every case's result, the stored docs and the failures
@@ -34,10 +36,10 @@
    click handler auth.js put on #ei-chip-out. The student acts through EIStore.record(listId, word, correct) with a
    real word from WordLists.wordsOf(listId) for a list in EIStore.myLists(), and EIStore.finishRound. Hiding a tab
    fires the page's own `visibilitychange` (visibilityState "hidden") and `pagehide` listeners; closing fires both,
-   lets the microtasks run, then kills the page. The debounce, the chained flush, the retry, rule 1, settle() and
+   lets the microtasks run, then kills the page. The debounce, the flush and its writes, the retry, rule 1, settle() and
    the high-water mark all run as written, on the virtual clock.
 
-   WHAT IS FAKE (self-tested at the start of every run: T1-T8).
+   WHAT IS FAKE (self-tested at the start of every run: T1-T9).
    - The clock: virtual. setTimeout/clearTimeout/setInterval, Date.now() and new Date() inside the pages run on it.
      After each timer the tool drains microtasks (one real setImmediate), so promise chains advance in a fixed order.
    - The DOM: stub elements that take any property. getElementById/querySelector('#id') find elements by id; an
@@ -52,7 +54,10 @@
      later with the chosen student; signOut() resolves locally, network or not.
    - firebase.firestore(): one fake SERVER per case. set(body, {merge:true}) deep-merges maps, replaces arrays and
      scalars (an empty map replaces); the body is copied when set() is called. The network, per device:
-       ok       a round trip is 40-400 ms; one page's requests land in the order they were issued;
+       ok       a round trip is 40-400 ms, drawn per request; one page's requests land in the order they were
+                issued (a later write never lands before an earlier one from the same page, whatever latency each
+                drew), as the real SDK sends and acknowledges one client's writes from a single queue in the order
+                set() was called. store.js relies on that and does not chain its writes (T9; --fake-fault=order);
        offline  a write stays PENDING (its promise does not settle) until the network is back, then is sent; a get
                 rejects with {code:"unavailable"};
        stalled  reads and writes both stay pending until the network is back.
@@ -65,7 +70,8 @@
      red-word lists, or `plan` + `plan2`. Students are made up (uid-…, 1002xx@seq.org).
 
    THE FAMILIES (round robin): plain, offline, close-fast, signout-ok, signout-stalled, failed-load, two-tabs,
-   sequence — see FAMILY below; each says what it plays.
+   sequence — see FAMILY below; each says what it plays. Then each DIRECTED case once (first-fails: two writes
+   outstanding, the first refused and the second landing) — a schedule chance does not reach; see DIRECTED below.
 
    THE CHECKS. The answer key is the tool's own ledger of every answer (student, key, right first try, page, time)
    and of every tab event, network change and page load; it never asks store.js what was saved.
@@ -84,6 +90,8 @@
         down, and a page that loads with a mark stored is at or past it in that plan and still offers every list of
         every step before it (EIStore.myLists()).
      C6 totals (single-tab cases). When every answer of a student is owed, stored totals.n and totals.r equal them.
+     D1 directed first-fails: the two writes were on the wire together, the first was refused and the second landed
+        (C1 and C6 then judge what was stored).
 
    KNOWN (printed as "~ known", not failed).
      K1 two-tabs: totals are last-writer-wins. Each tab sends its own running totals whole, so the stored totals are
@@ -93,7 +101,10 @@
    no time limit, and a write made offline never settles), and close-fast fails C1 and C6 (store.js debounces saves
    1200 ms and nothing flushes on pagehide or visibilitychange). Both are being fixed on branch wo-signout.
 
-   NOT MODELLED. A second tab of the signed-out student left open while the next student signs in; the Firestore
+   NOT MODELLED. A write issued at pagehide or on a closed lid is, here, on the wire and lands even if its tab
+   closes; a real browser may never let it leave the machine (Firestore's write has no keepalive, and the page's
+   process can be gone before the request is sent). So close-fast passing means the save was HANDED TO THE SDK in
+   time, not that it is guaranteed stored. A second tab of the signed-out student left open while the next student signs in; the Firestore
    memory cache (a get() offline never answers from it); a stalled get() that fails after a while (here it waits
    for the network, like the real one); clock skew; the browser's 'online'/'offline' events (the site has no
    listener); the teacher's pages, preview and the test student; recordHeard and recordFluency.
@@ -106,9 +117,11 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAMILIES = ["plain", "offline", "close-fast", "signout-ok", "signout-stalled", "failed-load", "two-tabs", "sequence"];
+const DIRECTED_NAMES = ["first-fails"];   // run once each after the round robin — see DIRECTED below
 const FAKE_FAULTS = {
   merge: "set(…, {merge:true}) replaces top-level maps instead of merging them (a save of one word wipes the rest)",
   clock: "the pages get the real clock (real setTimeout and Date), so the debounce never fires inside a case",
+  order: "one page's writes land in whatever order their latencies say, not the order set() was called",
 };
 const SITE_FILES = ["firebase-config.js", "auth.js", "adaptive.js", "word-lists.js", "store.js"];
 const EPOCH = Date.UTC(2026, 10, 2, 16, 0, 0);   // a Monday, 8 a.m. in California
@@ -129,7 +142,7 @@ function usage(msg) {
 }
 function parseArgs(argv) {
   const o = { cases: 160, seed: 1, case: null, family: null, root: path.resolve(HERE, ".."), fakeFault: null,
-              json: null, verbose: false, list: false, rootGiven: false };
+              json: null, verbose: false, list: false, rootGiven: false, directed: null };
   const int = (k, v) => { if (!/^\d+$/.test(v || "")) usage(`--${k} needs a whole number`); return +v; };
   for (const a of argv) {
     const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
@@ -143,6 +156,7 @@ function parseArgs(argv) {
       for (const f of o.family) if (!FAMILIES.includes(f)) usage(`no family "${f}" (see --list)`);
       if (!o.family.length) usage("--family needs names");
     } else if (k === "root") { if (!v) usage("--root needs a folder"); o.root = path.resolve(v); o.rootGiven = true; }
+    else if (k === "directed") { if (!DIRECTED_NAMES.includes(v)) usage(`no directed case "${v}" (see --list)`); o.directed = v; }
     else if (k === "fake-fault") { if (!FAKE_FAULTS[v]) usage(`no fake fault "${v}" (see --list)`); o.fakeFault = v; }
     else if (k === "json") { if (!v) usage("--json needs a file"); o.json = v; }
     else if (k === "verbose" && v === undefined) o.verbose = true;
@@ -393,6 +407,7 @@ class Page {
     Object.assign(op, { page: this, uid: this.dev.user ? this.dev.user.uid : null, at: w.now, state: "queued" });
     return new Promise((res, rej) => {
       op.res = res; op.rej = rej;
+      if (op.kind === "set" && this.refuseNext) { op.refuse = this.refuseNext; this.refuseNext = null; }
       if (op.kind === "set") { this.writes.push(op); this.c.writes.push(op); w.log(`${this.name} write ${op.path} issued (${this.dev.net}) ${JSON.stringify(Object.keys(op.body))}`); }
       if (this.dev.net === "ok") this.send(op);
       else if (this.dev.net === "offline" && op.kind === "get") w.at(w.now + 5, () => { w.log(`${this.name} read ${op.path} → unavailable`); rej({ code: "unavailable", message: "client is offline" }); }, this);
@@ -401,8 +416,10 @@ class Page {
   }
   send(op) {
     const w = this.w; op.state = "wire";
-    const t = Math.max(w.now + w.rng.int(WRITE_RTT_MIN_MS, WRITE_RTT_MAX_MS), this.lastLand + 1);
-    this.lastLand = t;
+    const rtt = w.now + w.rng.int(WRITE_RTT_MIN_MS, WRITE_RTT_MAX_MS);
+    // The SDK's one queue per client: never before this page's previous request (unless the fake is broken).
+    const t = w.fault === "order" ? rtt : Math.max(rtt, this.lastLand + 1);
+    this.lastLand = Math.max(t, this.lastLand);
     w.at(t, () => this.land(op));          // no page: lands even if the tab has closed
   }
   land(op) {
@@ -413,13 +430,18 @@ class Page {
       const d = op.path.startsWith("teachers/") ? undefined : this.c.server.read(op.path);
       return op.res({ exists: d !== undefined, id: op.path.split("/")[1], data: () => clone(d) });
     }
+    if (op.refuse) {
+      op.state = "refused"; w.log(`${this.name} write ${op.path} REFUSED (${op.refuse}, directed)`);
+      if (alive) op.rej({ code: op.refuse });
+      return;
+    }
     if (!(u && op.path === `students/${u.uid}`)) {
       op.state = "denied"; w.log(`${this.name} write ${op.path} DENIED (device user ${u ? u.uid : "null"})`);
       if (alive) op.rej({ code: "permission-denied" });
       return;
     }
     this.c.server.apply(op.path, op.body, op.merge);
-    op.state = "landed"; op.landedAt = w.now;
+    op.state = "landed"; op.landedAt = w.now; (this.landOrder ||= []).push(op);
     w.log(`${this.name} write ${op.path} landed${alive ? "" : " (tab already closed)"}`);
     this.c.afterLand(op);
     if (alive) op.res();
@@ -779,7 +801,38 @@ const FAMILY = {
   },
 };
 
-/* ── the self-test of the fake (T1-T8) ──────────────────────────────── */
+/* ── directed cases ─────────────────────────────────────────────────────
+   One schedule each, run once per run, for a situation the families cannot reach by chance. */
+const DIRECTED = {
+  /* FIRST FAILS, SECOND LANDS. store.js hands each write to the SDK at once, so two can be outstanding. Here the
+     first is refused (a transient {code:"aborted"}, so store.js retries) and the second, issued in the same instant
+     and carrying a newer value of one of the first's words, lands. The retry must send the first's keys again, and
+     at their CURRENT values: re-sending the first write's old body would put that word and the totals back. C1 and
+     C6 judge it like any case; D1 also checks the two writes really were outstanding together. */
+  async "first-fails"(c) {
+    const S = c.student("lists"), p = await c.signIn(c.device().newTab(), S);
+    await c.w.advance(OWED_OPEN_MS);                 // the sign-in write has landed
+    const id = c.myLists(p).find((x) => p.ctx.WordLists.exists(x));
+    const ws = Array.from(p.ctx.WordLists.wordsOf(id)).slice(0, 3);
+    p.refuseNext = "aborted";
+    await c.answer(p, { lists: [id], word: ws[0], correct: true });
+    await c.answer(p, { lists: [id], word: ws[1], correct: true });
+    p.ctx.EIStore.flush(); await tick();
+    const first = p.writes[p.writes.length - 1];
+    await c.answer(p, { lists: [id], word: ws[1], correct: false });
+    await c.answer(p, { lists: [id], word: ws[2], correct: true });
+    p.ctx.EIStore.flush(); await tick();
+    const second = p.writes[p.writes.length - 1];
+    const together = first && second && first !== second && first.state === "wire" && second.state === "wire";
+    if (together) c.ok("D1", "two writes outstanding at once, the first to be refused");
+    else c.fail("D1", "flush twice in one instant", "two writes on the wire together", `first ${first && first.state}, second ${second && second.state}`);
+    await c.w.advance(20000);                        // the refusal, the landing, the 5 s retry
+    if (first && first.state === "refused" && second && second.state === "landed") c.ok("D1", "the first was refused, the second landed");
+    else c.fail("D1", "the two writes settle", "first refused, second landed", `first ${first && first.state}, second ${second && second.state}`);
+  },
+};
+
+/* ── the self-test of the fake (T1-T9) ──────────────────────────────── */
 async function selfTest(fault) {
   const out = [];
   const t = (id, what, ok) => out.push({ id, what, ok: !!ok });
@@ -814,6 +867,13 @@ async function selfTest(fault) {
   d.setNet("offline"); p3.ctx.firebase.auth().signOut().then(() => (so = true)); await w.advance(10);
   t("T8", "localStorage is the device's, sessionStorage the tab's; signOut works offline",
     p4.ctx.localStorage.getItem("k") === "v" && p4.ctx.sessionStorage.getItem("s") === null && so && d.user === null);
+  // The SDK sends one client's writes in the order set() was called; twelve in one instant, each its own latency.
+  d.user = { uid: "u1", email: "1@seq.org" }; d.setNet("ok");
+  const p5 = new Page(c, d.newTab(), true), db5 = p5.firestore(), sent = [];
+  for (let k = 0; k < 12; k++) sent.push(k), db5.collection("students").doc("u1").set({ o: k }, { merge: true });
+  await w.advance(1000);
+  const landed = (p5.landOrder || []).map((op) => op.body.o);
+  t("T9", "one page's writes land in the order they were issued", landed.join() === sent.join() && s.read("students/u1").o === 11);
   return out;
 }
 
@@ -822,6 +882,7 @@ async function main() {
   const o = parseArgs(process.argv.slice(2));
   if (o.list) {
     console.log("families: " + FAMILIES.join(", "));
+    console.log("directed cases (run once each): " + DIRECTED_NAMES.join(", "));
     for (const [k, v] of Object.entries(FAKE_FAULTS)) console.log(`fake fault ${k}: ${v}`);
     return 0;
   }
@@ -837,16 +898,23 @@ async function main() {
   for (const x of stBad) console.log(`FAIL self-test ${x.id} ${x.what}${o.fakeFault ? ` (fake fault: ${o.fakeFault})` : ""}`);
   console.log(`save-loop: self-test of the fake ${st.length - stBad.length}/${st.length}${o.fakeFault ? ` · fake fault ON: ${o.fakeFault}` : ""}${o.rootGiven ? ` · root ${o.root}` : ""}`);
 
-  const idx = o.case !== null ? [o.case] : [...Array(o.cases).keys()];
   const results = [], byFam = {}, byCheck = {};
   let held = 0, known = 0;
-  const extra = (o.family ? ` --family=${o.family.join(",")}` : "") + (o.rootGiven ? ` --root=${o.root}` : "") + (o.fakeFault ? ` --fake-fault=${o.fakeFault}` : "");
-  for (const i of idx) {
-    const fam = fams[i % fams.length], seed = caseSeed(o.seed, i);
+  const tail = (o.rootGiven ? ` --root=${o.root}` : "") + (o.fakeFault ? ` --fake-fault=${o.fakeFault}` : "");
+  const extra = (o.family ? ` --family=${o.family.join(",")}` : "") + tail;
+  // The round robin, then each directed case once (all of them unless --case or --directed narrows the run).
+  const jobs = [];
+  if (!o.directed) for (const i of (o.case !== null ? [o.case] : [...Array(o.cases).keys()])) {
+    const fam = fams[i % fams.length];
+    jobs.push({ i, fam, run: FAMILY[fam], seed: caseSeed(o.seed, i), replay: `--seed=${o.seed} --case=${i}${extra}` });
+  }
+  if (o.case === null) for (const [name, run] of Object.entries(DIRECTED)) if (!o.directed || o.directed === name)
+    jobs.push({ i: name, fam: name, run, seed: caseSeed(o.seed, 1000000), replay: `--seed=${o.seed} --directed=${name}${tail}` });
+  for (const { i, fam, run, seed, replay } of jobs) {
     where = `case ${i} (${fam})`;
     const c = new Case(i, fam, seed, o);
     c.w.log(`case ${i} · ${fam} · case seed ${seed}`);
-    try { await FAMILY[fam](c); await c.w.advance(1000); c.finish(); }
+    try { await run(c); await c.w.advance(1000); c.finish(); }
     catch (e) { c.fail("crash", `case ${i}`, "the case runs", String(e && e.stack || e).split("\n").slice(0, 3).join(" | ")); }
     lastDone = Date.now();
     if (o.verbose) for (const l of c.w.lines) console.log(l);
@@ -859,7 +927,7 @@ async function main() {
       seen[f.check] = 1;
       const more = c.failures.filter((x) => x.check === f.check).length - 1;
       console.log(`✗ ${f.check} · seed ${o.seed} · case ${i} (${fam}, case seed ${seed}) · step: ${f.step} · expected ${f.expected} · stored ${f.stored}` +
-        `${more ? ` (+${more} more ${f.check} in this case)` : ""} · replay: node tools/save-loop.mjs --seed=${o.seed} --case=${i}${extra} --verbose`);
+        `${more ? ` (+${more} more ${f.check} in this case)` : ""} · replay: node tools/save-loop.mjs ${replay} --verbose`);
     }
     for (const k of c.known) console.log(`~ known ${k.id} (two-tabs totals are last-writer-wins) · case ${i} · ${k.step} · answered ${k.expected} · stored ${k.stored}`);
     results.push({ case: i, family: fam, seed, pass: !c.failures.length, held: c.held, failures: c.failures, known: c.known,
