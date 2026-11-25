@@ -69,6 +69,9 @@ push. Set `EI_STOP_CHECKS=0` to switch the hook off.
 
 `firestore.rules` is the only thing enforcing who may read what. It does not
 deploy itself — re-publish it in the Firebase console whenever it changes.
+GitHub now runs `tools/rules-test.mjs` against the Firestore emulator on every
+push to main (`.github/workflows/rules.yml`); publishing the rules is still the
+console paste.
 
 ## Watch out for
 

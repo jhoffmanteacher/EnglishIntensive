@@ -1,0 +1,73 @@
+# Tests firestore.rules against the REAL Firestore emulator after every push to
+# main. firestore.rules is the only thing that decides who may read what; before
+# this, tools/rules-test.mjs ran only by hand.
+#
+# Nothing here touches the real Firebase project: the emulator runs on the
+# runner under a "demo-" project id, which needs no credentials and cannot
+# reach the network project. There is no deploy step: publishing rules is still
+# the Firebase console paste (CLAUDE.md).
+#
+# The three npm packages the tool needs are NOT in the repo (no package.json on
+# purpose). They are installed on the runner only, at exact versions, into a
+# folder outside the checkout, and RULES_TEST_DEPS points the tool at it - the
+# way the tool's own header says to run it by hand.
+#
+# It does not block a push or the Pages deploy: a red run means "look at the
+# last push". The job fails unless the tool prints "N/N rules cases passing"
+# with both numbers equal and N above zero.
+name: Firestore rules
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firestore-rules-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FIREBASE_TOOLS_VERSION: 15.36.0
+      RULES_UNIT_TESTING_VERSION: 6.0.0
+      FIREBASE_JS_VERSION: 10.12.2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          java-package: jre
+      - name: Install the emulator and the test packages (outside the checkout)
+        run: |
+          EMU="$RUNNER_TEMP/rules-emu"
+          mkdir -p "$EMU" && cd "$EMU"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund --legacy-peer-deps --save-exact \
+            "firebase-tools@$FIREBASE_TOOLS_VERSION" \
+            "@firebase/rules-unit-testing@$RULES_UNIT_TESTING_VERSION" \
+            "firebase@$FIREBASE_JS_VERSION"
+          java -version
+          "$EMU/node_modules/.bin/firebase" --version
+      - name: Run tools/rules-test.mjs on the emulator
+        run: |
+          EMU="$RUNNER_TEMP/rules-emu"
+          export RULES_TEST_DEPS="$EMU"
+          "$EMU/node_modules/.bin/firebase" emulators:exec --only firestore --project demo-ei \
+            "node tools/rules-test.mjs" < /dev/null 2>&1 | tee "$RUNNER_TEMP/rules.log"
+          [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "the emulator or the tool exited non-zero"; exit 1; }
+          line=$(grep -E '^[0-9]+/[0-9]+ rules cases passing$' "$RUNNER_TEMP/rules.log" | tail -1)
+          [ -n "$line" ] || { echo "no 'N/N rules cases passing' line"; exit 1; }
+          pass=${line%%/*}; rest=${line#*/}; total=${rest%% *}
+          [ "$pass" = "$total" ] && [ "$pass" -gt 0 ] || { echo "not all passing: $line"; exit 1; }
+          if grep -q '^SKIPPED' "$RUNNER_TEMP/rules.log"; then echo "a case was skipped"; exit 1; fi
+          echo "$line"
