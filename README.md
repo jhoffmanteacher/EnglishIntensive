@@ -972,12 +972,10 @@ the seed, case, step, expected and got, and ends with its replay command:
 `node tools/sequence-loop.mjs --seed=1 --case=16 --verbose` prints that case's
 whole timeline. `--root=DIR` serves another copy of the site (a fix, or a
 planted fault). The same seed gives the same output byte for byte. A real site
-fault the loop has found is listed as **KNOWN** in `tools/sequence-loop.js`
-and prints `~ known` instead of failing: K1, a student who finished every
-list of a sequence is put back on its last list (once that list has slipped
-below the bar from replaying it) by any save that writes the sequence afresh —
-a lowered percent, a list added at the end, a saved sequence used, or Stop on
-the first of two promoting it. The headers of `tools/sequence-loop.mjs` and
+fault the loop finds can be listed as **KNOWN** in `tools/sequence-loop.js`,
+which prints `~ known` instead of failing; the list is empty. The first, K1 — a
+finished student put back on their last list by a re-save — was fixed the day
+it was found (*The rule*, under *A student's page*). The headers of `tools/sequence-loop.mjs` and
 `tools/sequence-loop.js` have the flags, the exact rules of the fake and the
 checks.
 
@@ -1973,7 +1971,8 @@ who has not signed in, next to `lists`:
     plan: {
       steps: [ { ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] } ],
       bar:   0.9,    // 0.5 to 1 in steps of 0.05
-      at:    0,      // the step the teacher last set as current (0-based)
+      at:    0,      // the step the teacher last set as current (0-based);
+                     // the number of steps means past the end: finished every list
       hold:  false,  // true: stay on `at` until the teacher moves them
       setAt: 1795563000000   // Date.now() when the teacher saved it
     }
@@ -2003,7 +2002,7 @@ list per step. With a valid `plan`, the plan decides and `lists` is ignored
 both sequences, when there are two — so anything that only reads `lists`
 still sees what they can play now). All of it is
 sanitized on the way in (`Adaptive.sanitizePlan`): wrong types are dropped, a bar or a
-position out of range is pulled in, and a plan with no usable step is `null`.
+position out of range is pulled in (to the end, for `at`), and a plan with no usable step is `null`.
 
 **What "finished" means.** A step is finished when, for **every** id in it,
 the number of words that are solid and at pace (`Adaptive.listSolid`, the
@@ -2142,9 +2141,25 @@ at the bottom says *"Changes not saved yet"* with **Discard** and **Save**.
 Save is one merge-write of `{ plan, lists, updatedAt }` (plus `plan2` when there
 is a second) and the class stamp, to `assignments/{uid}` or to `roster/{email}`
 for a student who has not signed in (`saveBody`). A sequence whose draft changed
-is written afresh: `setAt` is now, `at` is the step shown as Now. Because
-`setAt` changed, the student's old high-water mark for it stops counting, so it
-is worked out afresh from what the student has learned, from `at`. A sequence
+is written afresh: `setAt` is now, `at` is the step shown as Now — the number
+of steps when that is past the end, so a student who has finished every list
+stays finished without their old mark. Because `setAt` changed, the old
+high-water mark stops counting, and it does not need to.
+
+**The rule (2026-11-25): nothing the teacher does moves a student backwards,
+except Go back to this list and raising the percent.** An edited draft's Now is
+walked from where the student is (`draftStart`): a lowered percent, a saved,
+ready-made or copied order, moving or taking out later lists, and Stop on the
+first of two all leave them where they were or further on — a finished student
+stays finished — and lists added after the end start them on the first added
+list they have not already finished. A **raised** percent measures again from
+where they are: a finished student is measured again on the last list, and is
+on it again if it no longer meets the new bar. Go back holds them where the
+teacher put them. Before this, `at` could not say "past the end" (it was pulled
+in to the last step), so any re-save of a finished sequence started the walk on
+its last list, and a student who had slipped on it was put back there — the
+sequence loop's K1. A document saved by the old code never holds an `at` past
+the last step and reads exactly as before. A sequence
 whose draft did not change is written back exactly as stored, so editing one
 never resets the other's mark (or its *Moved to a new list* news). `lists` is
 the current step's ids of each. Switching student, going back to the list, the class
@@ -2171,7 +2186,7 @@ they had finished leave the home page, though their practice record is kept.
 With two (`stopBody(uid, now, which)`): stopping the **second** deletes `plan2`
 and writes the first back exactly as stored;
 stopping the **first** writes the second as `plan` — at the step the student is
-really on in it, with a fresh `setAt` that the first's old `seq` can never
+really on in it (past the end, if they had finished it), with a fresh `setAt` that the first's old `seq` can never
 match — and deletes `plan2`. The student's `seq2` then belongs to nothing and is
 ignored; the next page load lands a new `seq` for the promoted plan.
 

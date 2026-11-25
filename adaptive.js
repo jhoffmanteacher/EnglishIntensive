@@ -497,7 +497,8 @@ window.Adaptive = (function(){
        plan: {
          steps: [ { ids: ["red-1-say", "red-1-cards"] }, ... ],
          bar:   0.9,     // 0.5 to 1 in steps of 0.05: how much of a list must be solid
-         at:    0,       // the step the teacher last set as current (0-based)
+         at:    0,       // the step the teacher last set as current (0-based);
+                         // steps.length means past the end: finished every list
          hold:  false,   // true: stay on step `at` until the teacher moves them
          setAt: <ms>     // when the teacher saved it
        }
@@ -541,10 +542,17 @@ window.Adaptive = (function(){
       if(ids.length) steps.push({ ids: ids });
     }
     if(!steps.length) return null;
+    /* `at` may be steps.length: past the end, every list finished. That is
+       how a re-save keeps a finished student finished (teacher.js planBody)
+       without a mark — the new setAt drops the mark, and an `at` clamped to
+       the last step would start the walk there again, so a last list that
+       slipped below the bar put them back on it (the sequence loop's K1). A
+       document saved before this never holds steps.length and reads as it
+       always did. Anything past the end is pulled back to it. */
     return {
       steps: steps,
       bar: sanitizeBar(raw.bar),
-      at: clamp(Math.floor(num(raw.at, 0)), 0, steps.length - 1),
+      at: clamp(Math.floor(num(raw.at, 0)), 0, steps.length),
       hold: raw.hold === true,
       setAt: Math.max(0, Math.floor(num(raw.setAt, 0)))
     };
@@ -591,7 +599,8 @@ window.Adaptive = (function(){
      THIS plan and is further on, start there instead (so a list replayed
      and missed a few times cannot put them back). If the teacher is holding
      them, stop. Otherwise walk forward while the step is finished.
-     `finished` means past the last step.
+     `finished` means past the last step — which `at` itself may be (see
+     sanitizePlan); a hold past the end holds nothing.
 
      Without `totalOf` there is no evidence, so nothing moves: the safe way
      to be wrong, as in listShare. */
@@ -601,7 +610,7 @@ window.Adaptive = (function(){
     var n = p.steps.length, start = p.at;
     var sq = sanitizeSeq(seq);
     if(sq && sq.of === p.setAt && sq.at > start) start = Math.min(sq.at, n);
-    if(p.hold && start === p.at) return { index: start, finished: false, hold: true };
+    if(p.hold && start === p.at && start < n) return { index: start, finished: false, hold: true };
     if(typeof totalOf !== "function") return { index: start, finished: start >= n, hold: false };
     var i = start;
     while(i < n && stepFinished(p.steps[i], p.bar, stats || {}, totalOf)) i++;

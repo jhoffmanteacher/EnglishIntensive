@@ -1875,16 +1875,30 @@
   function cloneSteps(steps){ return steps.map(function(s){ return { ids: s.ids.slice() }; }); }
   function draftShape(d){ return JSON.stringify({ steps: d.steps, bar: d.bar, at: d.at, hold: d.hold }); }
 
-  // A saved sequence as a draft, positioned where the student really is.
+  /* A saved sequence as a draft, positioned where the student really is —
+     past the end (at = steps.length) for a student who has finished every
+     list. `endAt` and `baseBar` remember that, for draftStart. */
   function draftFromSaved(uid, which){
     which = which ? 1 : 0;
     var pos = positionOf(uid, which);
     if(!pos) return null;
+    var n = pos.plan.steps.length, at = Math.min(pos.state.index, n);
     var d = { uid: uid, which: which, steps: cloneSteps(pos.plan.steps), bar: pos.plan.bar,
-              at: Math.min(pos.state.index, pos.plan.steps.length - 1),
-              hold: pos.state.hold, hasPlan: true };
+              at: at, hold: pos.state.hold, hasPlan: true, endAt: at === n ? n : -1, baseBar: pos.plan.bar };
     d.base = draftShape(d);
     return d;
+  }
+  /* Where an edited draft's walk starts. THE RULE (2026-11-25): no edit but
+     Go back to this list, or a RAISED percent, moves a student backwards. So
+     it starts where they are (`at`): a finished student stays finished
+     through a lowered percent, a saved, ready-made or copied order and Stop
+     on the first of two, and lists added after the end start them on the
+     first one they have not already finished. A raised percent re-measures
+     from where they are — for a finished student, from their last list, so
+     one that no longer meets the new bar is theirs again. */
+  function draftStart(d){
+    if(d.endAt > 0 && d.at === d.endAt && !d.hold && d.bar > d.baseBar) return d.endAt - 1;
+    return d.at;
   }
   function emptyDraft(uid, which){
     return { uid: uid, which: which ? 1 : 0, steps: [], bar: Adaptive.defaultBar, at: 0, hold: false, hasPlan: false, base: null };
@@ -1925,7 +1939,7 @@
       if(pos) return pos.state.index;
     }
     var s = studentByUid(d.uid);
-    var st = Adaptive.planState({ steps: d.steps, bar: d.bar, at: d.at, hold: d.hold, setAt: 0 },
+    var st = Adaptive.planState({ steps: d.steps, bar: d.bar, at: draftStart(d), hold: d.hold, setAt: 0 },
                                 s ? s.stats : {}, listTotal, null);
     return st ? st.index : 0;
   }
@@ -2021,7 +2035,7 @@
       if(used.indexOf(k) === -1){ used.push(k); keep.push({ ids: st.ids.slice() }); added++; }
     });
     d.steps = keep;
-    if(d.at > keep.length - 1) d.at = Math.max(0, keep.length - 1);
+    if(d.at > keep.length) d.at = keep.length;
     return added;
   }
 
@@ -2055,12 +2069,14 @@
   }
 
   /* What Save writes for one draft, as data. The plan starts afresh (setAt
-     now) at the step shown as Now; `lists` is that step's ids. */
+     now) at the step shown as Now — steps.length when that is past the end,
+     so a finished student stays finished without their old mark; `lists` is
+     that step's ids (the last step's, past the end). */
   function planBody(d, idx, now){
-    var n = d.steps.length, at = Math.max(0, Math.min(idx, n - 1));
+    var n = d.steps.length, at = Math.max(0, Math.min(idx, n));
     return {
-      plan: { steps: cloneSteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at, setAt: now },
-      lists: d.steps[at].ids.slice()
+      plan: { steps: cloneSteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at && at < n, setAt: now },
+      lists: d.steps[Math.min(at, n - 1)].ids.slice()
     };
   }
   function unionIds(lists){

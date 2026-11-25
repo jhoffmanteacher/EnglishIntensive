@@ -3650,7 +3650,8 @@
     eq("a bar goes to the nearest 5%", A3.sanitizePlan(plan([["a"]], { bar: 0.93 })).bar, 0.95);
     eq("a missing bar is 90%", A3.sanitizePlan({ steps: [{ ids: ["a"] }] }).bar, 0.9);
     eq("0.9 stays exactly 0.9", A3.sanitizePlan(plan([["a"]], { bar: 0.9 })).bar, 0.9);
-    eq("a position past the end is pulled in", A3.sanitizePlan(plan([["a"], ["b"]], { at: 9 })).at, 1);
+    eq("a position past the end is pulled to the end", A3.sanitizePlan(plan([["a"], ["b"]], { at: 9 })).at, 2);
+    eq("…and the end itself (finished every list) is kept", A3.sanitizePlan(plan([["a"], ["b"]], { at: 2 })).at, 2);
     eq("a negative position is pulled to 0", A3.sanitizePlan(plan([["a"], ["b"]], { at: -3 })).at, 0);
     eq("hold is true only for true", A3.sanitizePlan(plan([["a"]], { hold: "yes" })).hold, false);
     eq("hold true survives", A3.sanitizePlan(plan([["a"]], { hold: true })).hold, true);
@@ -3693,6 +3694,15 @@
     eq("a lower bar finishes sooner (70% of 20 is 14)",
        A3.planState(plan([["a"], ["b"]], { bar: 0.7 }), solid("a", 14), TOT20).index, 1);
     eq("100% takes every word", A3.planState(plan([["a"], ["b"]], { bar: 1 }), solid("a", 19), TOT20).index, 0);
+
+    /* at = steps.length: past the end (the K1 fix, 2026-11-25) */
+    eq("a plan saved past the end is finished", A3.planState(plan([["a"], ["b"]], { at: 2 }), {}, TOT20).finished, true);
+    eq("…even with its last list below the bar (nothing walks back)", A3.planState(plan([["a"], ["b"]], { at: 2 }), solid("b", 3), TOT20).index, 2);
+    eq("…a hold past the end holds nothing", JSON.stringify(A3.planState(plan([["a"], ["b"]], { at: 2, hold: true }), {}, TOT20)), '{"index":2,"finished":true,"hold":false}');
+    eq("…and the position has no current list and every list finished",
+       JSON.stringify((function(x){ return [x.current, x.finishedIds]; })(A3.planPosition(plan([["a"], ["b"]], { at: 2 }), {}, TOT20))), '[[],["a","b"]]');
+    eq("a document saved before (at on the last list) reads as it always did",
+       A3.planState(plan([["a"], ["b"]], { at: 1 }), solid("b", 3), TOT20).index, 1);
 
     /* two ways of playing: every one the teacher ticked must reach the bar */
     var TWO = plan([["a", "b"], ["c"]]);
@@ -3916,9 +3926,9 @@
       eq("a document with only a plan is one sequence", A3.sanitizePlans({ plan: P1 }).length, 1);
       eq("…the same plan sanitizePlan gives", JSON.stringify(A3.sanitizePlans({ plan: P1 })[0]), JSON.stringify(A3.sanitizePlan(P1)));
       eq("a plan and a plan2 are two", A3.sanitizePlans({ plan: P1, plan2: P2 }).length, 2);
-      eq("…the second sanitized like the first (a bar of 2 is pulled to 1, a bad hold is false)",
+      eq("…the second sanitized like the first (a bar of 2 is pulled to 1, a bad hold is false, at 9 is pulled to the end)",
          JSON.stringify((function(x){ return { bar: x.bar, hold: x.hold, at: x.at }; })(A3.sanitizePlans({ plan: P1, plan2: plan([["c"]], { bar: 2, hold: "yes", at: 9 }) })[1])),
-         '{"bar":1,"hold":false,"at":0}');
+         '{"bar":1,"hold":false,"at":1}');
       eq("a plan2 with no plan is ignored", A3.sanitizePlans({ plan2: P2 }).length, 0);
       eq("…and so is one beside a broken plan", A3.sanitizePlans({ plan: { steps: [] }, plan2: P2 }).length, 0);
       eq("a plan2 that is not a plan is no second", A3.sanitizePlans({ plan: P1, plan2: "steps" }).length, 1);
@@ -4870,6 +4880,54 @@
       feed(fixture());
       T.ensureDraft("u1", 1);
       eq("an empty second sequence is nothing to save", T.seqDirty(), false);
+    });
+
+    /* THE RULE (2026-11-25, the sequence loop's K1): no edit but Go back or a
+       raised percent moves a student backwards. Fin has finished all three
+       lists (mark at 3) and has since slipped on the last: 10 of 20. */
+    guard("a finished student stays finished through a re-save", function(){
+      function fin(extra){
+        return kid("u1", "Fin Day", merge({ stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 20), solid("red-2-cards", 20), solid("red-3-say", 10)),
+          seq: { at: 3, of: SETAT, when: 1 } }, extra || {}));
+      }
+      function finFixture(){ return { students: [fin()], assignments: { u1: merge({ plan: planDoc() }, stamp) } }; }
+      feed(finFixture());
+      eq("they are finished", T.positionOf("u1").state.finished, true);
+      var d = T.draftFromSaved("u1");
+      eq("the draft opens past the end", d.at, 3);
+      T.draftBar(d, -1);
+      eq("a LOWERED percent keeps them finished", T.draftIndex(d), 3);
+      T.ensureDraft("u1", 0); T.draftBar(T.ensureDraft("u1", 0), -1);
+      var b = T.saveBody("u1", 9000);
+      eq("…and Save writes at past the end, not held", b.plan.at + "/" + b.plan.hold + "/" + b.plan.setAt, "3/false/9000");
+      eq("…with `lists` the last list's", b.lists.join(","), "red-3-say");
+      eq("…which both sides read as finished", ST4.resolve({ plan: b.plan }, null, fin().stats, null, function(id){ return W4.wordsOf(id).length; }).positions[0].state.finished, true);
+      T.reset(); feed(finFixture());
+      d = T.ensureDraft("u1", 0);
+      T.draftAdd(d, ["red-4-say"]);
+      eq("a list added after the end is where they go next", T.draftIndex(d), 3);
+      eq("…saved at that list", T.saveBody("u1", 9100).plan.at, 3);
+      T.reset(); feed({ students: [fin({ stats: merge(fin().stats, solid("red-4-say", 20)) })], assignments: { u1: merge({ plan: planDoc() }, stamp) } });
+      d = T.ensureDraft("u1", 0);
+      T.draftAdd(d, ["red-4-say"]); T.draftAdd(d, ["red-5-say"]);
+      eq("…or the first added one they have not already finished", T.draftIndex(d), 4);
+      T.reset(); feed(finFixture());
+      d = T.ensureDraft("u1", 0);
+      T.draftReplaceLater(d, T.draftIndex(d), [{ ids: ["red-1-say"] }, { ids: ["red-2-say"] }, { ids: ["red-3-say"] }]);
+      eq("an order holding the same lists changes nothing", T.seqDirty(), false);
+      T.draftBar(d, 1);
+      eq("a RAISED percent re-measures from where they are: the last list, below the bar, is theirs again", T.draftIndex(d), 2);
+      T.reset(); feed(finFixture());
+      d = T.ensureDraft("u1", 0); T.draftGoBack(d, 0);
+      eq("Go back still puts them back, held", T.draftIndex(d) + "/" + T.saveBody("u1", 9200).plan.hold, "0/true");
+      T.reset();
+      // Stop on the first of two: the promoted second keeps exactly where they were, finished included.
+      feed({ students: [fin({ stats: merge(fin().stats, solid(TB1, 28), solid(TB2, 5)), seq2: { at: 2, of: SETAT2, when: 1 } })],
+             assignments: { u1: merge({ plan: planDoc({ at: 1 }), plan2: plan2Doc() }, stamp) } });
+      eq("their second sequence is finished (by its mark; Blend Words has slipped)", T.positionOf("u1", 1).state.finished, true);
+      var sp = T.stopBody("u1", 9300, 0);
+      eq("Stop on the first promotes it past the end", sp.plan.at + "/" + sp.plan.steps.length, "2/2");
+      eq("…so they are still finished in it", A4.planState(sp.plan, T.positionOf("u1", 1) && fin({ stats: merge(fin().stats, solid(TB1, 28), solid(TB2, 5)) }).stats, function(id){ return W4.wordsOf(id).length; }, null).finished, true);
     });
 
     guard("two sequences: stopping one", function(){

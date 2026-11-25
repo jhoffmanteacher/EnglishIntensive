@@ -476,7 +476,7 @@
   function walk(plan, stats, mark){
     var n = plan.steps.length, start = plan.at;
     if(mark && mark.of === plan.setAt && mark.at > start) start = Math.min(mark.at, n);
-    if(plan.hold) return { index: start, hold: true, finished: start >= n };
+    if(plan.hold && start < n) return { index: start, hold: true, finished: false };
     var i = start;
     while(i < n && stepDone(plan.steps[i], plan.bar, stats)) i++;
     return { index: i, hold: false, finished: i >= n };
@@ -579,19 +579,26 @@
     var d;
     if(!p) d = { steps: [], bar: 0.9, at: 0, hold: false, hasPlan: false, base: null };
     else {
+      // Where they are, as the editor opens: past the end (n) when every list is finished.
       var pos = s.pos(k);
-      d = { steps: cloneSteps(p.steps), bar: p.bar, at: Math.min(pos.index, p.steps.length - 1), hold: pos.hold, hasPlan: true };
+      d = { steps: cloneSteps(p.steps), bar: p.bar, at: pos.index, hold: pos.hold, hasPlan: true, was: pos.index, wasN: p.steps.length, wasBar: p.bar };
       d.base = draftShape(d);
     }
     s.drafts[k] = d;
     return d;
   }
   function draftDirty(d){ return !!d && (d.hasPlan ? draftShape(d) !== d.base : d.steps.length > 0); }
-  // The step shown as Now: the real position while untouched; edited, worked out from `at` with no old mark.
+  /* The step shown as Now: the real position while untouched. Edited, THE RULE (planning session, 2026-11-25):
+     nothing the teacher does moves a student backwards except Go back to this list, or raising the percent. So
+     the walk starts where the student is — or where Move on now / Go back put them — and only a raised percent
+     measures again the list they were last on: a student past the end of the sequence is measured again on its
+     last list, and may be on it again. Lists added after the end are walked into from the end. */
   function draftNow(s, k, d){
     if(d.hasPlan && !draftDirty(d)) return s.pos(k).index;
     if(!d.steps.length) return 0;
-    return walk({ steps: d.steps, bar: d.bar, at: d.at, hold: d.hold, setAt: -1 }, s.stats, null).index;
+    var start = d.at;
+    if(d.hasPlan && !d.hold && d.at === d.wasN && d.was === d.wasN && d.bar > d.wasBar) start = d.wasN - 1;
+    return walk({ steps: d.steps, bar: d.bar, at: start, hold: d.hold, setAt: -1 }, s.stats, null).index;
   }
   function otherKeysOf(s, k){
     var o = s.drafts[1 - k] || (s.plans[1 - k] ? { steps: s.plans[1 - k].steps } : null);
@@ -1159,7 +1166,7 @@
         if(ss.steps.length && !rl.added) return (e.op === "use" ? "Use " : "Copy ") + src.label + " (adds nothing)";
         d.steps.slice(idx + 1).forEach(function(st){ st.ids.forEach(function(id){ if(!rl.steps.some(function(x){ return x.ids.indexOf(id) !== -1; })) s.removed[id] = k + 1; }); });
         d.steps = rl.steps;
-        if(d.at > d.steps.length - 1) d.at = Math.max(0, d.steps.length - 1);
+        if(d.at > d.steps.length) d.at = d.steps.length;
         if(e.op === "use" && ss.bar !== null) d.bar = ss.bar;
         return (e.op === "use" ? "Use " : "Copy ") + src.label + " (+" + rl.added + ")";
       }
@@ -1190,8 +1197,9 @@
       var d = s.drafts[k];
       if(d && draftDirty(d)){
         if(d.steps.length){
-          var idx = draftNow(s, k, d), n = d.steps.length, at = Math.max(0, Math.min(idx, n - 1));
-          out[k] = { steps: cloneSteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at, setAt: null };
+          // Saved where Now is: past the end (n) stays past the end.
+          var idx = draftNow(s, k, d), n = d.steps.length, at = Math.max(0, Math.min(idx, n));
+          out[k] = { steps: cloneSteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at && at < n, setAt: null };
           fresh[k] = true;
         }
       } else if(s.plans[k]) out[k] = s.plans[k];
@@ -1261,9 +1269,10 @@
       p0.steps.forEach(function(st){ st.ids.forEach(function(id){ if(s.plain.indexOf(id) === -1) s.removed[id] = 1; }); });
       s.plans = [null, null];
     } else if(k === 0){
-      var p2 = s.plans[1], n2 = p2.steps.length, at = Math.min(pos[1].index, n2 - 1);
+      // The second becomes the first exactly where they were in it — past the end, if they had finished it.
+      var p2 = s.plans[1], at = pos[1].index;
       s.plans[0].steps.forEach(function(st){ st.ids.forEach(function(id){ s.removed[id] = 1; }); });
-      s.plans = [{ steps: cloneSteps(p2.steps), bar: p2.bar, at: at, hold: pos[1].hold && at === Math.min(pos[1].index, n2 - 1), setAt: null }, null];
+      s.plans = [{ steps: cloneSteps(p2.steps), bar: p2.bar, at: at, hold: pos[1].hold, setAt: null }, null];
       fresh[0] = true;
       s.stopFirstFrom = pos[1];
     } else {
@@ -1642,23 +1651,10 @@
      KNOWN — real site faults, listed so the default run stays green; each was
      reported with its replay command. A failure matching one prints "~ known".
      ════════════════════════════════════════════════════════════════════ */
-  var KNOWN = [
-    /* K1. A FINISHED SEQUENCE SAVED AFRESH RESTARTS ON ITS LAST LIST. A student who finished every list of a
-       sequence is past its end only by their own mark (seq.at = steps.length): `at` cannot say "past the end"
-       (Adaptive.sanitizePlan clamps it to steps.length - 1). Any save that writes the sequence afresh — the percent
-       changed (even LOWERED), a list added at the end ("Finished every list. Add the next ones."), a saved sequence
-       used, or the second promoted to first by Stop — sets a new setAt, so the mark stops counting, with
-       at = steps.length - 1 (teacher.js draftFromSaved, planBody, stopBody). The walk then starts on the last list,
-       and a finished student keeps playing their finished lists (they are all the home page has), so a few misses
-       there are likely: the student is put back on that last list, and loses "You finished all your lists". */
-    { id: "K1", title: "a finished sequence saved afresh restarts on its last list when that list has slipped below the bar",
-      match: function(f){
-        var m = /^at or past finished all (\d+)$/.exec(f.expected), g = /^List (\d+) of \d+$/.exec(f.got);
-        if(f.check === "S4" && /the teacher's edit/.test(f.step) && m && g && g[1] === m[1]) return true;
-        var m6 = /^finished all (\d+)$/.exec(f.expected), g6 = /^List (\d+) of (\d+)$/.exec(f.got);
-        return f.check === "S6" && /Stop on the first/.test(f.step) && !!m6 && !!g6 && g6[1] === m6[1] && g6[2] === m6[1];
-      } }
-  ];
+  var KNOWN = [];
+  /* K1 (2026-11-25, fixed the same day): a finished sequence saved afresh restarted on its last list when that
+     list had slipped below the bar — `at` could not say "past the end". A plan's `at` may now be steps.length,
+     and S4 / S6 hold the rule above (draftNow) with no exception. */
 
   /* ════════════════════════════════════════════════════════════════════
      THE RUN
