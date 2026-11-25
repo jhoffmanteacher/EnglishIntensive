@@ -335,7 +335,7 @@ window.CardGame = (function(){
       <ol class="steps">
         <li>A word shows on the card. <b>Read it out loud.</b></li>
         <li><b>Flip</b> the card — press <kbd>Space</kbd> or click it. ${cfg.speak ? "Now you hear the word." : "Now you see it and check yourself."}</li>
-        <li>Tell the game the truth: <b>Got it</b> if you read it right, <b>Not yet</b> if you didn't.</li>
+        <li>Rate yourself: <b>Got it</b> if you read it right, <b>Not yet</b> if you didn't.</li>
         <li>Every 5 you get in a row is bonus points. Words you miss come back next time.</li>
       </ol>
       ${cfg.hasPicker ? `

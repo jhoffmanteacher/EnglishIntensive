@@ -90,11 +90,11 @@ var MODES = {
   },
   cards: {
     key: "cards", engine: "card", icon: "🃏", title: "Cards", needs: "", page: "cards-game.html",
-    intro: "No mic, no typing. A word shows — read it out loud, flip the card, and see if you were right.<br>Build a streak: every 5 in a row is bonus points!"
+    intro: "No mic, no typing. A word shows — read it out loud, flip the card, and see if you were right."
   },
   match: {
     key: "match", engine: "match", icon: "🎯", title: "Match It", needs: "headphones", page: "match-game.html",
-    intro: "No mic — headphones only. The computer says a word and you find it.<br>The wrong answers look close on purpose. Every 5 right in a row is bonus points!"
+    intro: "No mic — headphones only. The computer says a word and you find it.<br>The wrong answers look close on purpose."
   },
   /* The fluency mode. Everything above asks whether a student knows a
      word; this asks how fast, which is a different question and the one
@@ -116,7 +116,7 @@ var MODES = {
      isolated /b/ says "buh", and "buh-a-tuh" does not blend into "bat". */
   blendit: {
     key: "blendit", engine: "blendit", icon: "🔊", title: "Blend it", needs: "mic", page: "blend-it-game.html",
-    intro: "Listen to the sounds one at a time, then run them together and say the word.<br>The word stays hidden until you've had your go."
+    intro: "Listen to the sounds one at a time, then run them together and say the word.<br>The word stays hidden until you try."
   },
   /* A variant inside the cards engine rather than an engine of its own:
      the screens, the scoring and the deck are the flash cards', and only
@@ -278,16 +278,14 @@ var RED_SENTENCES = {
 var RED_NOTE_CARDS = `
     <p><b>Red words</b> are the words that break the rules. Sounding out
     <b>said</b> gives you "sayed". Sounding out <b>would</b> gives you
-    "wold". They don't play fair — so you learn them <b>by sight</b>,
-    the way you know a friend's face.</p>
-    <p>Be honest when you rate yourself. A word you mark <b>Not yet</b> comes
+    "wold". So you learn them <b>by sight</b>, as whole words.</p>
+    <p>A word you mark <b>Not yet</b> comes
     back next time; a word you mark <b>Got it</b> leaves the list for good.</p>`;
 
 var RED_NOTE_SAY = `
     <p><b>Red words</b> break the rules. Sounding out <b>said</b> gives you
-    "sayed"; sounding out <b>would</b> gives you "wold". There is nothing
-    to work out here — either you know the word or you don't, and saying it
-    out loud is how you find out which.</p>
+    "sayed"; sounding out <b>would</b> gives you "wold". Read each
+    one by sight and say the whole word out loud.</p>
     <p>Some of these <b>sound exactly like another word</b> — to and two,
     there and their, one and won. The computer can't tell those apart, and
     neither can anyone listening, so any of them counts as right.</p>`;
@@ -466,7 +464,7 @@ window.LIST_FAMILIES = [
       // Same reason as above: the flip shows the word, it doesn't say it.
       cards: {
         speak: false,
-        intro: "These aren't real words. Sound out the letters and say it out loud, then flip the card to see if you read it right.<br>Build a streak: every 5 in a row is bonus points!",
+        intro: "These aren't real words. Sound out the letters and say it out loud, then flip the card to see if you read it right.",
         note: `
     <p>The computer <b>won't say these out loud</b> — it can't. They aren't
     real words, so a talking computer just guesses at them. The card shows
@@ -540,7 +538,7 @@ window.LIST_FAMILIES = [
         split: true,
         note: `
     <p>A long word is short words in a row. <b>fan·tas·tic</b> is three of
-    them, and each one is easy — the length is the only hard part.</p>
+    them.</p>
     <p>Click <b>between</b> the letters to put a split in, click a split
     again to take it out, then press <kbd>Enter</kbd>. Get it right the
     first time and it counts.</p>`
@@ -548,7 +546,7 @@ window.LIST_FAMILIES = [
       cards: {
         note: `
     <p>Long words come apart. <b>fan·tas·tic</b> is three short words in a
-    row, and each one is easy — the length is the only hard part.</p>
+    row.</p>
     <p>Read the card in chunks. When you flip it, the back shows you where
     the chunks were.</p>`
       }
@@ -602,7 +600,7 @@ window.LIST_FAMILIES = [
       say: {
         blend: "start", blendLength: 0, theme: "race",
         note: RED_NOTE_SAY, homophones: RED_HOMOPHONES, soundalikes: RED_SOUNDALIKES,
-        intro: "Read each word out loud. The computer listens and tells you if you're right.<br>No sounding out — you either know these or you don't."
+        intro: "Read each word out loud. The computer listens and tells you if you're right.<br>These are read by sight, so say the whole word."
       },
       // The homophone groups are here for the same reason Match It has
       // them: with the Listen toggle on, the cards judge a spoken answer,
@@ -727,7 +725,7 @@ window.WordLists = (function(){
     sectionsOf: function(){
       return [
         { key:"decode", title:"🔤 Sounding It Out",
-          note:"Words you can build out of their sounds. Some of these listen to you, some just check you — the label on each button says which." },
+          note:"Words you can build out of their sounds. Each game says if it needs a mic or headphones." },
         { key:"sight",  title:"🃏 Red Words",
           note:"The words that break the rules. There's nothing to sound out, so these are about knowing them on sight." }
       ];
