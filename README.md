@@ -796,6 +796,56 @@ never runs on a real page without an account. A listener bound to an element
 before the shell exists throws on the first card and passes both other
 checks — which happened once.
 
+### The closed loop
+
+`node tools/save-loop.mjs` answers the question the three scripts above
+can't, because they never sign in: after students practise on shared
+Chromebooks — answers, finished rounds, tabs hidden and closed, the network
+dropping and stalling, Sign out and the next student signing in — does each
+student's `students/{uid}` hold what that student did, does nobody see or
+receive anyone else's work, and does Sign out always finish? Node 22, no
+dependencies, no browser, about a second for the default 160 cases.
+
+**What is real:** `firebase-config.js`, `auth.js`, `adaptive.js`,
+`word-lists.js` and `store.js`, unmodified, loaded into one Node `vm`
+context per page. Sign-in is the wall's own button, Sign out the chip's own
+button, and the student answers through `EIStore.record` and
+`EIStore.finishRound`. **What is fake:** a virtual clock; a stub DOM; a
+device with one `localStorage` for every tab and every student and one
+`sessionStorage` per tab; one Firebase Auth user per device; and a small
+Firestore server with merge writes, minimal rules and a network that can be
+`ok`, `offline` or `stalled`. Offline, a write does **not** fail — it waits
+for the network, as the real SDK's does, and is lost if its tab closes or
+its student signs out first. The fake checks itself at the start of every
+run, and `--fake-fault=merge` / `--fake-fault=clock` break it on purpose to
+show the run goes red.
+
+It plays eight families of seeded schedules (`--list`) and compares the
+stored documents with its own ledger of what each virtual student did:
+
+- **C1 saved** — an answer on a page that loaded, followed by 3 s open with
+  the network up or by a hide, close, reload or Sign out with the network
+  up, is in `words[key]` with the right `n` and `r`.
+- **C2 no leak** — a student's doc holds only keys they answered, and a
+  page's `EIStore.allStats()` only its own student's keys.
+- **C3 Sign out finishes** — within 10 s, offline or not, with the user
+  signed out before the reload.
+- **C4 rule 1** — a page whose first read failed writes nothing.
+- **C5 the high-water mark** — `seq.at` (and `seq2.at`) never go down, and a
+  reloaded page is at or past the mark and still offers every earlier list.
+- **C6 totals** — single-tab cases. Two tabs of one student are known to be
+  last-writer-wins on `totals`; that prints as a `~ known` line, not a
+  failure.
+
+Every failing line names the seed, the case, the family, the step, what was
+expected and what was stored, and ends with its replay command:
+`node tools/save-loop.mjs --seed=1 --case=4 --verbose` prints that case's
+whole timeline — every write issued, landed, denied or lost, the stored
+documents and every compare. `--root=DIR` runs it against another copy of
+the five scripts (a fix, or a planted fault). The same seed gives the same
+output byte for byte. The header of the file has the flags and the exact
+rules of the fake.
+
 Say It has no alignment to lose, unlike the fluency run. One word is on
 screen at a time and the matcher **searches** the whole transcript for it
 rather than walking a pointer down a list, so a filler, a false start or a

@@ -50,6 +50,14 @@ It should print `N/N passing` and `uncaught: 0`. `tools/check-pages.sh` and
 CSP errors on a real page load, and each engine actually starting against
 its real list.
 
+Then the closed loop, `node tools/save-loop.mjs` (Node 22, no server, no
+browser, about a second). Its last line must say `failures: none`, and it
+must exit 0. Run it after any change to `store.js`, to sign-in or sign-out
+in `auth.js`, to anything that writes `students/{uid}`, or to anything that
+keeps a student's data in `localStorage` or `sessionStorage`. A failing line
+ends with the command that replays that one case. GitHub runs all four on
+every push (`.github/workflows/checks.yml`).
+
 `firestore.rules` is the only thing enforcing who may read what. It does not
 deploy itself — re-publish it in the Firebase console whenever it changes.
 
