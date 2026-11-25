@@ -98,6 +98,77 @@ Two things worth watching once it has had one:
   no `plan2` behaves exactly as before; a list is in one of the two only; no
   `firestore.rules` change. See the README, *Sequences*.
 
+## Shipped 2026-11-25: saves on shared Chromebooks, and small fixes
+
+Not a plan that was left open — a record of what changed in one day, so the
+next person does not have to reconstruct it from `git log 4d4b834..HEAD`. The
+README has the mechanics (the per-student tracking note and the save-loop
+section); the reasons are here.
+
+- **Sign-out waits at most 4 s for the last save.** `signOut` in `auth.js`
+  waited on `EIStore.flush()` with no limit. On a stalled network the write
+  never answered, the button never finished, and the next student on a shared
+  Chromebook was left in the previous student's account. It now gives the save
+  4 s (`settleWithin`, on `EIAuth._internals`), reads "Signing out…" and is
+  disabled while it waits, and ignores repeat clicks. The order is unchanged:
+  flush, `sessionStorage.clear()`, `auth.signOut()`, reload.
+- **Saves on `pagehide` and `visibilitychange`.** Answers inside the 1.2 s
+  debounce were lost when a tab was closed or a lid shut. `store.js` now
+  flushes when the page is hidden (`flushOnHide`, on `EIStore._internals`);
+  `flush()`'s own guards still decide whether anything is written.
+- **A 5 s ceiling on the save debounce** (`SAVE_MAX_WAIT_MS`). The debounce
+  was a trailing 1200 ms timer re-armed on every answer, so a student
+  answering faster than that (Match it clicks, "Got it" on the cards) put the
+  save off until the round ended, and a stalled network or a sign-out before
+  then lost the run. A save now goes no later than 5 s after the oldest unsent
+  change; the 1.2 s pause is unchanged. A failed write puts its keys back
+  *without* the old time, so the retry timer is not pre-empted into a tight
+  loop.
+- **Each write is handed to the SDK at once**, not chained behind the last
+  one's acknowledgement. The chain was there to stop two overlapping writes
+  landing out of order, but the Firestore SDK already sends one client's
+  writes in `set()` order, so the chain bought nothing and cost the save on
+  `pagehide`: it waited for the earlier write's reply, and a tab that closed
+  first never issued the second. Only the hand-over is ordered now. If a first
+  write is refused while a later one lands, re-sending its keys is safe:
+  `payload()` always sends current whole values.
+- **Tall pages scroll from the top at every width.** `html,body{height:100%}`
+  on a flex-centred body made content taller than the window overflow
+  *upward*, above y = 0, where it cannot be scrolled to. The list chooser's
+  heading and first tiles were unreachable at 1366 x 768 (the cards, match and
+  say chooser started at -290 px). The body now has `min-height:100%`: short
+  content still centres, tall content grows the page. Below 560 px the Home
+  button and user chip also scroll with the page instead of sitting over it.
+- **Same-title chooser tiles carry their mode.** Tiles that share a title now
+  add the mode name (*Multisyllable · Cards* / *· Split it*). Ids are
+  untouched.
+- **A favicon** (`favicon.svg`, linked on every page except `tests.html`),
+  which ends the `/favicon.ico` 404 on every load.
+- **The two finished plan files are gone** (`PLAN-retire-modes.md`,
+  `PLAN-roster-and-sequences.md`). Both were done and nothing referenced them.
+- **`tools/save-loop.mjs` and the GitHub checks workflow.** A Node tool, no
+  dependencies, that plays seeded schedules of students answering, hiding and
+  closing tabs, losing the network, and signing out on shared Chromebooks
+  against a fake Firebase, then checks each stored `students/{uid}` document
+  against its own ledger. The sign-out, `pagehide`, debounce and
+  write-chain fixes above were checked against it. `.github/workflows/checks.yml` runs `tests.html`,
+  `check-pages.sh`, `boot-check.sh` and the loop on every push and pull
+  request. CLAUDE.md says when to run the loop by hand.
+
+### Decided during the save-loop build
+
+- **Sign-out gives up on the save rather than wait for it.** The cost of a
+  stalled network was the next student in the previous account, so the wait
+  has a limit (4 s).
+- **The loop is the test for anything that writes `students/{uid}`.** Change
+  `store.js`, sign-in or sign-out, or a per-student `localStorage` /
+  `sessionStorage` key, and run it before committing (CLAUDE.md).
+- **The chooser fix is in `site.css`**: `min-height:100%` on the body in place
+  of `height:100%`, which still centres short content.
+
+<!-- Room for two more paragraphs, to be added by the sessions that wrote
+     them: the sequence loop, and the microphone work. -->
+
 ## Decided during the retire-modes build
 
 - **No default-modes shortcut exists**, so nothing needed changing for red
@@ -172,3 +243,16 @@ survives the commit that made them.
   prose explaining where they came from. Splitting the families into their
   own files would mean six files to open to answer "what is this student
   practising", the question the file exists to answer in one place.
+- **Splitting `teacher.js`.** Re-evaluated 2026-11-25 and left alone: none of
+  the day's work touched it, and four branches merged into main without a
+  conflict in it. Revisit before a stretch
+  of dashboard work, and only with a dashboard test in place first, so a split
+  can be checked.
+- **Making `totals` exact across two tabs of one student.** Known: it is `K1`
+  in `tools/save-loop.mjs`, and the loop prints it as a known line, not a
+  failure. With two tabs of one student open, `totals` is last-writer-wins.
+  The per-word stats are unaffected. It affects 2-5 students a day.
+- **A Firebase SDK bump.** No visible benefit.
+- **Tightening what a student may write to their own document.** It needs a
+  re-publish of `firestore.rules` (the console paste), and the site is
+  practice-only.
