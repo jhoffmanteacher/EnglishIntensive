@@ -1441,7 +1441,8 @@ session. It keeps word selection sensible if the network drops mid-round;
 it is never merged back up.
 
 The document also carries a `seq` — a student's high-water mark through a
-teacher's sequence, written by their own browser (see *Sequences*).
+teacher's sequence, written by their own browser (see *Sequences*) — and,
+for a student with a second sequence, `seq2`, the same thing for that one.
 
 The document also carries a `heard` map: for each word Say It marked wrong,
 the last **five** transcripts the recogniser returned, cleaned (lowercase,
@@ -1642,7 +1643,8 @@ for a teacher, into a flag in `sessionStorage` (`ei.asTest`) — per tab, so
 the teacher's other tabs stay the teacher's and closing the tab ends it, and
 it holds across home → game → home, none of which carry the address.
 `seesEverything()` is then false, so `myLists()`, `plan()` and `settle()`
-are exactly a student's and a sequence moves (and writes its `seq` mark).
+are exactly a student's and a sequence moves (and writes its `seq` mark, or
+`seq2` for a second sequence).
 Unlike a preview it **writes**: plays are saved to the teacher's own
 `students/{uid}`, which *is* the test student's practice. A thin strip
 (`#ei-testbar`, in `practice.js` so every game page gets it) says so and
@@ -1655,10 +1657,10 @@ on the game pages: a floating pill and a bottom strip both covered Start and
 Shuffle, and a strip in the flow became a box beside the game, because those
 pages' `<body>` is a centred flex row.
 
-**Reset** (`resetBody()`) deletes `words`, `heard`, `fluency` and `seq` from
-the teacher's own student doc, zeroes the totals, and clears the device's
-mirror and "new list" note (`eiStats:<uid>`, `ei.plan.seen:<uid>`); the
-lists and sequence stay. **Remove** does that and then deletes the
+**Reset** (`resetBody()`) deletes `words`, `heard`, `fluency`, `seq` and
+`seq2` from the teacher's own student doc, zeroes the totals, and clears the
+device's mirror and "new list" notes (`eiStats:<uid>`, `ei.plan.seen:<uid>`,
+`ei.plan.seen2:<uid>`); the lists and sequences stay. **Remove** does that and then deletes the
 assignment — and the note only when there is one, because the rules error on
 deleting a document that doesn't exist (there is no `resource` to check).
 Both write a clear note beside the buttons and leave the panel as it was on
@@ -1675,12 +1677,15 @@ when nothing is set". Each student has exactly one set of lists — their
 own — and that set is what their home page shows. It is still one level
 with no inheritance, but the set is no longer always fixed: a student the
 teacher gave a **sequence** (see *Sequences*, next) is shown the list they
-are on, and that moves with their progress. Without a sequence,
+are on — in each sequence, if they have two — and that moves with their
+progress. Without a sequence,
 `EIStore.effectiveLists` is the whole rule: the student's `assignments/{uid}`
 lists, else the lists on their roster row (set on the dashboard before they
 had signed in), else nothing. `EIStore.effectivePlan` decides which of the
 two a student has: the assignment is the source when it has a valid `plan`
-or a `lists` array, otherwise the roster row is.
+or a `lists` array, otherwise the roster row is — one decision, so a
+student's two sequences (`EIStore.effectivePlans`) always come from the same
+document.
 
 This replaced a precedence walk (own → roster → period course → period list →
 class default → everything) with inherited cells drawn dashed, copy-on-write
@@ -1702,6 +1707,25 @@ Three strings are the only new words a student sees: that fold's title,
 they moved on) and *"You finished all your lists. Ask your teacher what comes
 next."*
 
+**Two at once.** A student can have **two sequences**, each moving on by
+itself — the Red Words lists in one and *Sounding it out* in the other, say.
+The home page then shows the list they are on in each, in the usual
+sections, and **one** fold, *"Lists you finished (N)"*, for the finished
+lists of both; N counts both. The notice says *"New list: …"* once for each
+sequence that moved since the last load (one short sentence each), and
+*"You finished all your lists…"* only when **every** sequence they have is
+finished: one finished beside one still going says nothing, and the list
+still going is simply there. Nothing else is new for a student. Either
+sequence can hold any lists from any family, but a list is in **one** of the
+two only (same family and number: the two sequences cannot share a list, in
+any way of playing it). `EIStore.plan()` gives the home page
+`{ uid, current, finishedIds, finishedCount, finished, sequences: [...] }`:
+the first five across every sequence (`finished` only when all are), and one
+entry per sequence with its own `setAt`, `index`, `count`, `finished`,
+`hold`, `current`, `finishedIds` and `finishedCount`. The "new list" note is
+kept per sequence (`ei.plan.seen:<uid>` for the first, as it always was, and
+`ei.plan.seen2:<uid>` for the second).
+
 **What is stored.** On `assignments/{uid}`, or on `roster/{email}` for a student
 who has not signed in, next to `lists`:
 
@@ -1713,11 +1737,22 @@ who has not signed in, next to `lists`:
       setAt: 1795563000000   // Date.now() when the teacher saved it
     }
 
+A second sequence is `plan2`, the same shape, beside it on the same document,
+with its own `setAt`. Everything below is true of each separately.
+`Adaptive.sanitizePlans(doc)` reads both: `[]`, `[plan]` or `[plan, plan2]`.
+A `plan2` without a usable `plan` is ignored (the dashboard never writes one:
+stopping the first while a second exists promotes the second to `plan`), and
+an id already in the first is dropped from the second, so a hand-edited
+document cannot put one list in both. A document with no `plan2` is exactly
+what it was before there could be two — every test written for one sequence
+still passes unchanged in meaning.
+
 A step is a **map**, not a bare array — Firestore refuses an array directly
 inside an array. Every id in one step is a way of playing the same list; one
 list per step. With a valid `plan`, the plan decides and `lists` is ignored
-(the dashboard always writes `lists` equal to the current step's ids, so
-anything that only reads `lists` still sees something sensible). All of it is
+(the dashboard always writes `lists` equal to the current step's ids — of
+both sequences, when there are two — so anything that only reads `lists`
+still sees what they can play now). All of it is
 sanitized on the way in (`Adaptive.sanitizePlan`): wrong types are dropped, a bar or a
 position out of range is pulled in, and a plan with no usable step is `null`.
 
@@ -1734,7 +1769,9 @@ This is the same measure the site has always used (`isMastered` and not
 settable per student.
 
 **Where the position is worked out, and why there.** In the *student's*
-browser, in `store.js`, by `Adaptive.planState(plan, stats, totalOf, seq)`: start
+browser, in `store.js`, by `Adaptive.planState(plan, stats, totalOf, seq)`
+(wrapped, with the lists that follow from it, as `Adaptive.planPosition`,
+which the dashboard calls too — once per sequence, each with its own mark): start
 at `plan.at`; if the student's own mark is this plan's and further on, start
 there; if the teacher is holding them, stop; otherwise walk forward while the
 step is finished. It is pure and has no clock, so the dashboard runs exactly the same
@@ -1750,7 +1787,9 @@ nothing moves (the safe way to be wrong, as in `listShare`).
 **The high-water mark.** A finished list can be replayed, and a word can drop
 out of the top box, so position is not recomputed from nothing each time. When
 it comes out further on than what was stored for this plan, the student's
-browser writes `students/{uid}.seq = { at, of, when }` (through the same
+browser writes `students/{uid}.seq = { at, of, when }` — `seq2` for the second
+sequence, so the two marks can never be mistaken for each other whatever their
+`setAt`s are — (through the same
 debounced save as everything else, under the same guards: no write on a failed
 read, in preview, or for the dev user) and the next load starts from there. `of`
 is the plan's `setAt`: a mark made under an older save of the plan is ignored
@@ -1766,7 +1805,7 @@ mark for this plan, carries the time. Without it, replaying List 1 and missing a
 student back on List 1.
 
 **What a student could do.** `students/{uid}` is write-your-own-document, not a
-whitelist, so `seq` needed no rules change, and a student *could* edit their own
+whitelist, so `seq` (and `seq2`) needed no rules change, and a student *could* edit their own
 `seq`. The worst that does is move themselves along or back in a sequence the
 teacher set, and the same `planState` on the dashboard's side is how a teacher
 sees where each student really is. They can never write the plan itself (`assignments/`
@@ -1791,8 +1830,9 @@ yesterday · 4 rounds this week"*, or *"hasn't signed in yet"* for a roster
 row — and a **Student view** button for this student. Three tabs, a real
 `role="tablist"` (arrows, Home and End move between them):
 
-- **Word lists** (opens first). The sequence editor, and beside it a card for
-  the list they are on and one for the lists they have finished.
+- **Word lists** (opens first). The sequence editor (two, one under the other,
+  for a student with two sequences), and beside it a card for the list they
+  are on (in each) and one for the lists they have finished.
 - **All practice data.** The numbers, *What goes wrong*, *Hardest words*,
   *Reading rate* and *By list* — what the page always held.
 - **Notes and class.** *Notes*, *Class*, *Roster row* and *Archive*, unchanged.
@@ -1831,21 +1871,40 @@ says so.
 this list** sets `at` to that step and puts `hold` on, and the row reads
 *"Staying here until you press Move on now."*
 
-**Edits go to a draft** (`seqDraft`, plain data; every edit is a small pure
+**Two sequences.** Under the editor of a student with one sequence is **Add a
+second sequence**, which opens an empty second editor with the same tools (and
+*Don't add a second sequence* to close it unsaved). With two, each editor is
+headed *"First sequence"* / *"Second sequence"* and what it holds (*"Red Words
+· 10 lists"*, *"Starting Blends, Blend Words, oi / oy, Multisyllable · 4
+lists"*) — a student with one keeps the heading above. Each has its own
+percent, rows, Move on now, Go back, Save this sequence and **Stop using this
+sequence**. *Add a list* does not offer a list the other sequence holds, and a
+ready-made, saved or copied sequence leaves those out (if that leaves nothing,
+a line under the heading says so). *Copy from another student* offers each of a
+two-sequence student's (*"Ana Lopez (first)"*, *"(second)"*). The second
+editor's DOM ids end in `2` (`seqHead2`, `seqPct2`, …) so the page never has
+one id twice; buttons find their editor through `data-which`, and focus after
+an edit stays in the editor it happened in. One Save bar serves both.
+
+**Edits go to a draft** (`drafts[0]` and `drafts[1]`, plain data; every edit is a small pure
 function — `draftMove`, `draftRemove`, `draftWays`, `draftAdd`, `draftBar`,
 `draftMoveOn`, `draftGoBack`, `draftReplaceLater` — pinned in `tests.html`). A bar
 at the bottom says *"Changes not saved yet"* with **Discard** and **Save**.
-Save is one merge-write of `{ plan, lists, updatedAt }` and the class stamp, to
-`assignments/{uid}` or to `roster/{email}` for a student who has not signed in:
-`plan.setAt` is now, `plan.at` is the step shown as Now, and `lists` is that
-step's ids. Because `setAt` changed, the student's old high-water mark stops
-counting, so a saved sequence is always worked out afresh from what the student
-has learned, from `at`. Switching student, going back to the list, the class
+Save is one merge-write of `{ plan, lists, updatedAt }` (plus `plan2` when there
+is a second) and the class stamp, to `assignments/{uid}` or to `roster/{email}`
+for a student who has not signed in (`saveBody`). A sequence whose draft changed
+is written afresh: `setAt` is now, `at` is the step shown as Now. Because
+`setAt` changed, the student's old high-water mark for it stops counting, so it
+is worked out afresh from what the student has learned, from `at`. A sequence
+whose draft did not change is written back exactly as stored, so editing one
+never resets the other's mark (or its *Moved to a new list* news). `lists` is
+the current step's ids of each. Switching student, going back to the list, the class
 filter, Refresh, a sidebar item and closing the page all ask first when there is
 a draft.
 
-**Where "Now" comes from.** `positionOf()` in `teacher.js` is `Adaptive.planState`
-on the student's own stats and `seq` — `store.js`'s code, not a lookalike — so the
+**Where "Now" comes from.** `positionOf(uid, which)` in `teacher.js` is
+`Adaptive.planPosition` on the student's own stats and `seq` (or `seq2`) —
+`store.js`'s code, not a lookalike — so the
 editor cannot say Now about a list the student's home page does not show.
 `effectiveLists()` uses it too, so the Students table, the CSV and the rest see a
 sequence student's real lists (finished, then current).
@@ -1860,6 +1919,11 @@ nothing gets the editor with no rows and the same fold.
 **Stop using a sequence** (after a confirm that says what leaves) deletes the plan
 from the document and leaves `lists` as the current step's ids — so the lists
 they had finished leave the home page, though their practice record is kept.
+With two (`stopBody(uid, now, which)`): stopping the **second** deletes `plan2`;
+stopping the **first** writes the second as `plan` — at the step the student is
+really on in it, with a fresh `setAt` that the first's old `seq` can never
+match — and deletes `plan2`. The student's `seq2` then belongs to nothing and is
+ignored; the next page load lands a new `seq` for the promoted plan.
 
 **Keyboard.** Every row in the Students table takes focus (Enter or Space
 opens the student). The student list at the left is one tab stop — the open
@@ -1894,7 +1958,9 @@ named: *"14 of 20 · Say it"*); and **Place**, *"List 3 of 6"* (plus *· held*).
 finished sequence reads *"Finished all 6"*. A student with games and no order
 shows today's sentence and *no order*. A student with nothing shows a
 *No lists yet* pill. A student on the roster who has not signed in stays greyed,
-*"on the roster — hasn't signed in yet"*. The row opens the student's page; the
+*"on the roster — hasn't signed in yet"*. A student with **two sequences** shows
+both in the same row, stacked — *1st* and *2nd*, each with the list, the bar
+and count, and the place (`rowFacts` gives `{ kind: "two", seqs: [..] }`). The row opens the student's page; the
 tick box does not. Rows take focus (Enter or Space opens). There is no sideways
 scrolling at 1366px.
 
@@ -1910,7 +1976,13 @@ everyone shown), press **Give a sequence to N selected…**, choose a ready-made
 sequence, a saved one, or another student's, and the percent (a copied sequence brings its own
 percent as the starting point). The dialog says how many of those students
 already have games or a sequence, which this replaces, and asks again in a
-confirm. It is written as **one batch** (`commitBodies`), so at most 400 students
+confirm. One choice in the dialog: **Replace what they have** (the default,
+and what it always did; it takes a second sequence away too) or **Add as a
+second sequence**: for a student with no sequence it becomes their first; with
+one, their second, leaving out any list already in their first; with two, it
+replaces their second. A student whose first already holds every list in it is
+skipped, and both the warning and the result line say how many
+(`giveCounts`, `giveWarning`). The warning counts are for the choice selected. It is written as **one batch** (`commitBodies`), so at most 400 students
 at a time (past that a batch would no longer be all-or-nothing; the dialog says
 so and Give it stays off): every student, or none —
 a failure puts every local copy back as it was and the dialog stays open with the
@@ -1918,14 +1990,16 @@ ticks kept. Each student's body is `giveBody`: a `plan` with `at: 0` and no hold
 saved now, plus `lists` equal to the ids of the list they will land on, because
 the plan is worked out from their own stats: a student already solid on the
 first two lands on the third, one who has never practiced on the first. A
-student who has not signed in is written to their roster row. Nothing on
-`firestore.rules` changed.
+student who has not signed in is written to their roster row. Added as a
+second, the body is `plan2` and `lists` (the union of both current lists) and
+`plan` is not touched. Nothing on `firestore.rules` changed.
 
 ### Saved sequences
 
 A teacher can keep a sequence for a class and use it again. On a student's page,
 **Save this sequence** asks for a name (inline, not a pop-up) and stores what is
-on the screen — every step, and the percent — on the **class document**:
+on the screen — every step, and the percent — on the **class document** (each
+editor has its own button; a saved sequence is always **one** sequence):
 
     classes/{classId}.sequences.<key> = { name, steps: [{ ids: [...] }], bar, createdAt }
 
@@ -2067,6 +2141,10 @@ next action.
 
 A student in a sequence is judged on the list they are on now, not the ones they
 have finished (`nextStepInfo` passes only the current step's ways of playing).
+A student with two sequences is still one line: the current lists of both are
+passed (the first rule that fires, on either, wins), *Finished every list*
+fires only when both are finished, and *Moved to a new list* is the more recent
+move of the two (`lastMove`, each judged by its own mark).
 There is nothing to click: the line is advice, and the student's page is one
 click away. (It used to carry a one-click *Add Say it* that fed the board's
 draft; with the board gone, and a sequence ignoring `lists`, that button had
@@ -2157,7 +2235,9 @@ em dash are not something to hand a screen reader.
 
 A flat array of list ids in `assignments/{uid}` — or, for a student who
 hasn't signed in yet, on their `roster/{email}` row — and, for a student given
-a sequence, a `plan` beside it (see *Sequences*). The families, the
+a sequence, a `plan` beside it, and a `plan2` beside that for a second sequence
+(see *Sequences*); their places in them are `seq` and `seq2` on their own
+`students/{uid}`. The families, the
 modes and the picker's grid are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.
@@ -2204,7 +2284,7 @@ unpublished rules change fails quietly rather than loudly.
 
 The `heard` map added with the sound-level feedback needed no rules change
 either: `students/{uid}` is write-your-own-document, not a whitelist of
-fields. Neither did `seq`, and neither did `plan`: `assignments/{uid}` and
+fields. Neither did `seq` (or `seq2`), and neither did `plan` (or `plan2`): `assignments/{uid}` and
 `roster/{email}` were already teacher-written and student-read, which is
 exactly the access a plan needs. `tools/rules-test.mjs` has the cases that
 pin it (a student writes their own `seq` and cannot write a plan).

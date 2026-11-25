@@ -6,13 +6,13 @@
      students/{uid}      their own. Read/write by them, read-only to the
                          teacher. Holds the per-word stats (adaptive.js
                          owns their shape), lifetime totals, a short
-                         tail of finished rounds, and `seq` — how far
-                         through a teacher's sequence they have got (see
-                         "A sequence" below).
+                         tail of finished rounds, and `seq` (and `seq2`)
+                         — how far through a teacher's sequence they have
+                         got (see "A sequence" below).
      assignments/{uid}   written by the TEACHER, read-only to the student:
                          which lists they get — a plain set, or a
-                         sequence of steps (`plan`) — and which class
-                         they're in.
+                         sequence of steps (`plan`), or two sequences
+                         (`plan` and `plan2`) — and which class they're in.
                          Separate from students/{uid} precisely so the
                          teacher never needs write access to a student's
                          work — see firestore.rules.
@@ -48,6 +48,15 @@
    Where the student IS is worked out here, in their browser, from their
    own stats, by the same Adaptive.planState the dashboard runs.
 
+   TWO AT ONCE. The same document may carry a second sequence, `plan2`,
+   beside the first (Adaptive.sanitizePlans: never without a first, and
+   never sharing a list with it). Each is worked out on its own, from its
+   own mark — `seq` for `plan`, `seq2` for `plan2` — so finishing a list in
+   one never moves the other. The student plays the current list of each,
+   plus the finished lists of both. Everything below about "the plan" and
+   "the mark" is true of each pair separately. A document with no `plan2`
+   is exactly what it was before there could be two.
+
    Why not on the teacher's page and written down? Because the student
    can never write assignments/{uid} (firestore.rules), and a teacher's
    browser does not have a student's stats until it opens the dashboard.
@@ -61,7 +70,8 @@
    THE HIGH-WATER MARK. A finished list can be replayed, and a word can
    drop out of the top box. So position is never recomputed from nothing:
    when it comes out further on than what was stored for this plan, the
-   new index is written to students/{uid}.seq = { at, of, when }, and next
+   new index is written to students/{uid}.seq = { at, of, when } (seq2 for
+   the second sequence), and next
    time the walk starts from there. `of` is the plan's `setAt`, so a mark
    made under an older plan is ignored the moment a teacher saves a new
    one. A student could edit their own `seq` (the rules let them write
@@ -106,9 +116,9 @@ window.EIStore = (function(){
   var assignment = null;        // { lists, classId, teachers } or null
   var rosterRow = null;         // roster/{email} — the imported class list
   var docClass = null;          // { classId, teachers } as stored on students/{uid}
-  var seq = null;               // students/{uid}.seq — the high-water mark (sanitized)
-  var pos = null;               // this page load's position in a sequence, or null
-  var dirtySeq = false;         // the mark moved and hasn't been written
+  var seqs = [null, null];      // students/{uid}.seq and .seq2 — the high-water marks (sanitized)
+  var pos = null;               // this page load's position in its sequences, or null
+  var dirtySeqs = [false, false]; // a mark moved and hasn't been written
   var dirtyClass = null;        // the roster's, when it needs copying
   var preview = null;           // { id, name, failed } while a teacher previews
   var asTest = false;           // a teacher playing as their test student, this tab
@@ -161,34 +171,44 @@ window.EIStore = (function(){
     return [];
   }
 
-  /* The student's sequence, or null: the assignment is the source when it
-     has a valid `plan` or a `lists` array, otherwise the roster row is.
-     From the source, its plan if valid; `lists` (no plan) is null here and
-     is handled by effectiveLists, so a student with no plan is exactly
-     what they were before. Pure. */
+  /* The student's sequences: [], [plan] or [plan, plan2]. The assignment
+     is the source when it has a valid `plan` or a `lists` array, otherwise
+     the roster row is — one decision for both sequences, so a student's two
+     always come from the same document. `lists` (no plan) is [] here and is
+     handled by effectiveLists, so a student with no plan is exactly what
+     they were before. Pure. */
   function planOf(d){ return d ? Adaptive.sanitizePlan(d.plan) : null; }
+  function effectivePlans(assignment, roster){
+    if(assignment && (planOf(assignment) || Array.isArray(assignment.lists))) return Adaptive.sanitizePlans(assignment);
+    return Adaptive.sanitizePlans(roster);
+  }
+  // The first sequence, or null — what there was before there could be two.
   function effectivePlan(assignment, roster){
-    if(assignment && (planOf(assignment) || Array.isArray(assignment.lists))) return planOf(assignment);
-    return planOf(roster);
+    return effectivePlans(assignment, roster)[0] || null;
   }
 
   /* Everything the home page and the games need to know about one
      student's lists, in one place. With no plan it is effectiveLists and
-     nothing else. With one: the current step's ids, the finished steps'
-     ids, and where they are. Pure — stats, seq and totalOf come in. */
+     nothing else. With sequences: where they are in each (`positions`, one
+     Adaptive.planPosition per sequence), and across both the current
+     lists, the finished ones, and every id they can play (finished, then
+     current). `plan` and `state` are the first sequence's. Pure — stats,
+     the marks and totalOf come in; `sq` is [seq, seq2], or a bare seq for
+     the first alone. */
   function resolve(assignment, roster, st, sq, totalOf){
-    var plan = effectivePlan(assignment, roster);
-    if(!plan) return { plan: null, ids: effectiveLists(assignment, roster) };
-    var state = Adaptive.planState(plan, st, totalOf, sq);
-    var current = state.finished ? [] : plan.steps[state.index].ids.slice();
-    var done = [], i, j, n = Math.min(state.index, plan.steps.length);
-    for(i=0;i<n;i++){
-      for(j=0;j<plan.steps[i].ids.length;j++){
-        var id = plan.steps[i].ids[j];
-        if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id);
-      }
-    }
-    return { plan: plan, state: state, current: current, finishedIds: done, ids: done.concat(current) };
+    var plans = effectivePlans(assignment, roster);
+    if(!plans.length) return { plan: null, ids: effectiveLists(assignment, roster) };
+    var marks = Array.isArray(sq) ? sq : [sq, null];
+    var positions = plans.map(function(p, k){ return Adaptive.planPosition(p, st, totalOf, marks[k] || null); });
+    var current = [], done = [];
+    positions.forEach(function(ps){
+      ps.current.forEach(function(id){ if(current.indexOf(id) === -1) current.push(id); });
+    });
+    positions.forEach(function(ps){
+      ps.finishedIds.forEach(function(id){ if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id); });
+    });
+    return { plan: positions[0].plan, state: positions[0].state, positions: positions,
+             current: current, finishedIds: done, ids: done.concat(current) };
   }
 
   function totalOf(id){
@@ -202,11 +222,15 @@ window.EIStore = (function(){
     pos = null;
     if(loadFailed) return;
     if(!preview && seesEverything()) return;
-    var r = resolve(assignment, rosterRow, stats, seq, totalOf);
+    var r = resolve(assignment, rosterRow, stats, seqs, totalOf);
     if(!r.plan) return;
     pos = r;
-    var stored = (seq && seq.of === r.plan.setAt && seq.at > r.plan.at) ? seq.at : r.plan.at;
-    if(r.state.index > stored && !preview){
+    if(preview) return;
+    // Each sequence against its own mark: seq for the first, seq2 for the second.
+    r.positions.forEach(function(p, k){
+      var plan = p.plan, mark = seqs[k];
+      var stored = (mark && mark.of === plan.setAt && mark.at > plan.at) ? mark.at : plan.at;
+      if(p.state.index <= stored) return;
       /* `when` is when they last MOVED ON by finishing a list, and the
          dashboard reads it as news ("Moved to a new list on Tuesday"). The
          first mark under a plan is not that: a teacher who gives a sequence to
@@ -214,11 +238,11 @@ window.EIStore = (function(){
          at once, which is where they LAND, not something they did that week.
          So a landing is marked with when 0, and only a later move (a mark for
          this plan already exists) carries the time. */
-      var landing = !(seq && seq.of === r.plan.setAt);
-      seq = { at: r.state.index, of: r.plan.setAt, when: landing ? 0 : Date.now() };
-      dirtySeq = true;
+      var landing = !(mark && mark.of === plan.setAt);
+      seqs[k] = { at: p.state.index, of: plan.setAt, when: landing ? 0 : Date.now() };
+      dirtySeqs[k] = true;
       scheduleSave();
-    }
+    });
   }
 
   /* The roster row's class stamp, when it isn't already on the student's
@@ -287,7 +311,7 @@ window.EIStore = (function(){
         heard  = Adaptive.sanitizeHeard(d.heard);
         fluency = Adaptive.sanitizeFluency(d.fluency);
         assignment = snaps[1].exists ? snaps[1].data() : null;
-        seq = Adaptive.sanitizeSeq(d.seq);
+        seqs = marksOf(d);
         preview.name = (assignment && assignment.test === true) ? "Test student" : (d.name || d.email || "this student");
         var em = String(d.email || "").toLowerCase();
         return em ? db.collection("roster").doc(em).get().then(function(r){
@@ -346,7 +370,7 @@ window.EIStore = (function(){
         }
         assignment = snaps[1] && snaps[1].exists ? snaps[1].data() : null;
         rosterRow  = snaps[2] && snaps[2].exists ? snaps[2].data() : null;
-        seq = d ? Adaptive.sanitizeSeq(d.seq) : null;
+        seqs = marksOf(d);
         docClass = d ? { classId: d.classId, teachers: d.teachers } : null;
         dirtyClass = classToCopy(rosterRow, docClass);
         writeLocal();
@@ -365,6 +389,11 @@ window.EIStore = (function(){
       readyResolve({ failed:true });
       return readyPromise;
     });
+  }
+
+  // The two high-water marks off a student's own document, sanitized.
+  function marksOf(d){
+    return d ? [Adaptive.sanitizeSeq(d.seq), Adaptive.sanitizeSeq(d.seq2)] : [null, null];
   }
 
   /* ── saving ──────────────────────────────────────────────────────── */
@@ -386,7 +415,9 @@ window.EIStore = (function(){
     if(anyHeard) p.heard = heardOut;
     if(anyFl) p.fluency = flOut;
     if(dirtyClass){ p.classId = dirtyClass.classId; p.teachers = dirtyClass.teachers; }
-    if(dirtySeq && seq) p.seq = { at: seq.at, of: seq.of, when: seq.when };
+    Adaptive.seqFields.forEach(function(f, k){
+      if(dirtySeqs[k] && seqs[k]) p[f] = { at: seqs[k].at, of: seqs[k].of, when: seqs[k].when };
+    });
     if(dirtyMeta){
       p.name  = (user && user.displayName) || null;
       p.email = (user && user.email) || null;
@@ -406,11 +437,11 @@ window.EIStore = (function(){
     clearTimeout(saveTimer); saveTimer = null;
     if(loadFailed || preview || !uid || (user && user._dev)) return Promise.resolve();
     if(!Object.keys(dirty).length && !Object.keys(dirtyHeard).length &&
-       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyClass && !dirtySeq) return inFlight || Promise.resolve();
+       !Object.keys(dirtyFluency).length && !dirtyMeta && !dirtyClass && !dirtySeqs[0] && !dirtySeqs[1]) return inFlight || Promise.resolve();
     var sending = dirty, sendingHeard = dirtyHeard, sendingFluency = dirtyFluency, sendingMeta = dirtyMeta;
-    var sendingClass = dirtyClass, sendingSeq = dirtySeq;
+    var sendingClass = dirtyClass, sendingSeqs = dirtySeqs.slice();
     var body = payload();
-    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyClass = null; dirtySeq = false;
+    dirty = {}; dirtyHeard = {}; dirtyFluency = {}; dirtyMeta = false; dirtyClass = null; dirtySeqs = [false, false];
     /* Chained behind whatever is already on the wire, never alongside it:
        two overlapping writes could land out of order, and the older
        one's cleanup must not make inFlight look empty while this one is
@@ -433,7 +464,8 @@ window.EIStore = (function(){
       for(k in sendingFluency){ if(has(sendingFluency, k)) dirtyFluency[k] = true; }
       if(sendingMeta) dirtyMeta = true;
       if(sendingClass && !dirtyClass) dirtyClass = sendingClass;
-      if(sendingSeq) dirtySeq = true;
+      if(sendingSeqs[0]) dirtySeqs[0] = true;
+      if(sendingSeqs[1]) dirtySeqs[1] = true;
       console.warn("EIStore: save failed", err);
       /* A denied write will be denied again; the next round's own flush
          can still try, but a timer hammering the rules would not help.
@@ -564,22 +596,41 @@ window.EIStore = (function(){
     myLists: myLists,
     seesEverything: seesEverything,
     /* null for a student with no sequence (and for the teacher's own
-       page); otherwise what the home page draws: the current step's ids,
-       the ids of the finished ones, how many finished, whether that is
-       all of them, and where they are. Ids the library no longer has are
+       page); otherwise what the home page draws:
+
+         { uid,
+           current,        // the ids they are on now, in every sequence
+           finishedIds,    // the ids of every finished list, in every sequence
+           finishedCount,  // how many finished lists, all sequences together
+           finished,       // true only when EVERY sequence is finished
+           sequences: [ { setAt, index, count, finished, hold,
+                          current, finishedIds, finishedCount }, … ] }
+
+       `sequences` has one entry per sequence, the first first, so a
+       student with one sequence has one. Ids the library no longer has are
        left out. */
     plan: function(){
       if(!pos || !pos.plan) return null;
       var alive = function(id){ return WordLists.exists(id); };
-      var n = Math.min(pos.state.index, pos.plan.steps.length), fin = 0, i;
-      for(i=0;i<n;i++) if(pos.plan.steps[i].ids.some(alive)) fin++;
+      var seqsOut = pos.positions.map(function(p){
+        var n = Math.min(p.state.index, p.plan.steps.length), fin = 0, i;
+        for(i=0;i<n;i++) if(p.plan.steps[i].ids.some(alive)) fin++;
+        return {
+          setAt: p.plan.setAt,
+          index: p.state.index, count: p.plan.steps.length,
+          finished: p.state.finished, hold: p.state.hold,
+          current: p.current.filter(alive),
+          finishedIds: p.finishedIds.filter(alive),
+          finishedCount: fin
+        };
+      });
       return {
-        uid: uid, setAt: pos.plan.setAt,
-        index: pos.state.index, count: pos.plan.steps.length,
-        finished: pos.state.finished, hold: pos.state.hold,
+        uid: uid,
         current: pos.current.filter(alive),
         finishedIds: pos.finishedIds.filter(alive),
-        finishedCount: fin
+        finishedCount: seqsOut.reduce(function(a, x){ return a + x.finishedCount; }, 0),
+        finished: seqsOut.every(function(x){ return x.finished; }),
+        sequences: seqsOut
       };
     },
     // The class this student is in, by id, or null. Their roster row is
@@ -601,6 +652,7 @@ window.EIStore = (function(){
       TEST_KEY: TEST_KEY,
       effectiveLists: effectiveLists,
       effectivePlan: effectivePlan,
+      effectivePlans: effectivePlans,
       resolve: resolve,
       settle: settle,
       classToCopy: classToCopy,
@@ -615,12 +667,15 @@ window.EIStore = (function(){
         dirtyFluency = st.dirtyFluency || {}; dirtyMeta = !!st.dirtyMeta;
         totals = st.totals || { n:0, r:0 }; recent = st.recent || [];
         assignment = st.assignment || null; rosterRow = st.roster || null;
-        seq = st.seq ? Adaptive.sanitizeSeq(st.seq) : null; dirtySeq = false;
+        seqs = [st.seq ? Adaptive.sanitizeSeq(st.seq) : null, st.seq2 ? Adaptive.sanitizeSeq(st.seq2) : null];
+        dirtySeqs = [false, false];
         preview = st.preview || null; loadFailed = !!st.loadFailed; pos = null;
         asTest = !!st.asTest;
       },
-      seq: function(){ return seq; },
-      dirtySeq: function(){ return dirtySeq; }
+      seq: function(){ return seqs[0]; },
+      seq2: function(){ return seqs[1]; },
+      dirtySeq: function(){ return dirtySeqs[0]; },
+      dirtySeq2: function(){ return dirtySeqs[1]; }
     }
   };
 })();

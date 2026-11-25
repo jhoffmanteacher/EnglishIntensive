@@ -306,19 +306,29 @@ window.EIPractice = (function(){
      they moved to a new list — which one. "The first time" is a note kept
      in localStorage (per student, per sequence: a teacher saving a new
      sequence starts it afresh, and the first ever load announces nothing).
-     A teacher previewing a student reads nothing and writes nothing. */
+     A teacher previewing a student reads nothing and writes nothing.
+
+     A student with two sequences hears about each on its own: a sentence
+     per sequence that moved ("New list: Red Words · List 3. New list: oi /
+     oy."), and "You finished all your lists" only when BOTH are finished —
+     one finished beside one still going says nothing; the list still going
+     is simply there. The first sequence's note keeps the key it always had,
+     so nothing is announced twice the day this changed. */
+  var FINISHED_ALL = "You finished all your lists. Ask your teacher what comes next.";
+  function seenKey(uid, k){ return (k ? "ei.plan.seen2:" : "ei.plan.seen:") + uid; }
   function planNotice(pl, pv){
-    if(pv) return pl.finished ? "You finished all your lists. Ask your teacher what comes next." : "";
-    var key = "ei.plan.seen:" + pl.uid, prev = null, text = "";
-    try{ prev = JSON.parse(localStorage.getItem(key)); }catch(e){}
-    if(pl.finished){
-      text = "You finished all your lists. Ask your teacher what comes next.";
-    } else if(prev && prev.setAt === pl.setAt && prev.index < pl.index){
-      var first = WordLists.byId(pl.current[0]);
-      if(first) text = "New list: " + first.listTitle + ".";
-    }
-    try{ localStorage.setItem(key, JSON.stringify({ setAt: pl.setAt, index: pl.index })); }catch(e){}
-    return text;
+    if(pv) return pl.finished ? FINISHED_ALL : "";
+    var lines = [];
+    (pl.sequences || []).forEach(function(sq, k){
+      var key = seenKey(pl.uid, k), prev = null;
+      try{ prev = JSON.parse(localStorage.getItem(key)); }catch(e){}
+      if(!pl.finished && !sq.finished && prev && prev.setAt === sq.setAt && prev.index < sq.index){
+        var first = WordLists.byId(sq.current[0]);
+        if(first) lines.push("New list: " + first.listTitle + ".");
+      }
+      try{ localStorage.setItem(key, JSON.stringify({ setAt: sq.setAt, index: sq.index })); }catch(e){}
+    });
+    return pl.finished ? FINISHED_ALL : lines.join(" ");
   }
 
   /* ── the home page ────────────────────────────────────────────────
@@ -362,8 +372,9 @@ window.EIPractice = (function(){
       /* A student with a sequence sees the list they are on, in its
          section; the lists they have finished sit in one closed fold under
          it, still playable; lists they have not reached are not there at
-         all — no locks, no "coming soon". A student with no sequence sees
-         their set exactly as before. */
+         all — no locks, no "coming soon". A student with two sequences sees
+         the list they are on in each, and one fold for the finished lists of
+         both. A student with no sequence sees their set exactly as before. */
       var pl = EIStore.plan && EIStore.plan();
       if(pl){
         var note = planNotice(pl, pv);
@@ -517,5 +528,5 @@ window.EIPractice = (function(){
 
   return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
            _internals: { queryList: queryList, pageName: pageName, previewText: previewText,
-                         planNotice: planNotice, appendSections: appendSections, testBar: testBar } };
+                         planNotice: planNotice, seenKey: seenKey, appendSections: appendSections, testBar: testBar } };
 })();

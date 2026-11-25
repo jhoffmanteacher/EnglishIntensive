@@ -491,6 +491,8 @@ window.Adaptive = (function(){
   /* ── a sequence: one student's lists, in order ─────────────────────
      A teacher gives a student a PLAN instead of a set: steps, in order, and
      the student moves to the next step when they have finished this one.
+     A student can have two at once (`plan` and `plan2`, see sanitizePlans
+     below); everything here is about one of them, and the two never touch.
 
        plan: {
          steps: [ { ids: ["red-1-say", "red-1-cards"] }, ... ],
@@ -606,6 +608,58 @@ window.Adaptive = (function(){
     return { index: i, finished: i >= n, hold: false };
   }
 
+  /* Where a student is in ONE plan, with what the screens need: the state,
+     the current step's ids, the finished steps' ids, and every id they can
+     play (finished, then current). null for no plan. store.js (the
+     student's browser) and teacher.js (the dashboard) both call this, so the
+     two cannot disagree about what a student is shown. */
+  function planPosition(plan, stats, totalOf, seq){
+    var p = sanitizePlan(plan);
+    if(!p) return null;
+    var state = planState(p, stats, totalOf, seq);
+    var current = state.finished ? [] : p.steps[state.index].ids.slice();
+    var done = [], i, j, n = Math.min(state.index, p.steps.length);
+    for(i=0;i<n;i++){
+      for(j=0;j<p.steps[i].ids.length;j++){
+        var id = p.steps[i].ids[j];
+        if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id);
+      }
+    }
+    return { plan: p, state: state, current: current, finishedIds: done, ids: done.concat(current) };
+  }
+
+  /* ── two sequences at once ─────────────────────────────────────────
+     A student can have a second sequence beside the first: `plan2`, the
+     same shape, on the same document, with its own high-water mark
+     (students/{uid}.seq2). Each moves on by itself. The first is always
+     `plan`: a document with no `plan2` is exactly what it was before.
+
+     `plan2` without a usable `plan` is ignored (the dashboard promotes a
+     second to first when the first is stopped, so this only happens to a
+     document edited by hand). A list is in one of the two only: an id
+     already in the first is dropped from the second, and a second left with
+     nothing is no second. Pure; returns [], [plan] or [plan, plan2]. */
+  var PLAN_FIELDS = ["plan", "plan2"];
+  var SEQ_FIELDS  = ["seq", "seq2"];
+  function sanitizePlans(doc){
+    if(!doc || typeof doc !== "object") return [];
+    var first = sanitizePlan(doc.plan);
+    if(!first) return [];
+    var raw = doc.plan2;
+    if(!raw || typeof raw !== "object" || !Array.isArray(raw.steps)) return [first];
+    var used = {};
+    first.steps.forEach(function(st){ st.ids.forEach(function(id){ used[id] = true; }); });
+    var steps = raw.steps.map(function(st){
+      var ids = st && typeof st === "object" && Array.isArray(st.ids) ? st.ids : [];
+      return { ids: ids.filter(function(id){ return !(typeof id === "string" && has(used, id)); }) };
+    });
+    var copy = {};
+    for(var k in raw) if(has(raw, k)) copy[k] = raw[k];
+    copy.steps = steps;
+    var second = sanitizePlan(copy);
+    return second ? [first, second] : [first];
+  }
+
   /* ── the flag line ─────────────────────────────────────────────────
      One line per student, or none, under their name on the Students page. A dashboard that shows everything
      shows nothing: a teacher with thirty students and four numbers each
@@ -633,6 +687,11 @@ window.Adaptive = (function(){
      is solid) becomes "finished every list" (the whole sequence is done),
      and fires only then; a student half way through a sequence is not
      coasting. A fifth, positive rule says when they last moved on.
+
+     A student with TWO sequences is still one line: the caller passes the
+     ways of playing of both current lists (so a stuck rule fires on
+     whichever list it is true of, first one wins), `finished` only when
+     both are done, and `movedAt` the more recent move of the two.
 
      `addId` is the list a one-click fix would add, where there is one; a
      line about a student who has finished everything or stopped
@@ -793,6 +852,10 @@ window.Adaptive = (function(){
     sanitizeSeq: sanitizeSeq,
     stepNeed: stepNeed,
     planState: planState,
+    planPosition: planPosition,
+    sanitizePlans: sanitizePlans,
+    planFields: PLAN_FIELDS.slice(),
+    seqFields: SEQ_FIELDS.slice(),
     nextSteps: nextSteps,
     schoolDaysBetween: schoolDaysBetween,
     errorKinds: ERROR_KINDS.slice(),

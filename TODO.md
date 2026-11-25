@@ -88,6 +88,16 @@ Two things worth watching once it has had one:
   same order to several students at once is *Give a sequence to N selected…*
   on the Students page. See the README, *Sequences* and *The class page*.
 
+- **Two sequences at once** (2026-11-25). A student can now have a second
+  sequence beside the first — e.g. the Red Words lists in one and *Sounding it
+  out* in the other — stored as `plan2` next to `plan` on the same assignment
+  or roster row, with its own high-water mark `students/{uid}.seq2` beside
+  `seq`. Each moves on by itself and the home page shows the current list of
+  each. This reverses "one list per student at a time" from the 2026-11-24
+  note: a student in two sequences works on two lists at once. A document with
+  no `plan2` behaves exactly as before; a list is in one of the two only; no
+  `firestore.rules` change. See the README, *Sequences*.
+
 ## Decided during the retire-modes build
 
 - **No default-modes shortcut exists**, so nothing needed changing for red

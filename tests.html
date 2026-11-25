@@ -3796,7 +3796,7 @@
 
       feed({ assignment: { plan: PLAN3 }, stats: {} });
       eq("myLists on step 1 is step 1's lists", ST.myLists().join(","), "red-1-say,red-1-cards");
-      eq("plan() says step 1 of 3", ST.plan().index + "/" + ST.plan().count, "0/3");
+      eq("plan() says step 1 of 3", ST.plan().sequences[0].index + "/" + ST.plan().sequences[0].count, "0/3");
       eq("nothing moved, so nothing is written", I.dirtySeq(), false);
       eq("…and the payload has no seq", "seq" in I.payload(), false);
 
@@ -3820,15 +3820,15 @@
       // Next visit: the stats have slipped, the mark has not.
       feed({ assignment: { plan: PLAN3 }, stats: merge(solid("red-1-say", 3), solid("red-1-cards", 3)),
              seq: { at: 1, of: 777, when: 1 } });
-      eq("replaying step 1 and missing words does not move them back", ST.plan().index, 1);
+      eq("replaying step 1 and missing words does not move them back", ST.plan().sequences[0].index, 1);
       eq("…and nothing new is written", I.dirtySeq(), false);
 
       // The mark belongs to a plan; a teacher saving a new one starts it afresh.
       feed({ assignment: { plan: merge(PLAN3, { setAt: 888 }) }, stats: {}, seq: { at: 2, of: 777, when: 1 } });
-      eq("a mark from an older save of the plan is ignored", ST.plan().index, 0);
+      eq("a mark from an older save of the plan is ignored", ST.plan().sequences[0].index, 0);
 
       feed({ assignment: { plan: PLAN3 }, stats: {}, seq: { at: 1, of: 777, when: 1 } });
-      eq("a mark ahead of the stats is believed", ST.plan().index, 1);
+      eq("a mark ahead of the stats is believed", ST.plan().sequences[0].index, 1);
 
       var everything = merge(done1, solid("red-2-say", 18), solid("red-2-cards", 18), solid("red-3-say", 18));
       feed({ assignment: { plan: PLAN3 }, stats: everything });
@@ -3839,8 +3839,8 @@
 
       // A teacher's hold.
       feed({ assignment: { plan: merge(PLAN3, { at: 0, hold: true }) }, stats: done1 });
-      eq("a held student stays on the held step", ST.plan().index, 0);
-      eq("…and plan() says held", ST.plan().hold, true);
+      eq("a held student stays on the held step", ST.plan().sequences[0].index, 0);
+      eq("…and plan() says held", ST.plan().sequences[0].hold, true);
       eq("…and nothing is written for a student who has not moved", I.dirtySeq(), false);
 
       // Not a student's business.
@@ -3871,8 +3871,10 @@
     /* ---- the home page's one-line notice ---- */
     guard("the home page notice", function(){
       var N = window.EIPractice._internals.planNotice;
+      // One sequence, in the shape EIStore.plan() gives the home page.
       function pl(index, finished, current, setAt, uid){
-        return { uid: uid || "notice-test", setAt: setAt || 5, index: index, finished: !!finished, current: current || [] };
+        var sq = { setAt: setAt || 5, index: index, finished: !!finished, current: current || [] };
+        return { uid: uid || "notice-test", finished: !!finished, current: sq.current, sequences: [sq] };
       }
       var KEY = "ei.plan.seen:notice-test";
       try{ localStorage.removeItem(KEY); }catch(e){}
@@ -3887,6 +3889,133 @@
       eq("a teacher's preview says nothing about a new list", N(pl(2, false, ["red-3-say"], 99), { id: "u" }), "");
       eq("…but still says everything is finished", N(pl(3, true, [], 99), { id: "u" }), "You finished all your lists. Ask your teacher what comes next.");
       try{ localStorage.removeItem(KEY); }catch(e){}
+    });
+
+    /* ---- two sequences at once: plan + plan2, seq + seq2 ---- */
+    guard("two sequences: what is read back", function(){
+      var P1 = plan([["a"], ["b"]], { setAt: 100 }), P2 = plan([["c"], ["d"]], { setAt: 200 });
+      eq("a document with only a plan is one sequence", A3.sanitizePlans({ plan: P1 }).length, 1);
+      eq("…the same plan sanitizePlan gives", JSON.stringify(A3.sanitizePlans({ plan: P1 })[0]), JSON.stringify(A3.sanitizePlan(P1)));
+      eq("a plan and a plan2 are two", A3.sanitizePlans({ plan: P1, plan2: P2 }).length, 2);
+      eq("…the second sanitized like the first (a bar of 2 is pulled to 1, a bad hold is false)",
+         JSON.stringify((function(x){ return { bar: x.bar, hold: x.hold, at: x.at }; })(A3.sanitizePlans({ plan: P1, plan2: plan([["c"]], { bar: 2, hold: "yes", at: 9 }) })[1])),
+         '{"bar":1,"hold":false,"at":0}');
+      eq("a plan2 with no plan is ignored", A3.sanitizePlans({ plan2: P2 }).length, 0);
+      eq("…and so is one beside a broken plan", A3.sanitizePlans({ plan: { steps: [] }, plan2: P2 }).length, 0);
+      eq("a plan2 that is not a plan is no second", A3.sanitizePlans({ plan: P1, plan2: "steps" }).length, 1);
+      eq("…nor one with no usable step", A3.sanitizePlans({ plan: P1, plan2: { steps: [{ ids: [] }] } }).length, 1);
+      eq("a list in the first is dropped from the second",
+         A3.sanitizePlans({ plan: P1, plan2: plan([["a", "c"], ["b"], ["d"]]) })[1].steps.map(function(st){ return st.ids.join("+"); }).join(" | "), "c | d");
+      eq("…and a second holding only the first's lists is no second", A3.sanitizePlans({ plan: P1, plan2: plan([["a"], ["b"]]) }).length, 1);
+      eq("nothing is no sequences", A3.sanitizePlans(null).length, 0);
+      eq("the stored fields are plan/plan2 and seq/seq2", A3.planFields.join(",") + "/" + A3.seqFields.join(","), "plan,plan2/seq,seq2");
+
+      var EPs = S3.effectivePlans;
+      eq("the store reads both from the assignment", EPs({ plan: P1, plan2: P2 }, null).length, 2);
+      eq("…or both from the roster row", EPs(null, { plan: P1, plan2: P2 }).length, 2);
+      eq("one decision for both: an assignment's lists beat a roster row's two sequences", EPs({ lists: ["x"] }, { plan: P1, plan2: P2 }).length, 0);
+      eq("…and an assignment's plan beats them, bringing only its own second (none here)", EPs({ plan: P1 }, { plan: P2, plan2: plan([["e"]]) }).length, 1);
+      eq("effectivePlan is still the first", S3.effectivePlan({ plan: P1, plan2: P2 }, null).setAt, 100);
+      var r = S3.resolve({ plan2: P2, lists: ["red-1-say"] }, null, {}, null, TOT20);
+      eq("a plan2 with no plan resolves as plain lists", r.plan === null && r.ids.join(","), "red-1-say");
+    });
+
+    guard("two sequences move on by themselves", function(){
+      var P1 = plan([["a"], ["b"]], { setAt: 100 }), P2 = plan([["c"], ["d"]], { setAt: 200 });
+      var doc = { plan: P1, plan2: P2 };
+      var r0 = S3.resolve(doc, null, {}, null, TOT20);
+      eq("a fresh student is on step 1 of each", r0.positions.map(function(p){ return p.state.index; }).join(","), "0,0");
+      eq("…and can play the current list of each", r0.ids.join(","), "a,c");
+      var r1 = S3.resolve(doc, null, solid("a", 18), null, TOT20);
+      eq("finishing a list in the first moves the first only", r1.positions.map(function(p){ return p.state.index; }).join(","), "1,0");
+      eq("…finished-then-current, across both", r1.ids.join(","), "a,b,c");
+      var r2 = S3.resolve(doc, null, solid("c", 20), null, TOT20);
+      eq("finishing a list in the second moves the second only", r2.positions.map(function(p){ return p.state.index; }).join(","), "0,1");
+      eq("…the first's plan and state are still the first's", r2.plan.setAt + "/" + r2.state.index, "100/0");
+      var r3 = S3.resolve(doc, null, {}, [{ at: 1, of: 100, when: 1 }, null], TOT20);
+      eq("the first's mark moves the first", r3.positions.map(function(p){ return p.state.index; }).join(","), "1,0");
+      var r4 = S3.resolve(doc, null, {}, [null, { at: 1, of: 200, when: 1 }], TOT20);
+      eq("the second's mark moves the second", r4.positions.map(function(p){ return p.state.index; }).join(","), "0,1");
+      var r5 = S3.resolve(doc, null, {}, [{ at: 1, of: 200, when: 1 }, null], TOT20);
+      eq("a mark in seq never counts for plan2, even one naming plan2's setAt", r5.positions.map(function(p){ return p.state.index; }).join(","), "0,0");
+      var r6 = S3.resolve({ plan: P1, plan2: plan([["c"], ["d"]], { setAt: 200, hold: true }) }, null, merge(solid("a", 20), solid("c", 20)), null, TOT20);
+      eq("a hold on the second holds the second only", r6.positions.map(function(p){ return p.state.index + (p.state.hold ? "h" : ""); }).join(","), "1,0h");
+      var r7 = S3.resolve({ plan: P1 }, null, solid("a", 18), [{ at: 0, of: 100, when: 0 }, { at: 5, of: 100, when: 1 }], TOT20);
+      eq("with one sequence a stray seq2 changes nothing", r7.positions.length + "/" + r7.state.index, "1/1");
+    });
+
+    guard("two sequences in the store, end to end", function(){
+      var ST = window.EIStore, I = ST._internals;
+      var R1 = { steps: [{ ids: ["red-1-say"] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 300 };
+      var B1 = W3.idFor("blends-start", 1, "say"), B2 = W3.idFor("blends-end", 1, "say");
+      var S2 = { steps: [{ ids: [B1] }, { ids: [B2] }], bar: 0.9, at: 0, hold: false, setAt: 400 };
+      function feed(o){ I._feed(o); I.settle(); }
+
+      feed({ assignment: { plan: R1, plan2: S2 }, stats: {} });
+      var p = ST.plan();
+      eq("plan() has one entry per sequence", p.sequences.length, 2);
+      eq("…the home page shows the current list of each", p.current.join(","), "red-1-say," + B1);
+      eq("…nothing finished yet", p.finishedIds.length + "/" + p.finishedCount, "0/0");
+      eq("…and myLists is those two", ST.myLists().join(","), "red-1-say," + B1);
+
+      feed({ assignment: { plan: R1, plan2: S2 }, stats: solid(B1, 28) });
+      p = ST.plan();
+      eq("finishing the second's list moves the second", p.sequences.map(function(x){ return x.index; }).join(","), "0,1");
+      eq("…the current lists are the first's and the second's new one", p.current.join(","), "red-1-say," + B2);
+      eq("…the finished fold holds the second's finished list", p.finishedIds.join(",") + "/" + p.finishedCount, B1 + "/1");
+      eq("…the mark written is seq2, not seq", (I.dirtySeq() ? "seq " : "") + (I.dirtySeq2() ? "seq2" : ""), "seq2");
+      eq("…it belongs to plan2 and is a landing", JSON.stringify(I.seq2() && { at: I.seq2().at, of: I.seq2().of, when: I.seq2().when }), '{"at":1,"of":400,"when":0}');
+      eq("…and the payload carries seq2 and no seq", ("seq" in I.payload()) + "/" + JSON.stringify(I.payload().seq2 && I.payload().seq2.of), "false/400");
+
+      var both = merge(solid("red-1-say", 18), solid("red-2-say", 18), solid(B1, 28));
+      feed({ assignment: { plan: R1, plan2: S2 }, stats: both, seq2: { at: 1, of: 400, when: 0 } });
+      p = ST.plan();
+      eq("the first finished and the second not: the first has no current list", p.sequences[0].finished + "/" + p.sequences[1].finished, "true/false");
+      eq("…so plan() is not finished", p.finished, false);
+      eq("…the second's list is still current", p.current.join(","), B2);
+      eq("…and the fold holds the finished lists of both", p.finishedIds.join(",") + "/" + p.finishedCount, "red-1-say,red-2-say," + B1 + "/3");
+      eq("…the second's own mark is left alone (it has not moved)", I.dirtySeq2(), false);
+
+      feed({ assignment: { plan: R1, plan2: S2 }, stats: merge(both, solid(B2, 28)) });
+      eq("both finished is plan().finished", ST.plan().finished + "/" + ST.plan().current.length, "true/0");
+
+      feed({ roster: { plan: R1, plan2: S2 }, stats: {} });
+      eq("a roster row's two sequences apply before they have an assignment", ST.plan().sequences.length, 2);
+
+      feed({ assignment: { plan2: S2, lists: ["red-5-say"] }, stats: {} });
+      eq("a plan2 with no plan is ignored: their lists as given", ST.myLists().join(",") + "/" + ST.plan(), "red-5-say/null");
+
+      feed({ assignment: { plan: R1, plan2: S2 }, stats: solid(B1, 28), preview: { id: "u", name: "A", failed: false } });
+      eq("a teacher previewing sees both, and nothing is written", ST.plan().current.join(",") + "/" + I.dirtySeq2(), "red-1-say," + B2 + "/false");
+
+      feed({ assignment: { plan: R1 }, stats: solid("red-1-say", 18) });
+      eq("a one-sequence student: plan() has one entry", ST.plan().sequences.length, 1);
+      eq("…the mark goes to seq, and seq2 is never written", (I.payload().seq ? "seq" : "") + ("seq2" in I.payload() ? " seq2" : ""), "seq");
+
+      I._feed({ seq2: { at: "x" } });
+      eq("a seq2 read back is sanitized like seq (a bad one is nothing)", I.seq2(), null);
+      I._feed({ seq2: { at: -3, of: 5, when: 2 } });
+      eq("…a negative one pulled to 0", I.seq2().at, 0);
+    }, function(){ window.EIStore._internals._feed({}); });
+
+    guard("the home page notice with two sequences", function(){
+      var N = window.EIPractice._internals.planNotice, K = window.EIPractice._internals.seenKey;
+      var UID = "notice-two";
+      function sq(index, finished, current, setAt){ return { setAt: setAt || 5, index: index, finished: !!finished, current: current || [] }; }
+      function pl2(a, b){ return { uid: UID, finished: a.finished && b.finished, current: a.current.concat(b.current), sequences: [a, b] }; }
+      function clear(){ try{ localStorage.removeItem(K(UID, 0)); localStorage.removeItem(K(UID, 1)); }catch(e){} }
+      clear();
+      eq("the second's note has its own key; the first keeps the key it always had", K(UID, 0) + " " + K(UID, 1), "ei.plan.seen:notice-two ei.plan.seen2:notice-two");
+      var B2 = W3.idFor("blends-end", 1, "say");
+      eq("the first load ever announces nothing", N(pl2(sq(0, false, ["red-1-say"]), sq(0, false, [B2], 9)), null), "");
+      eq("the first moved: names its new list", N(pl2(sq(1, false, ["red-2-say"]), sq(0, false, [B2], 9)), null), "New list: Red Words · List 2.");
+      eq("the second moved: names its new list", N(pl2(sq(1, false, ["red-2-say"]), sq(1, false, [B2], 9)), null), "New list: " + W3.byId(B2).listTitle + ".");
+      eq("both moved: one sentence each", N(pl2(sq(2, false, ["red-3-say"]), sq(2, false, ["red-9-say"], 9)), null), "New list: Red Words · List 3. New list: Red Words · List 9.");
+      eq("one finished beside one still going: nothing about finishing", N(pl2(sq(4, true, []), sq(2, false, ["red-9-say"], 9)), null), "");
+      eq("both finished: the finished line", N(pl2(sq(4, true, []), sq(3, true, [], 9)), null), "You finished all your lists. Ask your teacher what comes next.");
+      eq("a preview of one finished and one not says nothing", N(pl2(sq(4, true, []), sq(2, false, ["red-9-say"], 9)), { id: "u" }), "");
+      eq("a preview of both finished says so", N(pl2(sq(4, true, []), sq(3, true, [], 9)), { id: "u" }), "You finished all your lists. Ask your teacher what comes next.");
+      clear();
     });
   })();
 
@@ -4628,6 +4757,273 @@
          T.replacedCount([T.studentByUid("u1"), T.studentByUid("u2"), T.studentByUid("u3")]), 1);
     });
 
+
+    /* ---- two sequences on the dashboard ---- */
+    var TB1 = W4.idFor("blends-start", 1, "say"), TB2 = W4.idFor("blends-end", 1, "say"), TB1C = W4.idFor("blends-start", 1, "cards");
+    var SETAT2 = 2000;
+    function plan2Doc(extra){
+      var p = { steps: [{ ids: [TB1] }, { ids: [TB2] }], bar: 0.9, at: 0, hold: false, setAt: SETAT2 };
+      for(var k in (extra || {})) p[k] = extra[k];
+      return p;
+    }
+    // Ana again, with a second sequence: on step 2 of the first, and (Starting Blends done) step 2 of the second.
+    function anaTwo(extra){
+      return ana(merge({ stats: merge(solid("red-1-say", 19), solid("red-1-cards", 20), solid("red-2-say", 14), solid(TB1, 28)),
+                         seq2: { at: 1, of: SETAT2, when: 1795600000000 } }, extra || {}));
+    }
+    function twoFixture(extra){
+      var o = {
+        students: [anaTwo(), kid("u2", "Ben Ortiz"), kid("u3", "Cy Park")],
+        assignments: {
+          u1: merge({ plan: planDoc(), plan2: plan2Doc(), lists: ["red-2-say", "red-2-cards", TB2] }, stamp),
+          u2: merge({ plan: planDoc({ setAt: 3000 }) }, stamp)
+        }
+      };
+      for(var k in (extra || {})) o[k] = extra[k];
+      return o;
+    }
+    function tags(root){ return Array.prototype.map.call(root.querySelectorAll(".seqTag"), function(t){ return t.textContent; }).join(","); }
+
+    guard("two sequences: the dashboard and the student's code agree", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      var cases = [
+        { stats: {}, seq: null, seq2: null, p2: plan2Doc() },
+        { stats: solid(TB1, 28), seq: null, seq2: null, p2: plan2Doc() },
+        { stats: merge(solid("red-1-say", 18), solid("red-1-cards", 18)), seq: null, seq2: null, p2: plan2Doc() },
+        { stats: {}, seq: { at: 2, of: SETAT, when: 1 }, seq2: { at: 1, of: SETAT2, when: 1 }, p2: plan2Doc() },
+        { stats: {}, seq: { at: 1, of: SETAT2, when: 1 }, seq2: { at: 1, of: SETAT, when: 1 }, p2: plan2Doc() },
+        { stats: merge(solid(TB1, 28), solid(TB2, 31)), seq: null, seq2: null, p2: plan2Doc({ hold: true }) },
+        { stats: merge(solid(TB1, 28), solid(TB2, 31)), seq: null, seq2: null, p2: plan2Doc() },
+        { stats: solid(TB1, 28), seq: null, seq2: null, p2: plan2Doc({ steps: [{ ids: ["red-1-say", TB1] }, { ids: [TB2] }] }) }
+      ];
+      var same = 0, ids = 0;
+      cases.forEach(function(c){
+        var doc = { plan: planDoc(), plan2: c.p2 };
+        feed({ students: [kid("u1", "Ana", { stats: c.stats, seq: c.seq, seq2: c.seq2 })], assignments: { u1: merge(doc, stamp) } });
+        var teacher = T.positionsOf("u1"), student = ST4.resolve(doc, null, c.stats, [c.seq, c.seq2], tot).positions;
+        if(teacher.length === student.length && teacher.every(function(t, k){
+          return t.state.index === student[k].state.index && t.state.finished === student[k].state.finished && t.state.hold === student[k].state.hold;
+        })) same++;
+        if(JSON.stringify(T.effectiveLists("u1").ids) === JSON.stringify(ST4.resolve(doc, null, c.stats, [c.seq, c.seq2], tot).ids)) ids++;
+      });
+      eq("the dashboard and the student's code agree on both positions in all " + cases.length + " cases", same, cases.length);
+      eq("…and on which lists the student can play", ids, cases.length);
+      feed({ students: [kid("u1", "Ana")], roster: { "u1@seq.org": { name: "Ana", plan: planDoc(), plan2: plan2Doc(), classId: "c3", teachers: [ME] } } });
+      eq("a roster row's second sequence is read too", T.planFor("u1", 1) && T.planFor("u1", 1).setAt, SETAT2);
+      eq("…and kept when the row is read back", !!T.rosterRowOf("x@seq.org", { plan: planDoc(), plan2: plan2Doc() }).plan2, true);
+      feed({ students: [kid("u1", "Ana")], assignments: { u1: merge({ plan2: plan2Doc(), lists: ["red-1-say"] }, stamp) } });
+      eq("a plan2 with no plan is ignored on the dashboard too", T.plansFor("u1").length + "/" + T.effectiveLists("u1").from, "0/student");
+    });
+
+    guard("two sequences: what Save writes", function(){
+      feed(fixture());
+      var d = T.ensureDraft("u1", 0); T.draftBar(d, -1);
+      var one = T.saveBody("u1", 5000);
+      eq("one sequence: the body is exactly what it was (plan, lists, time, stamp)", Object.keys(one).sort().join(","), "classId,lists,plan,teachers,updatedAt");
+      eq("…the same plan planBody makes", JSON.stringify(one.plan), JSON.stringify(T.planBody(d, T.draftIndex(d), 5000).plan));
+      eq("…and `lists` the current step's ids", one.lists.join(","), "red-2-say,red-2-cards");
+      T.reset();
+
+      feed(twoFixture());
+      var d2 = T.ensureDraft("u1", 1); T.draftBar(d2, -1);
+      var b = T.saveBody("u1", 5000);
+      eq("two sequences: one body with plan and plan2", Object.keys(b).sort().join(","), "classId,lists,plan,plan2,teachers,updatedAt");
+      eq("…the second, edited, starts afresh at the step shown as Now", b.plan2.setAt + "/" + b.plan2.at + "/" + b.plan2.bar, "5000/1/0.85");
+      eq("…the first, untouched, is written back as stored (its mark keeps counting)", JSON.stringify(b.plan), JSON.stringify(A4.sanitizePlan(planDoc())));
+      eq("…`lists` is the current step of each", b.lists.join(","), "red-2-say,red-2-cards," + TB2);
+      eq("…and the student's code reads both back unchanged", JSON.stringify(A4.sanitizePlans(b)), JSON.stringify([b.plan, b.plan2]));
+      T.reset();
+
+      feed(twoFixture());
+      T.draftBar(T.ensureDraft("u1", 0), 1);
+      var c = T.saveBody("u1", 6000);
+      eq("editing the first only: the first is saved afresh, the second as stored", c.plan.setAt + "/" + c.plan2.setAt, "6000/" + SETAT2);
+      T.reset();
+
+      feed(fixture());
+      var n2 = T.ensureDraft("u1", 1);
+      eq("adding a second to a one-sequence student", T.draftAdd(n2, [TB1], ["red:1", "red:2", "red:3"]), true);
+      var e = T.saveBody("u1", 7000);
+      eq("…writes plan2 beside the stored plan", e.plan2.steps.length + "/" + e.plan.setAt, "1/" + SETAT);
+      eq("…with `lists` the union of the two current lists", e.lists.join(","), "red-2-say,red-2-cards," + TB1);
+      T.reset();
+
+      feed(fixture());
+      T.ensureDraft("u1", 1);
+      eq("an empty second sequence is nothing to save", T.seqDirty(), false);
+    });
+
+    guard("two sequences: stopping one", function(){
+      feed(twoFixture());
+      var s2 = T.stopBody("u1", 7000, 1);
+      eq("stopping the second deletes plan2 and nothing else", Object.keys(s2).sort().join(",") + "/" + s2.plan2, "classId,lists,plan2,teachers,updatedAt/\u0000delete");
+      eq("…`lists` is the first's current list", s2.lists.join(","), "red-2-say,red-2-cards");
+      var s1 = T.stopBody("u1", 7000, 0);
+      eq("stopping the first while a second exists promotes the second", JSON.stringify(s1.plan.steps), JSON.stringify(plan2Doc().steps));
+      eq("…where the student really is in it (step 2), saved afresh", s1.plan.at + "/" + s1.plan.setAt, "1/7000");
+      eq("…and deletes plan2", s1.plan2, "\u0000delete");
+      eq("…`lists` is the promoted sequence's current list", s1.lists.join(","), TB2);
+      eq("…and the promoted plan never takes a setAt the first's mark could match", T.stopBody("u1", SETAT, 0).plan.setAt, SETAT + 1);
+      eq("a student with one sequence has no second to stop", T.stopBody("u2", 1, 1), null);
+      eq("…and stopping their first is what it always was", T.stopBody("u2", 1, 0).plan, "\u0000delete");
+    });
+
+    guard("a list is in one sequence only", function(){
+      var d = { uid: "u1", which: 1, steps: [], bar: 0.9, at: 0, hold: false };
+      eq("a list in the other sequence is refused", T.draftAdd(d, ["red-2-say"], ["red:1", "red:2"]), false);
+      eq("…another way of playing it too", T.draftAdd(d, ["red-2-cards"], ["red:2"]), false);
+      eq("…a list in neither is taken", T.draftAdd(d, ["red-4-say"], ["red:1", "red:2"]), true);
+      d = { uid: "u1", which: 1, steps: [], bar: 0.9, at: 0, hold: false };
+      eq("a ready-made sequence leaves out the other's lists",
+         (T.draftReplaceLater(d, 0, T.readyMadeSteps("red"), ["red:1", "red:2", "red:3"]), d.steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(",")), "4,5,6,7,8,9,10");
+      d = { uid: "u1", which: 1, steps: [], bar: 0.9, at: 0, hold: false };
+      eq("…and says how much it brought (nothing, when it is all taken)", T.draftReplaceLater(d, 0, [{ ids: ["red-1-say"] }], ["red:1"]), 0);
+    });
+
+    guard("the page with two sequences", function(){
+      body.hidden = false;
+      feed(twoFixture());
+      T.open("u1"); T.renderDetail();
+      var eds = body.querySelectorAll(".seqEditor");
+      eq("two editors, one under the other", eds.length, 2);
+      eq("each headed with which one and what it holds",
+         body.querySelector("#seqHead").textContent + " | " + body.querySelector("#seqHead2").textContent,
+         "First sequence Red Words · 3 lists | Second sequence Starting Blends, Blend Words · 2 lists");
+      var all = Array.prototype.map.call(body.querySelectorAll("[id]"), function(e){ return e.id; }), dup = all.filter(function(x, i){ return all.indexOf(x) !== i; });
+      eq("no id is used twice on the page", dup.join(","), "");
+      eq("the first's rows: Finished, Now, Next", tags(eds[0]), "Finished,Now,Next");
+      eq("the second's rows: Finished, Now", tags(eds[1]), "Finished,Now");
+      eq("each has its own Stop", Array.prototype.map.call(body.querySelectorAll('[data-seq="stop"]'), function(b){ return b.textContent; }).join(","), "Stop using this sequence,Stop using this sequence");
+      eq("…its own percent, labelled for which", eds[1].querySelector('[data-seq="bar-"]').getAttribute("aria-label"), "Lower the percent for the second sequence");
+      eq("there is no Add a second sequence when there are two", !!body.querySelector('[data-seq="second-add"]'), false);
+      eq("beside them, On now names each", Array.prototype.map.call(body.querySelectorAll(".seqWhich"), function(p){ return p.textContent; }).join(","), "First sequence,Second sequence");
+      eq("…and the finished lists of both", Array.prototype.map.call(body.querySelectorAll(".seqFinList li"), function(li){ return li.textContent; }).join(","),
+         "Red Words · List 1," + W4.byId(TB1).listTitle);
+      eq("a finished row in the second shows the date from its own mark (seq2)", /^Finished .+ · 28 of 28 solid$/.test(eds[1].querySelector(".seqRow.fin .seqNote").textContent), true);
+
+      eds[1].querySelector('[data-seq="bar-"]').click();
+      eq("the second's percent moves on its own", body.querySelector("#seqPct").textContent + " " + body.querySelector("#seqPct2").textContent, "90% 85%");
+      eq("…focus stays on the button just pressed, in the second", document.activeElement.getAttribute("data-seq") + "/" + document.activeElement.closest("[data-which]").getAttribute("data-which"), "bar-/1");
+      eq("…the edit is the second's draft", (T.getDraft() === null) + "/" + T.getDraft2().bar, "true/0.85");
+      eq("…and one Save bar for both", body.querySelectorAll("#seqSave").length + "/" + body.querySelector("#seqSave").hidden, "1/false");
+      body.querySelector('[data-seq="discard"]').click();
+      eq("Discard puts both back", body.querySelector("#seqPct2").textContent + "/" + T.seqDirty(), "90%/false");
+
+      body.querySelectorAll('.seqEditor')[0].querySelector('[data-seq="moveon"]').click();
+      eq("Move on now in the first moves the first only", tags(body.querySelectorAll(".seqEditor")[0]) + " | " + tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Finished,Now | Finished,Now");
+      body.querySelector('[data-seq="discard"]').click();
+
+      body.querySelectorAll('.seqEditor')[1].querySelector('[data-seq="add-open"]').click();
+      var opts = Array.prototype.map.call(body.querySelectorAll("#seqAddList2 option"), function(o){ return o.value; });
+      eq("Add a list in the second offers no list from the first", opts.indexOf("red:1") + opts.indexOf("red:2") + opts.indexOf("red:3"), -3);
+      eq("…nor one already in the second", opts.indexOf("blends-start:1"), -1);
+      eq("…and focus is in its own chooser", document.activeElement.id, "seqAddList2");
+      body.querySelectorAll('.seqEditor')[1].querySelector('[data-seq="add-cancel"]').click();
+
+      // A one-sequence student: the way to a second.
+      T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
+      eq("one sequence keeps its heading", body.querySelector("#seqHead").textContent, "Ana Lopez’s word lists, in order");
+      var add2 = body.querySelector('[data-seq="second-add"]');
+      eq("…and offers Add a second sequence", add2 && add2.textContent, "Add a second sequence");
+      add2.click();
+      eq("pressing it opens an empty second editor, focus on its heading", body.querySelectorAll(".seqEditor").length + "/" + document.activeElement.id, "2/seqHead2");
+      eq("…the two are now headed First and Second", body.querySelector("#seqHead").textContent.indexOf("First sequence") + "/" + body.querySelector("#seqHead2").textContent, "0/Second sequence no lists yet");
+      eq("…nothing to save yet", body.querySelector("#seqSave").hidden, true);
+      var sel2 = body.querySelector("#seqReady2"); sel2.value = "rm:red";
+      body.querySelectorAll('.seqEditor')[1].querySelector('[data-seq="ready-go"]').click();
+      eq("Red Words in the second leaves out the first's three lists", T.getDraft2().steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "4,5,6,7,8,9,10");
+      eq("…and there is now something to save", body.querySelector("#seqSave").hidden, false);
+      body.querySelector('[data-seq="discard"]').click();
+      eq("Discard closes the unsaved second", body.querySelectorAll(".seqEditor").length, 1);
+      body.querySelector('[data-seq="second-add"]').click();
+      body.querySelector('[data-seq="second-cancel"]').click();
+      eq("Don’t add a second sequence closes it, focus back on the button", body.querySelectorAll(".seqEditor").length + "/" + document.activeElement.getAttribute("data-seq"), "1/second-add");
+
+      // Copying from a student who has two offers each of theirs.
+      T.reset(); feed(twoFixture()); T.open("u2"); T.renderDetail();
+      eq("Copy from another student offers each of a two-sequence student's",
+         Array.prototype.map.call(body.querySelectorAll("#seqCopy option"), function(o){ return o.textContent; }).join(" | "),
+         "Ana Lopez (first) | Ana Lopez (second)");
+      body.querySelector("#seqCopy").value = "u1#2";
+      body.querySelector('[data-seq="copy-go"]').click();
+      eq("…copying the second takes the second's lists", T.getDraft().steps.slice(-2).map(function(x){ return x.ids[0]; }).join(","), TB1 + "," + TB2);
+      body.hidden = true;
+    });
+
+    guard("the row and the flag line with two sequences", function(){
+      body.hidden = false;
+      feed(twoFixture());
+      var f = T.rowFacts(T.studentByUid("u1"));
+      eq("a two-sequence row has both", f.kind + "/" + f.seqs.length, "two/2");
+      eq("…the list they are on in each", f.seqs.map(function(x){ return x.title; }).join(" | "), "Red Words · List 2 | " + W4.byId(TB2).listTitle);
+      eq("…each with its count and place", f.seqs.map(function(x){ return x.count + " · " + x.place; }).join(" | "), "0 of 20 · Cards · List 2 of 3 | 0 of 31 · List 2 of 2");
+      T.renderRoster();
+      var row = body.querySelector('tr[data-uid="u1"]');
+      eq("…stacked in the one row: two parts in each cell", [".stNow", "td:nth-child(4)", ".stPlace"].map(function(sel){ return row.querySelector(sel).querySelectorAll(".stPart").length; }).join(","), "2,2,2");
+      eq("…two bars", row.querySelectorAll(".seqMeter").length, 2);
+      eq("…the place of each", Array.prototype.map.call(row.querySelectorAll(".stPlace .stPart"), function(p){ return p.textContent; }).join(" | "), "List 2 of 3 | List 2 of 2");
+      eq("…and still one flag line at most", row.querySelectorAll(".stFlag").length <= 1, true);
+      eq("a one-sequence student's row is as it was", body.querySelector('tr[data-uid="u2"] .stNow').textContent, "Red Words · List 1");
+      eq("the flag line's lists are the current lists of both", T.nextStepInfo(T.studentByUid("u1")).lists.map(function(l){ return l.id; }).join(","), "red-2-say,red-2-cards," + TB2);
+
+      var NOWT = Date.now(), DAYMS = 86400000;
+      var firstDone = merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 20), solid("red-2-cards", 20), solid("red-3-say", 20));
+      feed({ students: [kid("u1", "Ana", { stats: firstDone, lastSeen: NOWT })], assignments: { u1: merge({ plan: planDoc(), plan2: plan2Doc() }, stamp) } });
+      eq("the first finished and the second not: not finished", T.nextStepInfo(T.studentByUid("u1")).plan.finished, false);
+      eq("…and no Finished every list line", ((T.flagFor(T.studentByUid("u1")) || {}).rule) === "finished", false);
+      eq("…the row shows the finished one and the one still going", T.rowFacts(T.studentByUid("u1")).seqs.map(function(x){ return x.kind; }).join(","), "done,seq");
+      feed({ students: [kid("u1", "Ana", { stats: merge(firstDone, solid(TB1, 28), solid(TB2, 31)), lastSeen: NOWT })], assignments: { u1: merge({ plan: planDoc(), plan2: plan2Doc() }, stamp) } });
+      eq("both finished: Finished every list", T.flagFor(T.studentByUid("u1")).text, "Finished every list. Add the next ones.");
+
+      var stuck = {};
+      for(var i=0;i<10;i++) stuck[TB1C + "|w" + i] = A4.sanitizeStat({ n:6, r:1, w:5, box:0, last: NOWT - 1000 });
+      feed({ students: [kid("u1", "Ana", { stats: stuck, lastSeen: NOWT })],
+             assignments: { u1: merge({ plan: planDoc(), plan2: plan2Doc({ steps: [{ ids: [TB1, TB1C] }] }) }, stamp) } });
+      var fl = T.flagFor(T.studentByUid("u1")) || {};
+      eq("stuck on the cards of the second's current list is flagged", fl.rule + "/" + fl.listId, "stuck/" + TB1C);
+
+      feed({ students: [kid("u1", "Ana", { stats: {}, lastSeen: NOWT, seq: { at: 1, of: SETAT, when: NOWT - 5 * DAYMS }, seq2: { at: 1, of: SETAT2, when: NOWT - 2 * DAYMS } })],
+             assignments: { u1: merge({ plan: planDoc(), plan2: plan2Doc() }, stamp) } });
+      eq("moved to a new list is the more recent move of the two", T.lastMove(T.studentByUid("u1")), NOWT - 2 * DAYMS);
+      eq("…and the flag line says the day of that one", T.flagFor(T.studentByUid("u1")).rule, "moved");
+      feed({ students: [kid("u1", "Ana", { stats: {}, lastSeen: NOWT, seq2: { at: 1, of: SETAT, when: NOWT - DAYMS } })],
+             assignments: { u1: merge({ plan: planDoc(), plan2: plan2Doc() }, stamp) } });
+      eq("…a seq2 that names the first plan's setAt is not a move of either", T.lastMove(T.studentByUid("u1")), 0);
+      body.hidden = true;
+    });
+
+    guard("giving as a second sequence", function(){
+      var snd = T.readyMadeSteps("sounding"), red = T.readyMadeSteps("red"), NOWT = 1795563000000;
+      feed({ students: [kid("u1", "Ana"), kid("u2", "Ben"), kid("u3", "Cy"), kid("u4", "Di"), kid("u5", "Ed")],
+             assignments: {
+               u2: merge({ lists: ["red-9-say"] }, stamp),
+               u3: merge({ plan: planDoc() }, stamp),
+               u4: merge({ plan: planDoc(), plan2: plan2Doc() }, stamp),
+               u5: merge({ plan: { steps: snd, bar: 0.9, at: 0, hold: false, setAt: 9 } }, stamp) } });
+      function gb(uid, steps, mode){ return T.giveBody(T.studentByUid(uid), steps, 0.9, NOWT, mode); }
+      eq("no sequence: it becomes their first", Object.keys(gb("u1", snd, "add")).sort().join(","), "classId,lists,plan,teachers,updatedAt");
+      eq("games and no sequence: it becomes their first (the games are replaced)", gb("u2", snd, "add").plan.steps.length, 4);
+      var b3 = gb("u3", snd, "add");
+      eq("one sequence: it becomes their second, and the first is not touched", Object.keys(b3).sort().join(","), "classId,lists,plan2,teachers,updatedAt");
+      eq("…`lists` is the union of the two current lists", b3.lists.join(","), "red-1-say,red-1-cards," + snd[0].ids.join(","));
+      eq("…and it leaves out lists already in their first", gb("u3", red, "add").plan2.steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "4,5,6,7,8,9,10");
+      var b4 = gb("u4", red, "add");
+      eq("two sequences: it replaces their second", b4.plan2.setAt + "/" + b4.plan2.steps.length + "/" + ("plan" in b4), NOWT + "/7/false");
+      eq("a student whose first already holds every list in it is skipped", gb("u5", snd, "add"), null);
+      var r4 = gb("u4", snd, "replace");
+      eq("Replace what they have takes the second with it", r4.plan.steps.length + "/" + r4.plan2, "4/\u0000delete");
+      eq("…and for a student with no second the body is what it always was", Object.keys(gb("u3", snd)).sort().join(","), "classId,lists,plan,teachers,updatedAt");
+      var list = ["u1", "u2", "u3", "u4", "u5"].map(T.studentByUid);
+      var cr = T.giveCounts(list, snd, "replace"), ca = T.giveCounts(list, snd, "add");
+      eq("replacing counts everyone who has something", cr.replaced, 4);
+      eq("adding counts who has two, who has games, and who is skipped", ca.seconds + "/" + ca.games + "/" + ca.skipped, "1/1/1");
+      eq("the replace warning is what it was", T.giveWarning(cr, 5, "replace"), "4 of these 5 students already have games or a sequence. This replaces them.");
+      eq("the add warning says each thing",
+         T.giveWarning(ca, 5, "add"), "1 of these 5 students already has two sequences. This replaces their second. 1 has games and no sequence. This replaces those games. 1 is skipped: every list in it is already in their first sequence.");
+      eq("adding to students with nothing to replace asks nothing", T.giveConfirm("X", T.giveCounts([T.studentByUid("u1"), T.studentByUid("u3")], snd, "add"), 2, "add"), "");
+      eq("…and with something, asks, saying it is a second sequence", /^Give X to 5 students as a second sequence\?/.test(T.giveConfirm("X", ca, 5, "add")), true);
+    });
+
     /* ---- saved sequences ---- */
     var SV = { s1: { name: "Red Words, Lists 1 to 10", steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] }], bar: 0.85, createdAt: 5 },
                s2: { name: "A first one", steps: [{ ids: ["initial-blends"] }], bar: 0.9, createdAt: 3 } };
@@ -4949,6 +5345,84 @@
         T.closeGive();
       });
     });
+    guardAsync("two sequences: Save writes both in one merge", function(){
+      feed(twoFixture()); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="bar-"]').click();
+      body.querySelectorAll(".seqEditor")[0].querySelector('[data-seq="bar+"]').click();
+      return T.seqAct("save").then(function(){
+        var w = db.log[0] || {}, d = w.data || {};
+        eq("one write, to the assignment, as a merge", db.log.length + "/" + w.col + "/" + w.id + "/" + JSON.stringify(w.opts), '1/assignments/u1/{"merge":true}');
+        eq("…carrying plan, plan2, lists, the time and the stamp", Object.keys(d).sort().join(","), "classId,lists,plan,plan2,teachers,updatedAt");
+        eq("…each with its own percent", d.plan.bar + "/" + d.plan2.bar, "0.95/0.85");
+        eq("…and `lists` the current list of each", d.lists.join(","), "red-2-say,red-2-cards," + TB2);
+        eq("the page's copy has both", T.planFor("u1").bar + "/" + T.planFor("u1", 1).bar, "0.95/0.85");
+        eq("both drafts are gone, and the status line says Saved.", (T.getDraft() === null && T.getDraft2() === null) + "/" + body.querySelector("#seqFlash").textContent, "true/Saved.");
+      });
+    });
+    guardAsync("adding a second sequence on the page and saving it", function(){
+      feed(fixture()); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="second-add"]').click();
+      body.querySelector("#seqReady2").value = "rm:sounding";
+      body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
+      return T.seqAct("save").then(function(){
+        var d = (db.log[0] || {}).data || {};
+        eq("the first is written back as stored, the second new", d.plan.setAt + "/" + d.plan2.steps.length, SETAT + "/4");
+        eq("…and the page now shows two editors", body.querySelectorAll(".seqEditor").length, 2);
+      });
+    });
+    guardAsync("stopping the first promotes the second", function(){
+      feed(twoFixture()); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      asked.length = 0;
+      return T.seqAct("stop", body.querySelectorAll(".seqEditor")[0].querySelector('[data-seq="stop"]')).then(function(){
+        var d = (db.log[0] || {}).data || {};
+        eq("it asks first, saying the second becomes their only one", /Stop using the first sequence for Ana Lopez\?[\s\S]*second sequence \(Starting Blends, Blend Words · 2 lists\) becomes their only one/.test(asked[0] || ""), true);
+        eq("the second is written as `plan`, plan2 is deleted", JSON.stringify(d.plan && d.plan.steps) + "/" + d.plan2, JSON.stringify(plan2Doc().steps) + "/DEL");
+        eq("…at where they were in it", d.plan && d.plan.at, 1);
+        eq("the page now has one sequence: the old second", T.plansFor("u1").length + "/" + T.planFor("u1").steps[0].ids[0], "1/" + TB1);
+        eq("…and says so", body.querySelector("#seqFlash").textContent, "Stopped. They have one sequence now.");
+      });
+    });
+    guardAsync("stopping the second", function(){
+      feed(twoFixture()); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      asked.length = 0;
+      return T.seqAct("stop", body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="stop"]')).then(function(){
+        var d = (db.log[0] || {}).data || {};
+        eq("it asks, saying the first stays", /Stop using the second sequence for Ana Lopez\?[\s\S]*Their first sequence stays as it is\./.test(asked[0] || ""), true);
+        eq("plan2 is deleted and plan is not written", d.plan2 + "/" + ("plan" in d), "DEL/false");
+        eq("the page keeps the first", T.plansFor("u1").length + "/" + T.planFor("u1").setAt, "1/" + SETAT);
+      });
+    });
+    guardAsync("the dialog: Add as a second sequence", function(){
+      body.hidden = false;
+      var snd = T.readyMadeSteps("sounding");
+      feed({ students: [kid("u1", "Ana"), kid("u3", "Cy"), kid("u5", "Ed")],
+             assignments: { u3: merge({ plan: planDoc() }, stamp),
+                            u5: merge({ plan: { steps: snd, bar: 0.9, at: 0, hold: false, setAt: 9 } }, stamp) } });
+      var db = fakeDb(); T.setDb(db);
+      T.renderRoster();
+      var all = body.querySelector("#stSelAll"); all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
+      body.querySelector("#stGive").click();
+      var src = document.getElementById("giveSrc"); src.value = "rm:sounding"; src.dispatchEvent(new Event("change", { bubbles: true }));
+      eq("the dialog offers the two choices, Replace first and chosen",
+         Array.prototype.map.call(document.querySelectorAll('input[name="giveMode"]'), function(r){ return r.parentNode.textContent.trim() + (r.checked ? "*" : ""); }).join(" | "),
+         "Replace what they have* | Add as a second sequence");
+      eq("replacing: the warning counts who has something", document.getElementById("giveReplace").textContent, "2 of these 3 students already have games or a sequence. This replaces them.");
+      var add = document.querySelector('input[name="giveMode"][value="add"]'); add.checked = true; add.dispatchEvent(new Event("change", { bubbles: true }));
+      eq("adding: the warning says who is skipped instead", document.getElementById("giveReplace").textContent, "1 is skipped: every list in it is already in their first sequence.");
+      asked.length = 0;
+      document.getElementById("giveGo").click();
+      return ticks(40).then(function(){
+        eq("it asks first, as a second sequence", /^Give Sounding it out to 3 students as a second sequence\?/.test(asked[0] || ""), true);
+        eq("one batch, the skipped student not in it", db.ops + "/" + db.log.map(function(w){ return w.id; }).join(","), "1/u1,u3");
+        eq("…Ana (nothing) gets a first, Cy gets a second", db.log.map(function(w){ return "plan2" in w.data ? "second" : "first"; }).join(","), "first,second");
+        eq("the page says how many were given and skipped", body.querySelector("#stNote").textContent, "Gave a sequence to 2 students. Skipped 1: every list in it is already in their first sequence.");
+        eq("Cy's row now shows two sequences", body.querySelectorAll('tr[data-uid="u3"] .stNow .stPart').length, 2);
+      });
+    });
     guardAsync("Save this sequence writes one merge onto the class document", function(){
       feed(withSaved()); var db = fakeDb(); T.setDb(db);
       T.open("u1"); T.renderDetail();
@@ -5194,10 +5668,10 @@
         S5._feed({ assignment: { plan: PLAN }, stats: done1 }); S5.settle();
         eq("a teacher normally has no plan() and writes no mark", ST5.plan() === null && S5.dirtySeq() === false, true);
         S5._feed({ asTest: true, assignment: { plan: PLAN }, stats: {} }); S5.settle();
-        eq("a test student has a plan(): step 1 of 2", ST5.plan().index + "/" + ST5.plan().count, "0/2");
+        eq("a test student has a plan(): step 1 of 2", ST5.plan().sequences[0].index + "/" + ST5.plan().sequences[0].count, "0/2");
         eq("…and myLists is step 1's lists", ST5.myLists().join(","), "red-1-say,red-1-cards");
         S5._feed({ asTest: true, assignment: { plan: PLAN }, stats: done1 }); S5.settle();
-        eq("finishing step 1 moves a test student to step 2", ST5.plan().index, 1);
+        eq("finishing step 1 moves a test student to step 2", ST5.plan().sequences[0].index, 1);
         eq("…and the mark is queued to be saved, as for any student", S5.dirtySeq(), true);
         eq("…in the payload for the teacher's own students/ doc", S5.payload().seq && S5.payload().seq.at, 1);
       });
@@ -5252,9 +5726,9 @@
     guardS("resetBody clears the practice and nothing else", function(){
       var w = T.resetBody(MEUID);
       eq("it is the teacher's own students/ doc", w.col + "/" + w.id, "students/" + MEUID);
-      eq("…and exactly the practice fields", Object.keys(w.data).sort().join(","), "fluency,heard,lastSeen,recent,seq,totals,words");
-      eq("…words, heard, fluency and the place in a sequence are deleted (all the same marker)",
-         [w.data.heard, w.data.fluency, w.data.seq].every(function(v){ return v === w.data.words; }) && typeof w.data.words === "string", true);
+      eq("…and exactly the practice fields", Object.keys(w.data).sort().join(","), "fluency,heard,lastSeen,recent,seq,seq2,totals,words");
+      eq("…words, heard, fluency and the place in each sequence are deleted (all the same marker)",
+         [w.data.heard, w.data.fluency, w.data.seq, w.data.seq2].every(function(v){ return v === w.data.words; }) && typeof w.data.words === "string", true);
       eq("…totals, recent and last seen are zeroed", JSON.stringify([w.data.totals, w.data.recent, w.data.lastSeen]), '[{"n":0,"r":0},[],0]');
     });
 
@@ -5634,7 +6108,7 @@
         eq("it asked first", /Remove the test student/.test(asked[0] || ""), true);
         eq("the writes, in order: reset, then delete the assignment — no note", db.log.map(function(x){ return x.kind + " " + x.col + "/" + x.id; }).join(", "),
            "set students/" + MEUID + ", delete assignments/" + MEUID);
-        eq("the reset is the same body Reset sends", JSON.stringify(db.log[0].data), JSON.stringify({ words: "DEL", heard: "DEL", fluency: "DEL", seq: "DEL", totals: { n:0, r:0 }, recent: [], lastSeen: 0 }));
+        eq("the reset is the same body Reset sends", JSON.stringify(db.log[0].data), JSON.stringify({ words: "DEL", heard: "DEL", fluency: "DEL", seq: "DEL", seq2: "DEL", totals: { n:0, r:0 }, recent: [], lastSeen: 0 }));
         eq("the assignment is gone from the database", db.data.assignments[MEUID], undefined);
         eq("the real student's assignment is untouched", !!db.data.assignments.u1, true);
         eq("the page has no test student", T.getTestStudent(), null);
