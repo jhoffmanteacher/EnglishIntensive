@@ -82,13 +82,6 @@ window.Adaptive = (function(){
   var ERROR_KINDS = ["blend","sound","vowel","consonant","missing","extra","other"];
   var MAX_KIND = 999;
 
-  /* How much of a list has to be solid before it counts as done — for
-     the dashboard's "ready to move up" suggestion. Not 100 %: a list is
-     finished when a student can read it, and there is always one word
-     that isn't the point. It lives beside listShare, which measures
-     against it. */
-  var SOLID_ENOUGH = 0.8;
-
   var SLOW_MS     = 2500;
   var SLOW_BOOST  = 1.5;
   var LAT_ALPHA   = 0.4;    // weight of the newest time in the running average
@@ -468,10 +461,9 @@ window.Adaptive = (function(){
   }
 
   /* ── how far through a list ────────────────────────────────────────
-     The share of a list's words that are solid AND at pace. It is what
-     the dashboard's "Ready to move up" measures against SOLID_ENOUGH, so
-     the bar and the number printed beside a suggestion are the same
-     number.
+     The share of a list's words that are solid AND at pace: the count
+     behind a sequence's bar (listSolid), as a fraction, for the dashboard
+     to say how far through a list a student is.
 
      `totalOf(listId)` is injected because this file knows nothing about
      the word library. Without it the share is 0, which is the safe way to
@@ -614,8 +606,8 @@ window.Adaptive = (function(){
     return { index: i, finished: i >= n, hold: false };
   }
 
-  /* ── what should change ────────────────────────────────────────────
-     One line per student, or none. A dashboard that shows everything
+  /* ── the flag line ─────────────────────────────────────────────────
+     One line per student, or none, under their name on the Students page. A dashboard that shows everything
      shows nothing: a teacher with thirty students and four numbers each
      has a hundred and twenty numbers and no next action, which is the
      state this site was in. So: at most one sentence per student, the
@@ -629,12 +621,21 @@ window.Adaptive = (function(){
          lists: [{ id, title, mode, family, attempts, share, accuracy,
                    hasSay, hasMatch, sayId, cardsId, cardsShare }],
          lastRound,        // epoch ms of their last finished round
-         now
+         now,
+         plan              // only for a student in a sequence:
+                           //   { finished, movedAt }  (movedAt: ms, or 0)
        })
        -> { rule, text, listId, addId } | null
 
-     `addId` is the list the one-click apply would add, where there is
-     one; a line about a student who has finished everything or stopped
+     A student in a sequence is judged on the list they are on now — the
+     caller passes only that step's ways of playing as `lists` — and the
+     third rule changes with them: "coasting" (everything on a plain set
+     is solid) becomes "finished every list" (the whole sequence is done),
+     and fires only then; a student half way through a sequence is not
+     coasting. A fifth, positive rule says when they last moved on.
+
+     `addId` is the list a one-click fix would add, where there is one; a
+     line about a student who has finished everything or stopped
      practising has nothing to add and says so by leaving it out. */
   var STUCK_ATTEMPTS = 30;
   var STUCK_SHARE    = 0.4;
@@ -642,6 +643,8 @@ window.Adaptive = (function(){
   var CARDS_READY    = 0.6;
   var COASTING       = 0.9;
   var QUIET_DAYS     = 7;      // school days, not calendar days
+  var MOVED_DAYS    = 7;      // calendar days: how long "moved to a new list" is news
+  var WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   // Monday to Friday between two moments. A student who last practised
   // on a Friday has not "gone quiet" by Monday, and a rule that counted
@@ -702,9 +705,16 @@ window.Adaptive = (function(){
               Math.round(m.cardsShare * 100) + "% solid. Cards first." };
     }
 
-    /* 3. Coasting. Everything they have is finished, and nothing new
-          arrives unless the teacher adds it. */
-    if(lists.length){
+    /* 3. Finished everything. Nothing new arrives unless the teacher adds
+          it. For a plain set that is "coasting": everything they have is
+          solid. For a sequence it is the end of the sequence — and only
+          that: a student part way through is not coasting, they are on
+          the list they are meant to be on. */
+    if(info.plan){
+      if(info.plan.finished){
+        return { rule: "finished", text: "Finished every list. Add the next ones." };
+      }
+    } else if(lists.length){
       var allSolid = lists.every(function(x){ return x.share >= COASTING; });
       if(allSolid){
         return { rule: "coasting",
@@ -719,6 +729,16 @@ window.Adaptive = (function(){
     if(info.lastRound && schoolDaysBetween(info.lastRound, now) > QUIET_DAYS){
       return { rule: "quiet",
         text: "Hasn't practised in " + schoolDaysBetween(info.lastRound, now) + " school days." };
+    }
+
+    /* 5. Moved up. The one good-news line: a student who finished a list
+          in the last week and is on the next. Last, because it is the
+          least in need of a teacher — and gone after a week, so it never
+          becomes wallpaper. */
+    var moved = info.plan ? num(info.plan.movedAt, 0) : 0;
+    if(moved && now >= moved && now - moved < MOVED_DAYS * DAY){
+      return { rule: "moved",
+        text: "Moved to a new list on " + WEEKDAYS[new Date(moved).getDay()] + "." };
     }
     return null;
   }
@@ -766,7 +786,6 @@ window.Adaptive = (function(){
     rawAccuracy: rawAccuracy,
     isMastered: isMastered,
     isSlow: isSlow,
-    solidEnough: SOLID_ENOUGH,
     listShare: listShare,
     listSolid: listSolid,
     defaultBar: DEFAULT_BAR,
@@ -789,7 +808,6 @@ window.Adaptive = (function(){
       REST_FLOOR: REST_FLOOR, MASTERED_DAMP: MASTERED_DAMP,
       MASTERED_ACC: MASTERED_ACC, DAY: DAY,
       SLOW_MS: SLOW_MS, SLOW_BOOST: SLOW_BOOST, LAT_ALPHA: LAT_ALPHA, MAX_LAT_MS: MAX_LAT_MS,
-      SOLID_ENOUGH: SOLID_ENOUGH,
       STUCK_ATTEMPTS: STUCK_ATTEMPTS, STUCK_SHARE: STUCK_SHARE,
       MATCH_ACC: MATCH_ACC, CARDS_READY: CARDS_READY,
       COASTING: COASTING, QUIET_DAYS: QUIET_DAYS

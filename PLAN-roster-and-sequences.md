@@ -5,6 +5,12 @@
 > removed: a student now sees only the lists the teacher assigned them.
 > See *Reversed* in `TODO.md` and the Teacher dashboard section of the
 > README. This file is kept as the record of what was planned.
+>
+> **Phase 5 (sequences per period, on `config/class`) was replaced on
+> 2026-11-24** by sequences per *student* (a `plan` on the student's
+> assignment, worked out in their own browser) and a Students page that shows
+> where everyone is; the Assign board and *Ready to move up* this plan
+> mentions are gone. See the README, *Sequences* and *The class page*.
 
 Status: **approved 2026-09-04 for unattended execution**, as a follow-on to
 `PLAN-reading-feedback.md`. Written for an opusplan session; nobody is

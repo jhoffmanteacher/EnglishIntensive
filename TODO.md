@@ -39,10 +39,6 @@ Two things worth watching once it has had one:
 - **`red-words-game.html` / `red-words-match-game.html` redirects.** Six
   lines each, kept so bookmarks and anything written on paper keep working.
   Delete them once a school year has gone by and nothing links there.
-- **The board on a phone.** It works (the name column is narrowed at 640px
-  and the grid scrolls), but 15 columns on a handset is a lot of scrolling.
-  The family fold (▾) is the existing escape hatch. Only worth more if
-  someone actually assigns lists from a phone.
 
 ---
 
@@ -70,14 +66,33 @@ Two things worth watching once it has had one:
   contraction and its expansion to the same string. Ten new ids
   (`red-N-say`) on the generic `say-game.html`.
 
+- **Sequences came back, per student — and the Assign board went**
+  (2026-11-24). The 2026-10-08 note above said auto-advancing should return
+  as "a per-student setting, not a period one"; this is that. A teacher gives
+  a student their lists **in order** (`plan` on `assignments/{uid}` or the
+  roster row) and the student's own browser moves them on at a bar the
+  teacher sets per student (90 % by default), with a high-water mark
+  (`students/{uid}.seq`) so replaying a list cannot put them back. Four
+  things this reverses: the rule that the dashboard "does not act on its own"
+  and that the arithmetic runs on the teacher's page (the site now moves a
+  student on itself, in the student's browser; a student still cannot write
+  `assignments/`); the bar of four words in five (`SOLID_ENOUGH`, now gone);
+  the *additive* suggestion (a finished list now leaves the main home page for
+  a closed fold, still playable); and "each student has one set of lists, and
+  that set is fixed" (it now moves with their progress). The **Assign board**
+  and **Ready to move up** were removed in the same change: with lists given in
+  order, "who is ready for List 4?" answers itself and "what does each student
+  have?" is a row on the Students page, so the grid, its bulk dialog and the
+  suggestion strip had nothing left to do. Their two notes here ("the board on
+  a phone", "one column per list, not per mode") went with them. Giving the
+  same order to several students at once is *Give a sequence to N selected…*
+  on the Students page. See the README, *Sequences* and *The class page*.
+
 ## Decided during the retire-modes build
 
 - **No default-modes shortcut exists**, so nothing needed changing for red
   words to prefer Say it + Cards. Sequences and period defaults were removed
   on 2026-10-08.
-- **The Assign board has one column per list, not per mode**, so the
-  "column header tooltip" for Red Words · Match It sits on the mode in the
-  cell popover and the picker header (`hints` on the family).
 - **"Everything" ignores retired ids.** A student with every offered id
   still reads as "everything" in descriptions.
 - **A teacher can open a retired game page** even though their preview home

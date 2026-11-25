@@ -2145,37 +2145,14 @@
       eq("…and so is one whose class this page can't see", T2.studentClass("u1"), null);
     })();
 
-    // Board edits for a pending student go to the roster, not assignments.
-    (function(){
-      var c = aClass();
-      c.roster = { "3@seq.org": { email:"3@seq.org", name:"Kai Moore", period:"5" } };
-      feed(c);
-      T2.setScope("s:roster:3@seq.org", ["nonsense"]);
-      T2.setScope("s:u2", ["initial-blends"]);
-      var b = T2.saveBody(["s:roster:3@seq.org", "s:u2"], 500);
-      eq("the pending student is written to the roster",
-         Object.keys(b.roster).join(","), "3@seq.org");
-      eq("…with their lists", b.roster["3@seq.org"].lists.join(","), "nonsense");
-      eq("the signed-in one is written to assignments", Object.keys(b.students).join(","), "u2");
-      eq("…and never to both",
-         Object.prototype.hasOwnProperty.call(b.students, "roster:3@seq.org"), false);
-    })();
-
     /* A student set up while pending who has since signed in: their
-       roster row's lists are what they have, editing writes an assignment
-       (which outranks the row from then on), and the row is left alone. */
+       roster row's lists are what they have until an assignment outranks it. */
     (function(){
       var c = aClass();
       c.roster = { "2@seq.org": { email:"2@seq.org", name:"Sam Lee", period:"4", lists:["nonsense"] } };
       feed(c);
-      eq("their roster lists are what the board shows", T2.liveStudent("u2").join(","), "nonsense");
-      eq("…and nothing is pending until somebody edits", T2.dirtyScopes().length, 0);
-      T2.setScope("s:u2", ["initial-blends"]);
-      var b3 = T2.saveBody(["s:u2"], 500);
-      eq("an edit writes their assignment", b3.students.u2.lists.join(","), "initial-blends");
-      eq("…and doesn't touch the roster row", Object.keys(b3.roster).length, 0);
-      T2.setScope("s:u2", ["nonsense"]);
-      eq("putting it back the way it was is not a change", T2.dirtyScopes().length, 0);
+      eq("their roster lists are what they have", T2.effectiveLists("u2").ids.join(","), "nonsense");
+      eq("…and it says they came from the roster row", T2.effectiveLists("u2").from, "roster");
     })();
   })();
 
@@ -2213,9 +2190,7 @@
       eq("the dashboard's share is the scheduler's share",
          T2.listProgress(stats, "red-1-cards").share,
          A2.listShare(stats, "red-1-cards", function(id){ return W.wordsOf(id).length; }));
-      eq("…and it is exactly at the bar", T2.listProgress(stats, "red-1-cards").share, A2.solidEnough);
-      eq("the dashboard uses the scheduler's threshold, not its own",
-         T2.SOLID_ENOUGH, A2.solidEnough);
+      eq("a stale id counts as no evidence, not as finished", T2.listProgress({}, "gone-away").share, 0);
     })();
   })();
 
@@ -2313,6 +2288,30 @@
       var later = info([match()], { lastRound: NOW - 30 * 86400000 });
       eq("ordering outranks quiet", A2.nextSteps(later).rule, "order");
       eq("one line, never two", typeof A2.nextSteps(both).text, "string");
+    /* ---- a student in a sequence: judged on the list they are on ---- */
+    (function(){
+      var NS = window.Adaptive.nextSteps, DAYMS = 86400000, NOWT = 1795563000000;
+      function planInfo(plan, extra){
+        var info = { lists: [], lastRound: NOWT - DAYMS, now: NOWT, plan: plan };
+        for(var k in (extra || {})) info[k] = extra[k];
+        return info;
+      }
+      eq("a sequence that is finished says so", NS(planInfo({ finished: true, movedAt: 0 })).text, "Finished every list. Add the next ones.");
+      eq("…as its own rule, not coasting", NS(planInfo({ finished: true, movedAt: 0 })).rule, "finished");
+      eq("a student part way through is not coasting, even when the list they are on is solid",
+         NS(planInfo({ finished: false, movedAt: 0 }, { lists: [{ id: "a", mode: "cards", attempts: 40, share: 1, accuracy: 1 }] })), null);
+      eq("a plain set that is solid is still coasting", NS({ lists: [{ id: "a", mode: "cards", attempts: 40, share: 1, accuracy: 1 }], lastRound: NOWT - DAYMS, now: NOWT }).rule, "coasting");
+      eq("a student who moved on two days ago gets the good-news line",
+         /^Moved to a new list on (Sun|Mon|Tues|Wednes|Thurs|Fri|Satur)day\.$/.test((NS(planInfo({ finished: false, movedAt: NOWT - 2 * DAYMS })) || {}).text), true);
+      eq("…as its own rule", NS(planInfo({ finished: false, movedAt: NOWT - 2 * DAYMS })).rule, "moved");
+      eq("…naming the weekday they moved", NS(planInfo({ finished: false, movedAt: new Date(2026, 10, 24, 9).getTime() }, { now: new Date(2026, 10, 25, 9).getTime() })).text, "Moved to a new list on Tuesday.");
+      eq("a move more than a week ago is no news", NS(planInfo({ finished: false, movedAt: NOWT - 8 * DAYMS })), null);
+      eq("a move that has not happened yet is ignored", NS(planInfo({ finished: false, movedAt: NOWT + DAYMS })), null);
+      eq("stuck outranks it", NS(planInfo({ finished: false, movedAt: NOWT - DAYMS },
+         { lists: [{ id: "a", title: "Red Words · List 3", mode: "cards", attempts: 40, share: 0.1, accuracy: 0.2, hasSay: true, sayId: "s" }] })).rule, "stuck");
+      eq("quiet outranks it", NS(planInfo({ finished: false, movedAt: NOWT - 6 * DAYMS }, { lastRound: NOWT - 20 * DAYMS })).rule, "quiet");
+      eq("a student with no mark and no news says nothing", NS(planInfo({ finished: false, movedAt: 0 })), null);
+    })();
     })();
 
     // school days
@@ -2694,18 +2693,17 @@
   })();
 
   /* ══════════════════════════════════════════════════════════════════
-     teacher.js — the Assign board
+     teacher.js — what a student has, and the picker
 
-     The board writes to a whole class at once, so its rules are the ones
-     that would do real damage if they were wrong: what a student has,
-     what a bulk change does, how far an "all" toggle reaches, and the
-     shape of the documents Save writes.
+     effectiveLists is the dashboard's copy of the rule store.js applies,
+     and the picker is the one component that chooses a set of lists (for a
+     student with no sequence). A retired mode a student already holds stays
+     shown, ticked and theirs, and is never offered fresh.
      ══════════════════════════════════════════════════════════════════ */
   (function(){
     var T = window.EITeacher._internals;
     var W = WordLists;
 
-    // Two periods, four students, one of each interesting kind.
     function aClass(){
       return {
         students: [
@@ -2729,166 +2727,6 @@
     eq("a student's own lists are what they have", T.effectiveLists("u2").ids.join(","), "red-1-cards");
     eq("being in a period gives a student nothing", T.effectiveLists("u1").ids.length, 0);
     eq("…nor does being in no period", T.effectiveLists("u4").ids.length, 0);
-    eq("the board shows the same", T.scopeView("s:u1").length, 0);
-    eq("the line under a name with nothing says so", T.countLabel("u1"), "nothing yet");
-    eq("…and counts when there is something", T.countLabel("u2"), "1 game");
-
-    // ---- cells ----
-    var cols = T.boardColumns();
-    function colFor(fam, n){
-      for(var i=0;i<cols.length;i++) if(cols[i].fam.key === fam && cols[i].n === n) return cols[i];
-      return null;
-    }
-    eq("one column per list, families side by side", cols.length, 15);
-    eq("a cell shows the icons of the modes that are on", T.cellText("s:u2", colFor("red", 1)), "🃏");
-    eq("a cell with nothing on it is a dash", T.cellText("s:u1", colFor("red", 4)), "—");
-
-    // ---- editing ----
-    T.feed(aClass());
-    eq("nothing is dirty on a fresh board", T.dirtyScopes().length, 0);
-    T.setScope("s:u1", ["red-4-cards"]);
-    eq("an edit is one pending change", T.dirtyScopes().join(","), "s:u1");
-    eq("…the board shows it before it's saved", T.scopeView("s:u1").join(","), "red-4-cards");
-    eq("…and nobody else moves", T.scopeView("s:u2").join(","), "red-1-cards");
-    T.setScope("s:u1", []);
-    eq("taking it away again leaves nothing to save", T.dirtyScopes().length, 0);
-    T.setScope("s:u2", ["red-1-cards"]);
-    eq("re-ticking a box back to where it was leaves nothing to save", T.dirtyScopes().length, 0);
-    T.setScope("s:u2", ["red-1-cards","red-1-match"]);
-    eq("…but a real edit does", T.dirtyScopes().join(","), "s:u2");
-
-    // ---- changing many at once ----
-    eq("add puts the new lists after what they had",
-       T.bulkApply(["a","b"], ["c"], "add").join(","), "a,b,c");
-    eq("…and never twice", T.bulkApply(["a","b"], ["b","c"], "add").join(","), "a,b,c");
-    eq("take away removes only what was ticked", T.bulkApply(["a","b","c"], ["b","z"], "remove").join(","), "a,c");
-    eq("replace is exactly what was ticked", T.bulkApply(["a","b"], ["c"], "replace").join(","), "c");
-    eq("adding to nothing works", T.bulkApply([], ["c"], "add").join(","), "c");
-    eq("the list it was given is left alone",
-       (function(){ var cur = ["a"]; T.bulkApply(cur, ["b"], "add"); return cur.join(","); })(), "a");
-
-    // ---- the filter, and how far "all" reaches ----
-    T.feed(aClass());
-    eq("no filter shows the whole class", T.visibleStudents().length, 4);
-    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: "3" });
-    eq("a period filter narrows it", T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u1,u2");
-    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: T.NO_CLASS });
-    eq("'no period yet' finds the students nobody has placed",
-       T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u4");
-    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, q: "mar" });
-    eq("the search box matches on name", T.visibleStudents().map(function(s){ return s.uid; }).join(","), "u2");
-
-    // This is the safety story for the column toggle: it can only reach
-    // the students actually on screen.
-    T.feed({ students: aClass().students, assignments: aClass().assignments, classCfg: aClass().classCfg, period: "3" });
-    T.columnToggle(colFor("red", 7));
-    eq("'all' ticks every mode of that list for the visible students",
-       T.scopeView("s:u1").indexOf("red-7-cards") !== -1 && T.scopeView("s:u1").indexOf("red-7-match") !== -1, true);
-    eq("…for all of them", T.scopeView("s:u2").indexOf("red-7-match") !== -1, true);
-    eq("…and for nobody who was filtered out", T.scopeView("s:u3").join(","), "nonsense");
-    eq("…which is two changes, not four", T.dirtyScopes().length, 2);
-    T.columnToggle(colFor("red", 7));
-    eq("pressing it again clears what it set", T.scopeView("s:u2").indexOf("red-7-cards"), -1);
-    eq("…without taking anything else with it", T.scopeView("s:u2").join(","), "red-1-cards");
-
-    // ---- the shape of the write ----
-    T.feed(aClass());
-    T.setScope("s:u1", ["nonsense"]);
-    T.setScope("s:u3", []);
-    var body = T.saveBody(T.dirtyScopes(), 1234);
-    eq("one document per changed student", Object.keys(body.students).sort().join(","), "u1,u3");
-    eq("…carrying the lists, a timestamp and the class stamp the rules check",
-       JSON.stringify(body.students.u1), '{"lists":["nonsense"],"updatedAt":1234,"classId":"c3","teachers":["t@seq.org"]}');
-    eq("…and nothing else", Object.keys(body.students.u1).sort().join(","), "classId,lists,teachers,updatedAt");
-    eq("taking everything away writes an empty list, never null", body.students.u3.lists.length, 0);
-    eq("nothing class-wide is ever written", "config" in body, false);
-
-    /* ---- the board actually draws ----
-       Everything above tests the rules with no DOM in sight. This is the
-       other half: that the markup those rules feed builds the table it
-       claims to, with a row for every student and a cell for every list.
-       A typo in 200 lines of string-built HTML is exactly the kind of
-       thing the rest of this file would sail straight past. */
-    T.feed(aClass());
-    T.renderAssign();
-    var grid = document.getElementById("abGrid");
-    eq("the board renders a grid", !!grid, true);
-    // 2 period headings + 4 students + 1 "no period" heading
-    eq("a row for each period, each student and the strays",
-       grid.querySelectorAll("tbody tr").length, 7);
-    eq("a cell for every student × every list column",
-       grid.querySelectorAll("[data-cell]").length, 4 * 15);
-    eq("two header rows: families over their lists",
-       grid.querySelectorAll("thead tr").length, 2);
-    eq("a fold button per family", grid.querySelectorAll("[data-fold]").length, 6);
-    eq("an 'all' button per column", grid.querySelectorAll("[data-col]").length, 15);
-    eq("a select-everyone box on each period heading", grid.querySelectorAll("[data-pickgroup]").length, 3);
-    eq("a key to the icons", !!document.querySelector("#tBody .abLegend"), true);
-    eq("students with nothing are counted above the grid",
-       document.querySelector("#tBody .abWarn").textContent.indexOf("2 students") === 0, true);
-    eq("…and flagged under their names",
-       grid.querySelector('[data-count="u1"]').classList.contains("none"), true);
-    eq("the save bar is out of the way until something changes",
-       document.getElementById("abBar").hidden, true);
-
-    T.setScope("s:u1", ["nonsense"]);
-    T.paintCells();
-    eq("one edit brings the save bar up", document.getElementById("abBar").hidden, false);
-    eq("…counting what is pending", document.getElementById("abCount").textContent, "1 change");
-    eq("…and repaints the row it touched, without a re-render",
-       grid.querySelector('[data-count="u1"]').textContent, "1 game");
-
-    // A period heading's box selects everyone shown under it.
-    T.feed(aClass());
-    T.renderAssign();
-    var pbox = document.querySelector('#abGrid [data-pickgroup="c3"]');
-    pbox.checked = true;
-    pbox.dispatchEvent(new Event("change", { bubbles: true }));
-    eq("ticking a period selects its students",
-       Object.keys(T.board.sel).filter(function(u){ return T.board.sel[u]; }).sort().join(","), "u1,u2");
-    eq("…and the bulk button counts them",
-       document.getElementById("abBulk").textContent.indexOf("2 selected") !== -1, true);
-
-    // Folding a family swaps its ten columns for one summary.
-    T.feed(aClass());
-    T.board.collapsed.red = true;
-    T.renderAssign();
-    grid = document.getElementById("abGrid");
-    eq("folding the red words costs nine columns", grid.querySelectorAll("[data-col]").length, 6);
-    eq("…and the folded column summarises instead of ticking",
-       grid.querySelector('[data-cell="s:u2|5"]').textContent, "1 🃏");
-    T.board.collapsed.red = false;
-
-    /* ---- what a cell says out loud ----
-       On screen a cell is two emoji or an em dash. That is fine for the
-       eye and useless to a screen reader, so every cell also carries the
-       same answer in words. */
-    T.feed(aClass());
-    T.renderAssign();
-    grid = document.getElementById("abGrid");
-    eq("a cell names the student, the list and the modes",
-       grid.querySelector('[data-cell="s:u2|5"]').getAttribute("aria-label"),
-       "Marcos, Red Words List 1: Cards");
-    eq("an empty cell says 'nothing', not an em dash",
-       grid.querySelector('[data-cell="s:u1|0"]').getAttribute("aria-label"),
-       "Ana, Starting Blends: nothing");
-    eq("a one-list family doesn't invent a list number", T.colLabel({ fam: WordLists.familyOf("nonsense") }),
-       "Nonsense Words");
-    eq("a folded family says how many lists it stands for",
-       T.colLabel({ fam: WordLists.familyOf("red"), summary: true }), "Red Words, all 10 lists");
-    eq("the spoken form and the icons come from the same answer",
-       T.cellSpoken("s:u2", { fam: WordLists.familyOf("red"), n: 1 }), "Cards");
-
-    /* ---- the filter can outlive the period it names ----
-       It is remembered in localStorage, so a new roster or a renamed
-       section would otherwise leave a board with nobody on it under a
-       select box cheerfully reading "All periods". */
-    var cls = aClass();
-    cls.period = "9";
-    T.feed(cls);
-    T.renderAssign();
-    eq("a filter naming a class this page doesn't have falls back to all",
-       T.visibleStudents().length, 4);
 
     /* ---- the picker binds its handlers once ----
        #tBody survives every render, so binding on each one stacked another
@@ -2922,7 +2760,7 @@
     host.innerHTML = T.pickerHtml(back, ["red-3-cards"], false);
     eq("a scope id with a backslash doesn't throw", T.scopeSelection(back).join(","), "red-3-cards");
 
-    /* ---- retired modes on the board and in the picker ---- */
+    /* ---- retired modes in the picker ---- */
     function boxIds(html){
       host.innerHTML = html;
       return [...host.querySelectorAll("input[data-list]")].map(function(cb){ return cb.dataset.list; });
@@ -2930,8 +2768,8 @@
     var blendsIds = function(ids){ return ids.filter(function(id){ return id.indexOf("blends-start") === 0 || id === "initial-blends"; }); };
     eq("a picker offers three modes for Starting Blends",
        blendsIds(boxIds(T.pickerHtml("p", [], false))).join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
-    eq("a bulk picker (nothing held) has no box for a retired id at all",
-       boxIds(T.pickerHtml("bulk", [], false)).filter(function(id){ return W.isRetired(id); }).length, 0);
+    eq("a picker that holds nothing has no box for a retired id at all",
+       boxIds(T.pickerHtml("p", [], false)).filter(function(id){ return W.isRetired(id); }).length, 0);
     eq("Nonsense Words still offers Blend it and One minute",
        boxIds(T.pickerHtml("p", [], false)).filter(function(id){ return id.indexOf("nonsense") === 0; }).join(","),
        "nonsense,nonsense-1-cards,nonsense-1-fluency,nonsense-1-blendit");
@@ -2955,32 +2793,11 @@
     host.querySelector('[data-pk-fam="p|blends-start|all"]').click();
     eq("'all' leaves a held retired box ticked",
        host.querySelector('input[data-list="blends-start-1-blendit"]').checked, true);
-    eq("a bulk picker can be told to draw a retired box so it can be taken away",
-       boxIds(T.pickerHtml("bulk", [], ["blends-start-1-blendit"])).indexOf("blends-start-1-blendit") !== -1, true);
-    eq("…and it starts unticked", host.querySelector('input[data-list="blends-start-1-blendit"]').checked, false);
-    eq("bulk add never hands out a retired id",
-       T.bulkApply(["initial-blends"], ["blends-start-1-blendit", "blends-start-1-match"], "add").join(","),
-       "initial-blends,blends-start-1-match");
-    eq("…nor does replace", T.bulkApply([], ["blends-start-1-blendit"], "replace").length, 0);
-    eq("replace keeps one the student already holds",
-       T.bulkApply(["blends-start-1-blendit"], ["blends-start-1-blendit"], "replace").join(","), "blends-start-1-blendit");
-    eq("bulk 'take away' removes a retired id",
-       T.bulkApply(["initial-blends", "blends-start-1-blendit"], ["blends-start-1-blendit"], "remove").join(","), "initial-blends");
 
     T.feed({ students: aClass().students,
              assignments: { u1: { lists: ["blends-start-1-blendit", "initial-blends"] }, u2: {}, u3: {}, u4: {} },
              classCfg: aClass().classCfg });
-    eq("the board still shows a held retired mode in the cell",
-       T.cellText("s:u1", colFor("blends-start", 1)), "🎤🔊");
-    eq("…the dashboard's student view still reports it", T.effectiveLists("u1").ids.indexOf("blends-start-1-blendit") !== -1, true);
-    T.columnToggle(colFor("blends-start", 1));
-    eq("a column 'all' never adds a retired id",
-       T.scopeView("s:u2").join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
-    eq("…and leaves the one a student already holds alone",
-       T.scopeView("s:u1").indexOf("blends-start-1-blendit") !== -1, true);
-    T.columnToggle(colFor("blends-start", 1));
-    eq("pressing it again clears the held retired id as well",
-       T.scopeView("s:u1").indexOf("blends-start-1-blendit"), -1);
+    eq("the dashboard's student view still reports a held retired mode", T.effectiveLists("u1").ids.indexOf("blends-start-1-blendit") !== -1, true);
 
     host.innerHTML = "";
   })();
@@ -3114,149 +2931,6 @@
     eq("whitespace is not a note", T.noteSummary("u2"), "");
     eq("no note is no marker", T.noteSummary("nobody"), "");
     eq("there is a length cap, so one paste can't fill a document", T.NOTE_MAX > 0, true);
-  })();
-
-  /* ══════════════════════════════════════════════════════════════════
-     teacher.js — ready to move up
-
-     The board works out who has finished a list and has nothing after
-     it. Getting the threshold wrong in either direction is a real cost:
-     too eager and a teacher is dismissing suggestions for students who
-     aren't ready, too strict and one stubborn word parks somebody for a
-     term. So the boundary is pinned from both sides.
-     ══════════════════════════════════════════════════════════════════ */
-  (function(){
-    var T = window.EITeacher._internals;
-    var W = WordLists;
-    var A = window.Adaptive;
-
-    // A stat map where `n` of a list's words are solid. "Solid" is the
-    // scheduler's own bar — top box AND high accuracy — so this builds
-    // real stats rather than asserting a shape isMastered might not agree
-    // with.
-    function solidStats(listId, n){
-      var stats = {};
-      W.wordsOf(listId).slice(0, n).forEach(function(w){
-        stats[A.keyFor(listId, w)] = { n: 9, r: 9, w: 0, box: A._constants.MAX_BOX, last: Date.now() };
-      });
-      return stats;
-    }
-    eq("the fixture really does produce words the scheduler calls solid",
-       A.summarize(A.statsForList(solidStats("red-1-cards", 5), "red-1-cards")).mastered, 5);
-
-    var TWENTY = W.wordsOf("red-1-cards").length;
-    eq("a red list is twenty words, which is what the shares below assume", TWENTY, 20);
-
-    // ---- the threshold, from both sides ----
-    var justUnder = Math.ceil(TWENTY * T.SOLID_ENOUGH) - 1;   // 15 of 20
-    var justOver  = Math.ceil(TWENTY * T.SOLID_ENOUGH);       // 16 of 20
-    eq("just under the bar suggests nothing",
-       T.readyToAdvance(solidStats("red-1-cards", justUnder), ["red-1-cards"]).length, 0);
-    eq("just over it suggests the next list",
-       T.readyToAdvance(solidStats("red-1-cards", justOver), ["red-1-cards"]).length, 1);
-    eq("a list nobody has touched suggests nothing",
-       T.readyToAdvance({}, ["red-1-cards"]).length, 0);
-    eq("…and one stubborn word does not park them for a term",
-       T.readyToAdvance(solidStats("red-1-cards", TWENTY - 1), ["red-1-cards"]).length, 1);
-
-    // ---- what the suggestion says ----
-    var one = T.readyToAdvance(solidStats("red-3-cards", TWENTY), ["red-3-cards"])[0];
-    eq("it names the family", one.famTitle, "Red Words");
-    eq("…the mode", one.mode, "cards");
-    eq("…where they are", one.from, 3);
-    eq("…and where to", one.toId, "red-4-cards");
-    eq("…with the evidence", one.mastered + " of " + one.total, "20 of 20");
-    eq("…which reads as it always has when nothing is slow", T.evidenceText(one), "20 of 20 solid");
-
-    /* ---- slow words: the number shown is the number the bar saw ----
-       The bar (Adaptive.listShare) counts a word only when it is solid
-       AND at pace. The strip has to print that same count, or it shows
-       a teacher "20 of 20" next to a suggestion that 16 of them earned
-       — and the overview promises them slow words never count toward
-       moving up. */
-    function slowStats(listId, n, nSlow){
-      var stats = solidStats(listId, n);
-      W.wordsOf(listId).slice(0, nSlow).forEach(function(w){
-        stats[A.keyFor(listId, w)].lat = A._constants.SLOW_MS + 1;
-      });
-      return stats;
-    }
-    var withSlow = T.readyToAdvance(slowStats("red-3-cards", TWENTY, 2), ["red-3-cards"])[0];
-    eq("mastered still counts the slow words", withSlow.mastered, 20);
-    eq("…slow is how many of those are slow", withSlow.slow, 2);
-    eq("…and fluent is what the bar was measured against", withSlow.fluent, 18);
-    eq("…which is the number the strip prints, with the slow ones beside it",
-       T.evidenceText(withSlow), "18 of 20 solid, 2 more slow");
-    eq("all twenty solid but five of them slow is under the bar: no suggestion",
-       T.readyToAdvance(slowStats("red-1-cards", TWENTY, 5), ["red-1-cards"]).length, 0);
-    eq("…and four slow is exactly on it",
-       T.readyToAdvance(slowStats("red-1-cards", TWENTY, 4), ["red-1-cards"]).length, 1);
-
-    // ---- it advances from the FURTHEST list they hold ----
-    var stats = {};
-    [1,2,3].forEach(function(n){
-      var s = solidStats("red-" + n + "-cards", TWENTY);
-      for(var k in s) stats[k] = s[k];
-    });
-    var many = T.readyToAdvance(stats, ["red-1-cards","red-2-cards","red-3-cards"]);
-    eq("three finished lists is still one suggestion, not three", many.length, 1);
-    eq("…and it advances from the furthest one", many[0].toId, "red-4-cards");
-
-    // Finishing an early list while still working on a later one is not
-    // progress to act on — they are already where they should be.
-    var early = solidStats("red-1-cards", TWENTY);
-    eq("solid on List 1 but still working List 3 suggests nothing",
-       T.readyToAdvance(early, ["red-1-cards","red-3-cards"]).length, 0);
-
-    // ---- modes advance independently ----
-    var cardsOnly = solidStats("red-1-cards", TWENTY);
-    var both = T.readyToAdvance(cardsOnly, ["red-1-cards","red-1-match"]);
-    eq("finishing the cards doesn't move the Match It along", both.length, 1);
-    eq("…it moves the cards along", both[0].mode, "cards");
-
-    // ---- nothing to advance to ----
-    eq("a family with one list has nowhere to go",
-       T.readyToAdvance(solidStats("initial-blends", 28), ["initial-blends"]).length, 0);
-    eq("the last list in a family has nothing after it",
-       T.readyToAdvance(solidStats("red-10-cards", TWENTY), ["red-10-cards"]).length, 0);
-    eq("a list they already have next is not suggested again",
-       T.readyToAdvance(solidStats("red-1-cards", TWENTY), ["red-1-cards","red-2-cards"]).length, 0);
-    eq("no lists at all, no suggestions", T.readyToAdvance(solidStats("red-1-cards", TWENTY), []).length, 0);
-    eq("null lists are tolerated", T.readyToAdvance({}, null).length, 0);
-
-    // ---- listProgress on an id the registry has forgotten ----
-    eq("a stale id counts as no evidence, not as finished",
-       T.listProgress({}, "gone-away").share, 0);
-
-    /* ---- on the board ----
-       The panel reads through the same draft everything else does, so
-       adding a suggestion makes it stop being true. */
-    function classWith(uid, stats, lists){
-      var st = { students: [], assignments: {}, classCfg: { periods:["3"] } };
-      st.students.push({ uid:uid, name:"Ana", email:"ana@seq.org", stats:stats,
-                         totals:{n:0,r:0}, recent:[], lastSeen:0 });
-      st.assignments[uid] = { period:"3", lists: lists };
-      return st;
-    }
-    T.feed(classWith("u1", solidStats("red-1-cards", TWENTY), ["red-1-cards"]));
-    eq("the board finds the student who is ready", T.boardSuggestions().length, 1);
-    eq("…and says who", T.boardSuggestions()[0].name, "Ana");
-    T.setScope("s:u1", ["red-1-cards","red-2-cards"]);
-    eq("giving them the next list retires the suggestion", T.boardSuggestions().length, 0);
-    eq("…as an unsaved change like any other", T.dirtyScopes().join(","), "s:u1");
-
-    // The period filter bounds it, the same as the column toggles.
-    var two = classWith("u1", solidStats("red-1-cards", TWENTY), ["red-1-cards"]);
-    two.students.push({ uid:"u2", name:"Bo", email:"bo@seq.org",
-                        stats: solidStats("red-1-match", TWENTY), totals:{n:0,r:0}, recent:[], lastSeen:0 });
-    two.assignments.u2 = { period:"5", lists:["red-1-match"] };
-    two.classCfg.periods = ["3","5"];
-    T.feed(two);
-    eq("both students show when nothing is filtered", T.boardSuggestions().length, 2);
-    two.period = "3";
-    T.feed(two);
-    eq("a period filter bounds the suggestions too", T.boardSuggestions().length, 1);
-    eq("…to the students on screen", T.boardSuggestions()[0].name, "Ana");
   })();
 
   /* ══════════════════════════════════════════════════════════════════
@@ -3798,10 +3472,10 @@
     T.feed(aClass({ period: "3" }));
     eq("a class filter narrows the page", uids(T.classStudents()), "u1,u2");
     T.feed(aClass({ period: "7" }));
-    eq("a class nobody is in falls back to All", T.boardClass(), "");
+    eq("a class nobody is in falls back to All", T.classFilter(), "");
     eq("…so the class is all there, not a blank page", T.classStudents().length, 4);
     T.feed(aClass({ period: "gone" }));
-    eq("a remembered class that no longer exists falls back too", T.boardClass(), "");
+    eq("a remembered class that no longer exists falls back too", T.classFilter(), "");
     T.feed(aClass({ period: T.NO_CLASS }));
     eq("No class finds the student in no class", uids(T.classStudents()), "u4");
     var all = aClass().students;
@@ -3826,8 +3500,8 @@
     var sc = T.summaryCounts(T.classStudents(), NOW);
     eq("Students counts the class in the filter", sc.students, 4);
     eq("Practiced this week counts a word attempted in the last 7 days", sc.week, 1);
-    eq("No games yet counts empty home pages", sc.none, 2);
-    eq("Have shaky words counts students with any shaky word", sc.shaky, 1);
+    eq("No lists yet counts empty home pages", sc.none, 2);
+    eq("…and nobody moved to a new list, since nobody is in a sequence", sc.moved, 0);
     T.feed(aClass({ period: "5" }));
     eq("…and every card follows the filter", T.summaryCounts(T.classStudents(), NOW).students, 1);
 
@@ -3839,7 +3513,6 @@
     arc.roster = { "9@seq.org": { email:"9@seq.org", name:"Nine", period:"3" } };
     T.feed(arc);
     eq("an archived student is gone from the class", uids(T.classStudents()), "u1,u3,u4");
-    eq("…and from the board", T.visibleStudents().map(function(s){ return s.uid; }).indexOf("u2"), -1);
     eq("…a pending one archived by roster key too", T.classStudents().filter(function(s){ return s.pending; }).length, 0);
     eq("false means not archived (that is how unarchive is written)",
        T.isArchived({ uid:"u3", email:"u3@seq.org" }, ARCH), false);
@@ -4628,21 +4301,6 @@
       eq("the End key goes to the last tab", body.querySelector("#stab-notes").getAttribute("aria-selected"), "true");
     });
 
-    guard("the Assign board while sequences are on their own page", function(){
-      feed(fixture());
-      T.renderAssign();
-      eq("the board leaves a sequence student out", body.querySelectorAll("tr.abStudent").length, 2);
-      eq("…and says how many, and where to go", body.querySelector(".seqBoardNote").textContent,
-         "1 student is in a sequence. Change their lists on their own page.");
-      eq("…and counts them", T.sequenceStudentsShown(), 1);
-      feed({ students: [kid("u1", "Ana"), kid("u2", "Ben")], assignments: { u1: merge({ plan: planDoc() }, stamp), u2: merge({ plan: planDoc() }, stamp) } });
-      T.renderAssign();
-      eq("two sequence students are counted in the plural", body.querySelector(".seqBoardNote").textContent,
-         "2 students are in a sequence. Change their lists on their own page.");
-      feed({ students: [kid("u2", "Ben")], assignments: { u2: merge({ lists: ["red-1-say"] }, stamp) } });
-      T.renderAssign();
-      eq("with nobody in a sequence there is no line", body.querySelector(".seqBoardNote"), null);
-    });
     guard("the keyboard", function(){
       // The test page keeps #tBody hidden, and a hidden element cannot take focus.
       body.hidden = false;
@@ -4654,6 +4312,13 @@
       eq("Enter on a row opens that student", !!body.querySelector(".stuLayout"), true);
       eq("…and focus lands on the student, not on nothing", document.activeElement && document.activeElement.id, "stuHead");
 
+      T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
+      // Back from a student returns focus to their row.
+      T.reset(); feed(fixture()); T.renderRoster();
+      var row0 = body.querySelector('tr.clickable[data-uid="u2"]');
+      row0.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      body.querySelector("#tBack").click();
+      eq("Back from a student puts focus on the row they came from", document.activeElement.getAttribute("data-uid"), "u2");
       T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
       var picks = body.querySelectorAll(".stuPick");
       eq("the student list is one tab stop: only the open student can be tabbed to",
@@ -4706,25 +4371,13 @@
       eq("nothing anywhere is no plan on either side", both(null, null), "null|null");
     });
 
-    guard("the Students panel and the board leave sequence students alone", function(){
-      // A student stuck on a Cards list: thirty-plus answers, nowhere near solid.
-      var stuck = {};
-      for(var i=0;i<10;i++) stuck["red-1-cards|w" + i] = A4.sanitizeStat({ n:6, r:1, w:5, box:0, last:1 });
-      feed({ students: [kid("u1", "Ana", { stats: stuck }), kid("u2", "Ben", { stats: stuck })],
-             assignments: { u1: merge({ plan: planDoc(), lists: ["red-1-say", "red-1-cards"] }, stamp),
-                            u2: merge({ lists: ["red-1-cards"] }, stamp) } });
-      var rows = T.nextStepRows();
-      eq("a student not in a sequence is still offered a suggestion", rows.some(function(r){ return r.uid === "u2"; }), true);
-      eq("a student in a sequence is not (it would write `lists`, which a plan ignores)", rows.some(function(r){ return r.uid === "u1"; }), false);
-    });
-
     guard("leaving by the sidebar, and the tab memory", function(){
       body.hidden = false;   // focus needs a visible page
       feed(fixture());
       T.open("u1"); T.renderDetail();
       body.querySelector('[data-seq="bar-"]').click();
       asked.length = 0; answer = false;
-      T.switchView("assign");
+      T.switchView("trouble");
       eq("a sidebar item with a draft asks first", asked.length, 1);
       eq("…and a no stays on the student", !!body.querySelector(".stuLayout"), true);
       eq("…with the draft intact", T.seqDirty(), true);
@@ -4758,6 +4411,174 @@
       body.hidden = true;
     });
 
+    guard("what a row says", function(){
+      feed(fixture());
+      var a = T.rowFacts(T.studentByUid("u1")), b = T.rowFacts(T.studentByUid("u2")), c = T.rowFacts(T.studentByUid("u3"));
+      eq("a student in a sequence shows the list they are on", a.kind + "/" + a.title, "seq/Red Words · List 2");
+      eq("…the way furthest from finished, named (Cards has 0 of 20, Say it has 14)", a.count, "0 of 20 · Cards");
+      eq("…and their place", a.place, "List 2 of 3");
+      eq("a step with one way does not name it", T.rowFacts(T.studentByUid("u1") && (function(){
+        feed({ students: [kid("u9", "Solo", { stats: solid("red-3-say", 5) })], assignments: { u9: merge({ plan: planDoc({ steps: [{ ids: ["red-3-say"] }] }) }, stamp) } });
+        return T.studentByUid("u9"); })()).count, "5 of 20");
+      feed(fixture());
+      eq("a student with games and no order shows today's sentence", b.kind + "/" + b.text, "plain/" + W4.describeAssignment(["red-1-say", "red-1-cards", "initial-blends"]));
+      eq("a student with nothing shows no lists", c.kind, "none");
+      feed({ students: [kid("u1", "Ana", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 20), solid("red-2-cards", 20), solid("red-3-say", 20)) })],
+             assignments: { u1: merge({ plan: planDoc() }, stamp) } });
+      eq("a finished sequence reads Finished all 3", T.rowFacts(T.studentByUid("u1")).title, "Finished all 3");
+      feed({ students: [kid("u1", "Ana", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20)) })],
+             assignments: { u1: merge({ plan: planDoc({ hold: true }) }, stamp) } });
+      eq("a held student's place says held", T.rowFacts(T.studentByUid("u1")).place, "List 1 of 3 · held");
+    });
+    guard("the flag line", function(){
+      var NOWT = Date.now(), DAYMS = 86400000;
+      var stuck = {};
+      function recentSolid(n){ var o = {}; for(var j=0;j<n;j++) o["red-1-say|w" + j] = A4.sanitizeStat({ n:12, r:12, box:5, last: NOWT - 1000, lat: 900 }); return o; }
+      for(var i=0;i<10;i++) stuck["red-1-cards|w" + i] = A4.sanitizeStat({ n:6, r:1, w:5, box:0, last: NOWT - 1000 });
+      feed({ students: [kid("u1", "Ana", { stats: stuck, lastSeen: NOWT }), kid("u2", "Ben", { stats: stuck, lastSeen: NOWT })],
+             assignments: { u1: merge({ plan: planDoc({ steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say"] }] }) }, stamp),
+                            u2: merge({ lists: ["red-1-cards"] }, stamp) } });
+      eq("a sequence student stuck on the cards they are on is flagged", (T.flagFor(T.studentByUid("u1")) || {}).rule, "stuck");
+      eq("…the same as a student with a plain set", (T.flagFor(T.studentByUid("u2")) || {}).rule, "stuck");
+      eq("a sequence student is judged on the current step only: the info carries its ways and nothing finished",
+         T.nextStepInfo(T.studentByUid("u1")).lists.map(function(l){ return l.id; }).join(","), "red-1-say,red-1-cards");
+      var done = merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 20), solid("red-2-cards", 20), solid("red-3-say", 20));
+      feed({ students: [kid("u1", "Ana", { stats: done, lastSeen: NOWT })], assignments: { u1: merge({ plan: planDoc() }, stamp) } });
+      eq("a finished sequence says so", T.flagFor(T.studentByUid("u1")).text, "Finished every list. Add the next ones.");
+      feed({ students: [kid("u1", "Ana", { stats: recentSolid(3), lastSeen: NOWT, recent: [], seq: { at: 1, of: SETAT, when: NOWT - 2 * DAYMS } })],
+             assignments: { u1: merge({ plan: planDoc({ at: 0 }) }, stamp) } });
+      eq("moved up this week is good news", T.flagFor(T.studentByUid("u1")).rule, "moved");
+      feed({ students: [kid("u1", "Ana", { stats: recentSolid(3), lastSeen: NOWT, seq: { at: 1, of: SETAT + 5, when: NOWT - DAYMS } })],
+             assignments: { u1: merge({ plan: planDoc({ at: 0 }) }, stamp) } });
+      eq("…but not a mark from an older save of the plan", T.flagFor(T.studentByUid("u1")), null);
+      feed({ students: [], roster: { "pat@seq.org": { name: "Pat", plan: planDoc(), classId: "c3", teachers: [ME] } } });
+      eq("a student who hasn't signed in has no flag", T.flagFor(T.studentByUid("roster:pat@seq.org")), null);
+    });
+    guard("the four cards", function(){
+      var NOWT = Date.now(), DAYMS = 86400000;
+      feed({ students: [
+          kid("u1", "Ana", { seq: { at: 1, of: SETAT, when: NOWT - 2 * DAYMS } }),
+          kid("u2", "Ben", { seq: { at: 1, of: SETAT, when: NOWT - 9 * DAYMS } }),
+          kid("u3", "Cy", { seq: { at: 1, of: SETAT + 1, when: NOWT - DAYMS } }),
+          kid("u4", "Di")],
+        assignments: { u1: merge({ plan: planDoc({ at: 0 }) }, stamp), u2: merge({ plan: planDoc({ at: 0 }) }, stamp),
+                       u3: merge({ plan: planDoc({ at: 0 }) }, stamp), u4: merge({}, stamp) } });
+      var sc = T.summaryCounts(T.classStudents(), NOWT);
+      eq("Moved to a new list this week counts a move in the last seven days", sc.moved, 1);
+      eq("…not one from last week, nor a mark from an older save", sc.moved === 1 && sc.students, 4);
+      eq("No lists yet counts the student with nothing", sc.none, 1);
+      T.renderRoster();
+      eq("the cards are Students, Practiced this week, Moved to a new list this week, No lists yet",
+         Array.prototype.map.call(body.querySelectorAll(".sumCard .k"), function(k){ return k.textContent; }).join("|"),
+         "Students|Practiced this week|Moved to a new list this week|No lists yet");
+    });
+    guard("the rows on the page", function(){
+      body.hidden = false;
+      feed(fixture({ roster: { "pat@seq.org": { name: "Pat Roe", classId: "c3", teachers: [ME] } } }));
+      T.renderRoster();
+      var heads = Array.prototype.map.call(body.querySelectorAll("table.stTable th"), function(h){ return h.textContent; }).join("|");
+      eq("the table is a tick, the student, Now on, Progress, Place", heads, "|Student|Now on|Progress|Place");
+      eq("one row per student, the pending one too", body.querySelectorAll("tr.clickable").length, 4);
+      eq("every row has a tick box with its own name", Array.prototype.every.call(body.querySelectorAll("[data-pick]"), function(c){ return /^Select /.test(c.getAttribute("aria-label")); }), true);
+      var ana = body.querySelector('tr[data-uid="u1"]'), ben = body.querySelector('tr[data-uid="u2"]'), cy = body.querySelector('tr[data-uid="u3"]'), pat = body.querySelector('tr[data-uid="roster:pat@seq.org"]');
+      eq("a sequence student: the list, a bar, the count and the place",
+         [ana.querySelector(".stNow").textContent, !!ana.querySelector(".seqMeter"), ana.querySelector(".stCount").textContent, ana.querySelector(".stPlace").textContent].join(" | "),
+         "Red Words · List 2 | true | 0 of 20 · Cards | List 2 of 3");
+      eq("…the bar has a tick at their percent (90)", ana.querySelector(".seqMeter i").style.left, "90%");
+      eq("a student with games and no order: the sentence and 'no order'", ben.querySelector(".stNow").textContent + " | " + ben.querySelector(".stPlace").textContent,
+         W4.describeAssignment(["red-1-say", "red-1-cards", "initial-blends"]) + " | no order");
+      eq("a student with nothing: the pill", cy.querySelector(".stNow .pill.warn").textContent, "No lists yet");
+      eq("a pending student is greyed and says so", pat.classList.contains("pending") && /hasn’t signed in yet/.test(pat.textContent), true);
+      eq("no row carries more than one flag line", Array.prototype.every.call(body.querySelectorAll("tr.clickable"), function(r){ return r.querySelectorAll(".stFlag").length <= 1; }), true);
+      eq("the 'What should change' panel is gone", /What should change/.test(body.textContent), false);
+      eq("…and nothing sends a teacher to the Assign board", /Assign (board|games)/.test(body.textContent), false);
+      eq("the callout counts students with no lists (Cy, and Pat on the roster) and offers to select them", /2 students have no lists yet\./.test(body.querySelector(".callout").textContent) && !!body.querySelector("#stSelBare"), true);
+      body.hidden = true;
+    });
+    guard("ticking rows", function(){
+      body.hidden = false;
+      feed(fixture());
+      T.renderRoster();
+      var give = body.querySelector("#stGive");
+      eq("the button says how many are selected, and waits for one", give.textContent + "/" + give.disabled, "Give a sequence to 0 selected…/true");
+      var boxes = body.querySelectorAll("[data-pick]");
+      boxes[0].checked = true; boxes[0].dispatchEvent(new Event("change", { bubbles: true }));
+      boxes[1].checked = true; boxes[1].dispatchEvent(new Event("change", { bubbles: true }));
+      eq("ticking counts", give.textContent + "/" + give.disabled, "Give a sequence to 2 selected…/false");
+      eq("…without redrawing the table (focus would be lost)", body.querySelector("#stGive") === give, true);
+      eq("…and shows Clear selection", body.querySelector("#stClear").hidden, false);
+      eq("the heading tick is half-way", body.querySelector("#stSelAll").indeterminate, true);
+      var all = body.querySelector("#stSelAll");
+      all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
+      eq("the heading tick takes everyone shown", give.textContent, "Give a sequence to 3 selected…");
+      eq("…and ticks every row", Array.prototype.every.call(body.querySelectorAll("[data-pick]"), function(c){ return c.checked; }), true);
+      body.querySelector("#stClear").click();
+      eq("Clear selection empties it", give.textContent + "/" + body.querySelector("#stClear").hidden, "Give a sequence to 0 selected…/true");
+      body.querySelector("#stSelBare").click();
+      eq("Select them ticks the students with no lists", Object.keys(T.getPicked()).join(","), "u3");
+      // A tick is not a way in; the row is.
+      T.reset(); feed(fixture()); T.renderRoster();
+      body.querySelector('[data-pick="u1"]').click();
+      eq("clicking a tick box does not open the student", !!body.querySelector(".stuLayout"), false);
+      body.querySelector('tr[data-uid="u1"] .stNow').click();
+      eq("clicking the row does", !!body.querySelector(".stuLayout"), true);
+      body.hidden = true;
+    });
+    guard("the give-a-sequence dialog", function(){
+      body.hidden = false;
+      feed(fixture());
+      T.renderRoster();
+      var all = body.querySelector("#stSelAll");
+      all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
+      body.querySelector("#stGive").click();
+      var m = document.getElementById("giveModal") || document.querySelector(".abModal");
+      eq("the dialog opens, titled with how many", document.getElementById("giveTitle").textContent, "Give a sequence to 3 students");
+      eq("…it is a dialog for a screen reader", document.querySelector(".abModalBox").getAttribute("role"), "dialog");
+      eq("…offering the ready-made sequences and another student's", Array.prototype.map.call(document.querySelectorAll("#giveSrc option"), function(o){ return o.textContent; }).join(" | "),
+         "Red Words, Lists 1 to 10 | Sounding it out | Ana Lopez’s sequence");
+      eq("…at 90%", document.getElementById("givePct").textContent, "90%");
+      document.getElementById("giveLess").click();
+      eq("…which can be changed in steps of 5", document.getElementById("givePct").textContent, "85%");
+      var src = document.getElementById("giveSrc");
+      src.value = "st:u1"; src.dispatchEvent(new Event("change", { bubbles: true }));
+      eq("copying a student's sequence takes their percent", document.getElementById("givePct").textContent, "90%");
+      eq("…and previews its lists", /^3 lists: Red Words · List 1, Red Words · List 2, Red Words · List 3\.$/.test(document.getElementById("givePreview").textContent), true);
+      eq("the dialog says how many already have games or a sequence, which this replaces",
+         document.getElementById("giveReplace").textContent, "2 of these 3 students already have games or a sequence. This replaces them.");
+      eq("nothing was written by opening it", T.getPicked() && Object.keys(T.getPicked()).length, 3);
+      document.getElementById("giveCancel").click();
+      eq("Cancel closes it", !!document.getElementById("giveTitle"), false);
+      eq("…and puts focus back on the button that opened it", document.activeElement.id, "stGive");
+      body.querySelector("#stGive").click();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      eq("Escape closes it too", !!document.getElementById("giveTitle"), false);
+      body.hidden = true;
+    });
+    guard("what giving a sequence writes, per student", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      feed({ students: [
+          kid("u1", "Ana", { stats: merge(solid("red-1-say", 19), solid("red-1-cards", 18)) }),
+          kid("u2", "Ben", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 18), solid("red-2-cards", 19)) }),
+          kid("u3", "Cy") ],
+        assignments: { u1: merge({ lists: ["red-9-say"] }, stamp) },
+        roster: { "pat@seq.org": { name: "Pat Roe", classId: "c3", teachers: [ME] } } });
+      var steps = T.readyMadeSteps("red"), NOWT = 1795563000000;
+      var b1 = T.giveBody(T.studentByUid("u1"), steps, 0.9, NOWT), b2 = T.giveBody(T.studentByUid("u2"), steps, 0.9, NOWT),
+          b3 = T.giveBody(T.studentByUid("u3"), steps, 0.9, NOWT), bp = T.giveBody(T.studentByUid("roster:pat@seq.org"), steps, 0.9, NOWT);
+      eq("every plan starts at 0, not held, saved now", [b1, b2, b3].every(function(b){ return b.plan.at === 0 && b.plan.hold === false && b.plan.setAt === NOWT; }), true);
+      eq("a student solid on step 1 lands on step 2 (`lists` is that step)", b1.lists.join(","), "red-2-say,red-2-cards");
+      eq("one solid on steps 1 and 2 lands on step 3", b2.lists.join(","), "red-3-say,red-3-cards");
+      eq("one who has not practiced lands on step 1", b3.lists.join(","), "red-1-say,red-1-cards");
+      eq("a student on the roster lands on step 1", bp.lists.join(","), "red-1-say,red-1-cards");
+      eq("the body is exactly the plan, the lists, the time and the class stamp", Object.keys(b1).sort().join(","), "classId,lists,plan,teachers,updatedAt");
+      eq("…with the percent given", T.giveBody(T.studentByUid("u1"), steps, 0.8, NOWT).plan.bar, 0.8);
+      eq("…and a plan the student's code accepts unchanged", JSON.stringify(A4.sanitizePlan(b1.plan)), JSON.stringify(b1.plan));
+      eq("…the lists of every step, in order, ten of them", b1.plan.steps.length, 10);
+      eq("the steps are copies, not the source", (function(){ b1.plan.steps[0].ids.push("x"); return steps[0].ids.length; })(), 2);
+      eq("students who already have games or a sequence are counted as replaced",
+         T.replacedCount([T.studentByUid("u1"), T.studentByUid("u2"), T.studentByUid("u3")]), 1);
+    });
+
     // The writes themselves: through a fake database that records what
     // reaches it. These run after everything above (they are promises), and
     // one at a time, since they share the page and the dashboard's state.
@@ -4786,7 +4607,6 @@
 
     guardAsync("Save writes the right document", function(){
       feed(fixture()); var db = fakeDb(); T.setDb(db);
-      T.board.draft["s:u1"] = ["red-9-say"];
       T.open("u1"); T.renderDetail();
       body.querySelector('[data-seq="bar-"]').click();
       var before = T.planFor("u1");
@@ -4804,7 +4624,6 @@
         eq("the page's own copy has the new plan", T.planFor("u1").bar, 0.85);
         eq("the old plan was not edited in place", before.bar, 0.9);
         eq("the draft is gone", T.getDraft(), null);
-        eq("a board edit pending for this student is dropped (it would write a stale `lists`)", "s:u1" in T.board.draft, false);
         eq("the status line says Saved. and focus is at the heading", body.querySelector("#seqFlash").textContent + "/" + document.activeElement.id, "Saved./seqHead");
       });
     });
@@ -4851,6 +4670,79 @@
         eq("a failed Stop leaves the sequence in place", !!T.planFor("u1"), true);
         eq("…says so in the status line", /Didn’t save/.test(body.querySelector("#seqFlash").textContent), true);
         eq("…and does not conjure a Save bar with nothing to save", body.querySelector("#seqSave").hidden, true);
+      });
+    });
+    function ticks(n){ var p = Promise.resolve(); for(var i=0;i<n;i++) p = p.then(function(){}); return p; }
+    guardAsync("giving a sequence writes every student in ONE batch", function(){
+      feed({ students: [
+          kid("u1", "Ana", { stats: merge(solid("red-1-say", 19), solid("red-1-cards", 18)) }),
+          kid("u2", "Ben", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 18), solid("red-2-cards", 19)) }),
+          kid("u3", "Cy") ],
+        assignments: { u1: merge({ lists: ["red-9-say"] }, stamp) },
+        roster: { "pat@seq.org": { name: "Pat Roe", classId: "c3", teachers: [ME] } } });
+      var db = fakeDb(); T.setDb(db);
+      var steps = T.readyMadeSteps("red");
+      return T.giveSequence(["u1", "u2", "roster:pat@seq.org"], steps, 0.9).then(function(){
+        eq("one batch", db.ops, 1);
+        eq("three writes in it", db.log.length, 3);
+        eq("…to assignments/u1, assignments/u2 and the pending student's roster row",
+           db.log.map(function(w){ return w.col + "/" + w.id; }).join(", "), "assignments/u1, assignments/u2, roster/pat@seq.org");
+        eq("…each a merge", db.log.every(function(w){ return JSON.stringify(w.opts) === '{"merge":true}'; }), true);
+        eq("…and each lands where their stats say", db.log.map(function(w){ return w.data.lists[0]; }).join(","), "red-2-say,red-3-say,red-1-say");
+        eq("…never to a student's own document", db.log.every(function(w){ return w.col !== "students"; }), true);
+        eq("the page's own copies moved with them", T.planFor("u1").steps.length + "/" + T.effectiveLists("u1").ids.join(","), "10/red-1-say,red-1-cards,red-2-say,red-2-cards");
+        eq("…including the one on the roster", !!T.planFor("roster:pat@seq.org"), true);
+      });
+    });
+    guardAsync("a failed batch puts every copy back", function(){
+      feed({ students: [kid("u1", "Ana"), kid("u2", "Ben")],
+             assignments: { u1: merge({ lists: ["red-9-say"] }, stamp), u2: merge({ plan: planDoc({ setAt: 77 }) }, stamp) },
+             roster: { "pat@seq.org": { name: "Pat Roe", classId: "c3", teachers: [ME], lists: ["nonsense"] } } });
+      var db = fakeDb(true); T.setDb(db);
+      return T.giveSequence(["u1", "u2", "roster:pat@seq.org"], T.readyMadeSteps("red"), 0.9).then(function(){
+        eq("(it should have failed)", true, false);
+      }, function(){
+        eq("a batch was tried", db.ops, 1);
+        eq("a student's lists are back as they were", T.effectiveLists("u1").ids.join(","), "red-9-say");
+        eq("…the plan they had is back", T.planFor("u2").setAt, 77);
+        eq("…the roster row is back", T.effectiveLists("roster:pat@seq.org").ids.join(","), "nonsense");
+        eq("…and nobody is left with the new plan", T.planFor("u1"), null);
+      });
+    });
+    guardAsync("the dialog gives it, says so, and clears the ticks", function(){
+      body.hidden = false;
+      feed({ students: [kid("u1", "Ana", { stats: solid("red-1-say", 3) }), kid("u2", "Ben")],
+             assignments: { u1: merge({ lists: ["red-9-say"] }, stamp) } });
+      var db = fakeDb(); T.setDb(db);
+      T.renderRoster();
+      var all = body.querySelector("#stSelAll"); all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
+      body.querySelector("#stGive").click();
+      asked.length = 0;
+      document.getElementById("giveGo").click();
+      return ticks(40).then(function(){
+        eq("with games to replace it asks first, naming how many", /Give Red Words, Lists 1 to 10 to 2 students\?[\s\S]*1 of them already has games or a sequence, and this replaces it\./.test(asked[0] || ""), true);
+        eq("then one batch with both students", db.ops + "/" + db.log.length, "1/2");
+        eq("the dialog closes", !!document.getElementById("giveTitle"), false);
+        eq("the ticks are cleared", Object.keys(T.getPicked()).length, 0);
+        eq("the page says so", body.querySelector("#stNote").textContent, "Gave a sequence to 2 students.");
+        eq("…and the rows show where they are now", body.querySelector('tr[data-uid="u2"] .stPlace').textContent, "List 1 of 10");
+        eq("focus is on the message, not lost with the dialog", document.activeElement.id, "stNote");
+      });
+    });
+    guardAsync("a failed give says so in the dialog and keeps the ticks", function(){
+      body.hidden = false;
+      feed({ students: [kid("u1", "Ana"), kid("u2", "Ben")], assignments: {} });
+      T.setDb(fakeDb(true));
+      T.renderRoster();
+      var all = body.querySelector("#stSelAll"); all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
+      body.querySelector("#stGive").click();
+      document.getElementById("giveGo").click();
+      return ticks(40).then(function(){
+        eq("the dialog stays open", !!document.getElementById("giveTitle"), true);
+        eq("…saying nothing was saved", /^Nothing saved — check the network/.test(document.getElementById("giveNote").textContent), true);
+        eq("…with Give it available to try again", document.getElementById("giveGo").disabled, false);
+        eq("…and the ticks kept", Object.keys(T.getPicked()).length, 2);
+        T.closeGive();
       });
     });
     chain = chain.then(function(){ document.body.removeChild(chrome); });

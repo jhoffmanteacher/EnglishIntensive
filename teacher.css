@@ -336,18 +336,6 @@ select.sel:focus,input.txt:focus,textarea.txt:focus{outline:none;border-color:va
 .riPaste:focus{outline:none;border-color:var(--accent)}
 #riPreview{margin-top:14px}
 
-/* ---- what should change ----
-   A list of sentences, not a table. There is one line per student and it
-   is a sentence, so a row that looked like a data row would be read as
-   one and skimmed past. */
-.nsList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.nsRow{
-  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-  background:var(--panel2);border-radius:var(--r-btn);padding:10px 14px;
-}
-.nsWho{font-weight:700;min-width:130px}
-.nsText{flex:1 1 260px;color:var(--ink);font-size:14.5px;line-height:1.5}
-
 /* ---- the "nobody has given them anything" notice ---- */
 .panel.callout{
   display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:space-between;
@@ -415,117 +403,17 @@ table.t tbody tr.pending .who img{opacity:.6}
 .pkSummary b{color:var(--ink)}
 .t td.listsCell{max-width:340px;line-height:1.45}
 
-/* ---------------- the Assign board ----------------
-   Students down the side, lists across the top. Two things carry the
-   whole design: the first column and the two header rows are sticky, so
-   a name and a list stay on screen however far the board is scrolled;
-   and a cell says where its value CAME FROM, because on a differentiated
-   roster "who has been pulled out of their group" is the question you
-   are actually looking at the grid to answer. */
-.abPanel{padding-bottom:14px}
-.abTools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
-.abTools .abAll{margin:0;padding:8px 12px}
-
-.abScroll{
-  overflow:auto;max-height:66vh;
-  border:1px solid var(--line);border-radius:var(--r-card);background:var(--bg);
-}
-/* The name column's width is a variable because two other things have to
-   know it: the sticky family label parks just to the right of it, and the
-   narrow-screen override below moves both together. */
-.abGrid{--abName:236px;border-collapse:separate;border-spacing:0;font-size:14px;width:max-content;min-width:100%}
-
-/* Sticky in both directions. The corner cell needs the higher z-index of
-   the three, or the name column scrolls up over it. */
-.abGrid thead th{position:sticky;background:var(--panel2);z-index:2}
-.abGrid thead tr:first-child th{top:0}
-.abGrid thead tr:nth-child(2) th{top:38px}
-.abGrid th.abName{
-  position:sticky;left:0;z-index:3;text-align:left;
-  width:var(--abName);min-width:var(--abName);max-width:var(--abName);
-  /* Opaque, always. The row tints below layer over this rather than
-     replacing it — a translucent sticky cell lets the columns it is
-     supposed to be covering slide through underneath. */
-  background-color:var(--panel2);
-}
-.abGrid thead th.abCorner{z-index:4;top:0}
-
-.abGrid th.abFam{
-  color:var(--ink);font-size:13px;font-weight:700;text-align:left;white-space:nowrap;
-  padding:9px 12px;border-bottom:1px solid var(--line);border-left:1px solid var(--line);
-  height:38px;box-sizing:border-box;
-}
-/* Sticky inside its own colspan: it slides along with the scroll until it
-   reaches the end of its family's columns, then leaves with them. */
-.abFamIn{position:sticky;left:calc(var(--abName) + 12px);display:inline-block}
-.abFold{
-  font:inherit;font-size:12px;color:var(--muted);background:none;border:none;
-  cursor:pointer;padding:0 6px 0 0;
-}
-.abFold:hover{color:var(--accent)}
-
-.abGrid th.abCol{
-  padding:7px 10px;border-bottom:1px solid var(--line);border-left:1px solid var(--line);
-  text-align:center;font-weight:600;vertical-align:top;min-width:96px;max-width:150px;
-}
-.abColName{display:block;color:var(--ink);font-size:12.5px;white-space:nowrap}
-/* Two lines, always: a fixed height is what keeps every column's "all"
-   button on the same line as its neighbours', however the words wrap. */
-.abColWords{
-  display:block;color:var(--muted);font-size:11px;font-style:italic;
-  margin:2px 0 4px;line-height:1.35;height:2.7em;overflow:hidden;
-  white-space:normal;
-}
-.abGrid th.abCol .pkMini{margin-top:2px}
-
-.abGrid td,.abGrid tbody th{border-bottom:1px solid var(--line2)}
-.abGrid tbody th.abName{padding:8px 12px;font-weight:400}
-.abNameIn{display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0}
-.abLabel{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.abMeta{color:var(--muted);font-size:11.5px;line-height:1.35;max-width:100%}
-/* "nothing yet" under a name: that student's home page is empty. */
-.abGames.none{color:var(--warn);font-weight:700}
-.abGrid tr.abStudent.pending .abLabel{opacity:.7}
-.abPick{display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0}
-.abPick input{width:15px;height:15px;accent-color:var(--accent);flex:none}
-
-/* A period's heading row. Its checkbox selects everyone under it. */
-.abGrid tr.abGroup td{background:var(--tint)}
-/* background-image, not background: the tint has to sit ON TOP of the
-   opaque background-color the sticky column depends on. */
-.abGrid tr.abGroup th.abName{background-image:linear-gradient(var(--tint),var(--tint))}
-.abGrid tr.abGroup .abLabel{font-size:15px}
-.abGrid tr.abStudent:hover td{background:var(--tint)}
-
-.abCell{
-  text-align:center;padding:7px 10px;cursor:pointer;white-space:nowrap;
-  border-left:1px solid var(--line);font-size:15px;line-height:1.5;
-}
-.abCell:focus{outline:2px solid var(--accent);outline-offset:-2px}
-.abCell.empty{color:var(--muted)}
-.abCell:hover{background:var(--sel-bg)}
-
-/* The key to the cells, which are icons and nothing else. */
-.abLegend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 16px;font-size:13.5px}
-.abKey{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.abKeyIcon{font-size:17px;line-height:1}
-.abWarn{
-  margin:-4px 0 14px;font-size:14px;color:var(--warn);
-  border-left:3px solid var(--warn);padding:4px 0 4px 10px;
-}
-
-/* ---- the per-cell mode popover ---- */
+/* ---- the Student view chooser (a small popover) ---- */
 .abPop{
   position:fixed;z-index:60;min-width:190px;
   background:var(--panel);border:1px solid var(--accent);border-radius:var(--r-card);
   box-shadow:var(--shadow-raised);padding:12px;
 }
 .abPopHead{font-weight:700;font-size:13px;margin-bottom:8px}
-.abPopBody label.check{margin-bottom:6px;padding:7px 10px}
 .abPopFoot{display:flex;gap:6px;align-items:center;margin-top:4px}
 .abPopFoot .btn{margin-left:auto}
 
-/* ---- the bulk dialog ---- */
+/* ---- dialogs: the roster import and giving a sequence ---- */
 .abModal{
   position:fixed;inset:0;z-index:70;background:var(--scrim);
   display:flex;align-items:flex-start;justify-content:center;padding:40px 20px 0;overflow:auto;
@@ -550,41 +438,6 @@ table.t tbody tr.pending .who img{opacity:.6}
 }
 .panel .stickyActions{margin:12px -22px -22px;padding:14px 22px}
 .abModalBox .note{color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 16px}
-
-/* ---- the save bar ---- */
-.abBar{
-  position:sticky;bottom:14px;z-index:20;
-  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
-  background:var(--panel);border:1px solid var(--accent);border-radius:var(--r-card);
-  padding:12px 18px;box-shadow:var(--shadow-raised);
-}
-.abBar[hidden]{display:none}
-.abCount{font-weight:700;font-size:14px;color:var(--accent)}
-.abBar .btn{margin-left:0}
-.abBar #abSave{margin-left:auto}
-
-@media (max-width:640px){
-  .abGrid{--abName:160px}
-  .abScroll{max-height:60vh}
-}
-
-/* ---------------- "ready to move up" ----------------
-   Sits above the board, and only when it has something to say. Styled as
-   a suggestion rather than an alert: nothing here is wrong, and a teacher
-   who ignores it for a week has lost nothing. */
-.abReady{border-color:var(--accent)}
-.abSugs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.abSug{
-  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-  padding:10px 14px;border-radius:var(--r-btn);
-  background:var(--panel2);font-size:14px;
-}
-.abSugWho{font-weight:600;min-width:120px}
-.abSugWhat{flex:1;min-width:220px;color:var(--muted)}
-.abSugWhat b{color:var(--ink)}
-.abSugTo{color:var(--sel-ink);font-weight:600;white-space:nowrap}
-.abSug .btn{flex:none}
-.abReady .rowActions{margin-top:14px}
 
 /* ---------------- the teacher's notes ----------------
    Teacher-only by firestore.rules, and shown wherever a name is: a note
@@ -691,7 +544,6 @@ body.teacher .ei-btn-google{border:1px solid var(--line)}
 .seqFold{margin-top:16px}
 .seqFold > summary{cursor:pointer;color:var(--muted);font-weight:600;font-size:14px;padding:6px 0}
 .seqFold > summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
-.seqBoardNote{margin:-4px 0 14px;font-size:14px;color:var(--muted);border-left:3px solid var(--accent);padding:4px 0 4px 10px}
 @media (max-width:900px){
   .stuLayout{grid-template-columns:minmax(0,1fr)}
   .stuList{position:static;max-height:none;flex-direction:row;overflow-x:auto;overflow-y:hidden;padding-bottom:4px}
@@ -705,3 +557,28 @@ table.t tbody tr.clickable:focus-visible{outline:2px solid var(--accent);outline
 .stuHead:focus,.seqEditor h2:focus{outline:none}
 .stuPick:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .saveNote:empty{display:none}
+
+/* ---------------- the Students view: one calm row per student ----------------
+   A tick, the student (with at most one line saying what needs a teacher),
+   the list they are on, a bar toward finishing it, and their place. */
+.stTable td{vertical-align:top}
+.stTable th.stTick,.stTable td.stTick{width:34px;padding-right:0}
+.stTick input{width:17px;height:17px;accent-color:var(--accent);cursor:pointer;margin-top:2px}
+.stCls{margin-left:4px;font-weight:400}
+.stFlag{font-size:12.5px;line-height:1.4;margin-top:3px;color:var(--warn);max-width:48ch}
+.stFlag[data-rule="moved"]{color:var(--good)}
+.stFlag[data-rule="finished"]{color:var(--sel-ink)}
+.stNow{max-width:240px;line-height:1.4}
+.stProg{display:flex;flex-direction:column;gap:6px;min-width:150px}
+.stProg .seqMeter{margin-top:0;width:150px}
+.stCount{font-size:13px;white-space:nowrap}
+.stPlace{white-space:nowrap;font-size:14px}
+.stActions{margin:6px 0 12px}
+.stActions .btn[hidden]{display:none}
+
+/* ---- giving a sequence to several students ---- */
+.giveRow{display:flex;flex-direction:column;gap:4px;align-items:flex-start;margin:8px 0 12px}
+.giveRow .sel{max-width:100%}
+.giveReplace{margin:0 0 12px;font-size:14px;color:var(--warn);border-left:3px solid var(--warn);padding:4px 0 4px 10px}
+
+.stFoot{border-top:1px solid var(--line2);margin-top:6px}

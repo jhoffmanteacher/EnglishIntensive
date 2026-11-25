@@ -148,7 +148,8 @@ old `config/class` becomes a class too, even an empty one. The admin then
 redistributes by adding co-teachers or moving students.
 
 Why the per-student `get()` is only a fallback: Firestore allows about ten
-`get()`s per request, and the Assign board saves a whole class in one batch.
+`get()`s per request, and giving a sequence to a class (like the roster import)
+saves a whole class in one batch.
 Checking each student's own doc on every write failed at the tenth in the
 emulator; checking the one class doc does not.
 
@@ -238,9 +239,9 @@ is the display name and can change freely.
 A family can list modes in `retired: [...]`. A retired mode stays in
 `modes`, so its entries and ids are still generated and still resolve.
 It is just no longer **offered**: `WordLists.offeredModesOf(family)` drops
-it, `idsOfList` / `idsOfFamily` (what column toggles use) leave its ids
+it, `idsOfList` / `idsOfFamily` leave its ids
 out, and `isRetired(id)` says which is which. `modesOf` and `idFor` stay
-complete, because the board has to show a retired mode a student still
+complete, because the picker has to show a retired mode a student still
 holds. Deleting the id instead would orphan their history and leave
 dangling ids in every stored assignment.
 
@@ -264,14 +265,12 @@ What happens to a student who already has one:
 - Nothing, until the teacher unticks it. It stays in their assignment, on
   their home page, and plays. Silently migrating would change what a
   student sees without the teacher doing anything.
-- On the Assign board and the student picker it shows dashed with a
-  "Retired — still in this student's list" tooltip, and can be unticked.
-  It is never offered fresh: bulk add and replace never grant one, a
-  column's *all* never adds it (unticking clears it), the family and
-  popover *all* leave a held one ticked, and "Ready to move up" and the
-  next-step rules ignore it. The bulk dialog draws a box for a retired id
-  only when a selected student holds one, so **Take these away** can clear
-  it for a whole class.
+- In the student picker it shows dashed with a "Retired — still in this
+  student's list" tooltip, and can be unticked. It is never offered fresh:
+  the family's *all* leaves a held one ticked (only *none* clears it), a
+  picker whose student does not hold one draws no box for it, and the
+  flag line ignores it (a retired list a student still holds is not part of
+  the plan). A sequence's ready-made steps never include one.
 - The teacher's own preview home page lists offered ids only; a game page
   still opens for a retired id.
 - "Everything" in a description means everything on offer.
@@ -301,7 +300,7 @@ Helpers on `WordLists`: `families()`, `familyOf()`, `modesOf(family)`,
 `listNumsOf(family)`, `idFor(family, n, mode)`, `idsOfList(family, n)`,
 `idsOfFamily(family)`, `hrefOf(id)`, and the pure `describeAssignment(ids)`
 / `describeFamily(family, ids)` that turn a set of ids into the one line
-the roster, the picker and the board all show: *"Starting Blends: 🎤🃏 ·
+the roster, the picker and a student's page all show: *"Starting Blends: 🎤🃏 ·
 Red Words: 1–3 🃏 · 1 🎯"*. A family with one list prints only the modes;
 a family with ten prints the list numbers per mode, as ranges ("1–10", not
 ten numbers).
@@ -1397,8 +1396,9 @@ What slow does **not** do is change `isMastered`. The student's tile says "12
 of 20 solid", and that number must not drop the day the cards learn to use a
 stopwatch — nothing about their reading changed. Speed is the scheduler's
 business and the teacher's: the dashboard's per-list breakdown reads "12 / 20
-(4 slow)", and **Ready to move up** counts a word only when it is solid *and*
-at pace, so nobody advances on thirty words they can decode but not read.
+(4 slow)", and a sequence counts a word as finished only when it is solid *and*
+at pace (`Adaptive.listSolid`), so nobody advances on thirty words they can
+decode but not read.
 
 On the card, a flip under 1.5 s earns a "⚡ fast" pill and the end screen
 counts them. There is deliberately no slow pill: "you were quick" is worth
@@ -1499,15 +1499,14 @@ teacher can tell at a glance which side of the site they are on.
   Below 900px it becomes one strip that scrolls sideways under the bar,
   the group headings dropped. The groups:
   - *Students* — **Students**, **Trouble spots**
-  - *Assign* — **Assign board**
   - *Set up* — **Classes**, **Manage**
 - **A slim top bar**: the view's title and a one-line subtitle on the
   left; on the right the **class filter**, **Refresh** and **Student
   view**.
 - **The class filter is the page's, not a view's.** A segmented control
   — *All*, each of my classes somebody is in, and *No class (n)*, which
-  disappears at zero — that the Students table, its cards, *What should
-  change*, the Assign board and Trouble spots all follow. It is remembered
+  disappears at zero — that the Students table, its cards and Trouble
+  spots all follow. It is remembered
   in `localStorage` (`ei.class.filter`), and a filter that matches nobody
   — a class since emptied or deleted, a stale key — **falls back to All**
   (`effectiveFilter()`) rather than drawing an empty page under a button
@@ -1523,26 +1522,17 @@ teacher can tell at a glance which side of the site they are on.
 
 The views:
 
-- **Students** — four **summary cards**, all counts of students, all
-  inside the filter: *Students*; *Practiced this week* (a word attempted
-  in the last seven days, by the stats' own clock — not `lastSeen`, which
-  `store.js` stamps on every sign-in); *No games yet* (an empty home
-  page); and *Have shaky words* — students with any word the table's
-  **Shaky** column counts (`Adaptive.summarize().struggling`: not solid,
-  under 60 %). No new metric; `summaryCounts()` is pure and tested. Below
-  them, the roster with accuracy, words solid, words shaky, last activity,
-  and a **Lists** column that says in words what each student currently
-  gets — *"Red Words: 1–3 🃏"*, or a *nothing yet* pill; when it's true, a
-  callout: *"7 students have no games yet"*. Click through to the student's
-  own page (*A student's page*, below): their lists in order, their data, their
-  **note**, the **Archive** button and, for the admin, the **Teacher** select. Two CSV
+- **Students** — one calm row per student (*The class page*, below): the
+  list they are on, a bar toward finishing it, their place in their
+  sequence, and at most one line saying what needs a teacher. Four **summary
+  cards**, all counts of students and all inside the filter. Tick rows and
+  **Give a sequence to N selected…** to put several students on one. Two CSV
   exports live here too. On an empty class the view is a three-step *Get
   started*.
 - **Trouble spots** — the same words aggregated across the class, sorted
   by *how many students* are struggling with each rather than by raw
   accuracy, so one student's bad day doesn't top the list. This is the
   "what do I reteach tomorrow" view.
-- **Assign board** — every student's games as one grid. The section below.
 - **Classes** — roster import (into a class — see above), a card per class
   with its size and teachers (add a co-teacher from the approved list,
   remove one while more than one is left, rename, delete when empty),
@@ -1570,7 +1560,7 @@ The views:
 ### Archive
 
 An archived student is **hidden from every view and deleted from
-nothing**: the table, the cards, the board, the suggestions, Trouble
+nothing**: the table, the cards, Trouble
 spots. They keep practising whatever they were given. The flag is on the
 CLASS, shared by its co-teachers: `classes/{id}.archived` as
 `{<key>: true}`, keyed by the id the
@@ -1615,8 +1605,9 @@ This replaced a precedence walk (own → roster → period course → period lis
 class default → everything) with inherited cells drawn dashed, copy-on-write
 edits and an *own ↺* button to hand a student back to their group. All of it
 was correct and all of it needed explaining. With one level there is nothing
-to inherit: a row on the board is what that student sees, and "who has
-nothing" — the only question the old default answered — is asked out loud.
+to inherit: a student's page and their row on the Students table are what
+that student sees, and "who has nothing" — the only question the old default
+answered — is asked out loud (the *No lists yet* card and pill).
 
 ### Sequences
 
@@ -1793,16 +1784,55 @@ student, the class filter, a sidebar item, Archive, Remove from roster, moving
 them out of your classes, closing the page — ask first; Refresh asks first and
 drops the draft only once the new data has arrived.
 
-**The Assign board leaves sequence students out** (`visibleStudents()` skips
-anyone with a plan, so no bulk action or suggestion can reach them) and says how
-many: *"2 students are in a sequence. Change their lists on their own page."*
-*What should change* leaves them out too: its suggestions are written as "add
-this list", which a plan does not take.
+### The class page
+
+The Students view is one calm row per student, because a sequence moves a
+student on by itself and so the question a teacher has is no longer *"who is
+ready for List 4?"* but *"who is stuck, and who has nothing?"*. It replaced two
+things: the **Assign board** (a grid of every student's games, with a bulk
+dialog and a draft saved in one batch) and **Ready to move up** (a strip
+suggesting the next list when four words in five were solid). The first answered
+"what does each student have?" at a scale nobody needs once lists are given in
+order; the second suggested what a sequence now does by itself, at a bar the
+teacher chooses per student.
+
+A row is: a tick box; the student (name, class, a ✎ if there is a note) with at
+most one **flag line** under it; **Now on**, the list they are on; **Progress**,
+a bar with a tick at that student's percent and the count in whole words
+(*"14 of 20"*; with more than one way ticked, the way furthest from finished,
+named: *"14 of 20 · Say it"*); and **Place**, *"List 3 of 6"* (plus *· held*). A
+finished sequence reads *"Finished all 6"*. A student with games and no order
+shows today's sentence and *no order*. A student with nothing shows a
+*No lists yet* pill. A student on the roster who has not signed in stays greyed,
+*"on the roster — hasn't signed in yet"*. The row opens the student's page; the
+tick box does not. Rows take focus (Enter or Space opens). There is no sideways
+scrolling at 1366px.
+
+**The flag line** is the first of `Adaptive.nextSteps`' rules that fires, or
+nothing (*The flag line*, below). **The four cards** are *Students*, *Practiced
+this week*, *Moved to a new list this week* (the student's own mark, if it is
+this plan's and a move forward; `lastMove()`) and *No lists yet*, all counts of
+students and `summaryCounts()` pure and tested. The *"N students have no lists
+yet"* callout has a **Select them** button that ticks exactly those rows.
+
+**Giving a sequence to several students.** Tick rows (the heading tick takes
+everyone shown), press **Give a sequence to N selected…**, choose a ready-made
+sequence or another student's, and the percent (a copied sequence brings its own
+percent as the starting point). The dialog says how many of those students
+already have games or a sequence, which this replaces, and asks again in a
+confirm. It is written as **one batch** (`commitBodies`): every student, or none —
+a failure puts every local copy back as it was and the dialog stays open with the
+ticks kept. Each student's body is `giveBody`: a `plan` with `at: 0` and no hold,
+saved now, plus `lists` equal to the ids of the list they will land on, because
+the plan is worked out from their own stats: a student already solid on the
+first two lands on the third, one who has never practiced on the first. A
+student who has not signed in is written to their roster row. Nothing on
+`firestore.rules` changed.
 
 ### The picker
 
 Every place a set of lists is chosen — a student's own page (for a student
-with no sequence, behind *Change these games*), the board's bulk dialog — uses
+with no sequence, behind *Change these games*) — uses
 one component, `pickerHtml()` in `teacher.js`: one
 section per family, because that is the only kind of entry the registry
 has:
@@ -1820,47 +1850,6 @@ Words: 1–3 🃏 · 1 🎯"* — says in words what the ticks add up to, and it
 the same line the roster shows, so what a student *has* and what you're
 *setting* read the same way. The button row under a picker is sticky, so
 Save stays on screen however far down the six families you've scrolled.
-
-### The Assign board: the whole class at once
-
-The picker answers "what should *this* student get?", the right shape for one
-student and the wrong one for the ten minutes at the start of a unit when you
-move a class onto List 4. The **Assign** tab is that: students down the side,
-lists across the top, every assignment in the class visible and editable in
-place.
-
-Rows are grouped by class under a heading row whose checkbox selects
-everyone shown under it. Columns are one per list, grouped under a family
-header that folds (▾/▸) into one summary column, which is how ten red-word
-columns get out of the way when you're working on blends. The first column
-and the two header rows are sticky, so a name and a list stay on screen
-however far you scroll. Above the grid is a key to the mode icons — cells are
-icons and nothing else — and, when it's true, a line counting the students
-shown who have nothing. Each name carries *"3 games"* or a
-warning-coloured *nothing yet*.
-
-- **A cell click** opens the modes for that one list, ticked live.
-- **A column's all** sets every offered mode of that list for every *visible*
-  student — the class filter and the name search are what bound it, and
-  that is the only thing standing between a mis-click and a class's worth
-  of undone assignment.
-- **Change games for N selected…** opens the picker empty and offers
-  three actions: **Add to what they have**, **Take these away**, and
-  **Replace all their games**. Add is the common case and comes first:
-  moving a class onto List 4 shouldn't wipe the oi/oy cards half of them
-  are still on. The arithmetic is `bulkApply()`.
-- **Nothing is written until Save.** Every edit lands in a draft, the bar
-  at the bottom counts what's pending, and Save commits the lot in one
-  `db.batch()`: one `assignments/{uid}` merge per changed student, or a
-  roster-row merge for one who hasn't signed in. A teacher reassigning six
-  students should not be able to end up with three of them moved. An edit
-  put back the way it was is not a change. Discard throws the draft away;
-  leaving the tab with changes pending asks first.
-
-The board's rules — what a student has, how far a column toggle or a bulk
-change reaches, and the shape of the documents Save writes — are pure
-functions of a class's state and are pinned in `tests.html`, along with a
-check that the grid renders the rows and cells it claims to.
 
 ### Roster import
 
@@ -1917,75 +1906,39 @@ had to learn about a second kind of student. Their assignments are written
 to their roster row instead of `assignments/{uid}`, because there is no uid
 to write against yet; `store.js` picks them up on the first sign-in.
 
-### What should change
+### The flag line
 
-A short panel at the top of the Students tab: **at most one line per
-student**, and nothing for most of them. A dashboard that shows everything
-shows nothing — thirty students with four numbers each is a hundred and
-twenty numbers and no next action.
+Under each student's name on the Students table: **at most one line**, and
+nothing for most students. A dashboard that shows everything shows nothing —
+thirty students with four numbers each is a hundred and twenty numbers and no
+next action.
 
 `Adaptive.nextSteps` is pure and takes the first rule that fires:
 
 1. **Stuck on cards** — 30+ answers on a card list under 40 % solid. That
    student is being shown a word, saying "not yet", and being shown it
-   again; the answer is almost never more cards, so the line offers Say It
+   again; the answer is almost never more cards, so the line says to try Say It
    on the same words (or Match It where the family has no Say It).
 2. **The two in the wrong order** — under 50 % on Match It for a list whose
    cards are under 60 % solid. Picking a word out of six look-alikes is
    harder than reading it, not easier.
-3. **Coasting** — every assigned list 90 %+ solid.
+3. **Finished everything.** For a student in a sequence: the whole sequence is
+   done — *"Finished every list. Add the next ones."* For a plain set (no
+   sequence) it is the old *coasting*: every list 90 %+ solid. A student part way
+   through a sequence is not coasting; they are on the list they are meant to be
+   on.
 4. **Quiet** — no round in more than 7 **school** days. Counting calendar
    days would say the whole class had gone quiet every weekend.
+5. **Moved up** — the one good-news line: *"Moved to a new list on Tuesday."*
+   for a student whose own mark (this plan's, a move forward) is under a week
+   old. Last, because it needs a teacher least, and gone after a week.
 
-Each line carries the same one-click apply the *Ready to move up* strip
-uses: it feeds the board's draft rather than writing, so a teacher sees
-what it did before committing.
-
-### Ready to move up
-
-A student who has finished Red List 3 should be on List 4, and the only
-thing between those two facts is somebody noticing. For a class moving
-together that's fine; for the three students who are ahead it doesn't get
-done, and they spend a fortnight re-practising words they already know.
-
-So the board works it out. Above the grid, when there is anything to say:
-*"Marcos · Red Words 🃏 · finished List 2 (18 of 20 solid) → add List 3"*,
-with a button that drops it into the same draft as every other edit and
-waits for the same Save.
-
-The count in the brackets is the **fluent** one — solid *and* at pace,
-`mastered − slow` — because that is the number `Adaptive.listShare`
-measured the bar against. Printing `mastered` would show "20 of 20" beside
-a suggestion that sixteen of them earned, and a teacher who has read that
-slow words never count toward moving up would be right to ask which is
-true. Where any are slow the line names them beside the count as *"(16 of
-20 solid, 3 more slow)"*: "more", so nobody reads the three as part of the
-sixteen. The per-list cell on the student page keeps its own shape, *"20 /
-20 (3 slow)"*, where the slow words are counted *inside* the twenty — that
-cell answers "how many do they own", this line "how many did the bar see".
-
-This board suggestion does not act on its own, and it is for students who
-have a plain set of lists. A student a teacher has given a **sequence** (see
-*Sequences*) is different, and reverses what this section used to say about
-auto-advancing: the site moves them on itself, and works it out in the
-*student's* browser rather than on the teacher's page — the policy now ships to
-the student's browser on purpose, because only there are their stats at hand
-while they play. What still holds, and what `firestore.rules` is there to
-enforce, is that a student can read `assignments/{uid}` and never write it, so
-a student cannot move *themselves* onto a list the teacher did not set.
-
-The board's bar is **four words in five solid** (`SOLID_ENOUGH`), not all of
-them: one stubborn word — a name, a word whose synthesised reading is poor —
-should not hold a student on a list for a term. (A sequence's bar is 90 % by
-default and set per student; `SOLID_ENOUGH` remains for this suggestion.) Each
-mode advances on its own here, because a student can be solid on List 3 as flash
-cards and still be finding it in Match It; in a sequence a step is finished only
-when every way the teacher ticked has reached the bar. And the suggestion is
-**additive**: it doesn't take the finished list away, since each list is its own
-tile with its own adaptive deck, so keeping List 3 alongside List 4 costs nothing
-and keeps those words in rotation. (In a sequence a finished list leaves the main
-home page and sits in the fold, but stays playable and keeps its stats.) Dropping
-one stays a judgement call.
+A student in a sequence is judged on the list they are on now, not the ones they
+have finished (`nextStepInfo` passes only the current step's ways of playing).
+There is nothing to click: the line is advice, and the student's page is one
+click away. (It used to carry a one-click *Add Say it* that fed the board's
+draft; with the board gone, and a sequence ignoring `lists`, that button had
+nothing to write.) A student who hasn't signed in never gets a line.
 
 ### Patterns
 
@@ -2025,7 +1978,7 @@ and *Top error* per word.
 A short note per student, on their detail page, for the things the numbers
 can't say — *"reads well, freezes when timed"*, *"sounds it out under his
 breath and gets there"*. The first line shows under their name on the
-roster and as a ✎ on the board, because a note you have to open a student
+roster and as a ✎ beside their name on the Students table, because a note you have to open a student
 to discover is a note nobody reads.
 
 It lives in its own `notes/{uid}` collection, and that is the whole design
@@ -2073,7 +2026,7 @@ em dash are not something to hand a screen reader.
 A flat array of list ids in `assignments/{uid}` — or, for a student who
 hasn't signed in yet, on their `roster/{email}` row — and, for a student given
 a sequence, a `plan` beside it (see *Sequences*). The families, the
-modes, the grid and the board are all presentation — `store.js` and
+modes and the picker's grid are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.
 
