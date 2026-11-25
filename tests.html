@@ -4210,7 +4210,654 @@
     });
   })();
 
+  /* ══════════════════════════════════════════════════════════════════
+     A student's page: their lists in order, and their data
+
+     The dashboard and the student's browser run the same
+     Adaptive.planState, so what a teacher is shown as "Now" is what the
+     student's home page shows. The editing is a draft of plain data and
+     every edit is a small pure function, pinned here; the page is checked
+     by rendering it from fixtures.
+     ══════════════════════════════════════════════════════════════════ */
+  (function(){
+    var T = window.EITeacher._internals, A4 = window.Adaptive, W4 = window.WordLists, ST4 = window.EIStore._internals;
+    var body = document.getElementById("tBody");
+    // render() writes the page's title and subtitle; the test page has neither.
+    var chrome = document.createElement("div");
+    chrome.hidden = true;
+    chrome.innerHTML = '<h1 id="tTitle"></h1><p id="tSub"></p>';
+    document.body.appendChild(chrome);
+    var realConfirm = window.confirm, asked = [], answer = true;
+    window.confirm = function(m){ asked.push(String(m)); return answer; };
+    function guard(name, fn){
+      window.confirm = function(m){ asked.push(String(m)); return answer; };   // never a real dialog: it would hang a headless run
+      answer = true;
+      try{ fn(); }
+      catch(e){ results.push({ pass:false, desc: name + " — threw", detail: String(e && e.message || e) }); }
+      finally{ T.reset(); body.innerHTML = ""; window.confirm = realConfirm; body.hidden = true; }
+    }
+    function solid(listId, n, lat){
+      var out = {}, i;
+      for(i=0;i<n;i++) out[listId + "|w" + i] = A4.sanitizeStat({ n:12, r:12, box:5, last:1, lat: lat == null ? 900 : lat });
+      return out;
+    }
+    function merge(){
+      var out = {}, i, k;
+      for(i=0;i<arguments.length;i++) for(k in arguments[i]) out[k] = arguments[i][k];
+      return out;
+    }
+    var ME = "t@seq.org", SETAT = 1000;
+    function kid(uid, name, extra){
+      var st = { uid: uid, name: name, email: uid + "@seq.org", classId: "c3", stats: {}, heard: {}, fluency: {},
+                 totals: { n:0, r:0 }, recent: [], lastSeen: 0 };
+      for(var k in (extra || {})) st[k] = extra[k];
+      return st;
+    }
+    function planDoc(extra){
+      var p = { steps: [{ ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] }, { ids: ["red-3-say"] }],
+                bar: 0.9, at: 0, hold: false, setAt: SETAT };
+      for(var k in (extra || {})) p[k] = extra[k];
+      return p;
+    }
+    var stamp = { classId: "c3", teachers: [ME] };
+    function feed(o){
+      var base = { me: ME, classes: { c3: { name: "Period 3", teachers: [ME] } }, students: [], assignments: {}, roster: {} };
+      for(var k in o) base[k] = o[k];
+      T.feed(base);
+    }
+    // Ana is in a sequence and on step 2: step 1 done at 19 of 20 both ways, step 2 Say it 14 of 20.
+    function ana(extra){
+      return kid("u1", "Ana Lopez", merge({ stats: merge(solid("red-1-say", 19), solid("red-1-cards", 20), solid("red-2-say", 14)),
+        recent: [{ list: "red-2-say", at: Date.now() - 86400000, right: 10, total: 18 }],
+        seq: { at: 1, of: SETAT, when: 1795563000000 } }, extra || {}));
+    }
+    function fixture(extra){
+      var o = {
+        students: [ana(), kid("u2", "Ben Ortiz"), kid("u3", "Cy Park")],
+        assignments: {
+          u1: merge({ plan: planDoc(), lists: ["red-2-say", "red-2-cards"] }, stamp),
+          u2: merge({ lists: ["red-1-say", "red-1-cards", "initial-blends"] }, stamp)
+        }
+      };
+      for(var k in (extra || {})) o[k] = extra[k];
+      return o;
+    }
+
+    /* ---- the dashboard and the student's page agree ---- */
+    guard("the same index on both sides", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      var cases = [
+        { stats: {}, seq: null, plan: planDoc() },
+        { stats: merge(solid("red-1-say", 18), solid("red-1-cards", 18)), seq: null, plan: planDoc() },
+        { stats: merge(solid("red-1-say", 17), solid("red-1-cards", 18)), seq: null, plan: planDoc() },
+        { stats: {}, seq: { at: 2, of: SETAT, when: 1 }, plan: planDoc() },
+        { stats: {}, seq: { at: 2, of: SETAT + 1, when: 1 }, plan: planDoc() },
+        { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20)), seq: null, plan: planDoc({ hold: true }) },
+        { stats: merge(solid("red-1-say", 14), solid("red-1-cards", 14)), seq: null, plan: planDoc({ bar: 0.7 }) },
+        { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 20), solid("red-2-cards", 20), solid("red-3-say", 20)), seq: null, plan: planDoc() }
+      ];
+      var same = 0, ids = 0;
+      cases.forEach(function(c){
+        feed({ students: [kid("u1", "Ana", { stats: c.stats, seq: c.seq })], assignments: { u1: merge({ plan: c.plan }, stamp) } });
+        var teacher = T.positionOf("u1");
+        var student = ST4.resolve({ plan: c.plan }, null, c.stats, c.seq, tot);
+        if(teacher.state.index === student.state.index && teacher.state.finished === student.state.finished) same++;
+        if(JSON.stringify(teacher.ids) === JSON.stringify(student.ids)) ids++;
+      });
+      eq("the teacher's page and the student's code agree on the position in all " + cases.length + " cases", same, cases.length);
+      eq("…and on which lists the student can play", ids, cases.length);
+      feed({ students: [kid("u1", "Ana")], roster: { "u1@seq.org": { name: "Ana", plan: planDoc(), classId: "c3", teachers: [ME] } } });
+      eq("a roster row's plan is the plan for a student who has not signed in", T.planFor("u1") && T.planFor("u1").setAt, SETAT);
+    });
+
+    guard("what a sequence student has", function(){
+      feed(fixture());
+      eq("effectiveLists for a sequence student is finished-then-current", T.effectiveLists("u1").ids.join(","),
+         "red-1-say,red-1-cards,red-2-say,red-2-cards");
+      eq("…and says it came from the plan", T.effectiveLists("u1").from, "plan");
+      eq("a student with only lists is unchanged", T.effectiveLists("u2").ids.join(","), "red-1-say,red-1-cards,initial-blends");
+      eq("…and says student", T.effectiveLists("u2").from, "student");
+      eq("a student with nothing is unchanged", T.effectiveLists("u3").from, "nothing");
+      eq("Ana is on step 2", T.positionOf("u1").state.index, 1);
+      eq("a student with no plan has no position", T.positionOf("u2"), null);
+    });
+
+    /* ---- the edits ---- */
+    guard("the edits", function(){
+      function ids(){ return Array.prototype.slice.call(arguments); }
+      function steps(a){ return a.map(function(x){ return { ids: [x] }; }); }
+      // Five lists, Now on the second (idx 1): 0 finished, 1 now, 2..4 later.
+      function d5(){ return { uid: "u1", steps: steps(["red-1-say", "red-2-say", "red-3-say", "red-4-say", "red-5-say"]),
+                              bar: 0.9, at: 1, hold: false, hasPlan: false }; }
+      var d = d5();
+      eq("a later step moves later", T.draftMove(d, 2, 1, 1), true);
+      eq("…and the order changed", d.steps.map(function(x){ return x.ids[0]; }).join(","), "red-1-say,red-2-say,red-4-say,red-3-say,red-5-say");
+      eq("a later step moves earlier", T.draftMove(d, 3, -1, 1), true);
+      eq("the first later step cannot move above Now", T.draftMove(d, 2, -1, 1), false);
+      eq("the last step cannot move later", T.draftMove(d, 4, 1, 1), false);
+      eq("Now cannot be moved", T.draftMove(d, 1, 1, 1), false);
+      eq("a finished step cannot be moved", T.draftMove(d, 0, 1, 1), false);
+      d = d5();
+      eq("a later step is taken out", T.draftRemove(d, 3, 1), true);
+      eq("…and the others stay", d.steps.length, 4);
+      eq("Now cannot be taken out", T.draftRemove(d, 1, 1), false);
+      eq("a finished step cannot be taken out", T.draftRemove(d, 0, 1), false);
+      d = { uid: "u1", steps: [{ ids: ["red-1-say", "red-1-cards"] }], bar: 0.9, at: 0, hold: false };
+      eq("the ways of a list can be changed", T.draftWays(d, 0, ["red-1-match", "red-1-say"]), true);
+      eq("…and are kept in the library's order", d.steps[0].ids.join(","), "red-1-say,red-1-match");
+      eq("at least one way is needed", T.draftWays(d, 0, []), false);
+      eq("every way must be the same list", T.draftWays(d, 0, ["red-1-say", "red-2-say"]), false);
+      eq("…and the step was not changed by the refusals", d.steps[0].ids.join(","), "red-1-say,red-1-match");
+      eq("a list is added at the end", T.draftAdd(d, ["red-2-cards", "red-2-say"]), true);
+      eq("…with its ways in order", d.steps[1].ids.join(","), "red-2-say,red-2-cards");
+      eq("a list already in the sequence is refused", T.draftAdd(d, ["red-1-cards"]), false);
+      eq("an empty list of ways is refused", T.draftAdd(d, []), false);
+      eq("ways from two lists are refused", T.draftAdd(d, ["red-3-say", "red-4-say"]), false);
+      d = { steps: [], bar: 0.9, at: 0, hold: false };
+      eq("90 goes up to 95", (T.draftBar(d, 1), d.bar), 0.95);
+      eq("…to 100", (T.draftBar(d, 1), d.bar), 1);
+      eq("…and no further", T.draftBar(d, 1), false);
+      d.bar = 0.55; T.draftBar(d, -1);
+      eq("55 goes down to 50", d.bar, 0.5);
+      eq("…and no further", T.draftBar(d, -1), false);
+      d = d5(); d.hold = true;
+      eq("Move on now makes the next step current", T.draftMoveOn(d, 1), true);
+      eq("…at that step", d.at, 2);
+      eq("…and takes the hold off", d.hold, false);
+      d = d5();
+      eq("there is no moving on from the last step", T.draftMoveOn(d, 4), false);
+      T.draftGoBack(d, 4);
+      eq("a hold on the last list…", d.hold, true);
+      eq("…can be lifted with Move on now", T.draftMoveOn(d, 4), true);
+      eq("…which takes the hold off and leaves them there", d.hold + "/" + d.at, "false/4");
+      eq("Go back makes that step current", T.draftGoBack(d, 0), true);
+      eq("…there", d.at, 0);
+      eq("…and holds them", d.hold, true);
+      d = d5();
+      T.draftReplaceLater(d, 1, [{ ids: ["red-2-say"] }, { ids: ["red-7-say"] }, { ids: ["red-1-say"] }, { ids: ["red-8-say"] }]);
+      eq("replacing the later steps keeps the finished one and Now, drops the old later ones, and never repeats a list",
+         d.steps.map(function(x){ return x.ids[0]; }).join(","), "red-1-say,red-2-say,red-7-say,red-8-say");
+      d = { steps: [], bar: 0.9, at: 0, hold: false };
+      T.draftReplaceLater(d, 0, [{ ids: ["red-1-say"] }, { ids: ["red-2-say"] }]);
+      eq("an empty sequence takes all of a ready-made one", d.steps.length, 2);
+    });
+
+    guard("ready-made sequences and putting games in order", function(){
+      var red = T.readyMadeSteps("red");
+      eq("Red Words, Lists 1 to 10 is ten steps", red.length, 10);
+      eq("…each with Say it and Cards", red.every(function(st){ return st.ids.length === 2 && /-say$/.test(st.ids[0]) && /-cards$/.test(st.ids[1]); }), true);
+      eq("…in order", red[0].ids[0] + " " + red[9].ids[0], "red-1-say red-10-say");
+      var snd = T.readyMadeSteps("sounding");
+      eq("Sounding it out is four steps", snd.length, 4);
+      eq("…Starting Blends, Blend Words, oi / oy, Multisyllable, in that order",
+         snd.map(function(st){ return W4.byId(st.ids[0]).family; }).join(","), "blends-start,blends-end,oi-oy,multi");
+      eq("…each with Say it and Cards", snd.every(function(st){
+        return st.ids.length === 2 && W4.byId(st.ids[0]).mode === "say" && W4.byId(st.ids[1]).mode === "cards"; }), true);
+      eq("every id is a real, live id", red.concat(snd).every(function(st){ return st.ids.every(function(id){ return W4.exists(id) && !W4.isRetired(id); }); }), true);
+      eq("an unknown key is no steps", T.readyMadeSteps("nope").length, 0);
+      var st = T.stepsFromIds(["red-2-cards", "initial-blends", "red-1-say", "red-2-say", "red-1-cards", "not-a-list"]);
+      eq("games go one step per list, in the library's order",
+         st.map(function(x){ return x.ids.join("+"); }).join(" | "), "initial-blends | red-1-say+red-1-cards | red-2-say+red-2-cards");
+    });
+
+    guard("what Save writes", function(){
+      feed(fixture());
+      var d = T.draftFromSaved("u1");
+      eq("a saved plan opens as a draft at the step they are really on", d.at, 1);
+      eq("…with the saved bar", d.bar, 0.9);
+      eq("…and is not dirty", T.seqDirty(), false);
+      var idx = T.draftIndex(d);
+      eq("the draft shows the student's real position", idx, 1);
+      T.draftBar(d, -1);
+      var pb = T.planBody(d, T.draftIndex(d), 5000);
+      eq("Save starts the plan afresh", pb.plan.setAt, 5000);
+      eq("…at the step shown as Now", pb.plan.at, 1);
+      eq("…with the new percent", pb.plan.bar, 0.85);
+      eq("…and `lists` is that step's ids", pb.lists.join(","), "red-2-say,red-2-cards");
+      eq("…all three steps", pb.plan.steps.length, 3);
+      eq("…and is a plan the student's side accepts unchanged", JSON.stringify(A4.sanitizePlan(pb.plan)), JSON.stringify(pb.plan));
+      var held = T.draftFromSaved("u1"); T.draftGoBack(held, 0);
+      var hb = T.planBody(held, T.draftIndex(held), 5000);
+      eq("Go back writes the step and the hold", hb.plan.at + "/" + hb.plan.hold, "0/true");
+      eq("…and `lists` is the step they are held on", hb.lists.join(","), "red-1-say,red-1-cards");
+      var mv = T.draftFromSaved("u1"); T.draftMoveOn(mv, 1);
+      var mb = T.planBody(mv, T.draftIndex(mv), 5000);
+      eq("Move on now writes the next step, no hold", mb.plan.at + "/" + mb.plan.hold, "2/false");
+      var sb = T.stopBody("u1", 7000);
+      eq("Stop using a sequence removes the plan", sb.plan, "\u0000delete");
+      eq("…keeps the current step's lists", sb.lists.join(","), "red-2-say,red-2-cards");
+      eq("…and carries the class stamp", sb.classId + "/" + sb.teachers.join(","), "c3/" + ME);
+      eq("a student with no sequence has nothing to stop", T.stopBody("u2", 1), null);
+    });
+
+    guard("the page", function(){
+      feed(fixture());
+      T.open("u1"); T.renderDetail();
+      eq("the page has three tabs", body.querySelectorAll('[role="tab"]').length, 3);
+      eq("…Word lists first and selected", body.querySelector('[role="tab"]').getAttribute("aria-selected") + " " + body.querySelector('[role="tab"]').textContent, "true Word lists");
+      eq("…and the other two panels are hidden", body.querySelectorAll('[role="tabpanel"][hidden]').length, 2);
+      eq("a narrow list of students sits at the left", body.querySelectorAll(".stuPick").length, 3);
+      eq("…with this student marked", body.querySelector('.stuPick[aria-current="true"]').textContent, "Ana Lopez");
+      eq("the header says who, with one line",
+         /^Period 3 · practiced .+ · 1 round this week$/.test(body.querySelector("#stuLine").textContent), true);
+      eq("the editor is titled with the name", body.querySelector("#seqHead").textContent, "Ana Lopez’s word lists, in order");
+      eq("one row per list", body.querySelectorAll(".seqRow").length, 3);
+      eq("…the first finished, the second Now, the third Next",
+         Array.prototype.map.call(body.querySelectorAll(".seqTag"), function(t){ return t.textContent; }).join(","), "Finished,Now,Next");
+      eq("a finished step offers Go back to this list", body.querySelector('.seqRow.fin [data-seq="goback"]').textContent, "Go back to this list");
+      eq("…naming the list for a screen reader", body.querySelector('.seqRow.fin [data-seq="goback"]').getAttribute("aria-label"), "Go back to Red Words · List 1");
+      eq("a finished step shows its date and its count",
+         /^Finished .+ · 19 of 20 solid$/.test(body.querySelector(".seqRow.fin .seqNote").textContent), true);
+      eq("Now has a bar for each way of playing", body.querySelectorAll(".seqRow.now .seqMeter").length, 2);
+      eq("…and says it in words, in whole words",
+         body.querySelector(".seqRow.now .seqLine").textContent, "Say it: 14 of 20 solid. 4 more to finish (18 of 20).");
+      eq("…the other way too", body.querySelectorAll(".seqRow.now .seqLine")[1].textContent, "Cards: 0 of 20 solid. 18 more to finish (18 of 20).");
+      eq("Now offers Move on now", body.querySelector('.seqRow.now [data-seq="moveon"]').textContent, "Move on now");
+      eq("the last step has no Move on now (it finishes at the bar)", body.querySelectorAll('[data-seq="moveon"]').length, 1);
+      eq("a later step can be moved earlier, later, changed or taken out",
+         ["up", "down", "ways", "remove"].every(function(a){ return body.querySelector('.seqRow.later [data-seq="' + a + '"]'); }), true);
+      eq("…and says which list in its labels", body.querySelector('.seqRow.later [data-seq="up"]').getAttribute("aria-label"), "Move Red Words · List 3 earlier");
+      eq("the only later step can't move any further", body.querySelector('.seqRow.later [data-seq="up"]').disabled && body.querySelector('.seqRow.later [data-seq="down"]').disabled, true);
+      eq("the percent is shown, in steps", body.querySelector("#seqPct").textContent, "90%");
+      eq("nothing has changed so no save bar", body.querySelector("#seqSave").hidden, true);
+      eq("beside the editor: the list they are on and the ones finished", body.querySelectorAll(".seqSide .panel").length, 2);
+      eq("…the finished card names the finished list", body.querySelector(".seqFinList li").textContent, "Red Words · List 1");
+
+      // Edit through the buttons themselves.
+      body.querySelector('[data-seq="bar-"]').click();
+      eq("the percent button lowers it", body.querySelector("#seqPct").textContent, "85%");
+      eq("…and the move-to-finish counts redraw at once (85% of 20 is 17)",
+         body.querySelector(".seqRow.now .seqLine").textContent, "Say it: 14 of 20 solid. 3 more to finish (17 of 20).");
+      eq("…and the save bar appears", body.querySelector("#seqSave").hidden, false);
+      eq("…saying so", body.querySelector(".seqCount").textContent, "Changes not saved yet");
+      eq("…with Discard and Save", !!body.querySelector('[data-seq="discard"]') && !!body.querySelector('[data-seq="save"]'), true);
+      eq("the draft is dirty", T.seqDirty(), true);
+      body.querySelector('[data-seq="discard"]').click();
+      eq("Discard puts it back", body.querySelector("#seqPct").textContent + " " + body.querySelector("#seqSave").hidden, "90% true");
+      eq("…and the draft is gone", T.getDraft(), null);
+
+      // Move on now.
+      body.querySelector('[data-seq="moveon"]').click();
+      eq("Move on now makes the next list Now", Array.prototype.map.call(body.querySelectorAll(".seqTag"), function(t){ return t.textContent; }).join(","),
+         "Finished,Finished,Now");
+      eq("…and the last step has no Move on now", body.querySelectorAll('[data-seq="moveon"]').length, 0);
+      eq("…and there is something to save", body.querySelector("#seqSave").hidden, false);
+      body.querySelector('[data-seq="discard"]').click();
+
+      // Go back.
+      body.querySelector('.seqRow.fin [data-seq="goback"]').click();
+      eq("Go back makes that list Now", body.querySelector(".seqRow.now .seqName").textContent, "Red Words · List 1");
+      eq("…and says they are held",  body.querySelector(".seqRow.now .seqHeld").textContent, "Staying here until you press Move on now.");
+      eq("…and the later lists are later again", Array.prototype.map.call(body.querySelectorAll(".seqTag"), function(t){ return t.textContent; }).join(","), "Now,Next,Later");
+      body.querySelector('[data-seq="discard"]').click();
+
+      // Change the ways, take one out, add one.
+      body.querySelector('.seqRow.later [data-seq="ways"]').click();
+      eq("Change ways opens the ways of that list", body.querySelectorAll("[data-ways]").length, 3);
+      eq("…with the current ones ticked", Array.prototype.filter.call(body.querySelectorAll("[data-ways]"), function(c){ return c.checked; }).length, 1);
+      body.querySelector('[data-ways="red-3-cards"]').checked = true;
+      body.querySelector('[data-seq="ways-done"]').click();
+      eq("Done keeps the ticks", T.getDraft().steps[2].ids.join(","), "red-3-say,red-3-cards");
+      body.querySelector('[data-seq="add-open"]').click();
+      eq("Add a list opens a chooser of lists not already in the sequence", !!body.querySelector("#seqAddList"), true);
+      eq("…which starts on the next list of the family the sequence ends in",
+         body.querySelector("#seqAddList").options[body.querySelector("#seqAddList").selectedIndex].textContent, "Red Words · List 4");
+      eq("…with Add ready, since the ticks were copied", body.querySelector("#seqAddGo").disabled, false);
+      eq("…the ticks starting as a copy of the step above when it is the same family",
+         Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).length, 2);
+      var sel = body.querySelector("#seqAddList");
+      sel.value = "blends-start:1"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+      eq("choosing a list of another family starts with nothing ticked", Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).length, 0);
+      eq("…and Add is disabled until a way is ticked", body.querySelector("#seqAddGo").disabled, true);
+      body.querySelector("[data-addway]").checked = true;
+      body.querySelector("[data-addway]").dispatchEvent(new Event("change", { bubbles: true }));
+      eq("…ticking one enables it", body.querySelector("#seqAddGo").disabled, false);
+      sel = body.querySelector("#seqAddList");
+      sel.value = "red:4"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+      body.querySelector('[data-seq="add-go"]').click();
+      eq("Add puts the list at the end", T.getDraft().steps.length, 4);
+      eq("…once", T.getDraft().steps[3].ids.length, 2);
+      body.querySelector('.seqRow:last-child [data-seq="remove"]').click();
+      eq("Take out removes it", T.getDraft().steps.length, 3);
+      eq("the draft was never written: the saved plan still has three steps and the old bar", T.planFor("u1").steps.length + " " + T.planFor("u1").bar, "3 0.9");
+      body.querySelector('[data-seq="discard"]').click();
+    });
+
+    guard("saving, stopping, and leaving", function(){
+      feed(fixture());
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="bar-"]').click();
+      asked.length = 0; answer = false;
+      eq("leaving with a draft asks first", T.leaveDraftOk("Refresh"), false);
+      eq("…naming the student and the way out", /Ana Lopez’s word lists haven’t been saved yet\. Refresh and lose them\?/.test(asked[0] || ""), true);
+      eq("…and saying no keeps the draft", T.seqDirty(), true);
+      answer = true;
+      eq("saying yes lets go", T.leaveDraftOk("Refresh"), true);
+      eq("…and drops the draft", T.getDraft(), null);
+      asked.length = 0;
+      eq("leaving with nothing pending asks nothing", T.leaveDraftOk("Refresh") && asked.length === 0, true);
+
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="bar-"]').click();
+      asked.length = 0; answer = false;
+      body.querySelectorAll(".stuPick")[1].click();
+      eq("switching student with a draft asks first", asked.length, 1);
+      eq("…and a no keeps this student", body.querySelector('.stuPick[aria-current="true"]').textContent, "Ana Lopez");
+      answer = true;
+      body.querySelectorAll(".stuPick")[1].click();
+      eq("…a yes switches", body.querySelector('.stuPick[aria-current="true"]').textContent, "Ben Ortiz");
+      eq("…and the draft is gone", T.getDraft(), null);
+      asked.length = 0;
+      body.querySelector("#tBack").click();
+      eq("going back with nothing pending asks nothing", asked.length, 0);
+
+      // Stopping: confirm first.
+      T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
+      T.setDb({ batch: function(){ return { set: function(){}, commit: function(){ return Promise.resolve(); } }; },
+                collection: function(){ return { doc: function(id){ return { id: id }; } }; } });
+      window.firebase = { firestore: { FieldValue: { delete: function(){ return "DEL"; } } } };
+      asked.length = 0; answer = false;
+      body.querySelector('[data-seq="stop"]').click();
+      eq("Stop using a sequence asks first", asked.length, 1);
+      eq("…saying what they will keep and what leaves", /just Red Words · List 2.*lists they finished leave their home page/.test(asked[0].replace(/\n/g, " ")), true);
+      eq("…and a no changes nothing", !!T.planFor("u1"), true);
+      // (A yes writes through the database: see "Stop using a sequence writes", below.)
+      delete window.firebase; T.setDb(null);
+    });
+
+    guard("a student with no sequence", function(){
+      feed(fixture());
+      T.open("u2"); T.renderDetail();
+      eq("games with no order say so", body.querySelector(".seqNoOrder").textContent, "These 3 games, all at once, in no order");
+      eq("…with the sentence the roster shows", body.querySelector("#stuPanel-lists .note").textContent, W4.describeAssignment(["red-1-say", "red-1-cards", "initial-blends"]));
+      eq("…and a button to put them in order", body.querySelector('[data-seq="inorder"]').textContent, "Put these in order");
+      eq("…the picker is behind a fold", body.querySelector("details.seqFold summary").textContent, "Change these games");
+      eq("…with the old Save games button", !!body.querySelector("#tSaveA"), true);
+      body.querySelector('[data-seq="inorder"]').click();
+      eq("Put these in order makes a draft, one step per list in the library's order",
+         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "initial-blends | red-1-say+red-1-cards");
+      eq("…and offers to save it", body.querySelector("#seqSave").hidden, false);
+      eq("…with Save enabled", body.querySelector('[data-seq="save"]').disabled, false);
+      body.querySelector('[data-seq="discard"]').click();
+      eq("Discard puts the games back, in no order", !!body.querySelector(".seqNoOrder"), true);
+
+      T.open("u3"); T.renderDetail();
+      eq("a student with nothing gets the editor with no rows", body.querySelectorAll(".seqRow").length, 0);
+      eq("…and the words that say so", /No lists yet/.test(body.querySelector("#stuPanel-lists").textContent), true);
+      eq("…ready-made sequences on offer", body.querySelectorAll("#seqReady option").length, 2);
+      asked.length = 0;
+      body.querySelector('[data-seq="ready-go"]').click();
+      eq("starting from Red Words, Lists 1 to 10 fills it", T.getDraft().steps.length, 10);
+      eq("…without asking, since there was nothing to replace", asked.length, 0);
+      body.querySelector('[data-seq="discard"]').click();
+
+      // A student who is solid on the first steps lands past them.
+      feed({ students: [kid("u4", "Dev", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 19), solid("red-2-cards", 19)) })],
+             assignments: {} });
+      T.open("u4"); T.renderDetail();
+      body.querySelector('[data-seq="ready-go"]').click();
+      eq("a ready-made sequence puts a student who is already solid on steps 1 and 2 on step 3",
+         Array.prototype.map.call(body.querySelectorAll(".seqTag"), function(t){ return t.textContent; }).slice(0, 4).join(","), "Finished,Finished,Now,Next");
+    });
+
+    guard("a student who has not signed in", function(){
+      feed({ students: [], roster: { "pat@seq.org": { name: "Pat Roe", plan: planDoc(), classId: "c3", teachers: [ME] } } });
+      T.open("roster:pat@seq.org"); T.renderDetail();
+      eq("a pending student's page shows their sequence", body.querySelectorAll(".seqRow").length, 3);
+      eq("…their first list is Now", body.querySelector(".seqRow.now .seqName").textContent, "Red Words · List 1");
+      eq("…and the line says they have not signed in", /hasn’t signed in yet/.test(body.querySelector("#stuLine").textContent), true);
+      eq("…notes wait for them to sign in", /Notes open once they have signed in/.test(body.querySelector("#stuPanel-notes").textContent), true);
+      body.querySelector('[data-seq="moveon"]').click();
+      eq("…and they can be edited like anyone", T.getDraft().uid, "roster:pat@seq.org");
+    });
+
+    guard("the other two tabs", function(){
+      feed(fixture());
+      T.open("u1"); T.renderDetail();
+      var tabs = body.querySelectorAll('[role="tab"]');
+      tabs[1].click();
+      eq("All practice data opens on its own", body.querySelector("#stuPanel-data").hidden + " " + body.querySelector("#stuPanel-lists").hidden, "false true");
+      eq("…the selected tab says so", tabs[1].getAttribute("aria-selected") + " " + tabs[0].getAttribute("aria-selected"), "true false");
+      eq("…and holds the numbers", body.querySelectorAll("#stuPanel-data .stat").length, 6);
+      eq("…and By list", /By list/.test(body.querySelector("#stuPanel-data").textContent), true);
+      tabs[2].click();
+      eq("Notes and class holds Notes, Class and Archive", ["Notes", "Class", "Archive"].every(function(h){
+        return Array.prototype.some.call(body.querySelectorAll("#stuPanel-notes h2"), function(e){ return e.textContent === h; }); }), true);
+      eq("…and the notes box", !!body.querySelector("#stuPanel-notes #tNote"), true);
+      tabs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+      eq("the End key goes to the last tab", body.querySelector("#stab-notes").getAttribute("aria-selected"), "true");
+    });
+
+    guard("the Assign board while sequences are on their own page", function(){
+      feed(fixture());
+      T.renderAssign();
+      eq("the board leaves a sequence student out", body.querySelectorAll("tr.abStudent").length, 2);
+      eq("…and says how many, and where to go", body.querySelector(".seqBoardNote").textContent,
+         "1 student is in a sequence. Change their lists on their own page.");
+      eq("…and counts them", T.sequenceStudentsShown(), 1);
+      feed({ students: [kid("u1", "Ana"), kid("u2", "Ben")], assignments: { u1: merge({ plan: planDoc() }, stamp), u2: merge({ plan: planDoc() }, stamp) } });
+      T.renderAssign();
+      eq("two sequence students are counted in the plural", body.querySelector(".seqBoardNote").textContent,
+         "2 students are in a sequence. Change their lists on their own page.");
+      feed({ students: [kid("u2", "Ben")], assignments: { u2: merge({ lists: ["red-1-say"] }, stamp) } });
+      T.renderAssign();
+      eq("with nobody in a sequence there is no line", body.querySelector(".seqBoardNote"), null);
+    });
+    guard("the keyboard", function(){
+      // The test page keeps #tBody hidden, and a hidden element cannot take focus.
+      body.hidden = false;
+      feed(fixture());
+      T.renderRoster();
+      var rows = body.querySelectorAll("tr.clickable");
+      eq("every student row in the Students table can take focus", Array.prototype.every.call(rows, function(r){ return r.getAttribute("tabindex") === "0"; }), true);
+      rows[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      eq("Enter on a row opens that student", !!body.querySelector(".stuLayout"), true);
+      eq("…and focus lands on the student, not on nothing", document.activeElement && document.activeElement.id, "stuHead");
+
+      T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
+      var picks = body.querySelectorAll(".stuPick");
+      eq("the student list is one tab stop: only the open student can be tabbed to",
+         Array.prototype.filter.call(picks, function(b){ return b.tabIndex === 0; }).length, 1);
+      eq("…and it is the open one", body.querySelector('.stuPick[tabindex="0"]').getAttribute("aria-current"), "true");
+      picks[0].focus();
+      picks[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      eq("the down arrow moves along the list", document.activeElement.textContent, "Ben Ortiz");
+      eq("…and Enter opens it, keeping focus in the list", (function(){ document.activeElement.click(); return document.activeElement.textContent + "/" + body.querySelector("#seqHead, .seqNoOrder").textContent.slice(0, 4); })(),
+         "Ben Ortiz/Ben ");
+
+      // After an edit, focus stays near the person.
+      T.reset(); feed(fixture({ students: [ana(), kid("u2", "Ben Ortiz"), kid("u3", "Cy Park")],
+        assignments: { u1: merge({ plan: planDoc({ steps: [{ ids: ["red-1-say"] }, { ids: ["red-2-say"] }, { ids: ["red-3-say"] }, { ids: ["red-4-say"] }, { ids: ["red-5-say"] }] }), lists: ["red-1-say"] }, stamp) } }));
+      T.open("u1"); T.renderDetail();
+      // Ana is solid on step 1 only partly; the first steps may be finished. Use the later rows.
+      var downs = body.querySelectorAll('.seqRow.later [data-seq="down"]');
+      var firstDown = downs[0];
+      firstDown.focus(); firstDown.click();
+      eq("after moving a list later, focus is on that row's own button, so the key can be pressed again",
+         document.activeElement.getAttribute("data-seq"), "down");
+      var movedIdx = Number(document.activeElement.getAttribute("data-i"));
+      var lastDown = body.querySelector('.seqRow.later:last-child [data-seq="down"]');
+      eq("…a step moved to the end keeps focus on a usable button (the other direction)", (function(){
+        var guard2 = 0;
+        while(document.activeElement && document.activeElement.getAttribute("data-seq") === "down" && !document.activeElement.disabled && guard2++ < 10) document.activeElement.click();
+        return document.activeElement.getAttribute("data-seq");
+      })(), "up");
+      body.querySelector('[data-seq="add-open"]').click();
+      body.querySelector('[data-seq="add-cancel"]').click();
+      eq("closing Add a list returns focus to the button that opened it", document.activeElement.getAttribute("data-seq"), "add-open");
+      eq("a status line is there for a save to speak into", !!body.querySelector("#seqFlash") && body.querySelector("#seqFlash").getAttribute("role"), "status");
+      body.querySelector('[data-seq="discard"]').click();
+      body.hidden = true;
+    });
+    guard("which plan wins, as the student's code decides it", function(){
+      var EPs = ST4.effectivePlan;
+      function both(assignment, roster){
+        feed({ students: [kid("u1", "Ana")], assignments: assignment ? { u1: assignment } : {},
+               roster: roster ? { "u1@seq.org": roster } : {} });
+        var mine = T.planFor("u1"), theirs = EPs(assignment, roster);
+        return JSON.stringify(mine && mine.setAt) + "|" + JSON.stringify(theirs && theirs.setAt);
+      }
+      var P1 = planDoc({ setAt: 11 }), P2 = planDoc({ setAt: 22 });
+      eq("an assignment with a plan wins over a roster plan", both(merge({ plan: P1 }, stamp), merge({ plan: P2 }, stamp)), "11|11");
+      eq("an assignment with only lists beats a roster's plan (no plan)", both(merge({ lists: ["red-1-say"] }, stamp), merge({ plan: P2 }, stamp)), "null|null");
+      eq("an assignment with neither falls through to the roster's plan", both(merge({}, stamp), merge({ plan: P2 }, stamp)), "22|22");
+      eq("an assignment with a broken plan and no lists falls through too", both(merge({ plan: { steps: [] } }, stamp), merge({ plan: P2 }, stamp)), "22|22");
+      eq("a plan beats a roster's lists", both(merge({ plan: P1 }, stamp), merge({ lists: ["red-9-say"] }, stamp)), "11|11");
+      eq("nothing anywhere is no plan on either side", both(null, null), "null|null");
+    });
+
+    guard("the Students panel and the board leave sequence students alone", function(){
+      // A student stuck on a Cards list: thirty-plus answers, nowhere near solid.
+      var stuck = {};
+      for(var i=0;i<10;i++) stuck["red-1-cards|w" + i] = A4.sanitizeStat({ n:6, r:1, w:5, box:0, last:1 });
+      feed({ students: [kid("u1", "Ana", { stats: stuck }), kid("u2", "Ben", { stats: stuck })],
+             assignments: { u1: merge({ plan: planDoc(), lists: ["red-1-say", "red-1-cards"] }, stamp),
+                            u2: merge({ lists: ["red-1-cards"] }, stamp) } });
+      var rows = T.nextStepRows();
+      eq("a student not in a sequence is still offered a suggestion", rows.some(function(r){ return r.uid === "u2"; }), true);
+      eq("a student in a sequence is not (it would write `lists`, which a plan ignores)", rows.some(function(r){ return r.uid === "u1"; }), false);
+    });
+
+    guard("leaving by the sidebar, and the tab memory", function(){
+      body.hidden = false;   // focus needs a visible page
+      feed(fixture());
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="bar-"]').click();
+      asked.length = 0; answer = false;
+      T.switchView("assign");
+      eq("a sidebar item with a draft asks first", asked.length, 1);
+      eq("…and a no stays on the student", !!body.querySelector(".stuLayout"), true);
+      eq("…with the draft intact", T.seqDirty(), true);
+      answer = true;
+      body.querySelector('[data-seq="discard"]').click();
+      body.querySelectorAll('[role="tab"]')[1].click();
+      body.querySelector("#tBack").click();
+      T.open("u1"); T.render();
+      eq("opening the same student again starts on Word lists, not the tab left on", body.querySelector('[role="tab"][aria-selected="true"]').textContent, "Word lists");
+
+      // Archive asks too when there are edits.
+      T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="bar-"]').click();
+      asked.length = 0; answer = false;
+      body.querySelector("#stab-notes").click();
+      body.querySelector("#tArchive").click();
+      eq("Archive with a draft asks first", /Archive this student and lose them\?/.test(asked[0] || ""), true);
+      eq("…and a no keeps the page and the draft", !!body.querySelector(".stuLayout") && T.seqDirty(), true);
+      answer = true;
+
+      // The ways panel: saying why Done did nothing, and closing when rows move.
+      T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
+      body.querySelector('.seqRow.later [data-seq="ways"]').click();
+      Array.prototype.forEach.call(body.querySelectorAll("[data-ways]"), function(c){ c.checked = false; });
+      body.querySelector('[data-seq="ways-done"]').click();
+      eq("Done with nothing ticked says so, and changes nothing", body.querySelector("#waysNote").textContent, "Tick at least one way of playing.");
+      eq("…the draft still has its one way", T.getDraft().steps[2].ids.join(","), "red-3-say");
+      eq("Cancel knows which row it belongs to", body.querySelector('[data-seq="ways-cancel"]').getAttribute("data-i"), "2");
+      body.querySelector('[data-seq="ways-cancel"]').click();
+      eq("…and puts focus back on that row's Change ways button", document.activeElement.getAttribute("data-seq") + "/" + document.activeElement.getAttribute("data-i"), "ways/2");
+      body.hidden = true;
+    });
+
+    // The writes themselves: through a fake database that records what
+    // reaches it. These run after everything above (they are promises), and
+    // one at a time, since they share the page and the dashboard's state.
+    var chain = Promise.resolve();
+    window.__pendingTests = window.__pendingTests || [];
+    function guardAsync(name, fn){
+      chain = chain.then(function(){
+        window.confirm = function(m){ asked.push(String(m)); return answer; }; answer = true; body.hidden = false;
+        window.firebase = { firestore: { FieldValue: { delete: function(){ return "DEL"; } } } };
+        var p; try{ p = Promise.resolve(fn()); }catch(e){ p = Promise.reject(e); }
+        return p.then(null, function(e){ results.push({ pass:false, desc: name + " — threw", detail: String(e && e.message || e) }); })
+          .then(function(){ T.reset(); T.setDb(null); delete window.firebase; body.innerHTML = ""; body.hidden = true; window.confirm = realConfirm; });
+      });
+      window.__pendingTests.push(chain);
+    }
+    function fakeDb(fail){
+      var db = { log: [], ops: 0 };
+      db.collection = function(c){ return { doc: function(id){ return { col: c, id: id }; } }; };
+      db.batch = function(){
+        var ops = [];
+        return { set: function(ref, data, opts){ ops.push({ col: ref.col, id: ref.id, data: data, opts: opts }); },
+                 commit: function(){ db.ops++; if(fail) return Promise.reject(new Error("offline")); ops.forEach(function(o){ db.log.push(o); }); return Promise.resolve(); } };
+      };
+      return db;
+    }
+
+    guardAsync("Save writes the right document", function(){
+      feed(fixture()); var db = fakeDb(); T.setDb(db);
+      T.board.draft["s:u1"] = ["red-9-say"];
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="bar-"]').click();
+      var before = T.planFor("u1");
+      return T.seqAct("save").then(function(){
+        var w = db.log[0] || {}, d = w.data || {};
+        eq("one write", db.log.length, 1);
+        eq("to the student's assignment", w.col + "/" + w.id, "assignments/u1");
+        eq("as a merge", JSON.stringify(w.opts), '{"merge":true}');
+        eq("carrying exactly the plan, the lists, the time and the class stamp", Object.keys(d).sort().join(","), "classId,lists,plan,teachers,updatedAt");
+        eq("…the new percent", d.plan && d.plan.bar, 0.85);
+        eq("…starting afresh", d.plan && d.plan.setAt === d.updatedAt, true);
+        eq("…at the step shown as Now", d.plan && d.plan.at, 1);
+        eq("…and the current step's lists", d.lists && d.lists.join(","), "red-2-say,red-2-cards");
+        eq("…never the student's own document, and no `seq`", w.col !== "students" && !("seq" in d), true);
+        eq("the page's own copy has the new plan", T.planFor("u1").bar, 0.85);
+        eq("the old plan was not edited in place", before.bar, 0.9);
+        eq("the draft is gone", T.getDraft(), null);
+        eq("a board edit pending for this student is dropped (it would write a stale `lists`)", "s:u1" in T.board.draft, false);
+        eq("the status line says Saved. and focus is at the heading", body.querySelector("#seqFlash").textContent + "/" + document.activeElement.id, "Saved./seqHead");
+      });
+    });
+    guardAsync("a pending student is written through their roster row", function(){
+      feed({ students: [], roster: { "pat@seq.org": { name: "Pat Roe", plan: planDoc(), classId: "c3", teachers: [ME] } } });
+      var db = fakeDb(); T.setDb(db);
+      T.open("roster:pat@seq.org"); T.renderDetail();
+      body.querySelector('[data-seq="moveon"]').click();
+      return T.seqAct("save").then(function(){
+        var w = db.log[0] || {};
+        eq("to roster/<email>, not assignments/", w.col + "/" + w.id, "roster/pat@seq.org");
+        eq("with the plan moved on", w.data && w.data.plan && w.data.plan.at, 1);
+        eq("…and the stamp", w.data && w.data.classId, "c3");
+        eq("the page's copy of the row kept its plan", T.planFor("roster:pat@seq.org").at, 1);
+      });
+    });
+    guardAsync("a failed save rolls back and says so", function(){
+      feed(fixture()); var db = fakeDb(true); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      body.querySelector('[data-seq="bar-"]').click();
+      return T.seqAct("save").then(function(){
+        eq("a write was tried", db.ops, 1);
+        eq("the page's own copy is back as it was", T.planFor("u1").bar, 0.9);
+        eq("the draft is kept, so nothing is lost", T.seqDirty(), true);
+        eq("the page says so beside Save", /Didn’t save — check the network/.test(body.querySelector("#seqNote").textContent), true);
+        eq("…and Save is still there to try again", body.querySelector("#seqSave").hidden, false);
+      });
+    });
+    guardAsync("Stop using a sequence writes, and a failed one says so without a Save bar", function(){
+      feed(fixture()); var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      return T.seqAct("stop").then(function(){
+        var w = db.log[0] || {}, d = w.data || {};
+        eq("the plan is deleted (not set to something)", d.plan, "DEL");
+        eq("…and `lists` is the current step's", (d.lists || []).join(","), "red-2-say,red-2-cards");
+        eq("…on the student's assignment, with the stamp", w.col + "/" + w.id + "/" + d.classId, "assignments/u1/c3");
+        eq("…and the page now has no sequence for them", T.planFor("u1"), null);
+        eq("…and says what happened", /^Stopped\./.test(body.querySelector("#seqFlash").textContent), true);
+      }).then(function(){
+        T.reset(); feed(fixture()); T.setDb(fakeDb(true));
+        T.open("u1"); T.renderDetail();
+        return T.seqAct("stop");
+      }).then(function(){
+        eq("a failed Stop leaves the sequence in place", !!T.planFor("u1"), true);
+        eq("…says so in the status line", /Didn’t save/.test(body.querySelector("#seqFlash").textContent), true);
+        eq("…and does not conjure a Save bar with nothing to save", body.querySelector("#seqSave").hidden, true);
+      });
+    });
+    chain = chain.then(function(){ document.body.removeChild(chrome); });
+  })();
+
   // ---- render ----
+  function renderResults(){
   var rows = document.getElementById("rows");
   var pass = 0;
   function td(text){ var d = document.createElement("td"); d.textContent = text; return d; }
@@ -4226,6 +4873,8 @@
   var summary = document.getElementById("summary");
   summary.className = pass === results.length ? "pass" : "fail";
   summary.textContent = pass + "/" + results.length + " passing";
+  }
+  Promise.all(window.__pendingTests || []).then(renderResults, renderResults);
 })();
 </script>
 </body>

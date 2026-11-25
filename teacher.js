@@ -318,7 +318,10 @@
           fluency: Adaptive.sanitizeFluency(d.fluency),
           totals: d.totals || { n:0, r:0 },
           recent: Array.isArray(d.recent) ? d.recent : [],
-          lastSeen: d.lastSeen || 0
+          lastSeen: d.lastSeen || 0,
+          // How far through a sequence they are (their own high-water
+          // mark); planState reads it, nothing else does.
+          seq: Adaptive.sanitizeSeq(d.seq)
         });
       });
       assignments = {};
@@ -522,7 +525,7 @@
   // One stored roster document as the dashboard holds it.
   function rosterRowOf(id, d){
     d = d || {};
-    return {
+    var row = {
       email: String(id).toLowerCase(),
       name: d.name || "",
       id: d.id || "",
@@ -531,6 +534,10 @@
       classId: d.classId || "",
       teachers: Array.isArray(d.teachers) ? d.teachers.map(low) : null
     };
+    // A sequence set before they had signed in lives on the row too, and
+    // must survive being read back or the next save would drop it.
+    if(d.plan && typeof d.plan === "object") row.plan = d.plan;
+    return row;
   }
 
   var PENDING_PREFIX = "roster:";
@@ -939,6 +946,10 @@
      the lists on their roster row (set here before they had signed in),
      then nothing. `from` is for the export. */
   function effectiveLists(uid){
+    // In a sequence: the lists they can play right now — the ones they have
+    // finished and the one they are on — worked out as store.js does.
+    var pos = positionOf(uid);
+    if(pos) return { ids: pos.ids.slice(), from: "plan" };
     var a = assignments[uid];
     if(a && Array.isArray(a.lists)) return { ids: a.lists, from: "student" };
     var r = rosterFor(studentByUid(uid));
@@ -1252,6 +1263,7 @@
     $("tFilter").addEventListener("click", function(e){
       var b = e.target.closest ? e.target.closest("[data-filter]") : null;
       if(!b) return;
+      if(!leaveDraftOk("Change the class")) return;
       setBoardClass(b.getAttribute("data-filter"));
       closePop();
       render();
@@ -1265,6 +1277,9 @@
      and the Manage section all hold. Unsaved board edits would be thrown
      away, so it asks first, exactly as leaving the board does. */
   function refresh(){
+    // Ask now, drop the draft only once the new data has arrived: a refresh
+    // that fails (the alert below) must not cost anyone their edits.
+    if(!confirmLeaveDraft("Refresh")) return;
     if(view === "assign"){
       var n = dirtyScopes().length;
       if(n && !window.confirm(n + (n === 1 ? " change hasn't" : " changes haven't") +
@@ -1274,6 +1289,7 @@
     if(btn){ btn.disabled = true; btn.textContent = "Refreshing\u2026"; }
     loadAll().then(function(){
       board.draft = {};
+      dropDraft();
       render();
     }, function(){
       window.alert("Couldn't reach the database. Check the network and try again.");
@@ -1335,6 +1351,7 @@
   /* Every way of moving between tabs goes through here — the tab bar and
      the buttons inside a page that say "go and do this over there". */
   function switchView(v, keepDraft){
+    if(!leaveDraftOk("Leave this page")) return;
     // The Assign board holds its edits in memory until Save, so walking
     // away from it silently would throw them out.
     if(view === "assign" && v !== "assign" && !keepDraft){
@@ -1350,6 +1367,9 @@
   }
 
   function render(){
+    // Leaving a student's page (or the Students view) forgets which one was
+    // open, so opening the same student again starts fresh on Word lists.
+    if(!(view === "roster" && detailUid)) lastDetailUid = null;
     closePop();
     closeBulk();
     closePreviewPop();
@@ -1536,14 +1556,14 @@
          with nothing in it. Greyed rather than hidden: on day one the
          useful thing this table can tell a teacher is who is MISSING. */
       if(s.pending){
-        return '<tr class="clickable pending" data-uid="' + esc(s.uid) + '">' +
+        return '<tr class="clickable pending" tabindex="0" data-uid="' + esc(s.uid) + '">' +
           "<td>" + whoHtml(s) + "</td>" +
           "<td>" + clsCell + "</td>" +
           '<td class="listsCell">' + listsCellHtml(eff.ids) + "</td>" +
           '<td class="muted tiny" colspan="4">on the roster — hasn\u2019t signed in yet</td>' +
           '<td class="muted tiny">—</td></tr>';
       }
-      return "<tr class=\"clickable\" data-uid=\"" + esc(s.uid) + "\">" +
+      return "<tr class=\"clickable\" tabindex=\"0\" data-uid=\"" + esc(s.uid) + "\">" +
         "<td>" + whoHtml(s) + "</td>" +
         "<td>" + clsCell + "</td>" +
         '<td class="listsCell">' + listsCellHtml(eff.ids) + "</td>" +
@@ -1607,6 +1627,12 @@
 
     Array.prototype.forEach.call(document.querySelectorAll("#tBody tr.clickable"), function(tr){
       tr.addEventListener("click", function(){ detailUid = tr.dataset.uid; render(); });
+      // A row is a way in, so it has to be one from the keyboard too.
+      tr.addEventListener("keydown", function(e){
+        if(e.target !== tr || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        detailUid = tr.dataset.uid; render();
+      });
     });
     if($("tGoAssign")) $("tGoAssign").addEventListener("click", function(){ switchView("assign"); });
     /* The same one-click apply the Ready to move up strip uses: it feeds
@@ -1675,6 +1701,10 @@
       // not a next step, it is the roster table saying the same thing.
       if(s.pending) return;
       if(!matchesFilter(s, boardClass())) return;
+      // A student in a sequence is looked after on their own page: its
+      // suggestions are written as "add this list", which a sequence
+      // does not take (the plan decides, not `lists`).
+      if(planFor(s.uid)) return;
       var step = Adaptive.nextSteps(nextStepInfo(s));
       if(step) out.push({ uid: s.uid, name: s.name || s.email || s.uid, cls: studentClass(s.uid), step: step });
     });
@@ -1727,12 +1757,748 @@
     return null;
   }
 
+  /* ════════════════════════════════════════════════════════════════
+     A student's page: their word lists, in order, and their data
+
+     Three tabs. "Word lists" opens first and holds the sequence editor:
+     one row per list, top to bottom, finished ones first, the one they
+     are on marked Now, the ones still to come after it. "All practice
+     data" and "Notes and class" hold what this page has always held.
+
+     WHERE A STUDENT IS is Adaptive.planState on their own stats and their
+     own high-water mark (seq) — the SAME function store.js runs in the
+     student's browser, so this page can say "Now" and the student's home
+     page cannot disagree. Nothing is worked out here that the student's
+     browser does not also work out.
+
+     EDITS GO TO A DRAFT (seqDraft), in memory, until Save. The draft is
+     plain data and every edit to it is a small pure function (draftMove,
+     draftRemove, …) so tests.html can drive it without a page. Anything
+     that would throw the draft away asks first (leaveDraftOk).
+
+     What Save writes is one merge-write of { plan, lists, updatedAt } and
+     the class stamp: plan.setAt is now, plan.at is the step shown as Now,
+     and `lists` is that step's ids — so anything that only reads `lists`
+     still sees something sensible. A new setAt makes every student's old
+     high-water mark stop counting (it belongs to the plan it was made
+     under), so a saved sequence is always worked out afresh from what the
+     student has actually learned, starting at `at`.
+     ════════════════════════════════════════════════════════════════ */
+
+  // ---- where a student is ----
+  function planOfDoc(d){ return d ? Adaptive.sanitizePlan(d.plan) : null; }
+
+  /* The student's sequence, or null: the assignment is the source when it
+     has a valid plan or a `lists` array, otherwise the roster row is. The
+     same rule as EIStore.effectivePlan, pinned against it by tests.html. */
+  function planFor(uid){
+    var a = assignments[uid];
+    if(a && (planOfDoc(a) || Array.isArray(a.lists))) return planOfDoc(a);
+    return planOfDoc(rosterFor(studentByUid(uid)));
+  }
+
+  /* Everything a screen needs about a student in a sequence, from
+     Adaptive.planState: where they are, the current step's ids, the
+     finished ones', and every list they can play (finished, then current).
+     null for a student with no sequence. */
+  function positionOf(uid){
+    var s = studentByUid(uid), plan = planFor(uid);
+    if(!s || !plan) return null;
+    var state = Adaptive.planState(plan, s.stats, listTotal, s.seq);
+    var current = state.finished ? [] : plan.steps[state.index].ids.slice();
+    var done = [], i, j, n = Math.min(state.index, plan.steps.length);
+    for(i=0;i<n;i++){
+      for(j=0;j<plan.steps[i].ids.length;j++){
+        var id = plan.steps[i].ids[j];
+        if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id);
+      }
+    }
+    return { plan: plan, state: state, current: current, finishedIds: done, ids: done.concat(current) };
+  }
+
+  // ---- the draft ----
+  var seqDraft = null;     // { uid, steps, bar, at, hold, hasPlan, base } while there are unsaved edits
+  function seqUIFresh(){ return { adding: false, addKey: "", addIds: [], changing: -1 }; }
+  var seqUI = seqUIFresh();   // which little panel is open: add a list / change the ways of one
+  var detailTab = "lists";    // lists | data | notes
+  var lastDetailUid = null;
+
+  function cloneSteps(steps){ return steps.map(function(s){ return { ids: s.ids.slice() }; }); }
+  function draftShape(d){ return JSON.stringify({ steps: d.steps, bar: d.bar, at: d.at, hold: d.hold }); }
+
+  // A saved sequence as a draft, positioned where the student really is.
+  function draftFromSaved(uid){
+    var pos = positionOf(uid);
+    if(!pos) return null;
+    var d = { uid: uid, steps: cloneSteps(pos.plan.steps), bar: pos.plan.bar,
+              at: Math.min(pos.state.index, pos.plan.steps.length - 1),
+              hold: pos.state.hold, hasPlan: true };
+    d.base = draftShape(d);
+    return d;
+  }
+  function emptyDraft(uid){
+    return { uid: uid, steps: [], bar: Adaptive.defaultBar, at: 0, hold: false, hasPlan: false, base: null };
+  }
+  function ensureDraft(uid){
+    if(seqDraft && seqDraft.uid === uid) return seqDraft;
+    seqDraft = draftFromSaved(uid) || emptyDraft(uid);
+    return seqDraft;
+  }
+  // The draft being shown: the one being edited, else the saved sequence.
+  function draftFor(uid){
+    if(seqDraft && seqDraft.uid === uid) return seqDraft;
+    return draftFromSaved(uid);
+  }
+  function seqDirty(){
+    if(!seqDraft) return false;
+    return seqDraft.hasPlan ? draftShape(seqDraft) !== seqDraft.base : seqDraft.steps.length > 0;
+  }
+
+  /* Which step is Now. Untouched, it is the student's real position (seq
+     and all). Edited, it is worked out as it will be once saved: from
+     `at`, with the draft's own bar and no old mark, because a save starts
+     the plan afresh. */
+  function draftIndex(d){
+    if(d.hasPlan && d.base && draftShape(d) === d.base){
+      var pos = positionOf(d.uid);
+      if(pos) return pos.state.index;
+    }
+    var s = studentByUid(d.uid);
+    var st = Adaptive.planState({ steps: d.steps, bar: d.bar, at: d.at, hold: d.hold, setAt: 0 },
+                                s ? s.stats : {}, listTotal, null);
+    return st ? st.index : 0;
+  }
+
+  // ---- the edits: small, pure, and refuse what cannot be done ----
+  function listKeyOf(id){
+    var l = WordLists.byId(id);
+    return l ? l.family + ":" + l.listNum : "?" + id;
+  }
+  function stepKeys(d){ return d.steps.map(function(st){ return listKeyOf(st.ids[0]); }); }
+  var idOrder = null;
+  function orderIds(ids){
+    if(!idOrder){ idOrder = {}; WordLists.all.forEach(function(l, i){ idOrder[l.id] = i; }); }
+    return ids.slice().sort(function(a, b){ return (idOrder[a] || 0) - (idOrder[b] || 0); });
+  }
+  // One step per list, in the library's order — what "Put these in order"
+  // builds from a student's games.
+  function stepsFromIds(ids){
+    var groups = {}, order = [];
+    orderIds(ids.filter(function(id){ return WordLists.exists(id); })).forEach(function(id){
+      var k = listKeyOf(id);
+      if(!groups[k]){ groups[k] = []; order.push(k); }
+      groups[k].push(id);
+    });
+    return order.map(function(k){ return { ids: groups[k] }; });
+  }
+  // Only the steps after Now can move, and only among themselves.
+  function draftMove(d, i, delta, idx){
+    var j = i + delta;
+    if(i <= idx || j <= idx || j >= d.steps.length) return false;
+    var t = d.steps[i]; d.steps[i] = d.steps[j]; d.steps[j] = t;
+    return true;
+  }
+  function draftRemove(d, i, idx){
+    if(i <= idx || i >= d.steps.length) return false;
+    d.steps.splice(i, 1);
+    return true;
+  }
+  // The ways of playing one list: at least one, all of the same list.
+  function draftWays(d, i, ids){
+    if(i < 0 || i >= d.steps.length || !ids.length) return false;
+    var k = listKeyOf(d.steps[i].ids[0]);
+    for(var x=0;x<ids.length;x++) if(listKeyOf(ids[x]) !== k) return false;
+    d.steps[i] = { ids: orderIds(ids) };
+    return true;
+  }
+  // One list at the end, once: a list already in the sequence is refused.
+  function draftAdd(d, ids){
+    if(!ids.length) return false;
+    var k = listKeyOf(ids[0]);
+    for(var x=0;x<ids.length;x++) if(listKeyOf(ids[x]) !== k) return false;
+    if(stepKeys(d).indexOf(k) !== -1) return false;
+    d.steps.push({ ids: orderIds(ids) });
+    return true;
+  }
+  // The percent, in steps of 5 from 50 to 100.
+  function draftBar(d, dir){
+    var v = Math.max(50, Math.min(100, Math.round(d.bar * 100) + dir * 5));
+    if(v / 100 === d.bar) return false;
+    d.bar = v / 100;
+    return true;
+  }
+  // Move on now: the next step becomes current and the hold comes off.
+  function draftMoveOn(d, idx){
+    if(idx >= d.steps.length - 1){
+      // On the last list there is nowhere to move to, but a hold put there
+      // by Go back has to be liftable: after that the walk decides (past the
+      // end, if they have reached the bar).
+      if(d.hold && d.at === idx){ d.hold = false; return true; }
+      return false;
+    }
+    d.at = idx + 1; d.hold = false;
+    return true;
+  }
+  // Go back to this list: it becomes current and they stay there.
+  function draftGoBack(d, i){
+    if(i < 0 || i >= d.steps.length) return false;
+    d.at = i; d.hold = true;
+    return true;
+  }
+  /* Replace everything after Now with these steps, leaving out any list
+     the student already has before them (a list is in a sequence once). */
+  function draftReplaceLater(d, idx, steps){
+    var keep = d.steps.slice(0, Math.min(d.steps.length, idx + 1));
+    var used = keep.map(function(st){ return listKeyOf(st.ids[0]); });
+    steps.forEach(function(st){
+      var k = listKeyOf(st.ids[0]);
+      if(used.indexOf(k) === -1){ used.push(k); keep.push({ ids: st.ids.slice() }); }
+    });
+    d.steps = keep;
+    if(d.at > keep.length - 1) d.at = Math.max(0, keep.length - 1);
+    return true;
+  }
+
+  /* The ready-made sequences are built from the library when asked for,
+     not stored: nothing to go stale when a list is added or retired. Each
+     has Say it and Cards ticked, where the family offers them. */
+  var READY_MADE = [
+    { key: "red", title: "Red Words, Lists 1 to 10", families: ["red"] },
+    { key: "sounding", title: "Sounding it out", families: ["blends-start", "blends-end", "oi-oy", "multi"] }
+  ];
+  function readyMadeSteps(key){
+    var def = READY_MADE.filter(function(r){ return r.key === key; })[0];
+    var steps = [];
+    if(!def) return steps;
+    def.families.forEach(function(fk){
+      WordLists.listNumsOf(fk).forEach(function(n){
+        var offered = WordLists.idsOfList(fk, n);
+        var ids = ["say", "cards"].map(function(m){ return WordLists.idFor(fk, n, m); })
+          .filter(function(id){ return id && offered.indexOf(id) !== -1; });
+        if(ids.length) steps.push({ ids: ids });
+      });
+    });
+    return steps;
+  }
+
+  /* What Save writes, as data. The plan starts afresh (setAt now) at the
+     step shown as Now; `lists` is that step's ids. */
+  function planBody(d, idx, now){
+    var n = d.steps.length, at = Math.max(0, Math.min(idx, n - 1));
+    return {
+      plan: { steps: cloneSteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at, setAt: now },
+      lists: d.steps[at].ids.slice()
+    };
+  }
+
+  // ---- words for the screen ----
+  function stuName(s){ return s.name || s.email || s.uid; }
+  function stepTitle(step){ var l = WordLists.byId(step.ids[0]); return l ? l.listTitle : String(step.ids[0]); }
+  function modeTitleOf(id){
+    var l = WordLists.byId(id), m = l && WordLists.modeOf(l.mode);
+    return m ? m.title : String(id);
+  }
+  function stepWays(step){ return step.ids.map(modeTitleOf).join(" · "); }
+
+  /* One way of playing a list, against the bar, in whole words:
+     "Say it: 14 of 20 solid. 4 more to finish (18 of 20)." */
+  function wayLine(stats, id, bar){
+    var total = listTotal(id), solid = Adaptive.listSolid(stats, id), need = Adaptive.stepNeed(bar, total);
+    var slow = listProgress(stats, id).slow;
+    var t = modeTitleOf(id) + ": " + solid + " of " + total + " solid. " +
+      (solid >= need ? "Finished (" + need + " of " + total + ")."
+                     : (need - solid) + " more to finish (" + need + " of " + total + ").");
+    if(slow) t += " " + slow + " more " + (slow === 1 ? "is" : "are") + " right but slow.";
+    return { text: t, solid: solid, need: need, total: total };
+  }
+  function dayText(ms){
+    try{ return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" }); }catch(e){ return ""; }
+  }
+
+  // "Period 3 · practiced yesterday · 4 rounds this week"
+  function stuLine(s, now){
+    now = now || Date.now();
+    var cls = studentClass(s.uid), parts = [cls ? className(cls) : "No class"];
+    if(s.pending){
+      parts.push("hasn’t signed in yet");
+    } else {
+      var last = Adaptive.summarize(s.stats).lastSeen;
+      parts.push(last ? "practiced " + ago(last) : "hasn’t practiced yet");
+      var rounds = (s.recent || []).filter(function(r){ return r && r.at > now - WEEK_MS; }).length;
+      parts.push(rounds + (rounds === 1 ? " round" : " rounds") + " this week");
+    }
+    return parts.join(" · ");
+  }
+
+  // ---- leaving with unsaved edits ----
+  // Ask, if there are edits that would be lost. Does not drop anything.
+  function confirmLeaveDraft(what){
+    if(!seqDirty()) return true;
+    var s = studentByUid(seqDraft.uid);
+    return window.confirm("Changes to " + (s ? stuName(s) + "’s" : "this student’s") +
+                          " word lists haven’t been saved yet. " + what + " and lose them?");
+  }
+  function dropDraft(){ seqDraft = null; seqUI = seqUIFresh(); }
+  function leaveDraftOk(what){
+    if(!confirmLeaveDraft(what)) return false;
+    dropDraft();
+    return true;
+  }
+  window.addEventListener("beforeunload", function(e){
+    if(seqDirty()){ e.preventDefault(); e.returnValue = ""; }
+  });
+
+  // ---- the editor ----
+  function seqMeter(w){
+    var pct = w.total ? Math.min(100, Math.round(w.solid / w.total * 100)) : 0;
+    var mark = w.total ? Math.round(w.need / w.total * 100) : 100;
+    return '<div class="seqMeter" role="img" aria-label="' + esc(w.solid + " of " + w.total + " solid; finished at " + w.need) +
+      '"><span style="width:' + pct + '%"></span><i style="left:' + mark + '%"></i></div>';
+  }
+  function waysEditorHtml(d, i){
+    var step = d.steps[i], l = WordLists.byId(step.ids[0]);
+    if(!l) return "";
+    var ids = WordLists.idsOfList(l.family, l.listNum);
+    // A retired way the student already holds stays shown and stays theirs.
+    step.ids.forEach(function(id){ if(ids.indexOf(id) === -1) ids.push(id); });
+    return '<div class="seqWays" role="group" aria-label="Ways of playing ' + esc(stepTitle(step)) + '">' +
+      orderIds(ids).map(function(id){
+        return '<label class="check"><input type="checkbox" data-ways="' + esc(id) + '"' +
+          (step.ids.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
+      }).join("") +
+      '<div class="rowActions"><button type="button" class="btn sm" data-seq="ways-done" data-i="' + i + '">Done</button>' +
+      '<button type="button" class="btn ghost sm" data-seq="ways-cancel" data-i="' + i + '">Cancel</button>' +
+      '<span class="saveNote err" id="waysNote" role="status"></span></div></div>';
+  }
+  function seqRowHtml(s, d, i, idx, saved){
+    var step = d.steps[i], n = d.steps.length, title = stepTitle(step), t = esc(title);
+    var stats = s.stats, kind = i < idx ? "fin" : i === idx ? "now" : "later";
+    var tag = kind === "fin" ? "Finished" : kind === "now" ? "Now" : i === idx + 1 ? "Next" : "Later";
+    var body = '<div class="seqTop"><b class="seqName">' + t + '</b><span class="seqTag ' + kind + '">' + tag + "</span>" +
+      '<span class="muted tiny">' + esc(stepWays(step)) + "</span></div>";
+    var btns = "";
+
+    if(kind === "fin"){
+      var low = null;
+      step.ids.forEach(function(id){
+        var w = wayLine(stats, id, d.bar);
+        if(!low || w.solid < low.solid) low = w;
+      });
+      var when = 0;
+      if(saved && saved.setAt && s.seq && s.seq.of === saved.setAt && s.seq.at === i + 1 &&
+         saved.steps[i] && JSON.stringify(saved.steps[i]) === JSON.stringify(step)) when = s.seq.when;
+      body += '<div class="muted seqNote">' + (when ? "Finished " + esc(dayText(when)) + " · " : "") +
+        (low ? low.solid + " of " + low.total + " solid" : "") + "</div>";
+      btns = '<button type="button" class="btn ghost sm" data-seq="goback" data-i="' + i + '" aria-label="Go back to ' + t + '">Go back to this list</button>';
+    } else if(kind === "now"){
+      body += step.ids.map(function(id){
+        var w = wayLine(stats, id, d.bar);
+        return '<div class="seqWay"><div class="seqLine">' + esc(w.text) + "</div>" + seqMeter(w) + "</div>";
+      }).join("");
+      if(d.hold && d.at === i) body += '<div class="seqNote seqHeld">Staying here until you press Move on now.</div>';
+      if(i < n - 1 || (d.hold && d.at === i)) btns = '<button type="button" class="btn sm" data-seq="moveon" aria-label="Move on now from ' + t + '">Move on now</button>';
+    } else {
+      if(seqUI.changing === i){
+        body += waysEditorHtml(d, i);
+      } else {
+        btns =
+          '<button type="button" class="btn ghost sm seqIcon" data-seq="up" data-i="' + i + '" aria-label="Move ' + t + ' earlier" title="Move earlier"' +
+            (i <= idx + 1 ? " disabled" : "") + ">▲</button>" +
+          '<button type="button" class="btn ghost sm seqIcon" data-seq="down" data-i="' + i + '" aria-label="Move ' + t + ' later" title="Move later"' +
+            (i >= n - 1 ? " disabled" : "") + ">▼</button>" +
+          '<button type="button" class="btn ghost sm" data-seq="ways" data-i="' + i + '" aria-label="Change the ways of playing ' + t + '">Change ways</button>' +
+          '<button type="button" class="btn ghost sm" data-seq="remove" data-i="' + i + '" aria-label="Take ' + t + ' out of the sequence">Take out</button>';
+      }
+    }
+    return '<li class="seqRow ' + kind + '"><span class="seqNum" aria-hidden="true">' + (i + 1) + '</span>' +
+      '<div class="seqBody">' + body + "</div>" + (btns ? '<div class="seqBtns">' + btns + "</div>" : "") + "</li>";
+  }
+
+  // The lists a teacher could still add: every one not already in the sequence.
+  function addableLists(d){
+    var used = stepKeys(d), out = [];
+    WordLists.families().forEach(function(fam){
+      WordLists.listNumsOf(fam.key).forEach(function(n){
+        var ids = WordLists.idsOfList(fam.key, n);
+        if(!ids.length || used.indexOf(fam.key + ":" + n) !== -1) return;
+        out.push({ key: fam.key + ":" + n, family: fam, n: n, ids: ids, title: WordLists.byId(ids[0]).listTitle });
+      });
+    });
+    return out;
+  }
+  // The ways to tick to start with: a copy of the step above when it is the same family.
+  function defaultAddIds(d, key){
+    var fam = key.split(":")[0], n = Number(key.split(":")[1]);
+    var last = d.steps[d.steps.length - 1];
+    if(!last) return [];
+    var lastL = WordLists.byId(last.ids[0]);
+    if(!lastL || lastL.family !== fam) return [];
+    var modes = last.ids.map(function(id){ return WordLists.byId(id).mode; });
+    var avail = WordLists.idsOfList(fam, n);
+    return modes.map(function(m){ return WordLists.idFor(fam, n, m); }).filter(function(id){ return id && avail.indexOf(id) !== -1; });
+  }
+  function addPanelHtml(d){
+    var lists = addableLists(d);
+    if(!lists.length) return '<div class="seqAdd"><p class="muted">Every list is already in the sequence.</p>' +
+      '<div class="rowActions"><button type="button" class="btn ghost sm" data-seq="add-cancel">Close</button></div></div>';
+    if(!seqUI.addKey || !lists.some(function(x){ return x.key === seqUI.addKey; })){
+      // Start on the next list of the family the sequence ends in (after
+      // Red List 3, Red List 4), else the first one on offer.
+      var last = d.steps[d.steps.length - 1], lastFam = last && WordLists.byId(last.ids[0]) && WordLists.byId(last.ids[0]).family;
+      var next = lastFam ? lists.filter(function(x){ return x.family.key === lastFam; })[0] : null;
+      seqUI.addKey = (next || lists[0]).key; seqUI.addIds = defaultAddIds(d, seqUI.addKey);
+    }
+    var cur = lists.filter(function(x){ return x.key === seqUI.addKey; })[0];
+    var byFam = {};
+    lists.forEach(function(x){ (byFam[x.family.key] = byFam[x.family.key] || []).push(x); });
+    var opts = WordLists.families().filter(function(f){ return byFam[f.key]; }).map(function(f){
+      return '<optgroup label="' + esc(f.icon + " " + f.title) + '">' + byFam[f.key].map(function(x){
+        return '<option value="' + esc(x.key) + '"' + (x.key === seqUI.addKey ? " selected" : "") + ">" + esc(x.title) + "</option>";
+      }).join("") + "</optgroup>";
+    }).join("");
+    return '<div class="seqAdd"><label class="muted tiny" for="seqAddList">List</label>' +
+      '<select class="sel" id="seqAddList">' + opts + "</select>" +
+      '<div class="seqWays" role="group" aria-label="Ways of playing">' + cur.ids.map(function(id){
+        return '<label class="check"><input type="checkbox" data-addway="' + esc(id) + '"' +
+          (seqUI.addIds.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
+      }).join("") + "</div>" +
+      '<div class="rowActions"><button type="button" class="btn sm" data-seq="add-go" id="seqAddGo"' +
+        (seqUI.addIds.length ? "" : " disabled") + ">Add to the end</button>" +
+      '<button type="button" class="btn ghost sm" data-seq="add-cancel">Cancel</button>' +
+      '<span class="muted tiny">Tick at least one way of playing.</span></div></div>';
+  }
+
+  function seqControlsHtml(s, d){
+    var others = students.filter(function(x){ return x.uid !== s.uid && planFor(x.uid); });
+    return '<div class="seqControls">' +
+      '<button type="button" class="btn ghost sm" data-seq="add-open"' + (seqUI.adding ? ' aria-expanded="true"' : ' aria-expanded="false"') + ">Add a list</button>" +
+      '<span class="seqPick"><label class="muted tiny" for="seqReady">Start from a ready-made sequence</label>' +
+        '<select class="sel" id="seqReady">' + READY_MADE.map(function(r){
+          return '<option value="' + esc(r.key) + '">' + esc(r.title) + "</option>";
+        }).join("") + '</select><button type="button" class="btn ghost sm" data-seq="ready-go">Use it</button></span>' +
+      (others.length
+        ? '<span class="seqPick"><label class="muted tiny" for="seqCopy">Copy from another student</label>' +
+          '<select class="sel" id="seqCopy">' + others.map(function(x){
+            return '<option value="' + esc(x.uid) + '">' + esc(stuName(x)) + "</option>";
+          }).join("") + '</select><button type="button" class="btn ghost sm" data-seq="copy-go">Copy</button></span>'
+        : "") +
+      "</div>" + (seqUI.adding ? addPanelHtml(d) : "");
+  }
+
+  // The "Word lists" tab.
+  function seqPanelHtml(s){
+    var uid = s.uid, plan = planFor(uid), d = draftFor(uid), eff = effectiveLists(uid);
+    var name = esc(stuName(s)) + "’s word lists";
+    var fold = '<details class="seqFold"><summary>Change these games</summary>' +
+      '<p class="note">This student sees exactly what is ticked here, and nothing else. ' +
+      "Each list can be played several ways — tick each way they should get it.</p>" +
+      pickerHtml("student", eff.ids) +
+      '<div class="rowActions stickyActions">' +
+        '<button class="btn sm" id="tSaveA">Save games</button>' +
+        '<span class="saveNote" id="tANote"></span></div></details>';
+
+    // A student with games and no order: say so, and offer to put them in order.
+    if(!d && eff.ids.length){
+      var n = eff.ids.length;
+      return '<div class="panel"><h2 id="seqHead" tabindex="-1">' + name + "</h2>" +
+        '<p class="saveNote ok" id="seqFlash" role="status" aria-live="polite"></p>' +
+        '<p class="seqNoOrder"><b>' + (n === 1 ? "This 1 game" : "These " + n + " games") + ", all at once, in no order</b></p>" +
+        '<p class="note">' + esc(WordLists.describeAssignment(eff.ids)) + "</p>" +
+        '<div class="rowActions"><button type="button" class="btn sm" data-seq="inorder">Put these in order</button></div>' +
+        fold + "</div>";
+    }
+
+    var empty = !d;
+    if(empty) d = emptyDraft(uid);
+    var idx = empty ? 0 : draftIndex(d), n2 = d.steps.length, dirty = seqDirty();
+    var rows = d.steps.map(function(st, i){ return seqRowHtml(s, d, i, idx, d.hasPlan ? plan : null); }).join("");
+    var bar = Math.round(d.bar * 100);
+
+    var main = '<div class="panel seqEditor"><h2 id="seqHead" tabindex="-1">' + name + ", in order</h2>" +
+      '<p class="saveNote ok" id="seqFlash" role="status" aria-live="polite"></p>' +
+      '<div class="seqBar" aria-live="polite">A list is finished when ' +
+        '<button type="button" class="btn ghost sm seqIcon" data-seq="bar-" aria-label="Lower the percent"' + (d.bar <= 0.5 ? " disabled" : "") + ">−</button>" +
+        '<b class="seqPct" id="seqPct">' + bar + '%</b>' +
+        '<button type="button" class="btn ghost sm seqIcon" data-seq="bar+" aria-label="Raise the percent"' + (d.bar >= 1 ? " disabled" : "") + ">+</button>" +
+        " of its words are solid.</div>" +
+      (n2 ? '<ol class="seqRows" id="seqRows">' + rows + "</ol>"
+          : '<p class="muted">No lists yet. Start from a ready-made sequence, copy another student’s, or add a list.</p>') +
+      seqControlsHtml(s, d) +
+      (plan ? '<div class="rowActions"><button type="button" class="btn ghost sm" data-seq="stop">Stop using a sequence</button></div>' : "") +
+      '<div class="seqSave" id="seqSave"' + (dirty ? "" : " hidden") + ' role="status">' +
+        '<span class="seqCount">Changes not saved yet</span>' +
+        '<span class="saveNote" id="seqNote"></span>' +
+        '<button type="button" class="btn ghost sm" data-seq="discard">Discard</button>' +
+        '<button type="button" class="btn sm" data-seq="save"' + (n2 ? "" : " disabled") + ">Save</button></div>" +
+      (empty ? fold : "") + "</div>";
+
+    // Beside it: the list they are on, and the ones they have finished.
+    var side = "";
+    if(n2){
+      var cur = idx < n2 ? d.steps[idx] : null;
+      var fin = d.steps.slice(0, Math.min(idx, n2));
+      side = '<aside class="seqSide">' +
+        '<div class="panel mini"><h2>On now</h2>' + (cur
+          ? "<p><b>" + esc(stepTitle(cur)) + "</b></p><p class=\"muted tiny\">" + esc(stepWays(cur)) + " · list " + (idx + 1) + " of " + n2 + "</p>"
+          : "<p><b>Finished every list</b></p><p class=\"muted tiny\">Add the next ones.</p>") + "</div>" +
+        '<div class="panel mini"><h2>Finished lists</h2>' + (fin.length
+          ? '<ul class="seqFinList">' + fin.map(function(st){ return "<li>" + esc(stepTitle(st)) + "</li>"; }).join("") + "</ul>"
+          : '<p class="muted tiny">None yet.</p>') + "</div></aside>";
+    }
+    return '<div class="seqLayout">' + main + side + "</div>";
+  }
+
+  /* Redraw the tab and put focus back near where the person was. `focus`
+     is a selector or a list of them, tried in order; the heading is the
+     fallback. A repaint replaces every button, so without this focus would
+     fall to the top of the page after each edit. */
+  function repaintLists(focus){
+    var s = studentByUid(detailUid), el = $("stuPanel-lists");
+    if(!s || !el) return;
+    el.innerHTML = seqPanelHtml(s);
+    bindPickers();
+    var sels = focus ? (Array.isArray(focus) ? focus : [focus]) : [], f = null, k;
+    for(k=0;k<sels.length && !f;k++){
+      var c = el.querySelector(sels[k]);
+      if(c && !c.disabled) f = c;
+    }
+    if(!f) f = $("seqHead");
+    if(f && f.focus) f.focus();
+  }
+  // After a save or a stop the whole page is drawn again: say so, and
+  // land on the editor's heading rather than on nothing.
+  function seqSaved(text){
+    var flash = $("seqFlash");
+    if(flash){ flash.className = "saveNote ok"; flash.textContent = text; }
+    var h = $("seqHead");
+    if(h && h.focus) h.focus();
+  }
+
+  // ---- saving ----
+  /* One merge-write of `data` to wherever this student's lists live: their
+     assignment, or their roster row if they haven't signed in. Optimistic,
+     rolled back if it fails. A DELETE marker removes a field. */
+  function commitStudentBody(uid, data){
+    var pending = isPending(uid);
+    var col = pending ? "roster" : "assignments", id = pending ? emailOfPending(uid) : uid;
+    var store = pending ? roster : assignments;
+    var before = store[id] ? JSON.parse(JSON.stringify(store[id])) : null;
+    var row = store[id] || (store[id] = pending ? rosterRowOf(id, {}) : {});
+    for(var k in data){
+      if(!Object.prototype.hasOwnProperty.call(data, k)) continue;
+      if(data[k] === DELETE) delete row[k]; else row[k] = data[k];
+    }
+    return commitWrites([{ col: col, id: id, data: data }]).then(function(){
+      // A board edit still pending for this student would write a stale
+      // `lists` over the one just saved, and its change count would
+      // point at nobody on a board that leaves them out.
+      delete board.draft["s:" + uid];
+    }, function(err){
+      if(before) store[id] = before; else delete store[id];
+      throw err;
+    });
+  }
+  function seqFail(uid){
+    var msg = isPending(uid) && !rosterReadable
+      ? "Didn’t save — the roster rules aren’t published yet (Firebase console → Firestore → Rules)."
+      : "Didn’t save — check the network and try again.";
+    // Beside Save when there is a draft to save; otherwise (a failed Stop)
+    // in the status line under the heading, since there is no Save bar.
+    var sv = $("seqSave"), note = $("seqNote");
+    if(sv && !sv.hidden && note){ note.className = "saveNote err"; note.textContent = msg; return; }
+    var flash = $("seqFlash");
+    if(flash){ flash.className = "saveNote err"; flash.textContent = msg; }
+  }
+  var seqSaving = false;   // a write is on the wire: edits wait, so none can be lost under it
+  function saveSeq(){
+    var d = seqDraft;
+    if(seqSaving || !d || !d.steps.length || !studentByUid(d.uid)) return;
+    var uid = d.uid, now = Date.now(), pb = planBody(d, draftIndex(d), now);
+    var data = withStamp({ plan: pb.plan, lists: pb.lists, updatedAt: now }, uid);
+    var note = $("seqNote");
+    if(note){ note.className = "saveNote"; note.textContent = "Saving…"; }
+    seqSaving = true;
+    return commitStudentBody(uid, data).then(function(){
+      seqSaving = false;
+      if(seqDraft === d){ seqDraft = null; seqUI = seqUIFresh(); }
+      render();
+      if(detailUid === uid) seqSaved("Saved.");
+    }, function(){ seqSaving = false; seqFail(uid); });
+  }
+  function stopBody(uid, now){
+    var p = positionOf(uid);
+    if(!p) return null;
+    var ids = p.state.finished ? p.plan.steps[p.plan.steps.length - 1].ids : p.current;
+    return withStamp({ plan: DELETE, lists: ids.slice(), updatedAt: now }, uid);
+  }
+  function stopSeq(){
+    var uid = detailUid, s = studentByUid(uid), p = positionOf(uid);
+    if(!s || !p) return;
+    var keep = p.state.finished ? p.plan.steps[p.plan.steps.length - 1] : p.plan.steps[p.state.index];
+    if(seqSaving) return;
+    var unsaved = seqDirty() && seqDraft.uid === uid
+      ? "\n\nChanges you haven’t saved to their lists will be lost." : "";
+    if(!window.confirm("Stop using a sequence for " + stuName(s) + "?\n\nThey will get just " + stepTitle(keep) +
+      ", all at once. The lists they finished leave their home page; their practice record is kept." + unsaved)) return;
+    var data = stopBody(uid, Date.now());
+    seqSaving = true;
+    return commitStudentBody(uid, data).then(function(){
+      seqSaving = false;
+      dropDraft();
+      render();
+      if(detailUid === uid) seqSaved("Stopped. Their lists are all at once again.");
+    }, function(){ seqSaving = false; seqFail(uid); });
+  }
+
+  // ---- what the buttons do ----
+  function replaceText(d, idx, what){
+    var later = d.steps.slice(idx + 1).map(stepTitle);
+    return later.length
+      ? "This replaces the lists still to come (" + later.join(", ") + ") with " + what + ". Lists already finished, and the one they are on, stay."
+      : "";
+  }
+  function seqAct(act, el){
+    var uid = detailUid, s = studentByUid(uid);
+    if(!s || seqSaving) return;
+    // Anything that reshapes the list closes the "change ways" panel: it
+    // is addressed by row, and rows have just moved.
+    if(act !== "ways" && act !== "ways-done" && act !== "ways-cancel") seqUI.changing = -1;
+    var d, idx, i = el && el.dataset && el.dataset.i != null ? Number(el.dataset.i) : -1, focus = null, ok;
+    switch(act){
+      case "inorder":
+        d = ensureDraft(uid); d.steps = stepsFromIds(effectiveLists(uid).ids); d.at = 0; d.hold = false;
+        break;
+      case "bar-": case "bar+":
+        d = ensureDraft(uid); draftBar(d, act === "bar+" ? 1 : -1);
+        // The button just pressed, or its twin when it has hit the end of the range.
+        focus = ['[data-seq="' + act + '"]', '[data-seq="' + (act === "bar+" ? "bar-" : "bar+") + '"]'];
+        break;
+      case "up": case "down":
+        d = ensureDraft(uid); idx = draftIndex(d);
+        ok = draftMove(d, i, act === "up" ? -1 : 1, idx);
+        var ni = ok ? i + (act === "up" ? -1 : 1) : i, other = act === "up" ? "down" : "up";
+        // The same button on the moved row, so the key can be pressed again;
+        // if that end of the list has been reached, the other direction.
+        focus = ['[data-seq="' + act + '"][data-i="' + ni + '"]', '[data-seq="' + other + '"][data-i="' + ni + '"]'];
+        break;
+      case "remove":
+        d = ensureDraft(uid); draftRemove(d, i, draftIndex(d)); seqUI.changing = -1;
+        focus = ['[data-seq="remove"][data-i="' + i + '"]', '[data-seq="remove"][data-i="' + (i - 1) + '"]', '[data-seq="add-open"]'];
+        break;
+      case "ways": seqUI.changing = i; ensureDraft(uid); focus = '[data-ways]'; break;
+      case "ways-cancel": seqUI.changing = -1; focus = '[data-seq="ways"][data-i="' + i + '"]'; break;
+      case "ways-done":
+        d = ensureDraft(uid);
+        var ticked = Array.prototype.filter.call(document.querySelectorAll("#stuPanel-lists [data-ways]"), function(cb){ return cb.checked; })
+          .map(function(cb){ return cb.dataset.ways; });
+        if(!ticked.length){
+          var wn = $("waysNote"); if(wn) wn.textContent = "Tick at least one way of playing.";
+          return;
+        }
+        draftWays(d, i, ticked); seqUI.changing = -1;
+        focus = '[data-seq="ways"][data-i="' + i + '"]';
+        break;
+      case "moveon":
+        d = ensureDraft(uid); draftMoveOn(d, draftIndex(d));
+        focus = ['[data-seq="moveon"]', '[data-seq="save"]'];
+        break;
+      case "goback":
+        d = ensureDraft(uid); draftGoBack(d, i);
+        focus = ['[data-seq="moveon"]', '[data-seq="save"]'];
+        break;
+      case "add-open": seqUI.adding = !seqUI.adding; seqUI.addKey = ""; ensureDraft(uid); focus = seqUI.adding ? "#seqAddList" : null; break;
+      case "add-cancel": seqUI.adding = false; focus = '[data-seq="add-open"]'; break;
+      case "add-go":
+        d = ensureDraft(uid);
+        if(draftAdd(d, seqUI.addIds)){ seqUI.adding = false; seqUI.addKey = ""; seqUI.addIds = []; }
+        focus = '[data-seq="add-open"]';
+        break;
+      case "ready-go":
+        d = ensureDraft(uid); idx = draftIndex(d);
+        var rm = READY_MADE.filter(function(r){ return r.key === $("seqReady").value; })[0];
+        if(!rm) return;
+        var msg = replaceText(d, idx, rm.title);
+        if(msg && !window.confirm(msg)) return;
+        draftReplaceLater(d, idx, readyMadeSteps(rm.key));
+        break;
+      case "copy-go":
+        d = ensureDraft(uid); idx = draftIndex(d);
+        var from = studentByUid($("seqCopy").value), fp = from && planFor(from.uid);
+        if(!fp) return;
+        var msg2 = replaceText(d, idx, stuName(from) + "’s lists");
+        if(msg2 && !window.confirm(msg2)) return;
+        draftReplaceLater(d, idx, fp.steps);
+        break;
+      case "discard":
+        seqDraft = null; seqUI = seqUIFresh();
+        break;
+      case "save": return saveSeq();
+      case "stop": return stopSeq();
+      default: return;
+    }
+    repaintLists(focus);
+  }
+
+  /* One delegated handler for the whole tab, bound once to #tBody (whose
+     contents are replaced on every render but which itself is not). */
+  function bindSeq(){
+    var root = $("tBody");
+    if(!root || root._eiSeqBound) return;
+    root._eiSeqBound = true;
+    root.addEventListener("click", function(e){
+      var b = e.target.closest ? e.target.closest("[data-seq]") : null;
+      if(!b || b.disabled || !root.contains(b)) return;
+      seqAct(b.dataset.seq, b);
+    });
+    root.addEventListener("change", function(e){
+      var t = e.target;
+      if(!t || !t.matches) return;
+      if(t.matches("#seqAddList")){
+        var d = ensureDraft(detailUid);
+        seqUI.addKey = t.value; seqUI.addIds = defaultAddIds(d, t.value);
+        repaintLists("#seqAddList");
+      } else if(t.matches("[data-addway]")){
+        seqUI.addIds = Array.prototype.filter.call(document.querySelectorAll("#stuPanel-lists [data-addway]"), function(cb){ return cb.checked; })
+          .map(function(cb){ return cb.dataset.addway; });
+        var go = $("seqAddGo"); if(go) go.disabled = !seqUI.addIds.length;
+      }
+    });
+  }
+
+  // ---- the page ----
+  var STU_TABS = [["lists", "Word lists"], ["data", "All practice data"], ["notes", "Notes and class"]];
+
+  function stuListHtml(s){
+    var list = classStudents().slice();
+    if(!list.some(function(x){ return x.uid === s.uid; })) list.unshift(s);
+    return '<nav class="stuList" aria-label="Students">' + list.map(function(x){
+      return '<button type="button" class="stuPick' + (x.pending ? " pending" : "") + '" data-stu="' + esc(x.uid) + '"' +
+        ' tabindex="' + (x.uid === s.uid ? 0 : -1) + '"' +
+        (x.uid === s.uid ? ' aria-current="true"' : "") + ">" + esc(stuName(x)) + "</button>";
+    }).join("") + "</nav>";
+  }
+
+  function setStuTab(k, focus){
+    detailTab = k;
+    STU_TABS.forEach(function(t){
+      var tab = $("stab-" + t[0]), panel = $("stuPanel-" + t[0]), on = t[0] === k;
+      if(tab){ tab.setAttribute("aria-selected", on); tab.tabIndex = on ? 0 : -1; }
+      if(panel) panel.hidden = !on;
+    });
+    if(focus && $("stab-" + k)) $("stab-" + k).focus();
+  }
+
   function renderDetail(){
     var s = studentByUid(detailUid);
-    if(!s){ detailUid = null; return renderRoster(); }
+    if(!s){ detailUid = null; seqDraft = null; return renderRoster(); }
+    var opened = lastDetailUid !== detailUid;
+    var fromList = !!(opened && document.activeElement && document.activeElement.closest && document.activeElement.closest(".stuList"));
+    if(opened){
+      lastDetailUid = detailUid; detailTab = "lists"; seqUI = seqUIFresh();
+      if(seqDraft && seqDraft.uid !== detailUid) seqDraft = null;
+    }
     var sum = Adaptive.summarize(s.stats);
-    var a = assignments[s.uid] || {};
-    var eff = effectiveLists(s.uid);
+    var plan = planFor(s.uid);
 
     // Per-list breakdown, then the worst words across every list. The
     // words carry their list name because "coin" can be solid to read and
@@ -1784,16 +2550,13 @@
 
     var rosterRow = rosterFor(s);
 
-    var picker = pickerHtml("student", eff.ids);
-
     var myCls = studentClass(s.uid);
     var clsList = placeableClasses();
     if(myCls && clsList.indexOf(myCls) === -1) clsList = [myCls].concat(clsList);
 
-    $("tBody").innerHTML =
-      '<button class="backlink" id="tBack">← All students</button>' +
-      '<div class="panel">' + whoHtml(s) +
-        '<div class="statRow" style="margin-top:18px">' +
+    var dataPanel =
+      '<div class="panel"><h2>This student’s numbers</h2>' +
+        '<div class="statRow">' +
           '<div class="stat"><div class="k">Answers</div><div class="v">' + sum.attempts + "</div></div>" +
           '<div class="stat"><div class="k">Accuracy</div><div class="v">' + (sum.accuracy == null ? "—" : Math.round(sum.accuracy*100) + "%") + "</div></div>" +
           '<div class="stat"><div class="k">Words solid</div><div class="v">' + sum.mastered + "</div></div>" +
@@ -1803,56 +2566,12 @@
              faster. It is exactly the number a teacher wants. */
           '<div class="stat"><div class="k">Slow but right</div><div class="v">' + sum.slowRight + "</div></div>" +
           '<div class="stat"><div class="k">Last active</div><div class="v" style="font-size:17px">' + esc(ago(sum.lastSeen || s.lastSeen)) + "</div></div>" +
-        "</div>" +
-        '<div class="rowActions">' +
-          (!myCls ? '<span class="muted tiny">Put them in a class to be able to archive them.</span>' :
-           isArchived(s, archivedMap())
-            ? '<span class="pill warn">Archived</span> <button class="btn ghost sm" id="tArchive">Unarchive</button>' +
-              '<span class="muted tiny">Hidden from every view until you unarchive them.</span>'
-            : '<button class="btn ghost sm" id="tArchive">Archive</button>' +
-              '<span class="muted tiny">Hides them from every view. Nothing is deleted; Manage \u2192 Archived brings them back.</span>') +
-          '<span class="saveNote" id="tArchiveNote"></span>' +
-        "</div>" +
-      "</div>" +
-
-      '<div class="panel"><h2>Games</h2>' +
-        '<p class="note">This student sees exactly what is ticked here, and nothing else. ' +
-        "Each list can be played several ways — tick each way they should get it.</p>" +
-        picker +
-        '<div class="rowActions stickyActions">' +
-          '<button class="btn sm" id="tSaveA">Save games</button>' +
-          '<span class="saveNote" id="tANote"></span>' +
-        "</div>" +
-      "</div>" +
+        "</div></div>" +
 
       (errorMix ? '<div class="panel"><h2>What goes wrong</h2>' +
         '<p class="note">Counted on Say It only — it is the only mode that hears what the student actually said. ' +
         "One count per word given up on, not per fumble.</p>" +
         "<p>" + errorMix + "</p></div>" : "") +
-
-      '<div class="panel"><h2>Class</h2>' +
-        '<p class="note">' + (myCls ? "Taught by " + esc(classes[myCls].teachers.map(teacherName).join(", ")) + ". " : "") +
-        "Moving them takes their games, note and practice with them; teachers who aren\u2019t on the new class stop seeing them.</p>" +
-        '<div class="rowActions"><label class="muted tiny" for="tClass">Class</label>' +
-        '<select class="sel" id="tClass">' + classOptions(myCls, clsList, myCls ? "" : "— no class —") + "</select>" +
-        '<span class="saveNote" id="tClassMoveNote"></span></div>' +
-      "</div>" +
-
-      (rosterRow ? '<div class="panel"><h2>Roster row</h2>' +
-        '<p class="note">Imported ' + esc(rosterRow.importedAt ? ago(rosterRow.importedAt) : "at some point") +
-        " · ID <b>" + esc(rosterRow.id || "—") + "</b> · signs in as <b>" + esc(s.email) + "</b>" +
-        (s.pending ? " · <b>hasn\u2019t signed in yet</b>" : "") + ". " +
-        "A re-import updates this row and never deletes it; removing one is this button, and only this button.</p>" +
-        '<div class="rowActions"><button class="btn ghost sm" id="tRosterOut">Remove from roster</button>' +
-        '<span class="saveNote" id="tRosterNote"></span></div>' +
-      "</div>" : "") +
-
-      /* Notes are keyed by uid, and a pending student's uid is the
-         made-up roster:<email> — a note written now would be dropped the
-         moment they sign in and got a real one. So don't offer the box. */
-      (s.pending
-        ? '<div class="panel"><h2>Notes</h2><p class="note">Notes open once they have signed in.</p></div>'
-        : notePanelHtml(s.uid)) +
 
       '<div class="panel"><h2>Hardest words</h2>' +
         '<p class="note">Worst first — right answers out of attempts, counting only first-try answers. ' +
@@ -1874,17 +2593,122 @@
         '<th>List</th><th class="num">Answers</th><th class="num">Accuracy</th><th class="num">Solid</th><th class="num">Shaky</th>' +
         "</tr></thead><tbody>" + perList + "</tbody></table></div></div>" : "");
 
-    $("tBack").addEventListener("click", function(){ detailUid = null; render(); });
+    var notesPanel =
+      /* Notes are keyed by uid, and a pending student's uid is the
+         made-up roster:<email> — a note written now would be dropped the
+         moment they sign in and got a real one. So don't offer the box. */
+      (s.pending
+        ? '<div class="panel"><h2>Notes</h2><p class="note">Notes open once they have signed in.</p></div>'
+        : notePanelHtml(s.uid)) +
+
+      '<div class="panel"><h2>Class</h2>' +
+        '<p class="note">' + (myCls ? "Taught by " + esc(classes[myCls].teachers.map(teacherName).join(", ")) + ". " : "") +
+        "Moving them takes their games, note and practice with them; teachers who aren’t on the new class stop seeing them.</p>" +
+        '<div class="rowActions"><label class="muted tiny" for="tClass">Class</label>' +
+        '<select class="sel" id="tClass">' + classOptions(myCls, clsList, myCls ? "" : "— no class —") + "</select>" +
+        '<span class="saveNote" id="tClassMoveNote"></span></div>' +
+      "</div>" +
+
+      (rosterRow ? '<div class="panel"><h2>Roster row</h2>' +
+        '<p class="note">Imported ' + esc(rosterRow.importedAt ? ago(rosterRow.importedAt) : "at some point") +
+        " · ID <b>" + esc(rosterRow.id || "—") + "</b> · signs in as <b>" + esc(s.email) + "</b>" +
+        (s.pending ? " · <b>hasn’t signed in yet</b>" : "") + ". " +
+        "A re-import updates this row and never deletes it; removing one is this button, and only this button.</p>" +
+        '<div class="rowActions"><button class="btn ghost sm" id="tRosterOut">Remove from roster</button>' +
+        '<span class="saveNote" id="tRosterNote"></span></div>' +
+      "</div>" : "") +
+
+      '<div class="panel"><h2>Archive</h2><div class="rowActions">' +
+        (!myCls ? '<span class="muted tiny">Put them in a class to be able to archive them.</span>' :
+         isArchived(s, archivedMap())
+          ? '<span class="pill warn">Archived</span> <button class="btn ghost sm" id="tArchive">Unarchive</button>' +
+            '<span class="muted tiny">Hidden from every view until you unarchive them.</span>'
+          : '<button class="btn ghost sm" id="tArchive">Archive</button>' +
+            '<span class="muted tiny">Hides them from every view. Nothing is deleted; Manage → Archived brings them back.</span>') +
+        '<span class="saveNote" id="tArchiveNote"></span>' +
+      "</div></div>";
+
+    $("tBody").innerHTML =
+      '<button class="backlink" id="tBack">← All students</button>' +
+      '<div class="stuLayout">' + stuListHtml(s) +
+        '<div class="stuMain">' +
+          '<div class="stuHead" id="stuHead" tabindex="-1">' + whoHtml(s) +
+            '<p class="stuLine muted" id="stuLine">' + esc(stuLine(s)) + "</p>" +
+            '<button type="button" class="btn ghost sm" id="tStuView">Student view</button></div>' +
+          '<div class="mTabs stuTabs" role="tablist" aria-label="' + esc(stuName(s)) + '">' + STU_TABS.map(function(t){
+            var on = t[0] === detailTab;
+            return '<button type="button" role="tab" id="stab-' + t[0] + '" data-stab="' + t[0] + '" aria-selected="' + on +
+              '" aria-controls="stuPanel-' + t[0] + '" tabindex="' + (on ? "0" : "-1") + '">' + esc(t[1]) + "</button>";
+          }).join("") + "</div>" +
+          '<div id="stuPanel-lists" role="tabpanel" aria-labelledby="stab-lists"' + (detailTab === "lists" ? "" : " hidden") + ">" + seqPanelHtml(s) + "</div>" +
+          '<div id="stuPanel-data" role="tabpanel" aria-labelledby="stab-data"' + (detailTab === "data" ? "" : " hidden") + ">" + dataPanel + "</div>" +
+          '<div id="stuPanel-notes" role="tabpanel" aria-labelledby="stab-notes"' + (detailTab === "notes" ? "" : " hidden") + ">" + notesPanel + "</div>" +
+        "</div></div>";
+
+    bindSeq();
+    $("tBack").addEventListener("click", function(){
+      if(!leaveDraftOk("Go back to the list")) return;
+      detailUid = null; render();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("#tBody [data-stu]"), function(b){
+      b.addEventListener("click", function(){
+        if(b.dataset.stu === s.uid) return;
+        if(!leaveDraftOk("Switch to another student")) return;
+        detailUid = b.dataset.stu; render();
+      });
+    });
+    var tabs = document.querySelector("#tBody .stuTabs");
+    tabs.addEventListener("click", function(e){
+      var b = e.target.closest ? e.target.closest("[data-stab]") : null;
+      if(b) setStuTab(b.dataset.stab, true);
+    });
+    tabs.addEventListener("keydown", function(e){
+      var keys = STU_TABS.map(function(t){ return t[0]; }), i = keys.indexOf(detailTab), j = null;
+      if(e.key === "ArrowRight" || e.key === "ArrowDown") j = (i + 1) % keys.length;
+      else if(e.key === "ArrowLeft" || e.key === "ArrowUp") j = (i - 1 + keys.length) % keys.length;
+      else if(e.key === "Home") j = 0;
+      else if(e.key === "End") j = keys.length - 1;
+      if(j === null) return;
+      e.preventDefault();
+      setStuTab(keys[j], true);
+    });
+    $("tStuView").addEventListener("click", function(){
+      window.open(previewHref(s.uid), "_blank", "noopener");
+    });
+    /* The student list is one tab stop (the open student) so reaching the
+       tabs does not mean tabbing past a whole class; the arrow keys move
+       along it and Enter or Space opens the one focused. */
+    var picks = Array.prototype.slice.call(document.querySelectorAll("#tBody .stuPick"));
+    picks.forEach(function(b){
+      b.addEventListener("keydown", function(e){
+        var i = picks.indexOf(b), j = null;
+        if(e.key === "ArrowDown") j = Math.min(picks.length - 1, i + 1);
+        else if(e.key === "ArrowUp") j = Math.max(0, i - 1);
+        else if(e.key === "Home") j = 0;
+        else if(e.key === "End") j = picks.length - 1;
+        if(j === null) return;
+        e.preventDefault();
+        picks.forEach(function(x){ x.tabIndex = -1; });
+        picks[j].tabIndex = 0; picks[j].focus();
+      });
+    });
+    // A student just opened: keep a keyboard user where they were (in the
+    // list) or put them at the top of the student rather than on nothing.
+    if(opened){
+      var land = fromList ? document.querySelector('#tBody .stuPick[aria-current="true"]') : $("stuHead");
+      if(land && land.focus) land.focus();
+    }
     if($("tArchive")) $("tArchive").addEventListener("click", function(){
       var on = !isArchived(s, archivedMap());
+      if(on && !leaveDraftOk("Archive this student")) return;
       var note = $("tArchiveNote");
-      note.className = "saveNote"; note.textContent = "Saving\u2026";
+      note.className = "saveNote"; note.textContent = "Saving…";
       setArchived(s, on).then(function(){
         // Archived: back to the list it has just left. Unarchived: stay.
         if(on) detailUid = null;
         render();
       }, function(){
-        note.className = "saveNote err"; note.textContent = "Didn't save \u2014 check the network and try again.";
+        note.className = "saveNote err"; note.textContent = "Didn't save — check the network and try again.";
       });
     });
     $("tClass").addEventListener("change", function(){
@@ -1894,6 +2718,7 @@
         sel.value = from;
         return;
       }
+      if(!admin && !teachesClass(to) && !leaveDraftOk("Move them out of your classes")){ sel.value = from; return; }
       var note = $("tClassMoveNote");
       note.className = "saveNote"; note.textContent = "Moving…";
       moveStudents([s], to).then(function(){
@@ -1908,8 +2733,9 @@
     if($("tRosterOut")) $("tRosterOut").addEventListener("click", function(){
       var em = s.email.toLowerCase();
       if(!window.confirm("Remove " + (s.name || em) + " from the roster?\n\n" +
-        (s.pending ? "They haven\u2019t signed in, so this takes them off the dashboard entirely."
+        (s.pending ? "They haven’t signed in, so this takes them off the dashboard entirely."
                    : "Their practice record stays; only the imported row goes."))) return;
+      if(!leaveDraftOk("Remove them from the roster")) return;
       var note = $("tRosterNote");
       note.className = "saveNote"; note.textContent = "Removing…";
       db.collection("roster").doc(em).delete().then(function(){
@@ -1920,7 +2746,7 @@
         note.className = "saveNote err"; note.textContent = "Didn't remove — check the network and try again.";
       });
     });
-    $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
+    if($("tSaveA")) $("tSaveA").addEventListener("click", function(){ saveStudentAssignment(s.uid); });
     if(!s.pending) $("tNoteSave").addEventListener("click", function(){ saveNote(s.uid, $("tNote").value); });
     bindPickers();
   }
@@ -2441,7 +3267,12 @@
   // name box both narrow it, which is the whole safety story for "all".
   function visibleStudents(){
     var f = boardClass();
-    return students.filter(function(s){ return matchesQuery(s) && matchesFilter(s, f); });
+    return students.filter(function(s){ return matchesQuery(s) && matchesFilter(s, f) && !planFor(s.uid); });
+  }
+  // How many students the board is leaving out because they are in a sequence.
+  function sequenceStudentsShown(){
+    var f = boardClass();
+    return students.filter(function(s){ return matchesQuery(s) && matchesFilter(s, f) && planFor(s.uid); }).length;
   }
 
   // Pure: is this student inside class filter `f`?
@@ -3011,6 +3842,9 @@
     var nSel = Object.keys(board.sel).filter(function(u){ return board.sel[u] && visUid[u]; }).length;
     var bare = vis.filter(function(s){ return !liveStudent(s.uid).length; }).length;
     var sugs = boardSuggestions();
+    // Students in a sequence are left off the board (their lists move with
+    // their progress, and are changed on their own page); say how many.
+    var inSeq = sequenceStudentsShown();
 
     $("tBody").innerHTML =
       suggestionsHtml(sugs) +
@@ -3031,6 +3865,9 @@
         "</div>" +
         (bare ? '<p class="abWarn">' + bare + (bare === 1 ? " student" : " students") +
           " shown " + (bare === 1 ? "has" : "have") + " no games yet — their home page is empty.</p>" : "") +
+
+        (inSeq ? '<p class="seqBoardNote">' + inSeq + (inSeq === 1 ? " student is" : " students are") +
+          " in a sequence. Change their lists on their own page.</p>" : "") +
 
         '<div class="abScroll"><table class="abGrid" id="abGrid">' +
           '<thead><tr><th class="abName abCorner" rowspan="2">Student</th>' + famHead + "</tr>" +
@@ -3917,7 +4754,21 @@
       paintCells: paintCells,
       pickerHtml: pickerHtml,
       scopeSelection: scopeSelection,
-      bindPickers: bindPickers
+      bindPickers: bindPickers,
+      // sequences
+      planFor: planFor, positionOf: positionOf, draftFromSaved: draftFromSaved, emptyDraft: emptyDraft,
+      draftIndex: draftIndex, draftMove: draftMove, draftRemove: draftRemove, draftWays: draftWays,
+      draftAdd: draftAdd, draftBar: draftBar, draftMoveOn: draftMoveOn, draftGoBack: draftGoBack,
+      draftReplaceLater: draftReplaceLater, stepsFromIds: stepsFromIds, readyMadeSteps: readyMadeSteps,
+      READY_MADE: READY_MADE, planBody: planBody, stopBody: stopBody, wayLine: wayLine, stuLine: stuLine,
+      stepTitle: stepTitle, stepWays: stepWays, seqPanelHtml: seqPanelHtml, seqDirty: seqDirty,
+      leaveDraftOk: leaveDraftOk, sequenceStudentsShown: sequenceStudentsShown,
+      renderDetail: renderDetail, seqAct: seqAct, commitStudentBody: commitStudentBody,
+      switchView: switchView, render: render,
+      getDraft: function(){ return seqDraft; },
+      reset: function(){ seqDraft = null; seqSaving = false; seqUI = seqUIFresh(); detailTab = "lists"; lastDetailUid = null; detailUid = null; view = "roster"; },
+      open: function(uid){ view = "roster"; detailUid = uid; },
+      setDb: function(d){ db = d; }
     }
   };
 

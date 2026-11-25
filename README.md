@@ -1533,9 +1533,9 @@ The views:
   them, the roster with accuracy, words solid, words shaky, last activity,
   and a **Lists** column that says in words what each student currently
   gets — *"Red Words: 1–3 🃏"*, or a *nothing yet* pill; when it's true, a
-  callout: *"7 students have no games yet"*. Click through for a student's
-  hardest words, per-list breakdown, games picker, **note**, the
-  **Archive** button and, for the admin, the **Teacher** select. Two CSV
+  callout: *"7 students have no games yet"*. Click through to the student's
+  own page (*A student's page*, below): their lists in order, their data, their
+  **note**, the **Archive** button and, for the admin, the **Teacher** select. Two CSV
   exports live here too. On an empty class the view is a three-step *Get
   started*.
 - **Trouble spots** — the same words aggregated across the class, sorted
@@ -1644,9 +1644,9 @@ who has not signed in, next to `lists`:
 A step is a **map**, not a bare array — Firestore refuses an array directly
 inside an array. Every id in one step is a way of playing the same list; one
 list per step. With a valid `plan`, the plan decides and `lists` is ignored
-(whatever writes a plan should also write `lists` equal to the current step's
-ids, so anything that only reads `lists` still sees something sensible). All of it is sanitized on
-the way in (`Adaptive.sanitizePlan`): wrong types are dropped, a bar or a
+(the dashboard always writes `lists` equal to the current step's ids, so
+anything that only reads `lists` still sees something sensible). All of it is
+sanitized on the way in (`Adaptive.sanitizePlan`): wrong types are dropped, a bar or a
 position out of range is pulled in, and a plan with no usable step is `null`.
 
 **What "finished" means.** A step is finished when, for **every** id in it,
@@ -1665,8 +1665,9 @@ settable per student.
 browser, in `store.js`, by `Adaptive.planState(plan, stats, totalOf, seq)`: start
 at `plan.at`; if the student's own mark is this plan's and further on, start
 there; if the teacher is holding them, stop; otherwise walk forward while the
-step is finished. It is pure and has no clock, so the dashboard can run exactly the same
-function on the same stats and the two cannot disagree. It has to be the
+step is finished. It is pure and has no clock, so the dashboard runs exactly the same
+function on the same stats and the two cannot disagree (`tests.html` runs the
+dashboard's code and `store.js`'s on the same inputs and expects the same index). It has to be the
 student's browser because a student can never write `assignments/{uid}`
 (`firestore.rules`) and a teacher's browser has no student's stats until it
 opens the dashboard. It runs **once per page load** — never mid-round: a student
@@ -1696,19 +1697,113 @@ teacher has not set. A teacher's own home page ignores plans (it shows every
 game) and a teacher previewing a student sees that student's position without
 anything being written for them.
 
-**What exists so far.** The engine and the student's home page. No teacher
-screen writes a `plan` yet, so no document has one and every student's home page
-is exactly what it was; a plan written by hand in the console is honoured.
-
 `tests.html` pins every function (a bar of 18 of 20 finishes and 17 does not,
 two ticked ways with one short, a slow word, `hold`, an old `seq`, replaying a
 finished list, a deleted id, and the old-versus-new check that a student with
 no plan gets exactly what `effectiveLists` gave them).
 
+### A student's page
+
+Click a student (in the Students table, in Manage → Archived, or in the narrow
+list of the class's students at the left of this page) to open their page. The
+list at the left follows the class filter and has the open student marked; a
+student reached from Archived who is not in the filter is added to the top of it.
+Above the tabs are the student's name, one line — *"Period 3 · practiced
+yesterday · 4 rounds this week"*, or *"hasn't signed in yet"* for a roster
+row — and a **Student view** button for this student. Three tabs, a real
+`role="tablist"` (arrows, Home and End move between them):
+
+- **Word lists** (opens first). The sequence editor, and beside it a card for
+  the list they are on and one for the lists they have finished.
+- **All practice data.** The numbers, *What goes wrong*, *Hardest words*,
+  *Reading rate* and *By list* — what the page always held.
+- **Notes and class.** *Notes*, *Class*, *Roster row* and *Archive*, unchanged.
+
+Below 900px the columns stack.
+
+**The editor** is titled *"Ana's word lists, in order"*. One row per list,
+top to bottom, numbered. A **finished** row says which list, the ways it is
+played in words (*"Say it · Cards"*), and *"Finished 14 Nov · 19 of 20 solid"*
+(the date is `seq.when`, which is only the latest move, so earlier finished rows
+show the count alone), with **Go back to this list**. The row they are on is
+marked **Now**: a bar for each way of playing with a tick at the percent, and
+the count in whole words — *"Say it: 14 of 20 solid. 4 more to finish (18 of
+20). 2 more are right but slow."* — with **Move on now** (not on the last list,
+which finishes at the bar). Later rows — the first is *Next* — can be moved
+earlier or later (buttons, not drag), have their ways of playing changed, or be
+taken out. Under the rows: **Add a list** (one list not already there, at least
+one way ticked; the ticks start as a copy of the step above when it is the same
+family, and the chooser opens on the next list of that family),
+**Start from a ready-made sequence** and **Copy from another student**. Above
+the rows: *"A list is finished when [−] 90% [+] of its words are solid."* in
+steps of 5 from 50 to 100; changing it redraws the counts at once.
+
+The two ready-made sequences are built from the library when asked for, not
+stored, so nothing goes stale when a list is added or retired: *Red Words, Lists
+1 to 10* and *Sounding it out* (Starting Blends, Blend Words, oi / oy,
+Multisyllable), each with Say it and Cards. Using one — or copying another
+student's — replaces only the lists still to come, after a confirm that names
+them; the finished lists and the one they are on stay, and no list is ever in a
+sequence twice.
+
+**Move on now** sets `at` to the next step and takes `hold` off. **Go back to
+this list** sets `at` to that step and puts `hold` on, and the row reads
+*"Staying here until you press Move on now."*
+
+**Edits go to a draft** (`seqDraft`, plain data; every edit is a small pure
+function — `draftMove`, `draftRemove`, `draftWays`, `draftAdd`, `draftBar`,
+`draftMoveOn`, `draftGoBack`, `draftReplaceLater` — pinned in `tests.html`). A bar
+at the bottom says *"Changes not saved yet"* with **Discard** and **Save**.
+Save is one merge-write of `{ plan, lists, updatedAt }` and the class stamp, to
+`assignments/{uid}` or to `roster/{email}` for a student who has not signed in:
+`plan.setAt` is now, `plan.at` is the step shown as Now, and `lists` is that
+step's ids. Because `setAt` changed, the student's old high-water mark stops
+counting, so a saved sequence is always worked out afresh from what the student
+has learned, from `at`. Switching student, going back to the list, the class
+filter, Refresh, a sidebar item and closing the page all ask first when there is
+a draft.
+
+**Where "Now" comes from.** `positionOf()` in `teacher.js` is `Adaptive.planState`
+on the student's own stats and `seq` — `store.js`'s code, not a lookalike — so the
+editor cannot say Now about a list the student's home page does not show.
+`effectiveLists()` uses it too, so the Students table, the CSV and the rest see a
+sequence student's real lists (finished, then current).
+
+**A student with games and no sequence** sees, in place of the rows, *"These 3
+games, all at once, in no order"*, the sentence the roster shows
+(`WordLists.describeAssignment`), **Put these in order** (one step per list from
+what they have, in the library's order, as a draft) and the picker behind a
+*Change these games* fold, saved as before with **Save games**. A student with
+nothing gets the editor with no rows and the same fold.
+
+**Stop using a sequence** (after a confirm that says what leaves) deletes the plan
+from the document and leaves `lists` as the current step's ids — so the lists
+they had finished leave the home page, though their practice record is kept.
+
+**Keyboard.** Every row in the Students table takes focus (Enter or Space
+opens the student). The student list at the left is one tab stop — the open
+student — with the arrow keys, Home and End moving along it, so reaching the tabs
+does not mean tabbing past a class. After each edit focus returns near where it
+was (the same arrow on the moved row, or its twin at the end of the list; *Add a
+list* after an add); after Save or Stop it lands on the editor's heading and a
+status line says *"Saved."*; a failure says so beside Save, or under the heading
+when there is no Save bar. Only one write is on the wire at a time, so an edit
+cannot be lost underneath a save. Things that would drop a draft — switching
+student, the class filter, a sidebar item, Archive, Remove from roster, moving
+them out of your classes, closing the page — ask first; Refresh asks first and
+drops the draft only once the new data has arrived.
+
+**The Assign board leaves sequence students out** (`visibleStudents()` skips
+anyone with a plan, so no bulk action or suggestion can reach them) and says how
+many: *"2 students are in a sequence. Change their lists on their own page."*
+*What should change* leaves them out too: its suggestions are written as "add
+this list", which a plan does not take.
+
 ### The picker
 
-Every place a set of lists is chosen — a student's own page, the board's
-bulk dialog — uses one component, `pickerHtml()` in `teacher.js`: one
+Every place a set of lists is chosen — a student's own page (for a student
+with no sequence, behind *Change these games*), the board's bulk dialog — uses
+one component, `pickerHtml()` in `teacher.js`: one
 section per family, because that is the only kind of entry the registry
 has:
 

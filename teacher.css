@@ -251,12 +251,7 @@ table.t tbody tr.clickable:hover{background:var(--panel2)}
 .who .init{background:var(--brand);color:var(--brand-ink);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:13px}
 .who .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .who .em{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* On the student's own page the name is the page's heading (the card is
-   the only place .who sits directly in a panel; in the roster it is in a
-   table cell), so it takes the title face. */
-.panel > .who{gap:12px;margin-bottom:16px}
-.panel > .who img,.panel > .who .init{width:40px;height:40px;font-size:16px}
-.panel > .who .nm{font-family:var(--serif);font-weight:500;font-size:20px}
+/* On the student's own page the name is the page's heading (see .stuHead). */
 
 .pill{
   display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;
@@ -297,11 +292,11 @@ input.retiredBox{outline:1px dashed var(--muted);outline-offset:2px}
 label.check input{width:17px;height:17px;accent-color:var(--accent);flex:none}
 label.check .sub2{color:var(--muted);font-size:12px;display:block}
 
-select.sel,input.txt{
+select.sel,input.txt,textarea.txt{
   background:var(--panel);border:1px solid var(--line);color:var(--ink);
   font-family:inherit;font-size:15px;padding:9px 12px;border-radius:var(--r-sm);
 }
-select.sel:focus,input.txt:focus{outline:none;border-color:var(--accent)}
+select.sel:focus,input.txt:focus,textarea.txt:focus{outline:none;border-color:var(--accent)}
 
 .rowActions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px}
 .btn.sm{font-size:14px;padding:9px 16px;border-radius:var(--r-btn)}
@@ -612,3 +607,101 @@ body.teacher .ei-wall-card h1{font-family:var(--serif);font-weight:500}
 body.teacher .ei-wall-error{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
 /* White on the light card has no edge; the dark scheme already shows one. */
 body.teacher .ei-btn-google{border:1px solid var(--line)}
+
+/* ---------------- a student's page ----------------
+   A narrow list of the students in the class filter at the left, the
+   student beside it: their name and one line, then three tabs. */
+.stuLayout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:20px;align-items:start}
+.stuList{
+  position:sticky;top:calc(var(--bar) + 14px);max-height:calc(100vh - var(--bar) - 28px);overflow-y:auto;
+  display:flex;flex-direction:column;gap:2px;
+}
+.stuPick{
+  text-align:left;background:transparent;color:var(--muted);font-size:14px;font-weight:500;
+  padding:7px 10px;border-radius:var(--r-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.stuPick:hover{background:var(--panel2);color:var(--ink)}
+.stuPick[aria-current="true"]{background:var(--sel-bg);color:var(--sel-ink);font-weight:600}
+.stuPick.pending{font-style:italic}
+.stuMain{min-width:0}
+.stuHead{display:flex;align-items:center;gap:6px 16px;flex-wrap:wrap;margin-bottom:14px}
+.stuHead .who{flex:0 1 auto}
+.stuHead .who img,.stuHead .who .init{width:40px;height:40px;font-size:16px}
+.stuHead .who .nm{font-family:var(--serif);font-weight:500;font-size:22px}
+.stuLine{margin:0;font-size:14px;flex:1 1 220px}
+.stuTabs{margin-bottom:16px}
+[role="tabpanel"][hidden]{display:none}
+
+/* The "Word lists" tab: the editor, and beside it two small cards. */
+.seqLayout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start}
+.seqLayout > .panel{margin-bottom:0}
+.seqEditor h2:focus{outline:none}
+.seqBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 16px;font-size:15px}
+.seqPct{min-width:3.2em;text-align:center;font-size:17px}
+.btn.sm.seqIcon{padding:6px 11px;min-width:34px}
+.seqRows{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:8px}
+.seqRow{
+  display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;
+  background:var(--panel2);border-radius:var(--r-btn);padding:12px 14px;
+  border-left:4px solid transparent;
+}
+.seqRow.now{border-left-color:var(--accent);background:var(--sel-bg)}
+.seqRow.fin{background:transparent;border:1px solid var(--line2);border-left-width:4px;border-left-color:var(--good)}
+.seqNum{
+  flex:none;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:700;background:var(--panel);color:var(--ink);border:1px solid var(--line);
+}
+.seqBody{flex:1 1 320px;min-width:0}
+.seqTop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.seqName{font-size:15px}
+.seqTag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:99px}
+.seqTag.fin{background:var(--good-bg);color:var(--good)}
+.seqTag.now{background:var(--sel-ink);color:var(--sel-bg)}
+.seqTag.later{background:var(--panel);color:var(--muted);border:1px solid var(--line)}
+.seqNote{font-size:13px;margin-top:4px}
+.seqHeld{font-weight:600;color:var(--warn)}
+.seqWay{margin-top:8px}
+.seqLine{font-size:14px;line-height:1.45}
+.seqMeter{position:relative;height:8px;border-radius:99px;background:var(--panel);margin-top:6px;border:1px solid var(--line2)}
+.seqMeter span{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:var(--accent)}
+.seqMeter i{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink);border-radius:2px}
+.seqBtns{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-left:auto}
+.seqWays{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.seqWays label.check{padding:7px 12px}
+.seqControls{display:flex;gap:10px 18px;flex-wrap:wrap;align-items:flex-end;margin:4px 0 12px}
+.seqPick{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.seqPick .sel{max-width:230px}
+.seqPick .btn{align-self:flex-start}
+.seqAdd{background:var(--panel2);border-radius:var(--r-btn);padding:12px 14px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.seqSave{
+  position:sticky;bottom:14px;z-index:20;margin-top:14px;
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  background:var(--panel);border:1px solid var(--accent);border-radius:var(--r-card);
+  padding:12px 18px;box-shadow:var(--shadow-raised);
+}
+.seqSave[hidden]{display:none}
+.seqCount{font-weight:700;font-size:14px;color:var(--sel-ink)}
+.seqSave .btn:last-child{margin-left:auto}
+.seqSide{display:flex;flex-direction:column;gap:12px}
+.seqSide .panel{margin-bottom:0;padding:16px}
+.seqSide h2{font-size:15px !important}
+.seqSide p{margin:4px 0}
+.seqFinList{margin:6px 0 0;padding-left:18px;font-size:14px;line-height:1.6}
+.seqNoOrder{font-size:16px;margin:6px 0 2px}
+.seqFold{margin-top:16px}
+.seqFold > summary{cursor:pointer;color:var(--muted);font-weight:600;font-size:14px;padding:6px 0}
+.seqFold > summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.seqBoardNote{margin:-4px 0 14px;font-size:14px;color:var(--muted);border-left:3px solid var(--accent);padding:4px 0 4px 10px}
+@media (max-width:900px){
+  .stuLayout{grid-template-columns:minmax(0,1fr)}
+  .stuList{position:static;max-height:none;flex-direction:row;overflow-x:auto;overflow-y:hidden;padding-bottom:4px}
+  .stuPick{flex:none}
+  .seqLayout{grid-template-columns:minmax(0,1fr)}
+}
+
+/* Focus a keyboard user can see: a student row in the Students table is a
+   way in, and the page's heading takes focus when a student opens. */
+table.t tbody tr.clickable:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.stuHead:focus,.seqEditor h2:focus{outline:none}
+.stuPick:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.saveNote:empty{display:none}
