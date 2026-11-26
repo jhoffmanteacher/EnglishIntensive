@@ -3120,9 +3120,8 @@
   function notePanelHtml(uid){
     var n = notes[uid] || {};
     return '<div class="panel"><h2>Notes</h2>' +
-      '<p class="note">For the things the numbers don\'t say. <b>Only you can read this</b> — ' +
-      "it's the one thing on this page the student can't see about themselves, which is what makes it " +
-      "worth writing honestly.</p>" +
+      '<p class="note">For the things the numbers don\'t say. <b>Students can\'t read this.</b> ' +
+      "Every teacher on this class can, and so can the site admin.</p>" +
       '<textarea class="txt noteBox" id="tNote" rows="4" maxlength="' + NOTE_MAX +
         '" placeholder="e.g. Reads well, freezes when timed. Sounds words out under his breath — let him.">' +
         esc(noteOf(uid)) + "</textarea>" +

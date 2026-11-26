@@ -2533,6 +2533,10 @@ somewhere else. `notes/{uid}` is **teacher read and teacher write, with no
 student clause at all**. It is the one path on the site a student may not
 read about themselves.
 
+"Teacher" means every teacher on the student's class, and the admin: a note
+is shared by co-teachers. The panel says so (it used to say "Only you can
+read this", which was never true on a co-taught class).
+
 ### Export
 
 Two CSVs from the Students tab, built from what the dashboard already has

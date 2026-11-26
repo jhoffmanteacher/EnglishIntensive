@@ -82,6 +82,27 @@ to main (`rules.yml`).
 `firestore.rules` is the only thing enforcing who may read what. It doesn't
 deploy itself: whenever it changes, re-publish it in the Firebase console.
 
+## Which loop after which change
+
+Run the row for what you changed. GitHub runs everything on every push, so
+nothing else has to run here. A row's browser tools count toward the limit
+below.
+
+| Changed | Run before committing |
+|---|---|
+| anything on the site | `run-tests.sh`, `check-pages.sh`, `boot-check.sh` |
+| `store.js`, sign-in or sign-out in `auth.js`, anything that writes `students/{uid}`, a student's data in `localStorage` or `sessionStorage` | `save-loop.mjs` |
+| the sequence editor, Save, Stop or Give in `teacher.js`; `resolve`, `settle`, `plan()` in `store.js`; the plan functions in `adaptive.js`; the home page in `practice.js` | `sequence-loop.mjs` |
+| how a game listens (the paragraph above lists the pieces) | `listen-loop.mjs`, before and after |
+| `firestore.rules`, sign-in, what the site saves, a teacher's buttons, the downloads | the emulator loops (GitHub only: push to a side branch and read the result) |
+
+- **Never weaken a loop to make it pass.** A failing loop is a real gap: fix
+  the site. If the loop itself is wrong, say so and why before changing it.
+- **At most two browser runs at once on this Mac**, helpers included, and
+  only one heavy one (`sequence-loop`, `listen-loop`).
+- **The emulator runs on GitHub only.** Nothing is installed for it here.
+- **No test touches the real Firebase project or real student data.**
+
 ## Watch out for
 
 - **List ids are permanent.** An id is half of every stat key and is what an
