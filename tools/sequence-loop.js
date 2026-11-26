@@ -72,7 +72,11 @@
         percent or any edit to it) leaves the other's stored plan byte for byte and its stated position unchanged.
      S4 no backwards. Replaying a finished list with misses never moves a student back; Go back to this list does,
         and holds them there through any practice until Move on now; a stored mark (seq.at / seq2.at) never goes
-        down for the same plan.
+        down for the same plan. And K1 (TODO.md 2026-11-25) on the HOME PAGE after every Save, Give and Stop, from
+        what is stored (homeFromStore / checkK1 — never the dashboard's draft or keySections): every finished list
+        stays finished, every current list stays current or finished (or, where two of a kind were made one with
+        one current in each, becomes the very next), a held list stays held; exempt only Go back, a raised percent,
+        a list taken out, and the sequence Give replaced or Stop removed.
      S5 new plan, fresh start. A sequence saved afresh (an edit, Give, plan2 promoted by Stop) carries a setAt
         never used before for that student, and the student lands where the key's walk from its `at`, with no old
         mark, puts them; Give starts each student on the first list they have not already finished.
@@ -91,7 +95,9 @@
 
    THE FAMILIES (round robin): one-sequence, two-sequences, teacher-steps-in, re-plan, bulk, roster-first, stop, legacy
    (documents saved before Say it was in every step, and before Red Words and Other lists: a sequence holding both
-   kinds, two of one kind, either kind in either field; in half the cases the students load before the teacher).
+   kinds, a mixed one beside one of a single kind, two of one kind, either kind in either field, with progress and
+   marks on both, a second finished by its mark, and holds on the non-home sequence; in half the cases the students
+   load before the teacher).
    "Both field orders" also arise on their own: a student given Other lists first and Red Words later holds Other
    lists in `plan` and Red Words in `plan2`.
    Each case has 1-3 students, a class with three saved sequences (one of red lists, one of other lists, one of any
@@ -652,10 +658,13 @@
   function draftShape(d){ return JSON.stringify({ steps: d.steps, bar: d.bar, at: d.at, hold: d.hold }); }
   /* What each section shows before any edit (README "Two at once"). Clean documents — every stored sequence of one
      kind, no two of a kind — show each stored sequence in its own section, unedited, in its own field (`slot`). An
-     older document (a sequence holding both kinds, or two of one kind) is shown split: each section's steps are the
-     sequence that already holds only that kind, then the rest of that kind in stored order, a list that is there
-     already left out; it starts on its first step the student had not passed where it came from (past the end if
-     they had passed them all), keeps a hold on the step it was on, and is unsaved (slot -1) until Save. */
+     older document (a sequence holding both kinds, or two of one kind) is shown split, unsaved (slot -1) until Save.
+     Each section gathers every stored step of its kind — the sequence that already holds only that kind first, then
+     the rest in stored order; a list met twice is one step, as far on as it got in either, with the ways the student
+     could see — and orders them (README, K1: nothing the teacher does moves a student backwards): every step they
+     had PASSED where it came from (below that plan's own position), then the step(s) they were ON — a held one
+     first, else the home sequence's, then the other's — then the rest; `at` is the number passed (past the end if
+     they had passed them all), and the hold is kept only on the step at `at`. */
   function keySections(s){
     var kinds = [0, 1].map(function(k){ return s.plans[k] ? kindOf(s.plans[k].steps) : null; });
     var have = [0, 1].filter(function(k){ return kinds[k]; });
@@ -673,23 +682,37 @@
     }
     KINDS.forEach(function(kind, sec){
       var home = kinds.indexOf(kind), order = home === -1 ? [0, 1] : [home, 1 - home];
-      var steps = [], passed = [], held = [], keys = [], bar = null;
-      order.forEach(function(k){
+      var got = [], keys = [], bar = null;      // got: { ids, st: 2 passed | 1 on it | 0 not reached, held, o: 0 home }
+      order.forEach(function(k, o){
         var p = s.plans[k]; if(!p) return;
         var pos = s.pos(k);
         p.steps.forEach(function(st, i){
           if(stepKindOf(st.ids) !== kind) return;
-          var kk = listKey(st.ids[0]); if(keys.indexOf(kk) !== -1) return;
+          var stt = i < pos.index ? 2 : i === pos.index ? 1 : 0, hd = stt === 1 && !!pos.hold;
+          var kk = listKey(st.ids[0]), j = keys.indexOf(kk);
+          if(j !== -1){
+            var g = got[j];
+            if(stt) st.ids.forEach(function(id){ if(g.ids.indexOf(id) === -1) g.ids.push(id); });
+            if(stt > g.st){ g.st = stt; g.o = o; }
+            g.held = g.st === 1 && (g.held || hd);
+            return;
+          }
           keys.push(kk); if(bar === null) bar = p.bar;
-          steps.push({ ids: st.ids.slice() }); passed.push(i < pos.index); held.push(pos.hold && i === pos.index);
+          got.push({ ids: st.ids.slice(), st: stt, held: hd, o: o });
         });
       });
-      if(!steps.length) return;
-      var at = passed.indexOf(false); if(at === -1) at = steps.length;
-      out[sec] = { kind: kind, slot: -1, steps: steps, bar: bar, at: at, hold: at < steps.length && held[at], hasPlan: false, base: null,
-                   was: at, wasN: steps.length, wasBar: bar, split: true, passedCount: at };
+      if(!got.length) return;
+      function pick(f){ return got.filter(f); }
+      var all = pick(function(g){ return g.st === 2; })
+        .concat(pick(function(g){ return g.st === 1 && g.held && g.o === 0; }), pick(function(g){ return g.st === 1 && g.held && g.o === 1; }),
+                pick(function(g){ return g.st === 1 && !g.held && g.o === 0; }), pick(function(g){ return g.st === 1 && !g.held && g.o === 1; }),
+                pick(function(g){ return g.st === 0; }));
+      var at = pick(function(g){ return g.st === 2; }).length;
+      out[sec] = { kind: kind, slot: -1, steps: all.map(function(g){ return { ids: g.ids }; }), bar: bar, at: at,
+                   hold: at < all.length && all[at].held, hasPlan: false, base: null,
+                   was: at, wasN: all.length, wasBar: bar, split: true };
     });
-    return { clean: false, drafts: out };
+    return { clean: false, drafts: out, note: have.some(function(k){ return kinds[k] === "mixed"; }) ? "mixed" : "same" };
   }
   function keyDraft(s, sec){
     if(s.drafts[sec]) return s.drafts[sec];
@@ -994,30 +1017,67 @@
     checkSayStored(c, "after the first load");
   }
 
-  /* Documents saved before the rule: steps without Say it (a Cards-only first step, often), some students already at
-     the bar on its Cards (so they will now need Say it), some of those with a mark past it (so they will not). */
+  /* Documents saved before the rules: steps without Say it (a Cards-only first step, often), some students already at
+     the bar on its Cards (so they will now need Say it), some of those with a mark past it (so they will not). And
+     documents from before Red Words and Other lists (2026-11-24 to -25), in every shape the dashboard has to split
+     or merge: one sequence of any lists (mixed or not); a mixed one beside one of a single kind, in either field;
+     two of the same kind; with progress on BOTH — a stored `at`, the student's own mark (seq, seq2) further on, a
+     second sequence finished by its mark — and sometimes a hold (Go back) on a step of the sequence that is not
+     its kind's own (the mixed one, or the second of two of a kind). */
   function seedLegacy(c, now){
     var r = c.rng;
     c.students.forEach(function(s){
       if(r.chance(0.15)) return;
-      var steps = randomSteps(c, r.int(2, 4));
+      var shape = r.pick(["any", "any", "mixed+one", "same", "same"]), steps, st2 = null;
+      if(shape === "same"){
+        var kd = r.pick(KINDS);
+        steps = randomSteps(c, r.int(2, 3), null, kd);
+        st2 = randomSteps(c, r.int(1, 3), stepKeysOf(steps), kd);
+      } else if(shape === "mixed+one"){
+        steps = r.shuffle(randomSteps(c, r.int(1, 2), null, "red").concat(randomSteps(c, r.int(1, 2), null, "other")));
+        st2 = randomSteps(c, r.int(1, 3), stepKeysOf(steps), r.pick(KINDS));
+      } else {
+        steps = randomSteps(c, r.int(2, 4));
+        if(r.chance(0.4)) st2 = randomSteps(c, r.int(1, 3), stepKeysOf(steps));
+      }
+      if(st2 && !st2.length) st2 = null;
       if(r.chance(0.7)){
-        var L = r.pick(LISTS.filter(function(x){ return stepKeysOf(steps).indexOf(x.key) === -1; }));
-        steps[0] = { ids: [r.pick(L.ids.filter(function(id){ return W.byId(id).mode !== "say"; }))] };
+        // a Cards-only (or Match-only) first step, of the same kind as the step it replaces
+        var k0 = stepKindOf(steps[0].ids), avoid = stepKeysOf(steps).concat(st2 ? stepKeysOf(st2) : []);
+        var L = r.pick(LISTS.filter(function(x){ return avoid.indexOf(x.key) === -1 && listKind(x) === k0; }));
+        if(L) steps[0] = { ids: [r.pick(L.ids.filter(function(id){ return W.byId(id).mode !== "say"; }))] };
       }
       var plans = [{ steps: steps, bar: r.pick([0.75, 0.9]), at: 0, hold: false, setAt: now - 86400000 * r.int(2, 9) }, null];
-      if(r.chance(0.4)){
-        var st2 = randomSteps(c, r.int(1, 3), stepKeysOf(steps));
-        if(st2.length) plans[1] = { steps: st2, bar: 0.9, at: 0, hold: false, setAt: now - 86400000 * r.int(10, 19) };
+      if(st2) plans[1] = { steps: st2, bar: r.pick([0.75, 0.9]), at: 0, hold: false, setAt: now - 86400000 * r.int(10, 19) };
+      if(st2 && shape !== "any" && r.chance(0.5)) plans.reverse();      // either field
+      // progress on each: the teacher's `at` (Move on now), and later the student's own mark
+      plans.forEach(function(p){ if(p && r.chance(0.5)) p.at = r.int(0, p.steps.length - 1); });
+      // a hold on the sequence that is not its kind's own home: the mixed one, else the second
+      if(plans[1] && r.chance(0.35)){
+        var kinds2 = plans.map(function(p){ return kindOf(p.steps); });
+        var hk = kinds2[0] === "mixed" ? 0 : kinds2[1] === "mixed" ? 1 : 1, hp = plans[hk];
+        hp.at = r.int(0, hp.steps.length - 1); hp.hold = true;
       }
       var stamp = { classId: CLASS_ID, teachers: [TEACHER.email] };
       var doc = s.pending ? SV.docs["roster/" + s.email] : (SV.docs["assignments/" + s.uid] = Object.assign({ updatedAt: now - 86400000 }, stamp));
-      doc.plan = copy(plans[0]); if(plans[1]) doc.plan2 = copy(plans[1]);
-      doc.lists = plans[0].steps[0].ids.concat(plans[1] ? plans[1].steps[0].ids : []);
-      if(!s.pending && lacksSay(steps[0]) && r.chance(0.6)){
+      doc.plan = copy(plans[0]); if(plans[1]) doc.plan2 = copy(plans[1]); else delete doc.plan2;
+      doc.lists = plans[0].steps[plans[0].at].ids.concat(plans[1] ? plans[1].steps[plans[1].at].ids : []);
+      if(!s.pending){
         var sd = SV.docs["students/" + s.uid];
-        steps[0].ids.forEach(function(id){ words(id).forEach(function(w){ sd.words[id + "|" + w] = solidStat(); s.stats[id + "|" + w] = { n: 5, r: 5, box: 5 }; }); });
-        if(r.chance(0.5)){ sd.seq = { at: 1, of: plans[0].setAt, when: now - 86400000 }; s.marks[0] = { at: 1, of: plans[0].setAt }; }
+        if(lacksSay(plans[0].steps[0]) && r.chance(0.6)){
+          plans[0].steps[0].ids.forEach(function(id){ words(id).forEach(function(w){ sd.words[id + "|" + w] = solidStat(); s.stats[id + "|" + w] = { n: 5, r: 5, box: 5 }; }); });
+          // (never beside a hold: a held plan's own mark cannot be past the held step — the dashboard writes a hold
+          // with a new setAt, and the student cannot move while held)
+          if(r.chance(0.5) && plans[0].at < 1 && !plans[0].hold){ sd.seq = { at: 1, of: plans[0].setAt, when: now - 86400000 }; s.marks[0] = { at: 1, of: plans[0].setAt }; }
+        }
+        // the student's own marks, further on than `at`; the second sometimes past its end (finished)
+        plans.forEach(function(p, k){
+          if(!p || p.hold || !r.chance(0.55)) return;
+          var f = k ? "seq2" : "seq", cur = s.marks[k] && s.marks[k].of === p.setAt ? s.marks[k].at : p.at;
+          var at = k === 1 && r.chance(0.4) ? p.steps.length : r.int(Math.min(cur + 1, p.steps.length), p.steps.length);
+          if(at <= Math.max(cur, p.at)) return;
+          sd[f] = { at: at, of: p.setAt, when: now - 86400000 }; s.marks[k] = { at: at, of: p.setAt };
+        });
       }
       s.seeded = plans.map(function(p){ return p ? clonePlan(p) : null; });
       s.plans = plans.map(function(p){ if(!p) return null; var q = clonePlan(p); q.steps = saySteps(p.steps); return q; });
@@ -1199,6 +1259,63 @@
     }
   }
   function storedPlans(s){ var d = storedSource(s).doc; return [d.plan ? copy(d.plan) : null, d.plan && d.plan2 ? copy(d.plan2) : null]; }
+
+  /* K1 (TODO.md, decided 2026-11-25): nothing the teacher does moves a student backwards, except Go back to this
+     list and raising the percent. Checked here as a property of the student's HOME PAGE, worked out from what is
+     STORED — the fake server's assignment / roster row, and the student's own marks (seq, seq2) on students/{uid} —
+     with the key's walk (README "Where the position is worked out"), never from the dashboard's draft or from
+     keySections, so a key that copied a wrong rule cannot hide it. By list id: `fin` the "Lists you finished" fold,
+     `cur` the current tiles (and `held` the held ones), `next` each sequence's step right after its current one;
+     `curSteps` counts, per kind, the sequences whose current step is of that kind. */
+  function homeFromStore(s){
+    var d = storedSource(s).doc, sd = s.pending ? null : SV.read("students/" + s.uid);
+    var plans = [d.plan || null, d.plan && d.plan2 ? d.plan2 : null], marks = [(sd && sd.seq) || null, (sd && sd.seq2) || null];
+    var out = { fin: {}, cur: {}, held: {}, next: {}, curSteps: { red: 0, other: 0 } };
+    plans.forEach(function(p, k){
+      if(!p || !Array.isArray(p.steps) || !p.steps.length) return;
+      var q = { steps: saySteps(p.steps), bar: p.bar, at: Math.min(p.at || 0, p.steps.length), hold: !!p.hold, setAt: p.setAt };
+      var w = walk(q, s.stats, marks[k]);
+      q.steps.forEach(function(st, i){
+        var kind = stepKindOf(st.ids);
+        if(i === w.index) out.curSteps[kind]++;
+        st.ids.filter(exists).forEach(function(id){
+          if(i < w.index) out.fin[id] = kind;
+          else if(i === w.index){ out.cur[id] = kind; if(w.hold) out.held[id] = kind; }
+          else if(i === w.index + 1) out.next[id] = kind;
+        });
+      });
+    });
+    Object.keys(out.cur).forEach(function(id){ delete out.fin[id]; });
+    return out;
+  }
+  /* S4 (K1) after a teacher action that wrote this student. `free(kind)`: that kind's lists may move (Go back, a
+     raised percent, or the sequence was stopped or replaced); `freeIds`: lists taken out; `holdFree(kind)`: a hold
+     there may come off (Move on now / Go back). Every list in the fold before is in the fold after. Every list
+     current before is current or finished after — or, where the student was on TWO lists of that kind (one in each
+     stored sequence) and the save made them one sequence, the very next list after the current one: never further
+     back, never dropped. A held list stays held and current. */
+  function checkK1(c, s, before, label, free, freeIds, holdFree){
+    var after = homeFromStore(s), bad = [];
+    function where(id){ return after.fin[id] ? "finished" : after.cur[id] ? "current" : after.next[id] ? "next" : "later or gone"; }
+    Object.keys(before.fin).forEach(function(id){
+      if(free(before.fin[id]) || freeIds[id]) return;
+      if(!after.fin[id]) bad.push(id + " was finished, now " + where(id));
+    });
+    Object.keys(before.cur).forEach(function(id){
+      var kind = before.cur[id];
+      if(free(kind) || freeIds[id]) return;
+      if(after.cur[id] || after.fin[id]) return;
+      if(after.next[id] && before.curSteps[kind] >= 2 && after.curSteps[kind] < 2) return;
+      bad.push(id + " was current, now " + where(id));
+    });
+    Object.keys(before.held).forEach(function(id){
+      var kind = before.held[id];
+      if(free(kind) || freeIds[id] || holdFree(kind)) return;
+      if(!after.held[id]) bad.push(id + " was held, now " + (after.cur[id] ? "current, not held" : where(id)));
+    });
+    if(bad.length) c.fail("S4", label + ": " + s.letter + "'s home page (K1: nobody moves back)", "every finished list still finished, every current one current or finished (or next, where two were made one)", bad.join("; "));
+    else c.ok("S4", label + ": nothing on " + s.letter + "'s home page moved back");
+  }
 
   /* The full look after a step: every signed-in student's page, then the dashboard after Refresh. */
   async function observe(c, touched){
@@ -1525,9 +1642,10 @@
 
   async function editorSession(c, s, edits, label){
     if(!openStudent(c, s)){ c.fail("S1", label, "the student's page opens", "no row for " + s.dashUid()); return; }
-    var before = storedPlans(s), said = [];
+    var before = storedPlans(s), said = [], homeBefore = homeFromStore(s);
     s.drafts = [null, null];
-    var split = !keySections(s).clean;
+    var sx0 = keySections(s), split = !sx0.clean;
+    var barBefore = [0, 1].map(function(sec){ return sx0.drafts[sec] ? sx0.drafts[sec].bar : null; });
     if(split){
       // An older document: the page shows it split, with one line, and Save showing before any edit.
       var line = tq(c, "#seqSplit");
@@ -1539,7 +1657,6 @@
       await sleep(5);
     }
     var dirty = [0, 1].some(function(sec){ return draftDirty(keyDraft(s, sec)); });
-    var passedBefore = [0, 1].map(function(sec){ var d = keyDraft(s, sec); return d.split ? d.passedCount : null; });
     var bar = tq(c, "#seqSave");
     c.log("teacher: " + label + " — " + (said.join("; ") || "nothing"));
     if(!bar){ c.fail("S1", label + ": the Save bar", "on the page", "missing"); s.drafts = [null, null]; return; }
@@ -1552,6 +1669,16 @@
     }
     var ks = keySave(s);
     var prevPos = [s.pos(0), s.pos(1)];
+    // For S4 (K1) below: the lists the teacher took out (Take out, or replaced by a saved / copied order), and the
+    // percent each section ends at — from the key's drafts, before Save clears them.
+    var takenOut = {}, barAfter = [null, null];
+    [0, 1].forEach(function(sec){
+      var d0 = sx0.drafts[sec], d1 = keyDraft(s, sec);
+      barAfter[sec] = d1.bar;
+      if(!d0) return;
+      var kept = {}; d1.steps.forEach(function(st){ st.ids.forEach(function(id){ kept[id] = true; }); });
+      d0.steps.forEach(function(st){ st.ids.forEach(function(id){ if(!kept[id]) takenOut[id] = true; }); });
+    });
     click(tq(c, '#stuPanel-lists [data-seq="save"]'));
     await sleep(5);
     await teacherQuiet(c);
@@ -1562,14 +1689,13 @@
     checkStored(c, s, ks.fresh, before);
     // S5: a fresh plan starts from its `at`, no old mark carried
     ks.fresh.forEach(function(f, k){ if(f) c.log("key: plan " + (k + 1) + " of " + s.letter + " afresh at " + s.plans[k].at + (s.plans[k].hold ? " (held)" : "") + " → " + seqText(expectDash(s).seqs[s.disp(k)])); });
-    // S4: an older document split by Save puts nobody before what they had passed (README: "nobody moves backwards").
-    if(split) [0, 1].forEach(function(sec){
-      if(passedBefore[sec] === null) return;
-      var k = [0, 1].filter(function(kk){ return s.plans[kk] && kindOf(s.plans[kk].steps) === KINDS[sec]; })[0];
-      if(k === undefined) return;
-      var at = s.pos(k).index;
-      if(at >= passedBefore[sec] || edits.some(function(e){ return e.k === sec && (e.op === "goback" || (e.op === "bar" && e.dir > 0)); })) c.ok("S4", s.letter + "'s " + SECTION_NAME[sec] + ", split from an older document, starts at or past what they had passed");
-      else c.fail("S4", s.letter + "'s " + SECTION_NAME[sec] + ", split from an older document", "at or past step " + (passedBefore[sec] + 1), "step " + (at + 1));
+    // S4 (K1): the home page, from what was stored before and after — a split or merged older document included.
+    checkK1(c, s, homeBefore, label + (split ? " (an older document, split or merged)" : ""), function(kind){
+      var sec = kind === "red" ? 0 : 1;
+      return edits.some(function(e){ return e.k === sec && e.op === "goback"; }) || (barBefore[sec] !== null && barAfter[sec] > barBefore[sec]);
+    }, takenOut, function(kind){
+      var sec = kind === "red" ? 0 : 1;
+      return edits.some(function(e){ return e.k === sec && (e.op === "moveon" || e.op === "goback"); });
     });
     await afterAction(c, s, label);
     s.freshAt = ks.fresh;
@@ -1590,7 +1716,8 @@
     var sec = kindOf(s.plans[k].steps) === "red" ? 0 : 1;
     var ed = editorEl(c, sec), b = ed && ed.querySelector('[data-seq="stop"]');
     if(!b){ c.fail("S1", "Stop using this sequence (" + SECTION_NAME[sec] + ") for " + s.letter, "offered", "not on the page"); return; }
-    var before = storedPlans(s), ps = s.plansList().length, pos = [s.pos(0), s.pos(1)];
+    var before = storedPlans(s), ps = s.plansList().length, pos = [s.pos(0), s.pos(1)], homeBefore = homeFromStore(s);
+    var stoppedKind = kindOf(s.plans[k].steps);
     s.stopFirstDisp = s.disp(1);
     s.drafts = [null, null];
     click(b);
@@ -1616,6 +1743,8 @@
     }
     c.log("teacher: Stop using " + SECTION_NAME[sec] + " (stored as " + (k ? "plan2" : "plan") + ") for " + s.letter + (ps < 2 ? " (the only one)" : ""));
     checkStored(c, s, fresh, k === 1 || ps < 2 ? [before[0], null] : null);
+    // S4 (K1): the sequence that stays keeps its place (one alone becomes games: nothing to compare)
+    if(ps >= 2) checkK1(c, s, homeBefore, "Stop " + SECTION_NAME[sec], function(kind){ return kind === stoppedKind; }, {}, function(){ return false; });
     await afterAction(c, s, "Stop " + (k + 1));
   }
 
@@ -1647,13 +1776,16 @@
       if(bb && !bb.disabled){ click(bb); bar = Math.max(0.5, Math.min(1, Math.round(bar * 100 + (barSteps > 0 ? 5 : -5)) / 100)); }
     }
     // the key, per student
-    var counts = { red: 0, other: 0, games: 0, keptRed: 0, keptOther: 0 };
+    var counts = { red: 0, other: 0, games: 0, keptRed: 0, keptOther: 0, splitRed: 0, splitOther: 0, mergedRed: 0, mergedOther: 0 };
     var bodies = list.map(function(s){
       var sx = keySections(s), entries = [null, null];
+      // An older document does not keep the kind the order lacks "as it is": it is written split (from one mixed
+      // order) or merged (two of one kind made one), as Save would.
+      var keptAs = sx.clean ? "kept" : sx.note === "mixed" ? "split" : "merged";
       if(!s.plansList().length){ if((s.plain || []).length) counts.games++; }
       KINDS.forEach(function(kind, sec){
         var mine = ofKind(ss, kind), have = sx.drafts[sec];
-        if(have){ if(mine.length) counts[kind]++; else counts[kind === "red" ? "keptRed" : "keptOther"]++; }
+        if(have){ if(mine.length) counts[kind]++; else counts[keptAs + (kind === "red" ? "Red" : "Other")]++; }
         if(mine.length) entries[sec] = { plan: { steps: cloneSteps(mine), bar: bar, at: 0, hold: false, setAt: null }, keep: -1 };
         else entries[sec] = keyEntry(s, sec, have);
       });
@@ -1667,14 +1799,19 @@
     if(counts.red) exp.push(of(counts.red, "already has", "already have") + " a Red Words sequence. This replaces " + (counts.red === 1 ? "it." : "them."));
     if(counts.other) exp.push(of(counts.other, "already has", "already have") + " an Other lists sequence. This replaces " + (counts.other === 1 ? "it." : "them."));
     if(counts.games) exp.push(of(counts.games, "has", "have") + " games in no order. This replaces them.");
-    if(counts.keptRed) exp.push("It has no Red Words lists: " + counts.keptRed + " of them " + (counts.keptRed === 1 ? "keeps" : "keep") + " their Red Words sequence as it is.");
-    if(counts.keptOther) exp.push("It has no other lists: " + counts.keptOther + " of them " + (counts.keptOther === 1 ? "keeps" : "keep") + " their Other lists sequence as it is.");
+    [["Red", "Red Words lists", "Red Words", "Red Words", "other lists"], ["Other", "other lists", "other lists", "Other lists", "Red Words"]].forEach(function(w){
+      var t = [], kk = counts["kept" + w[0]], sp = counts["split" + w[0]], mg = counts["merged" + w[0]];
+      if(kk) t.push(kk + " of them " + (kk === 1 ? "keeps" : "keep") + " their " + w[3] + " sequence as it is.");
+      if(sp) t.push(sp + " of them had " + w[2] + " in one order with " + w[4] + ". Those become their " + w[3] + " sequence, and finished lists stay finished.");
+      if(mg) t.push(mg + " of them had " + w[2] + " in two sequences. Those become one " + w[3] + " sequence, and finished lists stay finished.");
+      if(t.length) exp.push("It has no " + w[1] + ": " + t.join(" "));
+    });
     c.check("S1", "Give: the dialog's warning", exp.join(" ") || "(none)", said || "(none)");
     await shot("give");
     var go = tq(c, "#giveGo");
     if(go.disabled){ c.fail("S1", "Give it", "enabled", "disabled"); click(tq(c, "#giveCancel")); return; }
-    var before = {};
-    list.forEach(function(s){ before[s.k] = storedPlans(s); });
+    var before = {}, homeBefore = {};
+    list.forEach(function(s){ before[s.k] = storedPlans(s); homeBefore[s.k] = homeFromStore(s); });
     click(go);
     await sleep(5);
     await teacherQuiet(c);
@@ -1690,6 +1827,9 @@
       b.s.plans = b.plans.map(clonePlan);
       b.s.plain = null;
       checkStored(c, b.s, b.fresh, before[b.s.k]);
+      // S4 (K1): the kind the order does not hold keeps every list where it was (an older document's split or merge
+      // included); the kind it holds is replaced.
+      checkK1(c, b.s, homeBefore[b.s.k], "Give " + src.label, function(kind){ return ofKind(ss, kind).length > 0; }, {}, function(){ return false; });
       b.s.freshAt = b.fresh;
     }
     for(var s2 of list) await afterAction(c, s2, "Give");
@@ -1885,6 +2025,8 @@
       case "legacy":
         if(!s.plansList().length) return { kind: "start", s: s, two: r.chance(0.3) };
         if(r.chance(0.55)) return practiceAction(c, s);
+        // Give to students whose documents are older: the kind the order does not hold is written split or merged
+        if(r.chance(0.2)) return { kind: "give", list: r.shuffle(ss).slice(0, r.int(1, ss.length)) };
         return teacherEditAction(c, s, ["ways", "add", "moveon", "bar", "use", "goback"]);
       case "stop":
         if(s.plansList().length && r.chance(0.3)){

@@ -5249,13 +5249,15 @@
       // The counts the dialog shows.
       var list = ["u1", "u2", "u3", "u4", "u5", "u6", "u7"].map(T.studentByUid);
       var cr = T.giveCounts(list, red), co = T.giveCounts(list, snd), cm = T.giveCounts(list, mixedOrder);
-      eq("a Red Words order counts who has Red Words, games, and who keeps Other lists", [cr.red, cr.other, cr.games, cr.keptRed, cr.keptOther].join(","), "4,0,1,0,4");
-      eq("an Other lists order the other way about", [co.red, co.other, co.games, co.keptRed, co.keptOther].join(","), "0,4,1,4,0");
-      eq("a mixed order replaces both", [cm.red, cm.other, cm.games, cm.keptRed, cm.keptOther].join(","), "4,4,1,0,0");
+      eq("a Red Words order counts who has Red Words, games, who keeps Other lists, and whose older mixed order is split", [cr.red, cr.other, cr.games, cr.keptRed, cr.keptOther, cr.splitOther].join(","), "4,0,1,0,3,1");
+      eq("an Other lists order the other way about", [co.red, co.other, co.games, co.keptRed, co.keptOther, co.splitRed].join(","), "0,4,1,3,0,1");
+      eq("a mixed order replaces both", [cm.red, cm.other, cm.games, cm.keptRed, cm.keptOther, cm.splitRed, cm.splitOther].join(","), "4,4,1,0,0,0,0");
       eq("the warning says it in plain words", T.giveWarning(cr, 7),
-         "4 of these 7 students already have a Red Words sequence. This replaces them. 1 of these 7 students has games in no order. This replaces them. It has no other lists: 4 of them keep their Other lists sequence as it is.");
+         "4 of these 7 students already have a Red Words sequence. This replaces them. 1 of these 7 students has games in no order. This replaces them. It has no other lists: 3 of them keep their Other lists sequence as it is. 1 of them had other lists in one order with Red Words. Those become their Other lists sequence, and finished lists stay finished.");
       eq("…for an Other lists order", T.giveWarning(co, 7),
-         "4 of these 7 students already have an Other lists sequence. This replaces them. 1 of these 7 students has games in no order. This replaces them. It has no Red Words lists: 4 of them keep their Red Words sequence as it is.");
+         "4 of these 7 students already have an Other lists sequence. This replaces them. 1 of these 7 students has games in no order. This replaces them. It has no Red Words lists: 3 of them keep their Red Words sequence as it is. 1 of them had Red Words in one order with other lists. Those become their Red Words sequence, and finished lists stay finished.");
+      eq("…two sequences of one kind made one", T.giveWarning({ red: 0, other: 0, games: 0, keptRed: 0, keptOther: 0, splitRed: 0, splitOther: 0, mergedRed: 0, mergedOther: 2 }, 2),
+         "It has no other lists: 2 of them had other lists in two sequences. Those become one Other lists sequence, and finished lists stay finished.");
       eq("…and in the singular", T.giveWarning(T.giveCounts([T.studentByUid("u4")], red), 1),
          "1 of these 1 student already has a Red Words sequence. This replaces it. It has no other lists: 1 of them keeps their Other lists sequence as it is.");
       eq("giving to students with nothing to replace asks nothing", T.giveConfirm("X", T.giveCounts([T.studentByUid("u1")], red), 1), "");
@@ -5477,6 +5479,108 @@
       eq("…and no Stop until it is saved", body.querySelectorAll('[data-seq="stop"]').length, 0);
       eq("…and nothing was written by looking", JSON.stringify(T.planFor("u1")), JSON.stringify(A4.sanitizePlan(mixed)));
       body.hidden = true;
+    });
+
+    /* ---- an older document split or merged: nobody loses a finished list (K1, 2026-11-25) ----
+       The rule: nothing the teacher does moves a student backwards. Each case
+       stores an older document, works out the student's HOME PAGE from it
+       with store.js's own resolve (finished fold, current lists, held), then
+       writes the real saveBody / giveBody over it the way a Firestore merge
+       does and resolves again. Every list finished before is finished after;
+       every list current before is current after — except that a merged
+       section has ONE current list, so when they were on a list in each
+       stored sequence, the other one is the very next list. A held list
+       stays held and current. These cases are the ones a reviewer found
+       taking lists back (Save on a split document ordered each section by
+       the sequence it came from, so steps passed in the second sequence
+       landed after the first unpassed one). */
+    guard("an older document split or merged by Save or Give: finished lists stay finished", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      function R(n){ return ["red-" + n + "-say"]; }
+      var O1 = [TB1], O2 = [TB2], O3 = [W4.idFor("oi-oy", 1, "say")], ON = ["nonsense"], OM = ["multisyllable"];
+      function nm(id){ var l = W4.byId(id); return l ? l.family + l.listNum : id; }
+      function P(steps, setAt, extra){ return merge({ steps: steps.map(function(ids){ return { ids: ids }; }), bar: 0.9, at: 0, hold: false, setAt: setAt }, extra || {}); }
+      function names(ids){ var o = []; ids.forEach(function(id){ var x = nm(id); if(o.indexOf(x) === -1) o.push(x); }); return o.sort().join(","); }
+      // The home page, from the stored documents, as the student's browser works it out.
+      function home(doc, stats, marks){
+        var r = ST4.resolve(doc, null, stats, marks, tot), held = [], next = [];
+        (r.positions || []).forEach(function(p){
+          if(p.state.hold) held = held.concat(p.current);
+          var nx = p.plan.steps[p.state.index + 1]; if(!p.state.finished && nx) next = next.concat(nx.ids);
+        });
+        return { fin: names(r.finishedIds || []), cur: names(r.current || []), held: names(held), next: names(next) };
+      }
+      function stepsOf(p){ return p && p.steps ? p.steps.map(function(x){ return nm(x.ids[0]); }).join(",") + " at " + p.at + (p.hold ? " held" : "") : String(p); }
+      function run(label, doc, stats, marks, act){
+        feed({ students: [kid("u1", "Ana", { stats: stats, seq: marks[0], seq2: marks[1] })], assignments: { u1: merge(doc, stamp) } });
+        var before = home(doc, stats, marks);
+        var b = act === "save" ? T.saveBody("u1", 777777) : T.giveBody(T.studentByUid("u1"), T.readyMadeSteps(act), 0.9, 777777);
+        var after = home(mergeInto(merge(doc, stamp), b), stats, marks);
+        return { before: before, after: after, b: b };
+      }
+      function show(h){ return "finished [" + h.fin + "] current [" + h.cur + "]" + (h.held ? " held [" + h.held + "]" : ""); }
+
+      // 1. plan: Red 4, 5 not started; plan2: Red 1-3, finished by the mark.
+      var r1 = run("1", { plan: P([R(4), R(5)], 1), plan2: P([R(1), R(2), R(3)], 2) }, {}, [null, { at: 3, of: 2, when: 1 }], "save");
+      eq("two Red Words, the second finished: before", show(r1.before), "finished [red1,red2,red3] current [red4]");
+      eq("…after Save, the same", show(r1.after), show(r1.before));
+      eq("…written as one: the finished lists first, `at` past them", stepsOf(r1.b.plan) + " / " + r1.b.plan2, "red1,red2,red3,red4,red5 at 3 / \u0000delete");
+
+      // 2. the same, Red 1 and 2 finished by the student's own stats (no mark), so they are on Red 3 there.
+      var st2 = merge(solid("red-1-say", 20), solid("red-2-say", 20));
+      var r2 = run("2", { plan: P([R(4), R(5)], 1), plan2: P([R(1), R(2), R(3)], 2) }, st2, [null, null], "save");
+      eq("…finished by their own stats: before", show(r2.before), "finished [red1,red2] current [red3,red4]");
+      eq("…after Save: finished kept; one current list, the other the very next", show(r2.after) + " next [" + r2.after.next + "]", "finished [red1,red2] current [red4] next [red3]");
+      // and the mark version the reviewer used (plan2 Red 1, 2 with the mark at its end).
+      var r2b = run("2b", { plan: P([R(4), R(5)], 1), plan2: P([R(1), R(2)], 2) }, st2, [null, { at: 2, of: 2, when: 1 }], "save");
+      eq("…and with the mark past them too", show(r2b.after), "finished [red1,red2] current [red4]");
+
+      // 3. plan: mixed Red 1, Starting Blends 1, Red 2, on Red 2 by the mark; plan2: Red 3, 4.
+      var doc3 = { plan: P([R(1), O1, R(2)], 1), plan2: P([R(3), R(4)], 2) }, mk3 = [{ at: 2, of: 1, when: 1 }, null];
+      var r3 = run("3", doc3, {}, mk3, "save");
+      eq("a mixed order beside a Red Words: before", show(r3.before), "finished [blends-start1,red1] current [red2,red3]");
+      eq("…after Save: nothing finished is lost, Red 3 (Red Words' own) is current, Red 2 the very next", show(r3.after) + " next [" + r3.after.next + "]", "finished [blends-start1,red1] current [red3] next [red2]");
+      eq("…written: Red Words red1, red3, red2, red4 from the second; Other lists past its one list", stepsOf(r3.b.plan) + " | " + stepsOf(r3.b.plan2), "red1,red3,red2,red4 at 1 | blends-start1 at 1");
+      // Give an Other lists order to the same student: Red Words is kept, written from the split.
+      var r3g = run("3g", doc3, {}, mk3, "sounding");
+      eq("…Give an Other lists order: the Red Words it keeps loses nothing", "finished has red1: " + (r3g.after.fin.split(",").indexOf("red1") !== -1) + ", current [" + r3g.after.cur.split(",").filter(function(x){ return /^red/.test(x); }) + "], next [" + r3g.after.next.split(",").filter(function(x){ return /^red/.test(x); }) + "]",
+         "finished has red1: true, current [red3], next [red2]");
+
+      // 4. two Other lists, both in progress by their marks.
+      var doc4 = { plan: P([O1, O2, O3], 1), plan2: P([ON, OM], 2) }, mk4 = [{ at: 1, of: 1, when: 1 }, { at: 1, of: 2, when: 1 }];
+      var r4 = run("4", doc4, {}, mk4, "save");
+      eq("two Other lists, both under way: before", show(r4.before), "finished [blends-start1,nonsense1] current [blends-end1,multi1]");
+      eq("…after Save: both finished kept; the first sequence's list current, the second's the very next", show(r4.after) + " next [" + r4.after.next + "]", "finished [blends-start1,nonsense1] current [blends-end1] next [multi1]");
+      eq("…written", stepsOf(r4.b.plan), "blends-start1,nonsense1,blends-end1,multi1,oi-oy1 at 2");
+      var r4g = run("4g", doc4, {}, mk4, "red");
+      eq("…Give Red Words: the Other lists it keeps (made one) loses nothing", "finished [" + r4g.after.fin.split(",").filter(function(x){ return !/^red/.test(x); }) + "] current [" + r4g.after.cur.split(",").filter(function(x){ return !/^red/.test(x); }) + "]",
+         "finished [blends-start1,nonsense1] current [blends-end1]");
+      // Give Red Words on the student's page (no Red Words yet), then Save: the merged Other lists loses nothing.
+      feed({ students: [kid("u1", "Ana", { seq: mk4[0], seq2: mk4[1] })], assignments: { u1: merge(doc4, stamp) } });
+      var gr = T.ensureDraft("u1", 0); gr.steps = T.readyMadeSteps("red"); gr.at = 0; gr.hold = false;
+      var h4r = home(mergeInto(merge(doc4, stamp), T.saveBody("u1", 777777)), {}, mk4);
+      eq("…Give Red Words and Save: Other lists keeps its finished lists and its current one", "finished [" + h4r.fin.split(",").filter(function(x){ return !/^red/.test(x); }) + "] current [" + h4r.cur + "]",
+         "finished [blends-start1,nonsense1] current [blends-end1,red1]");
+      T.reset();
+      feed({ students: [kid("u1", "Ana", { seq: mk4[0], seq2: mk4[1] })], assignments: { u1: merge(doc4, stamp) } });
+      var c4 = T.giveCounts([T.studentByUid("u1")], T.readyMadeSteps("red"));
+      eq("…the Give dialog counts them apart, and says what happens in plain words", [c4.keptOther, c4.mergedOther].join(",") + " " + T.giveWarning(c4, 1),
+         "0,1 It has no other lists: 1 of them had other lists in two sequences. Those become one Other lists sequence, and finished lists stay finished.");
+
+      // 5. a hold on a step of the sequence that is not Red Words' own: plan Red 1, 2 (on Red 1); plan2 mixed
+      //    Starting Blends 1, Red 3 (held there by Go back), Red 4.
+      var doc5 = { plan: P([R(1), R(2)], 1), plan2: P([O1, R(3), R(4)], 2, { at: 1, hold: true }) };
+      var r5 = run("5", doc5, {}, [null, null], "save");
+      eq("a hold in the other sequence: before", show(r5.before), "finished [blends-start1] current [red1,red3] held [red3]");
+      eq("…after Save: the held list stays held and current, Red 1 the very next", show(r5.after) + " next [" + r5.after.next + "]", "finished [blends-start1] current [red3] held [red3] next [red1]");
+      eq("…written held at its place", stepsOf(r5.b.plan), "red3,red1,red2,red4 at 0 held");
+      var r5g = run("5g", doc5, {}, [null, null], "sounding");
+      eq("…Give an Other lists order keeps that hold", r5g.after.held, "red3");
+
+      // 6. a list passed in one sequence and not reached in the other is finished (counted as far as it got).
+      var r6 = run("6", { plan: P([R(1), R(2)], 1), plan2: P([O1, ["red-1-cards"], R(3)], 2, { at: 2 }) }, {}, [null, null], "save");
+      eq("the same list in both, passed in one: it stays finished, with every way they could see", show(r6.before) + " → " + show(r6.after), "finished [blends-start1,red1] current [red1,red3] → finished [blends-start1,red1] current [red3]");
+      eq("…red-1-cards is in the fold, not lost", ST4.resolve(mergeInto(merge({ plan: P([R(1), R(2)], 1), plan2: P([O1, ["red-1-cards"], R(3)], 2, { at: 2 }) }, stamp), r6.b), null, {}, [null, null], tot).finishedIds.indexOf("red-1-cards") !== -1, true);
     });
 
     guard("a saved or copied sequence that adds nothing changes nothing", function(){

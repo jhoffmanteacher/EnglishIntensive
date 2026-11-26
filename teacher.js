@@ -2023,16 +2023,32 @@
      Anything else is a document from before the two sections (2026-11-24 to
      -25, when either sequence could hold any list): a plan holding red AND
      other lists ("mixed"), or two plans of one kind ("same"). Then each
-     section is built from every stored step of its kind: the steps of the
-     sequence that already holds only that kind first, in their order, then
-     the rest in the order they were stored, a list that is there already
-     left out. That is an UNSAVED draft (slot -1): the page says so in one
-     line and Save writes it. Nobody moves backwards: a step the student had
-     already passed in the sequence it came from counts as passed, so each
-     section starts on its first step they had not passed (past the end if
-     they had passed all of them, so a finished student stays finished), and
-     the walk from there (draftIndex) moves them on over anything their own
-     stats have finished. A hold stays on the step it was on. Pure. */
+     section is built from every stored step of its kind, collected from the
+     sequence that already holds only that kind first ("home"), then the rest
+     in the order they were stored. A list met twice is one step (its ways
+     from where the student could see it added), counted as far on as it got
+     in either. That is an UNSAVED draft (slot -1): the page says so in one
+     line and Save writes it.
+
+     THE RULE IS K1 (TODO.md, 2026-11-25): nothing the teacher does moves a
+     student backwards. Each stored step is PASSED (its index is below that
+     plan's own position — Adaptive.planPosition with that plan's own mark,
+     exactly as the student's browser works it out), CURRENT (the step that
+     plan is on) or LATER. A section is then ordered
+       1. every passed step, in collected order;
+       2. the step(s) the student was on: a held one first, else the home
+          plan's, then the other plan's;
+       3. every later step, in collected order;
+     and `at` is the number of passed steps — the number of steps (past the
+     end) when they had passed every one, so a finished student stays
+     finished. So every list in the finished fold stays there and none comes
+     back as work. A merged section is ONE sequence with one current list:
+     when a student was on a list in each stored plan, one is current and the
+     other is the very next list — never further back, never dropped, never
+     marked finished. A hold is kept only if the held step is the one at
+     `at`, so a held step stays held and current. The walk from there
+     (draftIndex) moves them on over anything their own stats have finished.
+     Pure. */
   function sectionsOf(uid){
     var ps = positionsOf(uid), kinds = ps.map(function(p){ return WordLists.seqKind(p.plan.steps); });
     var out = [null, null];
@@ -2041,28 +2057,43 @@
       ps.forEach(function(p, slot){ var d = draftFromSaved(uid, slot); out[d.which] = d; });
       return { drafts: out, note: "" };
     }
+    var RANK = { later: 0, current: 1, passed: 2 };
     KINDS.forEach(function(kind, sec){
       var home = kinds.indexOf(kind), order = home === -1 ? [0, 1] : [home, 1 - home];
-      var steps = [], passed = [], held = [], keys = [], bar = null;
-      order.forEach(function(slot){
+      var got = [], keys = [], bar = null;
+      order.forEach(function(slot, o){
         var p = ps[slot];
         if(!p) return;
         p.plan.steps.forEach(function(st, i){
           if(WordLists.stepKind(st.ids) !== kind) return;
-          var k = listKeyOf(st.ids[0]);
-          if(keys.indexOf(k) !== -1) return;
+          var status = i < p.state.index ? "passed" : i === p.state.index ? "current" : "later";
+          var held = status === "current" && !!p.state.hold;
+          var k = listKeyOf(st.ids[0]), at = keys.indexOf(k);
+          if(at !== -1){
+            // The same list again: one step. Ways the student could see here
+            // (passed or current) stay on their home page, so they are kept.
+            var g = got[at];
+            if(status !== "later") st.ids.forEach(function(id){ if(g.ids.indexOf(id) === -1) g.ids.push(id); });
+            if(RANK[status] > RANK[g.status]){ g.status = status; g.from = o; }
+            g.held = g.status === "current" && (g.held || held);
+            return;
+          }
           keys.push(k);
           if(bar === null) bar = p.plan.bar;
-          steps.push({ ids: st.ids.slice() });
-          passed.push(i < p.state.index);
-          held.push(!!p.state.hold && i === p.state.index);
+          got.push({ ids: st.ids.slice(), status: status, held: held, from: o });
         });
       });
-      if(!steps.length) return;
-      var at = passed.indexOf(false);
-      if(at === -1) at = steps.length;
+      if(!got.length) return;
+      var passed = got.filter(function(g){ return g.status === "passed"; });
+      var current = got.filter(function(g){ return g.status === "current"; }).sort(function(a, b){
+        return (b.held - a.held) || (a.from - b.from);    // held first, else the home plan's first (stable)
+      });
+      var later = got.filter(function(g){ return g.status === "later"; });
+      var all = passed.concat(current, later);
+      var at = passed.length;
+      var steps = all.map(function(g){ return { ids: g.ids }; });
       out[sec] = { uid: uid, which: sec, kind: kind, slot: -1, steps: steps, bar: bar, at: at,
-                   hold: at < steps.length && held[at], hasPlan: false, base: null,
+                   hold: at < steps.length && all[at].held, hasPlan: false, base: null,
                    endAt: at === steps.length ? at : -1, baseBar: bar };
     });
     return { drafts: out, note: kinds.indexOf("mixed") !== -1 ? "mixed" : "same" };
@@ -4254,15 +4285,20 @@
      Red Words sequence that this replaces (only when the order holds red
      lists), who has an Other lists sequence that this replaces (only when it
      holds other lists), who has games in no order (always replaced), and who
-     has a sequence of a kind the order does not hold (kept). */
+     has a sequence of a kind the order does not hold (kept). A student whose
+     document is from before the two sections (sectionsOf's note) does not
+     keep that kind "as it is": it is written as the page would save it —
+     split out of one order ("mixed": splitRed / splitOther) or two made one
+     ("same": mergedRed / mergedOther) — so they are counted apart. */
   function giveCounts(list, steps){
     var hasRed = stepsOfKind(steps, "red").length > 0, hasOther = stepsOfKind(steps, "other").length > 0;
-    var out = { red: 0, other: 0, games: 0, keptRed: 0, keptOther: 0 };
+    var out = { red: 0, other: 0, games: 0, keptRed: 0, keptOther: 0, splitRed: 0, splitOther: 0, mergedRed: 0, mergedOther: 0 };
     list.forEach(function(s){
-      var have = sectionsOf(s.uid).drafts;
+      var sec = sectionsOf(s.uid), have = sec.drafts;
       if(!have[0] && !have[1]){ if(effectiveLists(s.uid).ids.length > 0) out.games++; return; }
-      if(have[0]){ if(hasRed) out.red++; else out.keptRed++; }
-      if(have[1]){ if(hasOther) out.other++; else out.keptOther++; }
+      var kept = !sec.note ? "kept" : sec.note === "mixed" ? "split" : "merged";
+      if(have[0]){ if(hasRed) out.red++; else out[kept + "Red"]++; }
+      if(have[1]){ if(hasOther) out.other++; else out[kept + "Other"]++; }
     });
     return out;
   }
@@ -4573,8 +4609,14 @@
     if(c.red) out.push(of(c.red, "already has", "already have") + " a Red Words sequence. This replaces " + (c.red === 1 ? "it." : "them."));
     if(c.other) out.push(of(c.other, "already has", "already have") + " an Other lists sequence. This replaces " + (c.other === 1 ? "it." : "them."));
     if(c.games) out.push(of(c.games, "has", "have") + " games in no order. This replaces them.");
-    if(c.keptRed) out.push("It has no Red Words lists: " + c.keptRed + " of them " + (c.keptRed === 1 ? "keeps their" : "keep their") + " Red Words sequence as it is.");
-    if(c.keptOther) out.push("It has no other lists: " + c.keptOther + " of them " + (c.keptOther === 1 ? "keeps their" : "keep their") + " Other lists sequence as it is.");
+    // The kind it does not hold: kept as it is, or (an older document) saved the way the student's page would save it.
+    [["Red Words lists", "Red Words", "Red Words", "other lists", "Red"], ["other lists", "other lists", "Other lists", "Red Words", "Other"]].forEach(function(w){
+      var kept = c["kept" + w[4]] || 0, split = c["split" + w[4]] || 0, merged = c["merged" + w[4]] || 0, said = [];
+      if(kept) said.push(kept + " of them " + (kept === 1 ? "keeps their" : "keep their") + " " + w[2] + " sequence as it is.");
+      if(split) said.push(split + " of them had " + w[1] + " in one order with " + w[3] + ". Those become their " + w[2] + " sequence, and finished lists stay finished.");
+      if(merged) said.push(merged + " of them had " + w[1] + " in two sequences. Those become one " + w[2] + " sequence, and finished lists stay finished.");
+      if(said.length) out.push("It has no " + w[0] + ": " + said.join(" "));
+    });
     return out.join(" ");
   }
   // The confirm before Give it, or "" when nothing they have is replaced.

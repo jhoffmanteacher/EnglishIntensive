@@ -957,10 +957,16 @@ student:
 - **S3 independent** — a step on one sequence leaves the other's stored plan
   byte for byte and its place unchanged.
 - **S4 no backwards** — replaying a finished list with misses never moves a
-  student back, nor does any edit but Go back or a raised percent, nor Save on
-  an older document split into Red Words and Other lists; Go back holds them
-  through practice until Move on now; a stored mark never goes down for the
-  same plan.
+  student back, nor does any edit but Go back or a raised percent; Go back
+  holds them through practice until Move on now; a stored mark never goes down
+  for the same plan. And K1 as a property of the **home page**, after every
+  Save, Give and Stop: worked out from what is stored (the documents and the
+  student's own marks, with the key's walk — never from the dashboard's draft
+  or the key's own split), every list in the finished fold before is there
+  after, and every current list is current or finished after — or, where two
+  sequences of a kind were made one with a list current in each, the very
+  next list; a held list stays held. Exempt only: Go back, a raised percent,
+  a list taken out, and the sequence Give replaced or Stop removed.
 - **S5 new plan, fresh start** — a sequence saved afresh has a setAt new for
   that slot, and the student lands where the walk from its `at` puts them;
   Give starts each on the first list they haven't finished.
@@ -982,8 +988,11 @@ student:
 Eight families (`--list`) play seeded schedules: one-sequence, two-sequences,
 teacher-steps-in, re-plan, bulk, roster-first, stop, and legacy — documents
 saved before Say it was in every step and before Red Words and Other lists
-(one sequence holding both kinds, two of one kind, either kind in either
-field), some students on a Cards-only step at the bar, some already past one,
+(one sequence holding both kinds, a mixed one beside one of a single kind, two
+of one kind, either kind in either field — with progress on both: a stored
+`at`, the student's own mark further on, a second sequence finished by its
+mark, and a hold on a step of the sequence that is not its kind's own), some
+students on a Cards-only step at the bar, some already past one,
 and in half the cases students opening their page before the teacher opens the
 dashboard. Both field orders also come about on their own: a student given
 Other lists first and Red Words later holds Red Words in `plan2`. Every failing line names
@@ -2044,24 +2053,46 @@ only that section's kind. A document with no `plan2` is exactly what it was
 before there could be two — every test written for one sequence still passes
 unchanged in meaning.
 
-**Documents from before the names** (the two days when either sequence could
-hold anything): a sequence holding red **and** other lists, or two sequences of
-one kind. The student's own browser keeps working from what is stored,
-unchanged — nothing is rewritten at load (no `maintain` upkeep for this). On
-the dashboard such a student's page shows it **split**, as an unsaved draft
-(`sectionsOf`): each section is the sequence that already held only that kind
-(if there was one), then the other steps of that kind in the order they were
-stored, a list it already has left out; with one line above the sections —
-*"Ana Lopez’s Red Words lists and other lists were in one order. They are now
-two: Red Words and Other lists. Press Save to keep this."* (two of one kind:
-*"… other lists were in two sequences. They are now one. …"*) — and the Save
-bar showing before any edit. Nobody moves backwards: a step the student had
-already passed in the sequence it came from counts as passed, so each section
-starts on its first step they had not passed (past the end if they had passed
-them all — a finished student stays finished), the walk moves them on over
-anything their own stats have finished, and a hold stays on the step it was
-on. Save writes both afresh. Until it is saved the page's *Now* can be ahead
-of what the student's home page shows; the Students row reads what is stored.
+**Documents from before the names** (24 and 25 November 2026, when either
+sequence could hold anything): a sequence holding red **and** other lists, or
+two sequences of one kind. The student's own browser keeps working from what
+is stored, unchanged — nothing is rewritten at load (no `maintain` upkeep for
+this). On the dashboard such a student's page shows it **split** (or two of a
+kind **merged**), as an unsaved draft (`sectionsOf`), with one line above the
+sections — *"Ana Lopez’s Red Words lists and other lists were in one order.
+They are now two: Red Words and Other lists. Press Save to keep this."* (two of
+one kind: *"… other lists were in two sequences. They are now one. …"*) — and
+the Save bar showing before any edit. Save writes both afresh; Give writes the
+kind its order does not hold from the same draft (`giveBody` →
+`sectionEntry`), and its dialog counts those students apart (`giveCounts`:
+`splitRed` / `splitOther` for one mixed order, `mergedRed` / `mergedOther`
+for two of a kind) — *"It has no other lists: 1 of them had other lists in one
+order with Red Words. Those become their Other lists sequence, and finished
+lists stay finished."* — never as keeping it "as it is", which would not be
+true. Until it is saved the page's *Now* can be ahead of what the student's
+home page shows; the Students row reads what is stored.
+
+How a section is built, and why (K1: nothing the teacher does moves a student
+backwards). Every stored step of the section's kind is collected — from the
+sequence that already holds only that kind (its "home") first, then the rest in
+stored order; a list met twice is one step, counted as far on as it got in
+either, keeping the ways the student could see. Each step is **passed** (its
+index is below its own plan's position — `Adaptive.planPosition` with that
+plan's own mark, exactly what the student's browser computes; not a fresh
+re-derivation), **current** (the step that plan is on) or **not reached**. The
+section is then ordered: every passed step (collected order); then the step(s)
+the student was on — a held one first, else the home plan's, then the other
+plan's; then the rest. `at` is the number of passed steps — the number of
+steps, past the end, when they had passed every one — and the hold is kept
+only when the held step is the one at `at`. So every list in the finished fold
+stays there, none comes back as work, and a held list stays held and current.
+A merged section is one sequence with one current list: a student who was on a
+list in each stored plan is on one, and the other is the very next — never
+further back, never dropped, never marked finished. The walk from there
+(`draftIndex`) moves them on over anything their own stats have finished.
+(The first version of this, the same day, put each section's home steps first
+and set `at` to the first step not passed: steps passed in the other plan then
+landed behind an unpassed one, and Save took finished lists back.)
 
 A step is a **map**, not a bare array — Firestore refuses an array directly
 inside an array. Every id in one step is a way of playing the same list; one
@@ -2387,7 +2418,10 @@ of students, what it replaces and what it leaves (`giveCounts`, `giveWarning`):
 *"2 of these 5 students already have a Red Words sequence. This replaces
 them. 1 of these 5 students has games in no order. This replaces them. It has
 no other lists: 3 of them keep their Other lists sequence as it is."* — and
-asks again in a confirm when anything is replaced. This replaced, on
+asks again in a confirm when anything is replaced. A student whose document is
+from before the names is not counted as keeping it "as it is": that kind is
+written split or merged (see *Documents from before the names*), and the
+dialog says so in its own sentence. This replaced, on
 2026-11-25, a *Replace what they have* / *Add as a second sequence* choice made
 the same morning. It is written as **one batch** (`commitBodies`), so at most 400 students
 at a time (past that a batch would no longer be all-or-nothing; the dialog says
