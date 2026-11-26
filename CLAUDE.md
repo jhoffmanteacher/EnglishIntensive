@@ -71,19 +71,14 @@ Chrome checks need `CHROME="/Applications/Google Chrome.app/Contents/MacOS/Googl
   (`--json`, then `--against`), on the real takes in `tools/mic-takes/` when
   there are any. Then re-pin with `--measure` in the same commit and say why.
   Virtual-reader numbers model the logic. Only the takes are a measurement.
-- **The emulator loops** (`tools/emu-loop.mjs`, GitHub only) cover changes to
-  `firestore.rules`, sign-in, what the site saves, a teacher's buttons and the
-  downloads. Push to a side branch and read the result before `main`. A new
-  loop comes with a planted mistake (`tools/plant-faults.mjs`).
+- **The emulator loops** (`tools/emu-loop.mjs`, GitHub only) run after changes
+  to `firestore.rules`, sign-in, saving, teacher buttons or downloads: push a
+  side branch and read the result before `main`. A new loop needs a planted
+  mistake (`tools/plant-faults.mjs`).
 
-For every loop and check:
-
-- **Never weaken one to make it pass.** A failing loop is a real gap: fix the
-  site. If the loop itself is wrong, say so and why before changing it.
-- **At most two browser runs at once on this Mac**, agents included, and only
-  one heavy one (`sequence-loop`, `listen-loop`). Nothing is installed here
-  for the emulator.
-- **No test touches the real Firebase project or real student data.**
+Never weaken a loop to make it pass; if the loop is wrong, say why first. At
+most two browser runs at once here, one of them heavy (`sequence-loop`,
+`listen-loop`). No test touches real Firebase or student data.
 
 A Stop hook (`.claude/hooks/stop-checks.mjs`) runs `node --check` on every
 root `.js` and `tools/*.mjs`, plus `save-loop.mjs`, after any Claude Code turn
