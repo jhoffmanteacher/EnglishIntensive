@@ -1,106 +1,92 @@
 # Working on this repo
 
-Plain static HTML/JS. No build step, no dependencies, no framework. Serve it
-with `python3 -m http.server 8000` and open `http://localhost:8000` — never
-off a `file://` URL, because the microphone and speech recognition both need
-a secure context.
+Plain static HTML/JS: no build step, no dependencies, no framework. Serve with
+`python3 -m http.server 8000` and open `http://localhost:8000`, never a
+`file://` URL (the mic and speech recognition need a secure context).
 
-The audience is 9th–10th graders in reading intervention. Every visual and
-every line of student-facing copy stays age-respectful: no grade labels, no
-elementary-coded imagery, no "Big Words". `README.md` is the long-form
-explanation of every part of the site and the reasoning behind it — read the
-section covering whatever you are about to touch before you touch it.
+## Models and effort
 
-## Two documents, and they are not the same document
+| Job | Model | Effort |
+|---|---|---|
+| Ordinary build or content change | Opus | medium |
+| Most building and fixing | Opus | high |
+| Save path, database rules, listening code, unknown-cause bugs, designs with real choices | Opus | xhigh |
+| Review | Opus | high (xhigh for risky areas and the Friday check) |
+| Mechanical jobs: run a tool and report, searches, copying, screenshots, rebases | Sonnet | low or medium |
 
-- **`README.md`** — for whoever is editing the code. Long, opinionated,
-  explains why each thing is the way it is.
-- **`overview.html`** — for a reading teacher. What the site does, in their
-  vocabulary, with none of the implementation. Served from the repo at
-  <https://jhoffmanteacher.github.io/EnglishIntensive/overview.html>,
-  which is the link people are given.
+- Every agent spawned must name its model and effort.
+- Never use max effort.
+- If unsure, use Opus.
+- A Fable review runs only when you ask for one.
 
-It is a page of the site but not one of the games: no `auth.js` (the reader
-has no account and shouldn't need one) and no JavaScript at all, which its
-CSP states outright. The file **is** the published page — there is no second
-copy to republish, and therefore no way for the two to drift.
+## Audience
 
-**Change one, consider the other.** Any change a teacher would notice — a
-new mode or family, a changed rule about how rounds get drawn or what
-unlocks, a claim about what a number means, a renamed thing they see on the
-dashboard — updates `overview.html` in the same commit as the code. Internal
-refactors, tests and comments do not.
+9th–10th graders in reading intervention. Every visual and every line of
+student copy stays age-respectful: no grade labels, no elementary-coded
+imagery, no "Big Words". Student directions use short sentences and plain
+words; they must not be a decoding challenge themselves.
 
-**Bump the date when you change it.** The page carries an "Updated &lt;date&gt;"
-stamp in its masthead, which is how a teacher tells whether what they are
-reading still describes the site. A change that doesn't move the date is
-worse than no change: it makes a stale page look checked.
+Before touching any part of the site, read its section in `README.md`.
+
+## README.md and overview.html
+
+- `README.md` is for whoever edits the code. It explains why things are the way they are.
+- `overview.html` is for a reading teacher: what the site does, no
+  implementation. The file is the published page
+  (<https://jhoffmanteacher.github.io/EnglishIntensive/overview.html>). It has
+  no `auth.js` and no JavaScript, and its CSP says so.
+
+Any change a teacher would notice (a new mode or family, a changed rule for
+drawing rounds or unlocking, what a number means, a renamed dashboard item)
+updates `overview.html` in the same commit. Refactors, tests and comments
+don't. Every change to it bumps its "Updated &lt;date&gt;" stamp: a stale
+date makes an old page look checked.
 
 ## Before committing
 
-Run the tests. They need a server on port 8000 and a Chrome binary:
+Chrome checks need `CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`.
 
-```bash
-python3 -m http.server 8000 &
-CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" bash tools/run-tests.sh
-```
+- **Always:** with `python3 -m http.server 8000 &` running,
+  `bash tools/run-tests.sh` must print `N/N passing` and `uncaught: 0`. Then
+  `tools/check-pages.sh` (console and CSP errors on a real load) and
+  `tools/boot-check.sh` (each engine starts on its real list).
+- **`node tools/save-loop.mjs`** (~1 s, no server or browser) runs after any
+  change to `store.js`, sign-in/out in `auth.js`, anything that writes
+  `students/{uid}`, or anything that keeps student data in `localStorage` or
+  `sessionStorage`. It must end `failures: none` and exit 0. A failing line
+  ends with the command that replays it.
+- **`node tools/sequence-loop.mjs`** (~90 s, serves itself) runs after any
+  change to the sequence editor or Save/Stop/Give a sequence in `teacher.js`,
+  `resolve`/`settle`/`plan()` in `store.js`, the plan functions in
+  `adaptive.js`, or the home page in `practice.js`. It must end
+  `failures: none` and exit 0. `~ known` lines are already-reported faults,
+  not failures.
+- **`node tools/listen-loop.mjs`** (~45 s, serves itself on 8051) runs after
+  any change to how a game listens: `blend-game.js` onresult and matcher,
+  `listen.js`, the cards' `judgeHeard`, One minute's alignment, Blend It's
+  onresult, `game-core.js` normalize / phonemes / ACCEPT / isNonAnswer /
+  soundsLike / spokenMatch / resultGate, or a list's homophones, soundalikes,
+  `phonetic` or `join`. It must exit 0 with `pin: every pinned count held`.
+  **A listening rule changes only with a before/after from this loop**
+  (`--json`, then `--against`), on the real takes in `tools/mic-takes/` when
+  there are any. Then re-pin with `--measure` in the same commit and say why.
+  Virtual-reader numbers model the logic. Only the takes are a measurement.
 
-It should print `N/N passing` and `uncaught: 0`. `tools/check-pages.sh` and
-`tools/boot-check.sh` cover the two things `tests.html` can't: console and
-CSP errors on a real page load, and each engine actually starting against
-its real list.
+A Stop hook (`.claude/hooks/stop-checks.mjs`) runs `node --check` on every
+root `.js` and `tools/*.mjs`, plus `save-loop.mjs`, after any Claude Code turn
+that changed a site file. It stays silent unless something fails. It does
+**not** run the Chrome checks. `EI_STOP_CHECKS=0` turns it off. GitHub runs
+every check on each push (`checks.yml`) and `tools/rules-test.mjs` on pushes
+to main (`rules.yml`).
 
-Then the closed loop, `node tools/save-loop.mjs` (Node 22, no server, no
-browser, about a second). Its last line must say `failures: none`, and it
-must exit 0. Run it after any change to `store.js`, to sign-in or sign-out
-in `auth.js`, to anything that writes `students/{uid}`, or to anything that
-keeps a student's data in `localStorage` or `sessionStorage`. A failing line
-ends with the command that replays that one case.
-
-Then the second closed loop, `node tools/sequence-loop.mjs` (Node 22 and a
-Chrome — set `CHROME` as above; it serves the site itself, no server needed,
-about 90 s). Run it after any change to the sequence editor, Save, Stop or
-Give a sequence in `teacher.js`, to `resolve`, `settle` or `plan()` in
-`store.js`, to the plan functions in `adaptive.js`, or to the home page in
-`practice.js`. Its last line must say `failures: none`, and it must exit 0;
-`~ known` lines are site faults already reported, not failures. GitHub runs
-all of these on every push (`.github/workflows/checks.yml`).
-
-A Stop hook (`.claude/settings.json`, `.claude/hooks/stop-checks.mjs`) runs the
-fast, Node-only checks at the end of every Claude Code turn that changed a
-site file: `node --check` on every root-level `.js` and every `tools/*.mjs`,
-and `node tools/save-loop.mjs`. It is silent when all is well and hands a
-failure back to the session so it is fixed in the same turn. It does **not**
-run the Chrome checks (`run-tests.sh`, `check-pages.sh`, `boot-check.sh`):
-those still have to be run by hand before a commit. GitHub runs them on every
-push. Set `EI_STOP_CHECKS=0` to switch the hook off.
-
-Then the listening loop, `node tools/listen-loop.mjs` (Node 22 and a Chrome
-binary in `CHROME`; it serves the site itself on port 8051; about 45 s). It
-must exit 0 with `pin: every pinned count held`. Run it after any change to
-how a game LISTENS — `blend-game.js`'s onresult and matcher, `listen.js`,
-the cards' `judgeHeard`, One minute's alignment, Blend It's onresult, and
-`game-core.js`'s normalize / phonemes / ACCEPT / isNonAnswer / soundsLike /
-spokenMatch / resultGate, or a list's homophones, soundalikes, `phonetic` or
-`join`. **A listening rule changes only with a before/after from this loop**
-(`--json`, then `--against`), on the real takes in `tools/mic-takes/` when
-there are any; then re-pin with `--measure` in the same commit and say why.
-Virtual-reader numbers are the engines' logic under a model, not a
-measurement — the takes are.
-
-`firestore.rules` is the only thing enforcing who may read what. It does not
-deploy itself — re-publish it in the Firebase console whenever it changes.
-GitHub now runs `tools/rules-test.mjs` against the Firestore emulator on every
-push to main (`.github/workflows/rules.yml`); publishing the rules is still the
-console paste.
+`firestore.rules` is the only thing enforcing who may read what. It doesn't
+deploy itself: whenever it changes, re-publish it in the Firebase console.
 
 ## Watch out for
 
 - **List ids are permanent.** An id is half of every stat key and is what an
-  assignment stores, so renaming one orphans a class's practice history.
-  `title` is the display name and can change freely.
-- **Student-facing copy is read by struggling readers.** Short sentences,
-  plain words. The directions should not themselves be a decoding challenge.
-- **Two sessions in one working tree share a git index**, and one session's
-  commit can sweep up the other's uncommitted changes. Use a worktree when
-  another session is live here.
+  assignment stores, so renaming one orphans a class's history. `title` can
+  change freely.
+- **Two sessions in one working tree share a git index**, so one session's
+  commit can sweep up the other's changes. Use a worktree when another session
+  is live here.
