@@ -719,7 +719,7 @@ window.CardGame = (function(){
     /* ---------------- the persistent comeback deck ----------------
        Keyed by pathname so each flash-card page keeps its own deck, and so a
        deck can never be read by a game with a different word list. */
-    var comebackKey = "cardComeback:" + (cfg.listId || location.pathname);
+    var comebackKey = Core.comebackKey("card", cfg.listId || location.pathname);
     var comebackList = [];    // the deck the button will play, built at render time
 
     var comeback = Core.comebackStore(comebackKey);

@@ -519,7 +519,7 @@ window.MatchGame = (function(){
     /* ---------------- the persistent comeback deck ----------------
        Keyed by pathname so each game page keeps its own deck, and so a deck
        can never be read by a game with a different word list. */
-    var comebackKey = "matchComeback:" + (cfg.listId || location.pathname);
+    var comebackKey = Core.comebackKey("match", cfg.listId || location.pathname);
     var comebackList = [];    // the deck the button will play, built at render time
 
     var comeback = Core.comebackStore(comebackKey);

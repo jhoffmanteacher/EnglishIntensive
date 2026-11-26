@@ -1885,6 +1885,15 @@ window.GameCore = (function(){
     document.head.appendChild(el);
   }
 
+  /* Where a game keeps its missed-word pile. It is the student's, not the
+     Chromebook's: keyed by who is signed in, so the next student at the
+     same computer is not handed it. With nobody signed in (tests.html) it
+     is keyed by the list alone. */
+  function comebackKey(kind, listId){
+    var who = window.EIAuth && window.EIAuth.uid && window.EIAuth.uid();
+    return kind + "Comeback:" + (who ? who + ":" : "") + listId;
+  }
+
   return {
     comboMultiplier: comboMultiplier,
     pointsFor: pointsFor,
@@ -1950,6 +1959,7 @@ window.GameCore = (function(){
     comebackMastered: comebackMastered,
     comebackDeck: comebackDeck,
     comebackStore: comebackStore,
+    comebackKey: comebackKey,
 
     voice: currentVoice,
     sounds: sounds,

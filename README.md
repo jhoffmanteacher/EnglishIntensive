@@ -683,9 +683,11 @@ Current games:
 > one picks a warm-up out of the last few rounds on this machine, the other
 > picks the round itself.
 
-Each game page keeps its own deck of not-yet-mastered words in
-`localStorage` (`"blendComeback:" + pathname`, and `"cardComeback:"` /
-`"matchComeback:"` for the two sight-word games): a word joins the deck
+Each game keeps a deck of not-yet-mastered words in `localStorage`, one per
+student per list (`GameCore.comebackKey`: `blendComeback:<uid>:<list>`, and
+`cardComeback:` / `matchComeback:` for the two sight-word games). The `uid`
+matters on a shared Chromebook: without it the next student was offered the
+words the last one missed. A word joins the deck
 when it's missed twice or skipped in a round, and **leaves the deck the
 moment it's read correctly on the first try** in any later round. When the
 deck has words, the start screen grows a "🔁 Words you missed (N)" button
@@ -992,6 +994,38 @@ fault the loop finds can be listed as **KNOWN** in `tools/sequence-loop.js`,
 which prints `~ known` instead of failing; the list is empty. The headers of `tools/sequence-loop.mjs` and
 `tools/sequence-loop.js` have the flags, the exact rules of the fake and the
 checks.
+
+### The emulator loops
+
+The two loops above run against hand-written stand-ins for Firebase, whose
+rules are far looser than `firestore.rules`. `tools/emu-loop.mjs` closes that
+gap: the site's own pages, the real Firebase SDK and the real rules, against
+the Firebase **emulators**. It does something through the page's own
+controls and reads the result back another way.
+
+| file | what goes in | what it is compared with |
+|---|---|---|
+| `tools/emu/signin.loop.mjs` | school, outside, look-alike and unverified accounts | the sign-in screen, and separately what the rules let each one read and write |
+| `tools/emu/progress.loop.mjs` | flash cards rated with the real buttons, counted by the loop | the stored record, after a reload, after sign-out and in, on a second computer; the next student on the same computer |
+| `tools/emu/teacher.loop.mjs` | dashboard actions: class, add, games, note, co-teacher, move, remove, archive, sequence, Student view, test student | the student's home page, the stored documents, and who else can read them |
+| `tools/emu/downloads.loop.mjs` | known class data | the two spreadsheets and the backup, read back |
+
+**It runs on GitHub only** (`.github/workflows/emulator.yml`, every push), so
+nothing is installed on anyone's computer. To try a change before it is on
+`main`, push it to a side branch. A failed loop puts its reason in the run's
+annotations. Only Google's sign-in popup and the project id are replaced
+(`tools/emu/shim.js`, `harness.mjs`); Chrome is blocked from every Firebase
+and Google API address, and a loop fails if a page asks for one.
+
+`node tools/plant-faults.mjs` plants one mistake at a time in a scratch copy
+and requires the loop that should notice to go red; GitHub runs it beside the
+loops. `--list` (no emulator needed) checks that each planted line still
+exists. A new loop should come with a planted mistake.
+
+`node tools/live-check.mjs` compares every published file with the repo.
+`.github/workflows/live.yml` runs it after each push to `main`.
+
+**Never weaken a loop to make it pass.**
 
 ### The listening loop, and recording takes
 

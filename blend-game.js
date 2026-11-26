@@ -437,7 +437,7 @@ window.BlendGame = (function(){
        would mix them. Both accessors swallow their errors: with storage
        unavailable (private mode, quota, a locked-down profile) the deck is
        simply always empty and the button never appears. */
-    var comebackKey = "blendComeback:" + (cfg.listId || location.pathname);
+    var comebackKey = Core.comebackKey("blend", cfg.listId || location.pathname);
     var comebackList = [];    // the deck the button will play, built at render time
     var mastered = [];        // this round's first-try-correct words, written at finish()
     // Which list "Start Playing" on the mic-check screen will use — the full
