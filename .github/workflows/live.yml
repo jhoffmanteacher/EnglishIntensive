@@ -1,0 +1,28 @@
+# After a push to main: is the published site the repo? tools/live-check.mjs
+# fetches every site file from GitHub Pages and compares it byte for byte,
+# waiting while Pages is still publishing.
+name: Live site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-site
+  cancel-in-progress: true
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: node tools/live-check.mjs
+        run: node tools/live-check.mjs --wait=900

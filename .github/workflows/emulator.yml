@@ -1,0 +1,69 @@
+# The closed loops that need Firebase, run on the Firebase EMULATORS (practice
+# copies that run on the runner) on every push. tools/emu-loop.mjs drives the
+# site's own pages in Chrome with the real SDK and the repo's firestore.rules;
+# tools/plant-faults.mjs then plants mistakes in a scratch copy and requires
+# the right loop to go red.
+#
+# Nothing here can reach the real Firebase project: the project id is a
+# "demo-" one, no credentials exist, and Chrome is blocked from every
+# Firebase and Google API address.
+#
+# Like the other workflows it does not block a push or the Pages deploy: a red
+# run means "look at the last push". A failed loop puts its reason in the
+# run's annotations.
+name: Emulator loops
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FIREBASE_TOOLS_VERSION: 15.36.0
+  CHROME: google-chrome
+
+jobs:
+  emulator:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: loops
+            command: node tools/emu-loop.mjs
+          - name: planted faults
+            command: node tools/plant-faults.mjs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          java-package: jre
+      # Installed on the runner only, outside the checkout, at an exact version:
+      # the repo has no package.json on purpose.
+      - name: Install the emulators
+        run: |
+          mkdir -p "$RUNNER_TEMP/emu" && cd "$RUNNER_TEMP/emu"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund --save-exact "firebase-tools@$FIREBASE_TOOLS_VERSION"
+      - name: ${{ matrix.command }}
+        run: |
+          "$RUNNER_TEMP/emu/node_modules/.bin/firebase" emulators:exec --only auth,firestore --project demo-ei \
+            "${{ matrix.command }}" < /dev/null 2>&1 | tee "$RUNNER_TEMP/out.log"
+          status=${PIPESTATUS[0]}
+          summary=$(grep -E '^(PASS|FAIL|CAUGHT|GOT THROUGH|STALE|all |[0-9]+ of )' "$RUNNER_TEMP/out.log" | cut -c1-300)
+          [ -n "$summary" ] || summary=$(tail -15 "$RUNNER_TEMP/out.log")
+          echo "::notice title=summary::${summary//$'\n'/%0A}"
+          exit "$status"
