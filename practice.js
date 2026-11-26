@@ -323,15 +323,15 @@ window.EIPractice = (function(){
      per sequence that moved ("New list: Red Words · List 3. New list: oi /
      oy."), and "You finished all your lists" only when BOTH are finished —
      one finished beside one still going says nothing; the list still going
-     is simply there. The first sequence's note keeps the key it always had,
-     so nothing is announced twice the day this changed. */
+     is simply there. Each sequence keeps its own note: ei.plan.seen for Red
+     Words, ei.plan.seen2 for Other lists. */
   var FINISHED_ALL = "You finished all your lists. Ask your teacher what comes next.";
   function seenKey(uid, k){ return (k ? "ei.plan.seen2:" : "ei.plan.seen:") + uid; }
   function planNotice(pl, pv){
     if(pv) return pl.finished ? FINISHED_ALL : "";
     var lines = [];
-    (pl.sequences || []).forEach(function(sq, k){
-      var key = seenKey(pl.uid, k), prev = null;
+    (pl.sequences || []).forEach(function(sq){
+      var key = seenKey(pl.uid, sq.which), prev = null;
       try{ prev = JSON.parse(localStorage.getItem(key)); }catch(e){}
       if(!pl.finished && !sq.finished && prev && prev.setAt === sq.setAt && prev.index < sq.index){
         var first = WordLists.byId(sq.current[0]);

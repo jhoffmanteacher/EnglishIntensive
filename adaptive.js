@@ -491,7 +491,7 @@ window.Adaptive = (function(){
   /* ── a sequence: one student's lists, in order ─────────────────────
      A teacher gives a student a PLAN instead of a set: steps, in order, and
      the student moves to the next step when they have finished this one.
-     A student can have two at once (`plan` and `plan2`, see sanitizePlans
+     A student can have two (Red Words and Other lists, see sanitizePlans
      below); everything here is about one of them, and the two never touch.
 
        plan: {
@@ -526,8 +526,7 @@ window.Adaptive = (function(){
      writes and a student's browser reads, and outlives every version of
      this file. Wrong types are dropped, a bar or a position outside its
      range is pulled back in, and a plan with no usable step is null — no
-     plan at all, which is the way a student is shown the lists they were
-     given the old way. */
+     plan at all, so the student is shown their `lists`, in no order. */
   function sanitizePlan(raw){
     if(!raw || typeof raw !== "object" || !Array.isArray(raw.steps)) return null;
     var steps = [], i, j;
@@ -544,11 +543,9 @@ window.Adaptive = (function(){
     if(!steps.length) return null;
     /* `at` may be steps.length: past the end, every list finished. That is
        how a re-save keeps a finished student finished (teacher.js planBody)
-       without a mark — the new setAt drops the mark, and an `at` clamped to
-       the last step would start the walk there again, so a last list that
-       slipped below the bar put them back on it (the sequence loop's K1). A
-       document saved before this never holds steps.length and reads as it
-       always did. Anything past the end is pulled back to it. */
+       without a mark: the new setAt drops the mark, and an `at` on the last
+       step would start the walk there again (K1, README "Sequences").
+       Anything past the end is pulled back to it. */
     return {
       steps: steps,
       bar: sanitizeBar(raw.bar),
@@ -637,40 +634,61 @@ window.Adaptive = (function(){
     return { plan: p, state: state, current: current, finishedIds: done, ids: done.concat(current) };
   }
 
-  /* ── two sequences at once ─────────────────────────────────────────
-     A student can have a second sequence beside the first: `plan2`, the
-     same shape, on the same document, with its own high-water mark
-     (students/{uid}.seq2). Each moves on by itself. The first is always
-     `plan`: a document with no `plan2` is exactly what it was before.
+  /* ── a student's two sequences ────────────────────────────────────
+     A student has at most two, each in its own fixed field on the same
+     document (assignments/{uid}, or roster/{email} before they sign in):
 
-     `plan2` without a usable `plan` is ignored (the dashboard promotes a
-     second to first when the first is stopped, so this only happens to a
-     document edited by hand). An id already in the first is dropped from
-     the second, and a second left with nothing is no second. That is ids,
-     not lists: there is no word library here, so `red-1-say` in the first
-     and `red-1-cards` in the second both stay. Keeping a list in one
-     sequence only is the dashboard's job (it names them Red Words and
-     Other lists by what they hold, never by the field — this file knows
-     neither name). Pure; returns [], [plan] or [plan, plan2]. */
+       plan    Red Words: red lists only.     Its mark: students/{uid}.seq
+       plan2   Other lists: every other list. Its mark: students/{uid}.seq2
+
+     Each stands on its own — a student with only Other lists has `plan2`
+     and no `plan` — and each moves on by itself. The dashboard never writes
+     a step of the wrong kind; one read back anyway is dropped here, by its
+     permanent id ("red-…", see isRedId), so both sides see the same
+     thing. Pure; returns [plan or null, plan2 or null]. */
   var PLAN_FIELDS = ["plan", "plan2"];
   var SEQ_FIELDS  = ["seq", "seq2"];
+  // A red list's ids all start "red-", and no other list's does (ids are permanent).
+  function isRedId(id){ return typeof id === "string" && id.indexOf("red-") === 0; }
   function sanitizePlans(doc){
-    if(!doc || typeof doc !== "object") return [];
-    var first = sanitizePlan(doc.plan);
-    if(!first) return [];
-    var raw = doc.plan2;
-    if(!raw || typeof raw !== "object" || !Array.isArray(raw.steps)) return [first];
-    var used = {};
-    first.steps.forEach(function(st){ st.ids.forEach(function(id){ used[id] = true; }); });
-    var steps = raw.steps.map(function(st){
-      var ids = st && typeof st === "object" && Array.isArray(st.ids) ? st.ids : [];
-      return { ids: ids.filter(function(id){ return !(typeof id === "string" && has(used, id)); }) };
+    return PLAN_FIELDS.map(function(f, k){
+      var raw = doc && typeof doc === "object" ? doc[f] : null;
+      if(!raw || typeof raw !== "object" || !Array.isArray(raw.steps)) return null;
+      var copy = {};
+      for(var key in raw) if(has(raw, key)) copy[key] = raw[key];
+      copy.steps = raw.steps.map(function(st){
+        var ids = st && typeof st === "object" && Array.isArray(st.ids) ? st.ids : [];
+        return { ids: ids.filter(function(id){ return isRedId(id) === (k === 0); }) };
+      });
+      return sanitizePlan(copy);
     });
-    var copy = {};
-    for(var k in raw) if(has(raw, k)) copy[k] = raw[k];
-    copy.steps = steps;
-    var second = sanitizePlan(copy);
-    return second ? [first, second] : [first];
+  }
+
+  /* WHICH DOCUMENT. One document is the source of both sequences: the
+     assignment when it holds a `lists` array or either plan, otherwise the
+     roster row. Every dashboard write about sequences carries `lists` and
+     BOTH fields (the one left alone exactly as read, or deleted when there
+     is none), so the document it writes always holds the whole of it, and
+     an assignment written for a student whose sequences were on their
+     roster row takes both with it. Both sides call this. */
+  function plansOf(assignment, roster){
+    var a = sanitizePlans(assignment);
+    if(a[0] || a[1] || (assignment && Array.isArray(assignment.lists))) return a;
+    return sanitizePlans(roster);
+  }
+
+  /* Across a student's sequences (positions from planPosition, nulls
+     allowed): what they can play — every finished list, then the current
+     one of each. */
+  function playableIds(positions){
+    var current = [], done = [];
+    positions.forEach(function(p){
+      if(p) p.current.forEach(function(id){ if(current.indexOf(id) === -1) current.push(id); });
+    });
+    positions.forEach(function(p){
+      if(p) p.finishedIds.forEach(function(id){ if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id); });
+    });
+    return { current: current, finishedIds: done, ids: done.concat(current) };
   }
 
   /* ── the flag line ─────────────────────────────────────────────────
@@ -701,7 +719,7 @@ window.Adaptive = (function(){
      and fires only then; a student half way through a sequence is not
      coasting. A fifth, positive rule says when they last moved on.
 
-     A student with TWO sequences is still one line: the caller passes the
+     A student with two sequences is still one line: the caller passes the
      ways of playing of both current lists (so a stuck rule fires on
      whichever list it is true of, first one wins), `finished` only when
      both are done, and `movedAt` the more recent move of the two.
@@ -867,6 +885,9 @@ window.Adaptive = (function(){
     planState: planState,
     planPosition: planPosition,
     sanitizePlans: sanitizePlans,
+    plansOf: plansOf,
+    playableIds: playableIds,
+    isRedId: isRedId,
     planFields: PLAN_FIELDS.slice(),
     seqFields: SEQ_FIELDS.slice(),
     nextSteps: nextSteps,

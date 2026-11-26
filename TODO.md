@@ -66,63 +66,41 @@ Two things worth watching once it has had one:
   contraction and its expansion to the same string. Ten new ids
   (`red-N-say`) on the generic `say-game.html`.
 
-- **Sequences came back, per student — and the Assign board went**
-  (2026-11-24). The 2026-10-08 note above said auto-advancing should return
-  as "a per-student setting, not a period one"; this is that. A teacher gives
-  a student their lists **in order** (`plan` on `assignments/{uid}` or the
-  roster row) and the student's own browser moves them on at a bar the
-  teacher sets per student (90 % by default), with a high-water mark
-  (`students/{uid}.seq`) so replaying a list cannot put them back. Four
-  things this reverses: the rule that the dashboard "does not act on its own"
-  and that the arithmetic runs on the teacher's page (the site now moves a
-  student on itself, in the student's browser; a student still cannot write
-  `assignments/`); the bar of four words in five (`SOLID_ENOUGH`, now gone);
-  the *additive* suggestion (a finished list now leaves the main home page for
-  a closed fold, still playable); and "each student has one set of lists, and
-  that set is fixed" (it now moves with their progress). The **Assign board**
-  and **Ready to move up** were removed in the same change: with lists given in
-  order, "who is ready for List 4?" answers itself and "what does each student
-  have?" is a row on the Students page, so the grid, its bulk dialog and the
-  suggestion strip had nothing left to do. Their two notes here ("the board on
-  a phone", "one column per list, not per mode") went with them. Giving the
-  same order to several students at once is *Give a sequence to N selected…*
-  on the Students page. See the README, *Sequences* and *The class page*.
+- **Sequences, per student: Red Words and Other lists** (2026-11-26). The
+  2026-10-08 note above said auto-advancing should return as "a per-student
+  setting, not a period one"; this is that. A student has at most two
+  sequences, in fixed fields of their assignment (or roster row before they
+  sign in): **Red Words** in `plan` (red lists only, mark `students/{uid}.seq`)
+  and **Other lists** in `plan2` (every other family, mark `seq2`). Either
+  stands alone; each moves on by itself, in the student's own browser, at a
+  percent the teacher sets per student. One document is the source of both
+  (the assignment when it has `lists` or either plan, else the roster row),
+  and every dashboard write carries both fields, so a write about one never
+  loses the other. Both sides read through `Adaptive.plansOf`, which drops an
+  id of the wrong kind. The **Assign board** and **Ready to move up** went
+  when sequences came (24 November): with lists in order, "who is ready for
+  List 4?" answers itself. See the README, *Sequences*, *A student's page* and
+  *The class page*.
 
-- **Two sequences at once** (2026-11-25). A student can now have a second
-  sequence beside the first — e.g. the Red Words lists in one and *Sounding it
-  out* in the other — stored as `plan2` next to `plan` on the same assignment
-  or roster row, with its own high-water mark `students/{uid}.seq2` beside
-  `seq`. Each moves on by itself and the home page shows the current list of
-  each. This reverses "one list per student at a time" from the 2026-11-24
-  note: a student in two sequences works on two lists at once. A document with
-  no `plan2` behaves exactly as before; a list is in one of the two only; no
-  `firestore.rules` change. See the README, *Sequences*. *(Its two generic
-  slots were replaced the same evening by Red Words and Other lists — next
-  item.)*
+  Two standing rules:
+  - **K1: nothing the teacher does moves a student backwards, except Go back
+    to this list and raising the percent.** A plan's `at` may equal the
+    number of steps (past the end), so a re-save keeps a finished student
+    finished.
+  - **Say it is in every step of every sequence** (the teacher). Cards is a
+    self-rating, so a step without Say it could be finished without anything
+    hearing the student read. Every step the dashboard makes has Say it,
+    locked in the choosers with one line saying why.
 
-- **Red Words and Other lists** (2026-11-25, evening). The teacher, on the
-  two sequences shipped that morning: *"the red lists are themselves a
-  sequence. perhaps it's easiest to treat them as that. the other lists are the
-  ones that can be assigned in an order"*, and then *"maybe set up redwords to
-  automatically be a sequence but it can be editable"*. So the two slots are
-  now two **named** sequences, told apart by what they hold: **Red Words**
-  (red lists only) and **Other lists** (every other family). This replaces,
-  from earlier the same day, *First sequence* / *Second sequence*, *Add a
-  second sequence* / *Don't add a second sequence*, *1st* / *2nd* on the
-  Students rows, and the Give dialog's *Replace what they have* / *Add as a
-  second sequence* choice. A student's page always shows both sections, Red
-  Words first; with no Red Words, one button, **Give Red Words**, fills it
-  with every red list in order (Say it and Cards, 90 %) as a draft — nothing is
-  given until Save. Give a sequence puts an order's red lists into Red Words and
-  the rest into Other lists, replacing only the kinds it holds. Decided with it:
-  no new field and no `firestore.rules` change — `plan` / `plan2` and `seq` /
-  `seq2` stay, which is which is decided by content (`WordLists.seqKind`), a
-  sequence written back as stored keeps its field (so nobody's mark moves), and
-  only a fresh pair is written Red Words as `plan`; documents from the two days
-  before that mix the kinds are shown split as an unsaved draft and rewritten
-  only when a teacher saves that student (no load-time upkeep), nobody moving
-  backwards. The student's home page did not change. See the README,
-  *Sequences* and *A student's page*.
+  Removed on 2026-11-26, because no student had ever used the site and the
+  teacher asked to simplify as much as possible: everything that existed only
+  for documents saved on 24–25 November — a sequence of either kind in either
+  field, deciding the kind by what a sequence held, promoting `plan2` to
+  `plan` on Stop, splitting or merging older documents into the two sections
+  (and the Students row's *Mixed* label and the Give dialog's split / merged
+  sentences), and the load-time upkeep that wrote Say it into stored plans and
+  saved sequences (and its note). There is no migration: a document in an
+  older shape at worst shows no sequence, and the teacher gives it again.
 
 ## Shipped 2026-11-25: saves on shared Chromebooks, and small fixes
 
@@ -196,40 +174,13 @@ section); the reasons are here.
   dashboard and each student's real home page side by side in headless Chrome,
   with one fake database between them. It plays seeded schedules of a teacher
   giving, editing and stopping sequences (one or two per student, singly or in
-  bulk, before or after the student first signs in, and on documents saved
-  before Say it was in every step) while students practise. After every step it
-  checks that the dashboard, the student's page and the README's rules all say
-  the same thing about where each student is. It runs on every push after
-  save-loop. The day it was built it found K1, below.
+  bulk, before or after the student first signs in) while students practise.
+  After every step it checks that the dashboard, the student's page and the
+  README's rules all say the same thing about where each student is. It runs
+  on every push after save-loop. The day it was built it found K1 (see
+  *Sequences*, under *Reversed*).
 
-### Decided 2026-11-25: two rules for sequences
-
-- **Reversed: "a re-saved sequence is worked out afresh from `at`".** That
-  sentence in the README held for every student but one kind: a student who
-  had finished every list was past the end only by their own mark, and `at`
-  was pulled in to the last step, so any save that wrote the sequence afresh —
-  a *lowered* percent, a list added at the end, a saved order used, Stop on the
-  first of two — started them on their last list again, and one who had
-  slipped on it while replaying it was put back there (the loop's K1). The rule
-  now, set by the planning session: **nothing the teacher does moves a student
-  backwards, except Go back to this list and raising the percent.** A finished
-  student stays finished through any re-save; lists added after the end start
-  them on the first new one they have not finished; a raised percent checks the
-  list they are on again (for a finished student, the last one). A saved order
-  that brings a higher percent counts as raising it — its confirm says so. How:
-  a plan's `at` may now equal the number of steps, meaning past the end, on
-  both sides; old documents never hold it and read as before.
-- **Say it is in every step of every sequence** (the teacher: *"say it must be
-  in every step sequence"*). Reverses "each step holds whatever ways the
-  teacher ticked". Cards is a self-rating and Match It does not hear the
-  student, so a step without Say it could be finished without anything having
-  heard them read. Every step the dashboard makes has Say it, locked in the
-  choosers with one line saying why; both sides read stored steps with Say it
-  added; the dashboard's load-time upkeep writes it into existing plans, plan2s
-  and saved sequences without moving anybody (setAt, `at`, hold and bar kept),
-  and says how many steps and students in one note, and how many students now
-  need Say it on their current list. A student already past a Cards-only step
-  stays past it. Lists given without a sequence are unchanged.
+### Decided 2026-11-25: the microphone
 
 - **The microphone: measure first** (2026-11-25). The teacher wants the
   listening "as accurate as possible", and it is always one voice in a quiet

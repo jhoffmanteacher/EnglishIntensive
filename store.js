@@ -6,13 +6,13 @@
      students/{uid}      their own. Read/write by them, read-only to the
                          teacher. Holds the per-word stats (adaptive.js
                          owns their shape), lifetime totals, a short
-                         tail of finished rounds, and `seq` (and `seq2`)
-                         — how far through a teacher's sequence they have
-                         got (see "A sequence" below).
+                         tail of finished rounds, and `seq` and `seq2` —
+                         how far through each of a teacher's sequences
+                         they have got (see "A sequence" below).
      assignments/{uid}   written by the TEACHER, read-only to the student:
-                         which lists they get — a plain set, or a
-                         sequence of steps (`plan`), or two sequences
-                         (`plan` and `plan2`) — and which class they're in.
+                         which lists they get — a plain set, or sequences
+                         of steps (`plan`, Red Words; `plan2`, Other
+                         lists) — and which class they're in.
                          Separate from students/{uid} precisely so the
                          teacher never needs write access to a student's
                          work — see firestore.rules.
@@ -50,19 +50,15 @@
    Where the student IS is worked out here, in their browser, from their
    own stats, by the same Adaptive.planState the dashboard runs.
 
-   TWO AT ONCE. The same document may carry a second sequence, `plan2`,
-   beside the first (Adaptive.sanitizePlans: never without a first, and
-   never sharing a list with it). Each is worked out on its own, from its
-   own mark — `seq` for `plan`, `seq2` for `plan2` — so finishing a list in
-   one never moves the other. The student plays the current list of each,
-   plus the finished lists of both. Everything below about "the plan" and
-   "the mark" is true of each pair separately. A document with no `plan2`
-   is exactly what it was before there could be two.
-
-   The dashboard calls the two "Red Words" and "Other lists", by what each
-   holds (2026-11-25). This file never needs the names and never assumes
-   `plan` is Red Words: either may be in either field, and each mark
-   follows its own field.
+   TWO AT ONCE. A student has at most two sequences, in fixed fields:
+   `plan` (Red Words, its mark `seq`) and `plan2` (Other lists, its mark
+   `seq2`). Either may be there without the other. Each is worked out on
+   its own, from its own mark, so finishing a list in one never moves the
+   other. The student plays the current list of each, plus the finished
+   lists of both. Everything below about "the plan" and "the mark" is true
+   of each pair separately. Which document they come from, and what is
+   dropped on the way in, is Adaptive.plansOf — the dashboard calls the
+   same function.
 
    Why not on the teacher's page and written down? Because the student
    can never write assignments/{uid} (firestore.rules), and a teacher's
@@ -78,7 +74,7 @@
    drop out of the top box. So position is never recomputed from nothing:
    when it comes out further on than what was stored for this plan, the
    new index is written to students/{uid}.seq = { at, of, when } (seq2 for
-   the second sequence), and next
+   Other lists), and next
    time the walk starts from there. `of` is the plan's `setAt`, so a mark
    made under an older plan is ignored the moment a teacher saves a new
    one. A student could edit their own `seq` (the rules let them write
@@ -181,50 +177,34 @@ window.EIStore = (function(){
     return [];
   }
 
-  /* The student's sequences: [], [plan] or [plan, plan2]. The assignment
-     is the source when it has a valid `plan` or a `lists` array, otherwise
-     the roster row is — one decision for both sequences, so a student's two
-     always come from the same document. `lists` (no plan) is [] here and is
-     handled by effectiveLists, so a student with no plan is exactly what
-     they were before. Pure. */
-  /* SAY IT IN EVERY STEP (2026-11-25): every step is read with its list's
-     Say it id present and first (WordLists.docWithSay), so a step from a
-     document the dashboard has not healed yet cannot finish on Cards — a
-     self-rating — alone, and the home page shows its Say it tile. Done here,
-     where the plan is read, because adaptive.js keeps no word library. The
-     dashboard reads the same way (teacher.js plansFor). */
-  function planOf(d){ return d ? Adaptive.sanitizePlan(d.plan) : null; }
+  /* The student's sequences, [Red Words or null, Other lists or null],
+     from the one document that is their source (Adaptive.plansOf). With
+     neither, effectiveLists decides, so a student with no plan is exactly
+     what they would be without sequences. Pure. */
   function effectivePlans(assignment, roster){
-    if(assignment && (planOf(assignment) || Array.isArray(assignment.lists))) return Adaptive.sanitizePlans(WordLists.docWithSay(assignment));
-    return Adaptive.sanitizePlans(WordLists.docWithSay(roster));
-  }
-  // The first sequence, or null — what there was before there could be two.
-  function effectivePlan(assignment, roster){
-    return effectivePlans(assignment, roster)[0] || null;
+    return Adaptive.plansOf(assignment, roster);
   }
 
   /* Everything the home page and the games need to know about one
      student's lists, in one place. With no plan it is effectiveLists and
-     nothing else. With sequences: where they are in each (`positions`, one
-     Adaptive.planPosition per sequence), and across both the current
-     lists, the finished ones, and every id they can play (finished, then
-     current). `plan` and `state` are the first sequence's. Pure — stats,
-     the marks and totalOf come in; `sq` is [seq, seq2], or a bare seq for
-     the first alone. */
-  function resolve(assignment, roster, st, sq, totalOf){
-    var plans = effectivePlans(assignment, roster);
-    if(!plans.length) return { plan: null, ids: effectiveLists(assignment, roster) };
-    var marks = Array.isArray(sq) ? sq : [sq, null];
-    var positions = plans.map(function(p, k){ return Adaptive.planPosition(p, st, totalOf, marks[k] || null); });
-    var current = [], done = [];
-    positions.forEach(function(ps){
-      ps.current.forEach(function(id){ if(current.indexOf(id) === -1) current.push(id); });
+     nothing else (`positions` empty). With sequences: where they are in
+     each (`positions`, one Adaptive.planPosition per sequence they have,
+     each with `which`: 0 Red Words, 1 Other lists), and across both the
+     current lists, the finished ones, and every id they can play
+     (finished, then current). Pure — stats, the two marks [seq, seq2] and
+     totalOf come in. */
+  function resolve(assignment, roster, st, marks, totalOf){
+    var plans = effectivePlans(assignment, roster), positions = [];
+    marks = marks || [null, null];
+    plans.forEach(function(p, k){
+      if(!p) return;
+      var ps = Adaptive.planPosition(p, st, totalOf, marks[k] || null);
+      ps.which = k;
+      positions.push(ps);
     });
-    positions.forEach(function(ps){
-      ps.finishedIds.forEach(function(id){ if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id); });
-    });
-    return { plan: positions[0].plan, state: positions[0].state, positions: positions,
-             current: current, finishedIds: done, ids: done.concat(current) };
+    if(!positions.length) return { positions: positions, ids: effectiveLists(assignment, roster) };
+    var all = Adaptive.playableIds(positions);
+    return { positions: positions, current: all.current, finishedIds: all.finishedIds, ids: all.ids };
   }
 
   function totalOf(id){
@@ -239,12 +219,12 @@ window.EIStore = (function(){
     if(loadFailed) return;
     if(!preview && seesEverything()) return;
     var r = resolve(assignment, rosterRow, stats, seqs, totalOf);
-    if(!r.plan) return;
+    if(!r.positions.length) return;
     pos = r;
     if(preview) return;
-    // Each sequence against its own mark: seq for the first, seq2 for the second.
-    r.positions.forEach(function(p, k){
-      var plan = p.plan, mark = seqs[k];
+    // Each sequence against its own mark: seq for Red Words, seq2 for Other lists.
+    r.positions.forEach(function(p){
+      var plan = p.plan, k = p.which, mark = seqs[k];
       var stored = (mark && mark.of === plan.setAt && mark.at > plan.at) ? mark.at : plan.at;
       if(p.state.index <= stored) return;
       /* `when` is when they last MOVED ON by finishing a list, and the
@@ -699,19 +679,20 @@ window.EIStore = (function(){
            finishedIds,    // the ids of every finished list, in every sequence
            finishedCount,  // how many finished lists, all sequences together
            finished,       // true only when EVERY sequence is finished
-           sequences: [ { setAt, index, count, finished, hold,
+           sequences: [ { which, setAt, index, count, finished, hold,
                           current, finishedIds, finishedCount }, … ] }
 
-       `sequences` has one entry per sequence, the first first, so a
-       student with one sequence has one. Ids the library no longer has are
-       left out. */
+       `sequences` has one entry per sequence they have, Red Words first;
+       `which` is 0 for Red Words, 1 for Other lists. Ids the library no
+       longer has are left out. */
     plan: function(){
-      if(!pos || !pos.plan) return null;
+      if(!pos) return null;
       var alive = function(id){ return WordLists.exists(id); };
       var seqsOut = pos.positions.map(function(p){
         var n = Math.min(p.state.index, p.plan.steps.length), fin = 0, i;
         for(i=0;i<n;i++) if(p.plan.steps[i].ids.some(alive)) fin++;
         return {
+          which: p.which,
           setAt: p.plan.setAt,
           index: p.state.index, count: p.plan.steps.length,
           finished: p.state.finished, hold: p.state.hold,
@@ -747,7 +728,6 @@ window.EIStore = (function(){
       wantTest: wantTest,
       TEST_KEY: TEST_KEY,
       effectiveLists: effectiveLists,
-      effectivePlan: effectivePlan,
       effectivePlans: effectivePlans,
       resolve: resolve,
       settle: settle,

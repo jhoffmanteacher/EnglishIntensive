@@ -947,11 +947,9 @@ student:
   and the student's page (each section's rows, Now, the held line, the
   percent) state the same place in each sequence as the key; the freshly
   loaded home page shows the key's current tiles, *Lists you finished (N)* and
-  notice; the dashboard's Now and Finished rows name the home page's tiles
-  (except on an older document the page shows split and unsaved, where the
-  student's browser rightly still follows what is stored); Give's warning
-  says what the key counts; and what was stored is the plan the key expects,
-  in the field it expects.
+  notice; the dashboard's Now and Finished rows name the home page's tiles;
+  Give's warning says what the key counts; and what was stored in `plan` and
+  `plan2` is the plan the key expects.
 - **S2 only theirs** — the home page never shows a later list, one never
   given, or one taken out (unless the other sequence holds it).
 - **S3 independent** — a step on one sequence leaves the other's stored plan
@@ -961,49 +959,37 @@ student:
   holds them through practice until Move on now; a stored mark never goes down
   for the same plan. And K1 as a property of the **home page**, after every
   Save, Give and Stop: worked out from what is stored (the documents and the
-  student's own marks, with the key's walk — never from the dashboard's draft
-  or the key's own split), every list in the finished fold before is there
-  after, and every current list is current or finished after — or, where two
-  sequences of a kind were made one with a list current in each, the very
-  next list; a held list stays held. Exempt only: Go back, a raised percent,
-  a list taken out, and the sequence Give replaced or Stop removed.
+  student's own marks, with the key's walk — never from the dashboard's
+  draft), every list in the finished fold before is there after, and every
+  current list is current or finished after; a held list stays held. Exempt
+  only: Go back, a raised percent, a list taken out, and the sequence Give
+  replaced or Stop removed.
 - **S5 new plan, fresh start** — a sequence saved afresh has a setAt new for
-  that slot, and the student lands where the walk from its `at` puts them;
+  that field, and the student lands where the walk from its `at` puts them;
   Give starts each on the first list they haven't finished.
-- **S6 one list, one sequence** — no list is in both stored sequences, and
-  Add a list offers only its section's kind; Stop on `plan` while `plan2`
-  exists keeps the student's place in the one that is left.
+- **S6 each in its place** — `plan` holds only red lists and `plan2` none, and
+  Add a list offers only its section's kind.
 - **S7 before sign-in** — a roster-only student's first home page is what
-  the dashboard's page for their roster row said.
+  the dashboard's page for their roster row said; after they sign in, the
+  dashboard's writes go to their assignment and S1 checks both sequences are
+  still there.
 - **S8 the preview** — Student view shows what the student's own page shows,
   and writes nothing.
-- **S9 Say it in every step** — every stored step (after the dashboard's
-  upkeep) and every saved sequence holds its list's Say it; the home page shows
-  the Say it tile of each current list, healed or not; no step is walked past
-  with its Say it below the bar; Say it is ticked and locked in Add a list and
-  Change ways (the harness tries to untick it), with the line that says why;
-  the upkeep note says what the key counts, moves nobody (setAt, at, hold, bar
-  unchanged) and goes with OK.
+- **S9 Say it in every step** — every stored step and every saved sequence
+  holds its list's Say it; the home page shows the Say it tile of each current
+  list; no step is walked past with its Say it below the bar; Say it is ticked
+  and locked in Add a list and Change ways (the harness tries to untick it),
+  with the line that says why.
 
-Eight families (`--list`) play seeded schedules: one-sequence, two-sequences,
-teacher-steps-in, re-plan, bulk, roster-first, stop, and legacy — documents
-saved before Say it was in every step and before Red Words and Other lists
-(one sequence holding both kinds, a mixed one beside one of a single kind, two
-of one kind, either kind in either field — with progress on both: a stored
-`at`, the student's own mark further on, a second sequence finished by its
-mark, and a hold on a step of the sequence that is not its kind's own), some
-students on a Cards-only step at the bar, some already past one,
-and in half the cases students opening their page before the teacher opens the
-dashboard. Both field orders also come about on their own: a student given
-Other lists first and Red Words later holds Red Words in `plan2`. Every failing line names
+Seven families (`--list`) play seeded schedules: one-sequence, two-sequences,
+teacher-steps-in, re-plan, bulk, roster-first and stop. A student given Other
+lists alone holds `plan2` and no `plan`; that comes about on its own. Every failing line names
 the seed, case, step, expected and got, and ends with its replay command:
 `node tools/sequence-loop.mjs --seed=1 --case=16 --verbose` prints that case's
 whole timeline. `--root=DIR` serves another copy of the site (a fix, or a
 planted fault). The same seed gives the same output byte for byte. A real site
 fault the loop finds can be listed as **KNOWN** in `tools/sequence-loop.js`,
-which prints `~ known` instead of failing; the list is empty. The first, K1 — a
-finished student put back on their last list by a re-save — was fixed the day
-it was found (*The rule*, under *A student's page*). The headers of `tools/sequence-loop.mjs` and
+which prints `~ known` instead of failing; the list is empty. The headers of `tools/sequence-loop.mjs` and
 `tools/sequence-loop.js` have the flags, the exact rules of the fake and the
 checks.
 
@@ -1912,7 +1898,7 @@ the teacher's other tabs stay the teacher's and closing the tab ends it, and
 it holds across home → game → home, none of which carry the address.
 `seesEverything()` is then false, so `myLists()`, `plan()` and `settle()`
 are exactly a student's and a sequence moves (and writes its `seq` mark, or
-`seq2` for the one stored as `plan2`).
+`seq2` for Other lists).
 Unlike a preview it **writes**: plays are saved to the teacher's own
 `students/{uid}`, which *is* the test student's practice. A thin strip
 (`#ei-testbar`, in `practice.js` so every game page gets it) says so and
@@ -1949,11 +1935,9 @@ are on — in each sequence, if they have two — and that moves with their
 progress. Without a sequence,
 `EIStore.effectiveLists` is the whole rule: the student's `assignments/{uid}`
 lists, else the lists on their roster row (set on the dashboard before they
-had signed in), else nothing. `EIStore.effectivePlan` decides which of the
-two a student has: the assignment is the source when it has a valid `plan`
-or a `lists` array, otherwise the roster row is — one decision, so a
-student's two sequences (`EIStore.effectivePlans`) always come from the same
-document.
+had signed in), else nothing. Sequences come from the same one document
+(`Adaptive.plansOf`, *Sequences*): the assignment when it has a `lists` array
+or either plan, otherwise the roster row.
 
 This replaced a precedence walk (own → roster → period course → period list →
 class default → everything) with inherited cells drawn dashed, copy-on-write
@@ -1975,42 +1959,37 @@ Three strings are the only new words a student sees: that fold's title,
 they moved on) and *"You finished all your lists. Ask your teacher what comes
 next."*
 
-**Two at once: Red Words and Other lists.** A student can have **two
-sequences**, each moving on by itself, and they are named by what they hold:
-**Red Words** (the red-word lists, and nothing else) and **Other lists**
-(every other family — Starting Blends, Blend Words, oi / oy, Multisyllable,
-Nonsense Words, …). A student has at most one of each. The teacher put it this
-way on 2026-11-25: *"the red lists are themselves a sequence … the other lists
-are the ones that can be assigned in an order"*, and *"maybe set up redwords to
-automatically be a sequence but it can be editable"*. That replaced, the same
-day, a first and a second sequence that could each hold anything (*First
-sequence* / *Second sequence*, *Add a second sequence*, *Add as a second
-sequence*): two generic slots made the teacher decide what went where every
-time, when the curriculum had already decided it. Red Words is set up whole by
-one button (*A student's page*, below), still editable.
+**Red Words and Other lists.** A student has at most two sequences, named by
+what they hold: **Red Words** (the red-word lists, and nothing else) and
+**Other lists** (every other family — Starting Blends, Blend Words, oi / oy,
+Multisyllable, Nonsense Words, …). The curriculum already decides which list
+goes where (the teacher: *"the red lists are themselves a sequence … the other
+lists are the ones that can be assigned in an order"*). Either can be there
+without the other, and each moves on by itself.
 
-The home page then shows the list they are on in each, in the usual
-sections, and **one** fold, *"Lists you finished (N)"*, for the finished
-lists of both; N counts both. The notice says *"New list: …"* once for each
-sequence that moved since the last load (one short sentence each), and
-*"You finished all your lists…"* only when **every** sequence they have is
-finished: one finished beside one still going says nothing, and the list
-still going is simply there. Nothing else is new for a student, and the
-student's side never learns the names: `store.js` resolves `plan` and `plan2`
-exactly as it did before the names existed. A list is in **one** of the two
-only — which the kinds now guarantee, since a red list can only be in Red Words
-and every other list only in Other lists. `EIStore.plan()` gives the home page
-`{ uid, current, finishedIds, finishedCount, finished, sequences: [...] }`:
-the first five across every sequence (`finished` only when all are), and one
-entry per sequence with its own `setAt`, `index`, `count`, `finished`,
-`hold`, `current`, `finishedIds` and `finishedCount`. The "new list" note is
-kept per stored field (`ei.plan.seen:<uid>` for `plan`, as it always was, and
-`ei.plan.seen2:<uid>` for `plan2`).
+The home page shows the list they are on in each, in the usual sections, and
+**one** fold, *"Lists you finished (N)"*, for the finished lists of both; N
+counts both. The notice says *"New list: …"* once for each sequence that moved
+since the last load (one short sentence each), and *"You finished all your
+lists…"* only when **every** sequence they have is finished: one finished
+beside one still going says nothing, and the list still going is simply there.
+`EIStore.plan()` gives the home page `{ uid, current, finishedIds,
+finishedCount, finished, sequences: [...] }`: the first five across both
+(`finished` only when all are), and one entry per sequence with its `which` (0
+Red Words, 1 Other lists), `setAt`, `index`, `count`, `finished`, `hold`,
+`current`, `finishedIds` and `finishedCount`. The "new list" note is kept per
+sequence (`ei.plan.seen:<uid>` for Red Words, `ei.plan.seen2:<uid>` for Other
+lists).
 
-**What is stored.** On `assignments/{uid}`, or on `roster/{email}` for a student
-who has not signed in, next to `lists`:
+**What is stored.** Each in its own fixed field of `assignments/{uid}` — or of
+`roster/{email}` for a student who has not signed in — next to `lists`:
 
-    plan: {
+    plan    Red Words     its mark: students/{uid}.seq
+    plan2   Other lists   its mark: students/{uid}.seq2
+
+Both have one shape:
+
+    {
       steps: [ { ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] } ],
       bar:   0.9,    // 0.5 to 1 in steps of 0.05
       at:    0,      // the step the teacher last set as current (0-based);
@@ -2019,89 +1998,40 @@ who has not signed in, next to `lists`:
       setAt: 1795563000000   // Date.now() when the teacher saved it
     }
 
-A student with both has the other as `plan2`, the same shape, beside it on the
-same document, with its own `setAt`. Everything below is true of each
-separately. **No new field was added for the names, and `firestore.rules` did
-not change:** which is Red Words and which is Other lists is decided by what
-each holds (`WordLists.seqKind(steps)`: every step red is Red Words, no step
-red is Other lists, both is *mixed*; `WordLists.stepKind(ids)` for one step,
-by the library's family, or by the permanent id for a list the library no
-longer has), and **never by the field**. Documents from before the names hold
-them either way round, so nothing may assume `plan` is Red Words, and each
-mark keeps following its own field (`seq` for `plan`, `seq2` for `plan2`).
-When the dashboard writes, a sequence written back as stored **stays in the
-field it is in** (so its mark, place and *Moved to a new list* news do not
-move), a sequence written afresh takes the other field, and only a fresh pair
-is written Red Words as `plan`, Other lists as `plan2` (`placeBody` in
-`teacher.js`). One sequence alone is always `plan`.
-
-`Adaptive.sanitizePlans(doc)` reads both: `[]`, `[plan]` or `[plan, plan2]`.
-A `plan2` without a usable `plan` is ignored. The dashboard never writes one:
-every body that writes or deletes `plan2` carries `plan` too (written back
-exactly as stored when it is not the one changing), and stopping the sequence
-in `plan` while another is in `plan2` promotes that one to `plan`. Carrying
-`plan` matters because a signed-in student's sequences can live on their
-roster row: a write to their assignment that gave it `lists` and `plan2` but no
-`plan` would make the assignment the source, holding no sequence at all. An id
-already in `plan` is dropped from `plan2`, so no id is in both. That is ids,
-not lists: `adaptive.js` has no word library, so it cannot tell that
-`red-1-say` and `red-1-cards` are one list, and it does not know the names —
-the student's side resolves `plan` and `plan2` exactly as before. Keeping a
-list (family and list number) in one sequence is the dashboard's job, and the
-kinds do it: Add a list, ready-made, saved and copied orders in a section use
-only that section's kind. A document with no `plan2` is exactly what it was
-before there could be two — every test written for one sequence still passes
-unchanged in meaning.
-
-**Documents from before the names** (24 and 25 November 2026, when either
-sequence could hold anything): a sequence holding red **and** other lists, or
-two sequences of one kind. The student's own browser keeps working from what
-is stored, unchanged — nothing is rewritten at load (no `maintain` upkeep for
-this). On the dashboard such a student's page shows it **split** (or two of a
-kind **merged**), as an unsaved draft (`sectionsOf`), with one line above the
-sections — *"Ana Lopez’s Red Words lists and other lists were in one order.
-They are now two: Red Words and Other lists. Press Save to keep this."* (two of
-one kind: *"… other lists were in two sequences. They are now one. …"*) — and
-the Save bar showing before any edit. Save writes both afresh; Give writes the
-kind its order does not hold from the same draft (`giveBody` →
-`sectionEntry`), and its dialog counts those students apart (`giveCounts`:
-`splitRed` / `splitOther` for one mixed order, `mergedRed` / `mergedOther`
-for two of a kind) — *"It has no other lists: 1 of them had other lists in one
-order with Red Words. Those become their Other lists sequence, and finished
-lists stay finished."* — never as keeping it "as it is", which would not be
-true. Until it is saved the page's *Now* can be ahead of what the student's
-home page shows; the Students row reads what is stored.
-
-How a section is built, and why (K1: nothing the teacher does moves a student
-backwards). Every stored step of the section's kind is collected — from the
-sequence that already holds only that kind (its "home") first, then the rest in
-stored order; a list met twice is one step, counted as far on as it got in
-either, keeping the ways the student could see. Each step is **passed** (its
-index is below its own plan's position — `Adaptive.planPosition` with that
-plan's own mark, exactly what the student's browser computes; not a fresh
-re-derivation), **current** (the step that plan is on) or **not reached**. The
-section is then ordered: every passed step (collected order); then the step(s)
-the student was on — a held one first, else the home plan's, then the other
-plan's; then the rest. `at` is the number of passed steps — the number of
-steps, past the end, when they had passed every one — and the hold is kept
-only when the held step is the one at `at`. So every list in the finished fold
-stays there, none comes back as work, and a held list stays held and current.
-A merged section is one sequence with one current list: a student who was on a
-list in each stored plan is on one, and the other is the very next — never
-further back, never dropped, never marked finished. The walk from there
-(`draftIndex`) moves them on over anything their own stats have finished.
-(The first version of this, the same day, put each section's home steps first
-and set `at` to the first step not passed: steps passed in the other plan then
-landed behind an unpassed one, and Save took finished lists back.)
-
 A step is a **map**, not a bare array — Firestore refuses an array directly
 inside an array. Every id in one step is a way of playing the same list; one
-list per step. With a valid `plan`, the plan decides and `lists` is ignored
-(the dashboard always writes `lists` equal to the current step's ids — of
-both sequences, when there are two — so anything that only reads `lists`
-still sees what they can play now). All of it is
-sanitized on the way in (`Adaptive.sanitizePlan`): wrong types are dropped, a bar or a
-position out of range is pulled in (to the end, for `at`), and a plan with no usable step is `null`.
+list per step. Everything below is true of each sequence on its own.
+`firestore.rules` has no list of allowed fields on these documents, so none of
+this needed a rules change.
+
+**Reading it: one function, both sides.** `Adaptive.plansOf(assignment,
+roster)` returns `[Red Words or null, Other lists or null]`. `store.js`
+(`EIStore.effectivePlans`) and `teacher.js` (`plansFor`) both call it, so the
+student's browser and the dashboard cannot read a document differently.
+
+- **One document is the source of both:** the assignment when it holds a
+  `lists` array or either plan, otherwise the roster row.
+- **Nothing read back is trusted** (`Adaptive.sanitizePlan`, per field): wrong
+  types are dropped, a bar or a position out of range is pulled in (to the
+  end, for `at`), and a plan with no usable step is `null`.
+- **Each field holds its own kind.** A red list's ids all start `red-` and no
+  other list's does (ids are permanent; `Adaptive.isRedId`). An id of the
+  wrong kind — a red one in `plan2`, any other in `plan` — is dropped, and a
+  step left with nothing goes. The dashboard never writes one; this only keeps
+  a hand-edited document from crashing either side.
+
+**Writing it.** Every dashboard write about sequences — Save, Stop, Give — is
+one merge-write of **both** fields (the one that changes, and the other
+written back exactly as read, or deleted when there is none), `lists`, the time
+and the class stamp (`seqBody` in `teacher.js`). Written back exactly as read,
+a sequence keeps its `setAt`, so its mark keeps counting and nobody moves.
+`lists` is the union of each sequence's current list (its last list, once
+finished): with a plan, the plan decides, but anything that reads only `lists`
+still sees what they can play now. Writing both fields is what keeps a write
+about one sequence from losing the other: a student set up before they signed
+in has their sequences on their roster row; once they have signed in the
+dashboard writes their assignment, and from that write on the assignment is
+the source — of both.
 
 **What "finished" means.** A step is finished when, for **every** id in it,
 the number of words that are solid and at pace (`Adaptive.listSolid`, the
@@ -2115,48 +2045,26 @@ This is the same measure the site has always used (`isMastered` and not
 `isSlow`); only the bar changed, from four-in-five to 90 % by default and
 settable per student.
 
-**Say it is in every step of every sequence** (decided by the teacher,
-2026-11-25: *"say it must be in every step sequence"*). Cards is a
-self-rating — the student presses *Got it*, and a Got it counts as right — and
-a step finishes when every way of playing it reaches the bar, so a Cards-only
-(or Match-only) step let a student move on without anything having heard them
-read. One pure function, `WordLists.withSay(ids)` in `word-lists.js` (both
-sides load it; `adaptive.js` keeps no word library, "ids, not lists"), returns
-a step's ids with that list's Say it id present and first; a list that offers
-no Say it is left alone. Everything below goes through it:
-
-- **Making and editing.** Every step the dashboard makes — Give Red Words,
-  Add a list, Change ways, a ready-made, saved or copied order, Put these in
-  order, Give a sequence to N selected, and Save this sequence — has Say it,
-  in both sections. In Add a list and Change ways the Say it box
-  is ticked and disabled, with one line under the boxes: *"Say it is always
-  part of a sequence. It is the one mode that hears the student read."* (and
-  `draftWays` / `draftAdd` put it back if anything else took it out).
-- **Reading.** Both sides read every stored step through
-  `WordLists.docWithSay` (`store.js` `effectivePlans`, `teacher.js`
-  `plansFor`), so a step from a document nobody has healed yet cannot finish
-  on Cards alone and the home page shows its Say it tile — even before the
-  teacher next opens the dashboard.
-- **Healing what is stored.** The dashboard's load-time upkeep (`maintain`,
-  after migration and self-heal, in the same batches and retries) runs
-  `sayHealBody`: any `plan` / `plan2` on an assignment or roster row, and any
-  saved sequence on a class, with a step missing its Say it is written back
-  with it added and **nothing else changed** — `setAt`, `at`, `hold` and `bar`
-  stay exactly as they were (`WordLists.planWithSay`), so nobody's place, hold
-  or high-water mark moves. Only documents of a class the teacher teaches (the
-  admin: all), as `healBody`; no `firestore.rules` change. When it wrote
-  anything the dashboard shows one note above the view until **OK** is
-  pressed: *"Say it was added to N steps for M students."*, *"It was also added
-  to S steps of saved sequences."* when there were any, and *"K students now
-  need Say it on their current list."* for students who were on a Cards-only
-  step at the bar there and had not moved on yet. A student whose mark is
-  already past such a step stays past it (the high-water mark).
-- **Lists given without a sequence are unchanged.**
+**Say it is in every step of every sequence** (the teacher: *"say it must be
+in every step sequence"*). Cards is a self-rating — the student presses *Got
+it*, and a Got it counts as right — and a step finishes when every way of
+playing it reaches the bar, so a Cards-only (or Match-only) step would let a
+student move on without anything having heard them read. One pure function,
+`WordLists.withSay(ids)`, returns a step's ids with that list's Say it id
+present and first (a list that offers no Say it is left alone), and every step
+the dashboard makes goes through it: Give Red Words, Add a list, Change ways, a
+ready-made, saved or copied order, Put these in order, Give a sequence to N
+selected, and Save this sequence. In Add a list and Change ways the Say it box
+is ticked and disabled, with one line under the boxes: *"Say it is always part
+of a sequence. It is the one mode that hears the student read."* (and
+`draftWays` / `draftAdd` put it back if anything else took it out). The
+dashboard is the only writer of a plan, so nothing patches a stored step on
+read. Lists given without a sequence are unchanged.
 
 **Where the position is worked out, and why there.** In the *student's*
 browser, in `store.js`, by `Adaptive.planState(plan, stats, totalOf, seq)`
 (wrapped, with the lists that follow from it, as `Adaptive.planPosition`,
-which the dashboard calls too — once per stored field, each with its own mark): start
+which the dashboard calls too — once per sequence, each with its own mark): start
 at `plan.at`; if the student's own mark is this plan's and further on, start
 there; if the teacher is holding them, stop; otherwise walk forward while the
 step is finished. It is pure and has no clock, so the dashboard runs exactly the same
@@ -2172,9 +2080,9 @@ nothing moves (the safe way to be wrong, as in `listShare`).
 **The high-water mark.** A finished list can be replayed, and a word can drop
 out of the top box, so position is not recomputed from nothing each time. When
 it comes out further on than what was stored for this plan, the student's
-browser writes `students/{uid}.seq = { at, of, when }` — `seq2` for the
-sequence stored as `plan2`, so the two marks can never be mistaken for each
-other whatever their `setAt`s are — (through the same
+browser writes `students/{uid}.seq = { at, of, when }` — `seq2` for Other
+lists, so the two marks can never be mistaken for each other whatever their
+`setAt`s are — (through the same
 debounced save as everything else, under the same guards: no write on a failed
 read, in preview, or for the dev user) and the next load starts from there. `of`
 is the plan's `setAt`: a mark made under an older save of the plan is ignored
@@ -2201,8 +2109,8 @@ anything being written for them.
 
 `tests.html` pins every function (a bar of 18 of 20 finishes and 17 does not,
 two ticked ways with one short, a slow word, `hold`, an old `seq`, replaying a
-finished list, a deleted id, and the old-versus-new check that a student with
-no plan gets exactly what `effectiveLists` gave them).
+finished list, a deleted id, a wrong-kind id, Other lists alone, and the check
+that a student with no plan gets exactly what `effectiveLists` gives them).
 
 ### A student's page
 
@@ -2279,52 +2187,44 @@ this list** sets `at` to that step and puts `hold` on, and the row reads
 *"Staying here until you press Move on now."*
 
 **Each section on its own.** Each has its own percent, rows, Move on now, Go
-back, Save this sequence and **Stop using this sequence** (for a sequence that
-is stored as it stands). In `teacher.js` a section is `which` (0 Red Words, 1
-Other lists) and the field a stored sequence lives in is its `slot` (0 `plan`,
-1 `plan2`); the two are kept apart on purpose (*What is stored*, above). Other
-lists' DOM ids end in `2` (`seqHead2`, `seqPct2`, …) so the page never has one
-id twice; buttons find their section through `data-which`, and focus after an
-edit stays in the section it happened in. One Save bar serves both.
+back, Save this sequence and **Stop using this sequence** (when it has a stored
+sequence). In `teacher.js` a section is `which`: 0 Red Words, 1 Other lists —
+the same number as its field (`plan`, `plan2`) and its mark (`seq`, `seq2`).
+Other lists' DOM ids end in `2` (`seqHead2`, `seqPct2`, …) so the page never
+has one id twice; buttons find their section through `data-which`, and focus
+after an edit stays in the section it happened in. One Save bar serves both.
 
 **Edits go to a draft** (`drafts[0]` for Red Words and `drafts[1]` for Other lists, plain data; every edit is a small pure
 function — `draftMove`, `draftRemove`, `draftWays`, `draftAdd`, `draftBar`,
 `draftMoveOn`, `draftGoBack`, `draftReplaceLater` — pinned in `tests.html`). A bar
 at the bottom says *"Changes not saved yet"* with **Discard** and **Save**.
-Save is one merge-write of `{ plan, lists, updatedAt }` (plus `plan2` when there
-are both) and the class stamp, to `assignments/{uid}` or to `roster/{email}`
-for a student who has not signed in (`saveBody`, which places each in its field
-with `placeBody`). A sequence whose draft changed
+Save is one merge-write of both fields, `lists`, the time and the class stamp,
+to `assignments/{uid}` or to `roster/{email}` for a student who has not signed
+in (`saveBody` → `seqBody`, *Writing it*, above). A sequence whose draft changed
 is written afresh: `setAt` is now, `at` is the step shown as Now — the number
 of steps when that is past the end, so a student who has finished every list
 stays finished without their old mark. Because `setAt` changed, the old
 high-water mark stops counting, and it does not need to.
 
-**The rule (2026-11-25): nothing the teacher does moves a student backwards,
-except Go back to this list and raising the percent.** An edited draft's Now is
-walked from where the student is (`draftStart`): a lowered percent, a saved,
-ready-made or copied order, moving or taking out later lists, Stop on `plan`
-while `plan2` exists, and Save on an older document shown split all leave them
-where they were or further on — a finished student
-stays finished — and lists added after the end start them on the first added
+**K1: nothing the teacher does moves a student backwards, except Go back to
+this list and raising the percent.** An edited draft's Now is walked from
+where the student is (`draftStart`): a lowered percent, a saved, ready-made or
+copied order, and moving or taking out later lists all leave them where they
+were or further on — a finished student stays finished, because `at` can say
+"past the end" — and lists added after the end start them on the first added
 list they have not already finished. A **raised** percent measures again from
 where they are: a finished student is measured again on the last list, and is
 on it again if it no longer meets the new bar. A saved sequence used in the
 editor that brings a higher percent than the student's is raising the percent
 too (its confirm says *"The percent becomes 75%."*). Go back holds them where the
-teacher put them. Before this, `at` could not say "past the end" (it was pulled
-in to the last step), so any re-save of a finished sequence started the walk on
-its last list, and a student who had slipped on it was put back there — the
-sequence loop's K1. A document saved by the old code never holds an `at` past
-the last step and reads exactly as before. A sequence
-whose draft did not change is written back exactly as stored, in the field it
-was in, so editing one never resets the other's mark (or its *Moved to a new
-list* news). With no edit there is no Save bar and nothing is written. `lists` is
+teacher put them. A sequence whose draft did not change is written back
+exactly as stored, so editing one never resets the other's mark (or its
+*Moved to a new list* news). With no edit there is no Save bar and nothing is written. `lists` is
 the current step's ids of each. Switching student, going back to the list, the class
 filter, Refresh, a sidebar item and closing the page all ask first when there is
 a draft.
 
-**Where "Now" comes from.** `positionOf(uid, slot)` in `teacher.js` is
+**Where "Now" comes from.** `positionOf(uid, which)` in `teacher.js` is
 `Adaptive.planPosition` on the student's own stats and `seq` (or `seq2`) —
 `store.js`'s code, not a lookalike — so the
 editor cannot say Now about a list the student's home page does not show.
@@ -2341,17 +2241,12 @@ nothing gets *Give Red Words*, an empty Other lists editor, and the same fold.
 
 **Stop using this sequence** (after a confirm that names it — *"Stop using the
 Red Words sequence for Ana Lopez?"* — and says what leaves and that the other
-stays) deletes the plan from the document and leaves `lists` as the current
-step's ids — so the lists they had finished leave the home page, though their
-practice record is kept. It is pressed in a section and acts on the field that
-section's sequence is stored in (`stopBody(uid, now, slot)`): stopping the one
-in **`plan2`** deletes `plan2` and writes `plan` back exactly as stored;
-stopping the one in **`plan`** while another is in `plan2` writes that one as
-`plan` — at the step the student is really on in it (past the end, if they had
-finished it), with a fresh `setAt` that the old `seq` can never match — and
-deletes `plan2`. The student's `seq2` then belongs to nothing and is ignored;
-the next page load lands a new `seq` for the promoted plan. A section shown
-split from an older document has no Stop until it is saved.
+stays) deletes that section's field and writes the other back exactly as
+stored, so the student stays where they were in it (`stopBody(uid, now,
+which)`). `lists` becomes the other's current list — or, when it was the only
+one, the list they were on in it (the last one, if they had finished), all at
+once. The lists they had finished leave the home page; their practice record
+is kept.
 
 **Keyboard.** Every row in the Students table takes focus (Enter or Space
 opens the student). The student list at the left is one tab stop — the open
@@ -2387,11 +2282,9 @@ finished sequence reads *"Finished all 6"*. A student with games and no order
 shows today's sentence and *no order*. A student with nothing shows a
 *No lists yet* pill. A student on the roster who has not signed in stays greyed,
 *"on the roster — hasn't signed in yet"*. A student with **two sequences** shows
-both in the same row, stacked, **Red Words first** whichever field it is stored
-in, each with a small label over the list — *Red Words*, *Other lists* (*Mixed*
-for a sequence from before the names that holds both, until a teacher saves
-it) — the bar and count, and the place (`rowFacts` gives `{ kind: "two", seqs:
-[..] }`, each with its `label`). A student with one shows it as before, with no
+both in the same row, stacked, **Red Words first**, each with a small label
+over the list — *Red Words*, *Other lists* — the bar and count, and the place
+(`rowFacts` gives `{ kind: "two", seqs: [..] }`, each with its `label`). A student with one shows it as before, with no
 label: the list's own name already says which. The row opens the student's page; the
 tick box does not. Rows take focus (Enter or Space opens). There is no sideways
 scrolling at 1366px.
@@ -2410,20 +2303,16 @@ percent (a copied sequence brings its own percent as the starting point). There
 is no choice of where it goes: **the order goes where it belongs.** Its red
 lists become (replace) each student's Red Words sequence, its other lists
 become (replace) their Other lists sequence, and a kind it does not hold is
-left exactly as stored, in its own field; a mixed saved order is split the same
-way, and games given with no order are replaced as they always were. The
+left exactly as stored; a saved order holding both kinds is split the same
+way, and games given with no order are replaced. The
 dialog says so in one line (*"Red Words lists go into each student’s Red Words
 sequence. Other lists go into their Other lists sequence."*) and then, in counts
 of students, what it replaces and what it leaves (`giveCounts`, `giveWarning`):
 *"2 of these 5 students already have a Red Words sequence. This replaces
 them. 1 of these 5 students has games in no order. This replaces them. It has
 no other lists: 3 of them keep their Other lists sequence as it is."* — and
-asks again in a confirm when anything is replaced. A student whose document is
-from before the names is not counted as keeping it "as it is": that kind is
-written split or merged (see *Documents from before the names*), and the
-dialog says so in its own sentence. This replaced, on
-2026-11-25, a *Replace what they have* / *Add as a second sequence* choice made
-the same morning. It is written as **one batch** (`commitBodies`), so at most 400 students
+asks again in a confirm when anything is replaced. It is written as **one
+batch** (`commitBodies`), so at most 400 students
 at a time (past that a batch would no longer be all-or-nothing; the dialog says
 so and Give it stays off): every student, or none —
 a failure puts every local copy back as it was and the dialog stays open with the
@@ -2432,12 +2321,10 @@ plan with `at: 0` and no hold, saved now — so each student lands on the first
 list of it they have not already finished, worked out from their own stats (a
 student already solid on the first two lands on the third, one who has never
 practiced on the first); a kind it does not hold written back exactly as stored
-(same `setAt` and field, so its mark still counts); both placed by `placeBody`
-(a fresh one takes whichever field the kept one is not in), and `lists` the
-union of the current lists. Replacing a sequence is a deliberate teacher act,
-so the replaced one's position is not carried over — exactly what *Replace* did
-before. A student who has not signed in is written to their roster row. Nothing
-on `firestore.rules` changed.
+(same `setAt`, so its mark still counts); both through `seqBody`, with `lists`
+the union of the current lists. Replacing a sequence is a deliberate teacher
+act, so the replaced one's position is not carried over. A student who has not
+signed in is written to their roster row.
 
 ### Saved sequences
 
@@ -2681,11 +2568,10 @@ em dash are not something to hand a screen reader.
 ### What actually gets stored
 
 A flat array of list ids in `assignments/{uid}` — or, for a student who
-hasn't signed in yet, on their `roster/{email}` row — and, for a student given
-a sequence, a `plan` beside it, and a `plan2` beside that when they have both
-Red Words and Other lists — which is which is what each holds, not the field
-(see *Sequences*); their places in them are `seq` (for `plan`) and `seq2` (for
-`plan2`) on their own `students/{uid}`. The families, the
+hasn't signed in yet, on their `roster/{email}` row — and beside it, for a
+student given sequences, `plan` (Red Words) and `plan2` (Other lists), either
+or both (see *Sequences*); their places in them are `seq` and `seq2` on their
+own `students/{uid}`. The families, the
 modes and the picker's grid are all presentation — `store.js` and
 `firestore.rules` never see any of it. An empty array and a missing one
 mean the same thing now: nothing.

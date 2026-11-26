@@ -701,16 +701,15 @@ window.WordLists = (function(){
     return null;
   }
 
-  /* SAY IT IS IN EVERY STEP OF EVERY SEQUENCE (decided by the teacher,
-     2026-11-25: "say it must be in every step sequence"). Cards is a
-     self-rating — the student presses Got it, and a Got it counts as right —
-     and a step finishes when every way of playing it reaches the bar, so a
-     Cards-only step let a student move on without anything having heard them
-     read. One step's ids in, the same ids out with that list's Say it id
-     present and first. A list that offers no Say it is left as it is, so a
-     future list without one does not break; so is a step of ids the library
-     does not know. Pure. The dashboard runs every step it makes through this,
-     and both sides read every stored step through planWithSay, below. */
+  /* SAY IT IS IN EVERY STEP OF EVERY SEQUENCE (the teacher, 2026-11-25).
+     Cards is a self-rating — the student presses Got it, and a Got it
+     counts as right — and a step finishes when every way of playing it
+     reaches the bar, so a step without Say it could be finished without
+     anything having heard the student read. One step's ids in, the same
+     ids out with that list's Say it id present and first. A list that
+     offers no Say it is left as it is, and so is a step of ids the library
+     does not know. Pure. The dashboard runs every step it makes through
+     this. */
   function withSay(ids){
     var out = Array.isArray(ids) ? ids.slice() : [];
     var l = null;
@@ -719,63 +718,6 @@ window.WordLists = (function(){
     var say = idFor(l.family, l.listNum, "say");
     if(!say || index[say].retired) return out;
     return [say].concat(out.filter(function(id){ return id !== say; }));
-  }
-  /* A stored plan ({ steps: [{ ids }], … }) with withSay on every step, and
-     every other field exactly as it was — setAt, at, hold and bar included, so
-     nobody's place or high-water mark moves. Anything that is not a plan comes
-     back unchanged (sanitizePlan judges it later). Pure; a copy. */
-  function planWithSay(plan){
-    if(!plan || typeof plan !== "object" || !Array.isArray(plan.steps)) return plan;
-    var out = {};
-    for(var k in plan) if(Object.prototype.hasOwnProperty.call(plan, k)) out[k] = plan[k];
-    out.steps = plan.steps.map(function(st){
-      if(!st || typeof st !== "object" || !Array.isArray(st.ids)) return st;
-      var c = {};
-      for(var j in st) if(Object.prototype.hasOwnProperty.call(st, j)) c[j] = st[j];
-      c.ids = withSay(st.ids);
-      return c;
-    });
-    return out;
-  }
-  // A document (assignment or roster row) with planWithSay on `plan` and `plan2`. Pure; a shallow copy.
-  function docWithSay(doc){
-    if(!doc || typeof doc !== "object") return doc;
-    var out = {};
-    for(var k in doc) if(Object.prototype.hasOwnProperty.call(doc, k)) out[k] = doc[k];
-    if(doc.plan) out.plan = planWithSay(doc.plan);
-    if(doc.plan2) out.plan2 = planWithSay(doc.plan2);
-    return out;
-  }
-
-  /* WHICH KIND OF SEQUENCE (the teacher, 2026-11-25: "the red lists are
-     themselves a sequence … the other lists are the ones that can be assigned
-     in an order"). A student has at most one Red Words sequence and at most
-     one Other lists sequence, and which is which is decided by what it HOLDS,
-     never by the field it is stored in (`plan` or `plan2`): documents from
-     before this hold them either way round.
-       stepKind(ids)  "red" for a step of the Red Words family, else "other".
-                      An id the library no longer has is judged by its id
-                      ("red-…"), which is permanent.
-       seqKind(steps) "red" when every step is red, "other" when none is,
-                      "mixed" when there are both, "" for no steps.
-     Pure. Only the dashboard asks; the student's browser never needs to know
-     the names. */
-  var RED_FAMILY = "red";
-  function stepKind(ids){
-    var list = Array.isArray(ids) ? ids : [];
-    for(var i=0;i<list.length;i++){
-      var l = index[list[i]];
-      if(l) return l.family === RED_FAMILY ? "red" : "other";
-    }
-    for(var j=0;j<list.length;j++) if(/^red-/.test(String(list[j]))) return "red";
-    return "other";
-  }
-  function seqKind(steps){
-    var red = 0, other = 0;
-    (Array.isArray(steps) ? steps : []).forEach(function(st){
-      if(stepKind(st && st.ids) === "red") red++; else other++;
-    });
-    return red && other ? "mixed" : red ? "red" : other ? "other" : "";
   }
 
   function idsOfList(familyKey, listNum){
@@ -874,10 +816,6 @@ window.WordLists = (function(){
     },
     idFor: idFor,
     withSay: withSay,
-    planWithSay: planWithSay,
-    docWithSay: docWithSay,
-    stepKind: stepKind,
-    seqKind: seqKind,
     // Every OFFERED id in one family — what a column toggle on the board
     // sets. Retired ids are left out, so no bulk action can add one.
     idsOfFamily: function(familyKey){

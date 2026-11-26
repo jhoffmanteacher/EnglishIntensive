@@ -493,12 +493,10 @@ body.teacher .ei-btn-google{border:1px solid var(--line)}
 /* The "Word lists" tab: the editor, and beside it two small cards. */
 .seqLayout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start}
 .seqLayout > .panel{margin-bottom:0}
-/* The editors, one under the other (two when the student has a second
-   sequence), and the Save bar under both. */
+/* The two editors, Red Words over Other lists, and the Save bar under both. */
 .seqMain{display:flex;flex-direction:column;gap:16px;min-width:0}
 .seqMain > .panel{margin-bottom:0}
 .seqHolds{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;color:var(--muted);font-weight:400;margin-left:6px}
-.seqSplit{margin:0 0 12px}
 .seqWhich{margin:10px 0 0 !important;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
 .seqWhich:first-of-type{margin-top:4px !important}
 .seqEditor h2:focus{outline:none}
@@ -599,8 +597,6 @@ table.t tbody tr.clickable:focus-visible{outline:2px solid var(--accent);outline
 .giveRow .sel{max-width:100%}
 .giveReplace{margin:0 0 12px;font-size:14px;color:var(--warn);border-left:3px solid var(--warn);padding:4px 0 4px 10px}
 .giveReplace[hidden]{display:none}
-/* Replace what they have / Add as a second sequence. */
-
 .stFoot{border-top:1px solid var(--line2);margin-top:6px}
 
 /* ---------------- saved sequences ---------------- */

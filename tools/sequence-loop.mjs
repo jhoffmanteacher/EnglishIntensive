@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-/* sequence-loop.mjs — closed loop: what the dashboard says about a student's sequences, and what the student sees
-   (2026-11-25).
+/* sequence-loop.mjs — closed loop: what the dashboard says about a student's sequences, and what the student sees.
 
      node tools/sequence-loop.mjs [options]
 
@@ -69,7 +68,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Kept in step with FAMILIES and FAKE_FAULTS in tools/sequence-loop.js (the self-test checks the names agree).
-const FAMILIES = ["one-sequence", "two-sequences", "teacher-steps-in", "re-plan", "bulk", "roster-first", "stop", "legacy"];
+const FAMILIES = ["one-sequence", "two-sequences", "teacher-steps-in", "re-plan", "bulk", "roster-first", "stop"];
 const FAKE_FAULTS = {
   merge: "set(…, {merge:true}) replaces top-level maps instead of merging them (a save of one word wipes the rest)",
   delete: "FieldValue.delete() is ignored: the field stays (a stopped sequence is never removed)",
