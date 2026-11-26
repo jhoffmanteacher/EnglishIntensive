@@ -2414,7 +2414,8 @@
       '<div class="rowActions"><button type="button" class="btn sm" data-seq="add-go" id="' + sid(which, "seqAddGo") + '"' +
         (ui.addIds.length ? "" : " disabled") + ">Add to the end</button>" +
       '<button type="button" class="btn ghost sm" data-seq="add-cancel">Cancel</button>' +
-      '<span class="muted tiny">Tick at least one way of playing.</span></div></div>';
+      '<span class="muted tiny" id="' + sid(which, "seqAddHint") + '"' + (ui.addIds.length ? " hidden" : "") +
+        ">Tick at least one way of playing.</span></div></div>";
   }
 
   /* Another student's sequences to copy from: one entry per sequence, named
@@ -2887,6 +2888,7 @@
         ui.addIds = Array.prototype.filter.call(box.querySelectorAll("[data-addway]"), function(cb){ return cb.checked; })
           .map(function(cb){ return cb.dataset.addway; });
         var go = $(sid(which, "seqAddGo")); if(go) go.disabled = !ui.addIds.length;
+        var hint = $(sid(which, "seqAddHint")); if(hint) hint.hidden = !!ui.addIds.length;
       }
     });
   }

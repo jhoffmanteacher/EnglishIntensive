@@ -4341,6 +4341,7 @@
       eq("…which starts on the next list of the family the sequence ends in",
          body.querySelector("#seqAddList").options[body.querySelector("#seqAddList").selectedIndex].textContent, "Red Words · List 4");
       eq("…with Add ready, since the ticks were copied", body.querySelector("#seqAddGo").disabled, false);
+      eq("…and the \"tick at least one way\" hint is hidden, since a way is ticked", body.querySelector("#seqAddHint").hidden, true);
       eq("…the ticks starting as a copy of the step above when it is the same family",
          Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).length, 2);
       var sel = body.querySelector("#seqAddList");
@@ -4350,6 +4351,8 @@
       eq("…locked: it cannot be unticked", body.querySelector('[data-addway="initial-blends"]').disabled, true);
       eq("…with one line saying why", body.querySelector("#seqSayWhy").textContent, "Say it is always part of a sequence. It is the one mode that hears the student read.");
       eq("…and Add is ready", body.querySelector("#seqAddGo").disabled, false);
+      eq("…and the hint stays hidden, with Say it ticked and locked", body.querySelector("#seqAddHint").hidden, true);
+      eq("…and the hint is computed visibly hidden", getComputedStyle(body.querySelector("#seqAddHint")).display, "none");
       body.querySelector('[data-addway="initial-blends"]').click();
       eq("…a click on the locked box changes nothing", body.querySelector('[data-addway="initial-blends"]').checked, true);
       sel = body.querySelector("#seqAddList");
