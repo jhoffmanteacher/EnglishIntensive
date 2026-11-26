@@ -351,7 +351,7 @@
           recent: Array.isArray(d.recent) ? d.recent : [],
           lastSeen: d.lastSeen || 0,
           // How far through a sequence they are (their own high-water
-          // marks: seq for the first, seq2 for the second); planState reads
+          // marks: seq for `plan`, seq2 for `plan2`); planState reads
           // them, nothing else does.
           seq: Adaptive.sanitizeSeq(d.seq),
           seq2: Adaptive.sanitizeSeq(d.seq2)
@@ -1887,15 +1887,28 @@
      are on marked Now, the ones still to come after it. "All practice
      data" and "Notes and class" hold what this page has always held.
 
-     TWO SEQUENCES. A student can have a second sequence beside the first
-     (`plan2` beside `plan`; see adaptive.js, sanitizePlans). Each moves on
-     by itself, from its own mark (seq / seq2). The tab then shows two
-     editors, one under the other, each with its own heading, percent,
-     Now, Move on now, Go back, Stop and Save this sequence. A list is in
-     one of the two only: Add a list, a saved or ready-made sequence and a
-     copied one all leave out what the other already holds. Everything
-     below about "the sequence" or "the draft" is per editor; `which` is 0
-     for the first and 1 for the second.
+     RED WORDS AND OTHER LISTS (the teacher, 2026-11-25: "the red lists are
+     themselves a sequence … the other lists are the ones that can be
+     assigned in an order"). A student has at most one Red Words sequence
+     and at most one Other lists sequence. The tab always shows two
+     SECTIONS, Red Words first: section 0 holds only red lists, section 1
+     only the rest. Each moves on by itself, with its own heading, percent,
+     Now, Move on now, Go back, Stop and Save this sequence. In this part of
+     the file `which` is the SECTION (0 Red Words, 1 Other lists); `slot` is
+     the FIELD a sequence is stored in (0 `plan`, 1 `plan2`) and is what its
+     mark follows (seq / seq2). The two are not the same thing: documents
+     saved before the sections existed hold them either way round, and
+     neither side assumes `plan` is Red Words. Which section a stored plan
+     belongs to is decided by what it holds (WordLists.seqKind). A stored
+     plan that is already in the right section is kept in the field it is
+     in, so nobody's mark, place or news moves; a fresh pair is written Red
+     Words as `plan`, Other lists as `plan2` (placeBody).
+
+     A document from the two days before (a plan holding both kinds, or two
+     of one kind) is shown split into the two sections as an unsaved draft
+     (sectionsOf), with one line that says so; nothing is written until the
+     teacher presses Save, and the student's own browser keeps working from
+     what is stored until then.
 
      WHERE A STUDENT IS is Adaptive.planPosition on their own stats and
      their own high-water mark — the SAME function store.js runs in the
@@ -1909,7 +1922,7 @@
      Anything that would throw the drafts away asks first (leaveDraftOk).
 
      What Save writes is ONE merge-write of { plan, lists, updatedAt } (and
-     `plan2` when there is a second) and the class stamp. A sequence whose
+     `plan2` when there are both sections) and the class stamp. A sequence whose
      draft changed is written afresh: setAt is now, at is the step shown as
      Now, so the student's old mark for it stops counting and it is worked
      out again from what they have learned, starting at `at`. A sequence
@@ -1930,9 +1943,9 @@
     if(a && (Adaptive.sanitizePlan(a.plan) || Array.isArray(a.lists))) return Adaptive.sanitizePlans(WordLists.docWithSay(a));
     return Adaptive.sanitizePlans(WordLists.docWithSay(rosterFor(studentByUid(uid))));
   }
-  // One of them — the first (which 0, the default) or the second (1) — or null.
+  // The one stored in a field — `plan` (slot 0, the default) or `plan2` (1) — or null.
   function planFor(uid, which){ return plansFor(uid)[which || 0] || null; }
-  // The student's own mark for one sequence: seq for the first, seq2 for the second.
+  // The student's own mark for one stored sequence: seq for `plan`, seq2 for `plan2`.
   function markOf(s, which){ return s ? ((which ? s.seq2 : s.seq) || null) : null; }
 
   /* Everything a screen needs about one of a student's sequences, from
@@ -1944,7 +1957,7 @@
     if(!s || !plan) return null;
     return Adaptive.planPosition(plan, s.stats, listTotal, markOf(s, which));
   }
-  // Every sequence's, in order: [], [first] or [first, second].
+  // Every stored sequence's, in field order: [], [plan's] or [plan's, plan2's].
   function positionsOf(uid){
     var s = studentByUid(uid);
     if(!s) return [];
@@ -1964,7 +1977,15 @@
   }
 
   // ---- the drafts ----
-  var drafts = [null, null];   // per sequence: { uid, which, steps, bar, at, hold, hasPlan, base } while it is being edited
+  /* Per SECTION (0 Red Words, 1 Other lists): { uid, which, kind, slot,
+     steps, bar, at, hold, hasPlan, base, endAt, baseBar } while it is being
+     edited. `slot` is the field the sequence is stored in (0 plan, 1 plan2),
+     or -1 for one that is not stored as it stands (new, or split out of an
+     older document). */
+  var drafts = [null, null];
+  var KINDS = ["red", "other"];
+  var SECTION_NAME = ["Red Words", "Other lists"];
+  function sectionOfKind(kind){ return kind === "red" ? 0 : 1; }
   function seqUIFresh(){ return { adding: false, addKey: "", addIds: [], changing: -1, naming: false }; }
   // Which little panel is open in each editor: add a list / change the ways of one / name it.
   var seqUIs = [seqUIFresh(), seqUIFresh()];
@@ -1975,19 +1996,78 @@
   function cloneSteps(steps){ return steps.map(function(s){ return { ids: s.ids.slice() }; }); }
   function draftShape(d){ return JSON.stringify({ steps: d.steps, bar: d.bar, at: d.at, hold: d.hold }); }
 
-  /* A saved sequence as a draft, positioned where the student really is —
-     past the end (at = steps.length) for a student who has finished every
-     list. `endAt` and `baseBar` remember that, for draftStart. */
-  function draftFromSaved(uid, which){
-    which = which ? 1 : 0;
-    var pos = positionOf(uid, which);
+  /* The sequence stored in field `slot` (0 plan, 1 plan2) as a draft,
+     positioned where the student really is — past the end (at = steps.length)
+     for a student who has finished every list. `endAt` and `baseBar`
+     remember that, for draftStart. `which` is the section its lists belong
+     in (a mixed one: its own slot). */
+  function draftFromSaved(uid, slot){
+    slot = slot ? 1 : 0;
+    var pos = positionOf(uid, slot);
     if(!pos) return null;
-    var n = pos.plan.steps.length, at = Math.min(pos.state.index, n);
-    var d = { uid: uid, which: which, steps: cloneSteps(pos.plan.steps), bar: pos.plan.bar,
+    var n = pos.plan.steps.length, at = Math.min(pos.state.index, n), kind = WordLists.seqKind(pos.plan.steps);
+    var d = { uid: uid, which: kind === "mixed" ? slot : sectionOfKind(kind), kind: kind === "mixed" ? "" : kind, slot: slot,
+              steps: cloneSteps(pos.plan.steps), bar: pos.plan.bar,
               at: at, hold: pos.state.hold, hasPlan: true, endAt: at === n ? n : -1, baseBar: pos.plan.bar };
     d.base = draftShape(d);
     return d;
   }
+
+  /* What the two sections hold for a student, from what is stored:
+     { drafts: [red, other], note }. Each is a draft or null.
+
+     The usual case — every stored sequence holds one kind, and no two hold
+     the same kind — is each stored sequence as it is (draftFromSaved), in
+     its own section, unedited; note is "".
+
+     Anything else is a document from before the two sections (2026-11-24 to
+     -25, when either sequence could hold any list): a plan holding red AND
+     other lists ("mixed"), or two plans of one kind ("same"). Then each
+     section is built from every stored step of its kind: the steps of the
+     sequence that already holds only that kind first, in their order, then
+     the rest in the order they were stored, a list that is there already
+     left out. That is an UNSAVED draft (slot -1): the page says so in one
+     line and Save writes it. Nobody moves backwards: a step the student had
+     already passed in the sequence it came from counts as passed, so each
+     section starts on its first step they had not passed (past the end if
+     they had passed all of them, so a finished student stays finished), and
+     the walk from there (draftIndex) moves them on over anything their own
+     stats have finished. A hold stays on the step it was on. Pure. */
+  function sectionsOf(uid){
+    var ps = positionsOf(uid), kinds = ps.map(function(p){ return WordLists.seqKind(p.plan.steps); });
+    var out = [null, null];
+    var clean = kinds.every(function(k){ return k === "red" || k === "other"; }) && !(kinds.length === 2 && kinds[0] === kinds[1]);
+    if(clean){
+      ps.forEach(function(p, slot){ var d = draftFromSaved(uid, slot); out[d.which] = d; });
+      return { drafts: out, note: "" };
+    }
+    KINDS.forEach(function(kind, sec){
+      var home = kinds.indexOf(kind), order = home === -1 ? [0, 1] : [home, 1 - home];
+      var steps = [], passed = [], held = [], keys = [], bar = null;
+      order.forEach(function(slot){
+        var p = ps[slot];
+        if(!p) return;
+        p.plan.steps.forEach(function(st, i){
+          if(WordLists.stepKind(st.ids) !== kind) return;
+          var k = listKeyOf(st.ids[0]);
+          if(keys.indexOf(k) !== -1) return;
+          keys.push(k);
+          if(bar === null) bar = p.plan.bar;
+          steps.push({ ids: st.ids.slice() });
+          passed.push(i < p.state.index);
+          held.push(!!p.state.hold && i === p.state.index);
+        });
+      });
+      if(!steps.length) return;
+      var at = passed.indexOf(false);
+      if(at === -1) at = steps.length;
+      out[sec] = { uid: uid, which: sec, kind: kind, slot: -1, steps: steps, bar: bar, at: at,
+                   hold: at < steps.length && held[at], hasPlan: false, base: null,
+                   endAt: at === steps.length ? at : -1, baseBar: bar };
+    });
+    return { drafts: out, note: kinds.indexOf("mixed") !== -1 ? "mixed" : "same" };
+  }
+
   /* Where an edited draft's walk starts. THE RULE (2026-11-25): no edit but
      Go back to this list, or a RAISED percent, moves a student backwards. So
      it starts where they are (`at`): a finished student stays finished
@@ -2001,20 +2081,21 @@
     return d.at;
   }
   function emptyDraft(uid, which){
-    return { uid: uid, which: which ? 1 : 0, steps: [], bar: Adaptive.defaultBar, at: 0, hold: false, hasPlan: false, base: null };
+    which = which ? 1 : 0;
+    return { uid: uid, which: which, kind: KINDS[which], slot: -1, steps: [], bar: Adaptive.defaultBar, at: 0, hold: false, hasPlan: false, base: null };
   }
-  // The draft to edit, made if there is none. Both drafts are always one student's.
+  // The draft to edit in a section, made if there is none. Both drafts are always one student's.
   function ensureDraft(uid, which){
     which = which ? 1 : 0;
     for(var k=0;k<2;k++) if(drafts[k] && drafts[k].uid !== uid) drafts[k] = null;
-    if(!drafts[which]) drafts[which] = draftFromSaved(uid, which) || emptyDraft(uid, which);
+    if(!drafts[which]) drafts[which] = sectionsOf(uid).drafts[which] || emptyDraft(uid, which);
     return drafts[which];
   }
-  // The draft being shown: the one being edited, else the saved sequence (null if neither).
+  // The draft a section shows: the one being edited, else what is stored (null if neither).
   function draftFor(uid, which){
     which = which ? 1 : 0;
     if(drafts[which] && drafts[which].uid === uid) return drafts[which];
-    return draftFromSaved(uid, which);
+    return sectionsOf(uid).drafts[which];
   }
   // The student the drafts belong to, or null.
   function draftUid(){ return (drafts[0] && drafts[0].uid) || (drafts[1] && drafts[1].uid) || null; }
@@ -2022,20 +2103,18 @@
     if(!d) return false;
     return d.hasPlan ? draftShape(d) !== d.base : d.steps.length > 0;
   }
+  // The teacher has edited something not yet saved (what leaving asks about).
   function seqDirty(){ return slotDirty(drafts[0]) || slotDirty(drafts[1]); }
-  // The lists (family:number) of the OTHER sequence: what this one must leave out.
-  function otherKeys(uid, which){
-    var o = draftFor(uid, which ? 0 : 1);
-    return o ? stepKeys(o) : [];
-  }
+  // Something on this student's page would be written by Save: an edit, or an older document shown split.
+  function pageDirty(uid){ return slotDirty(draftFor(uid, 0)) || slotDirty(draftFor(uid, 1)); }
 
   /* Which step is Now. Untouched, it is the student's real position (their
-     mark and all). Edited, it is worked out as it will be once saved: from
-     `at`, with the draft's own bar and no old mark, because a save starts
-     the plan afresh. */
+     mark and all). Edited — or split out of an older document — it is
+     worked out as it will be once saved: from `at`, with the draft's own
+     bar and no old mark, because a save starts the plan afresh. */
   function draftIndex(d){
-    if(d.hasPlan && d.base && draftShape(d) === d.base){
-      var pos = positionOf(d.uid, d.which);
+    if(d.hasPlan && d.base && d.slot >= 0 && draftShape(d) === d.base){
+      var pos = positionOf(d.uid, d.slot);
       if(pos) return pos.state.index;
     }
     var s = studentByUid(d.uid);
@@ -2087,11 +2166,13 @@
     return true;
   }
   /* One list at the end, once: a list already in the sequence is refused,
-     and so is one in `exclude` (the keys of the student's other sequence). */
+     and so is one in `exclude` (keys to leave out), and one of the other
+     kind (a red list in Other lists, or another list in Red Words). */
   function draftAdd(d, ids, exclude){
     if(!ids.length) return false;
     var k = listKeyOf(ids[0]);
     for(var x=0;x<ids.length;x++) if(listKeyOf(ids[x]) !== k) return false;
+    if(d.kind && WordLists.stepKind(ids) !== d.kind) return false;
     if(stepKeys(d).indexOf(k) !== -1) return false;
     if(exclude && exclude.indexOf(k) !== -1) return false;
     d.steps.push({ ids: WordLists.withSay(orderIds(ids)) });
@@ -2123,14 +2204,16 @@
     return true;
   }
   /* Replace everything after Now with these steps, leaving out any list
-     the student already has before them (a list is in a sequence once) and
-     any in `exclude` (the student's other sequence: a list is in one of the
-     two). Returns how many steps it brought in. */
+     the student already has before them (a list is in a sequence once), any
+     in `exclude`, and every step of the other kind: in Red Words only the
+     red lists of an order are used, in Other lists only the rest. Returns
+     how many steps it brought in. */
   function draftReplaceLater(d, idx, steps, exclude){
     var keep = d.steps.slice(0, Math.min(d.steps.length, idx + 1));
     var used = keep.map(function(st){ return listKeyOf(st.ids[0]); }).concat(exclude || []);
     var added = 0;
     steps.forEach(function(st){
+      if(d.kind && WordLists.stepKind(st.ids) !== d.kind) return;
       var k = listKeyOf(st.ids[0]);
       if(used.indexOf(k) === -1){ used.push(k); keep.push({ ids: WordLists.withSay(st.ids) }); added++; }
     });
@@ -2143,15 +2226,15 @@
      before anything changes, so a sequence that adds nothing leaves the
      draft exactly as it was. */
   function addsAny(d, idx, steps, exclude){
-    return draftReplaceLater({ steps: cloneSteps(d.steps), at: d.at }, idx, steps, exclude) > 0;
+    return draftReplaceLater({ steps: cloneSteps(d.steps), at: d.at, kind: d.kind }, idx, steps, exclude) > 0;
   }
 
   /* The ready-made sequences are built from the library when asked for,
      not stored: nothing to go stale when a list is added or retired. Each
      has Say it and Cards ticked, where the family offers them. */
   var READY_MADE = [
-    { key: "red", title: "Red Words, Lists 1 to 10", families: ["red"] },
-    { key: "sounding", title: "Sounding it out", families: ["blends-start", "blends-end", "oi-oy", "multi"] }
+    { key: "red", title: "Red Words, Lists 1 to 10", families: ["red"], kind: "red" },
+    { key: "sounding", title: "Sounding it out", families: ["blends-start", "blends-end", "oi-oy", "multi"], kind: "other" }
   ];
   function readyMadeSteps(key){
     var def = READY_MADE.filter(function(r){ return r.key === key; })[0];
@@ -2184,32 +2267,60 @@
     lists.forEach(function(ids){ ids.forEach(function(id){ if(out.indexOf(id) === -1) out.push(id); }); });
     return out;
   }
-  /* What Save writes for a student, as data: one merge-write of both
-     sequences, `lists`, the time and the class stamp — or null when there is
-     nothing to write. A sequence whose draft changed goes through planBody;
-     one that did not is written back exactly as stored (same setAt, so its
-     mark keeps counting). If the first has no lists and the second has, the
-     second is written as the first. `plan2` is in the body only when there
-     is a second (or a stored one to take away); `lists` is the current
-     step's ids of each. */
-  function saveBody(uid, now){
-    var out = [], k;
-    for(k=0;k<2;k++){
-      var d = drafts[k] && drafts[k].uid === uid ? drafts[k] : null;
-      if(d && slotDirty(d)){
-        if(d.steps.length) out.push(planBody(d, draftIndex(d), now));
-      } else {
-        var p = positionOf(uid, k);
-        if(p) out.push({ plan: p.plan, lists: nowIds(p) });
-      }
-    }
+  /* Which field each sequence is written to, and the body around them.
+     `out` is one entry per section that has lists, Red Words first:
+     { plan, lists, keep } — `keep` is the field (0 plan, 1 plan2) of a
+     sequence written back exactly as stored, or -1 for one written afresh.
+
+     DECISION 3 (2026-11-25): a sequence written back as stored stays in the
+     field it is in, so its own mark (seq for plan, seq2 for plan2) keeps
+     following it and nobody moves; one written afresh takes the other field.
+     When neither is kept, Red Words is `plan` and Other lists `plan2`. One
+     alone is always `plan` ("plan2 without a valid plan is ignored"): if
+     that one was stored as plan2, it is moved to plan the way Stop promotes
+     a second — saved afresh at the step the student is really on in it,
+     with a setAt that the old plan's mark can never match. Every body that
+     writes or deletes plan2 carries plan. */
+  function placeBody(uid, out, now){
     if(!out.length) return null;
-    var body = { plan: out[0].plan };
-    if(out[1]) body.plan2 = out[1].plan;
+    var first = out[0], second = out[1] || null;
+    if(second && (first.keep === 1 || second.keep === 0)){ first = out[1]; second = out[0]; }
+    if(!second && first.keep === 1){
+      var p1 = positionOf(uid, 1), p0 = planFor(uid, 0);
+      var stamp = p0 && now === p0.setAt ? now + 1 : now;
+      var pb = planBody(draftFromSaved(uid, 1), p1.state.index, stamp);
+      first = { plan: pb.plan, lists: pb.lists, keep: -1 };
+    }
+    var body = { plan: first.plan };
+    if(second) body.plan2 = second.plan;
     else if(planFor(uid, 1)) body.plan2 = DELETE;
-    body.lists = unionIds(out.map(function(x){ return x.lists; }));
+    body.lists = unionIds((second ? [first, second] : [first]).map(function(x){ return x.lists; }));
     body.updatedAt = now;
     return withStamp(body, uid);
+  }
+  // One section's entry for placeBody: afresh when it changed (or was split out of an older document), else as stored.
+  function sectionEntry(uid, d, now){
+    if(!d || !d.steps.length) return null;
+    if(slotDirty(d) || d.slot < 0){
+      var pb = planBody(d, draftIndex(d), now);
+      return { plan: pb.plan, lists: pb.lists, keep: -1 };
+    }
+    var p = positionOf(uid, d.slot);
+    return p ? { plan: p.plan, lists: nowIds(p), keep: d.slot } : null;
+  }
+  /* What Save writes for a student, as data: one merge-write of both
+     sections, `lists`, the time and the class stamp — or null when there is
+     nothing to write. A section whose draft changed (or that was split out
+     of an older document) goes through planBody; one that did not is written
+     back exactly as stored, in its own field (same setAt, so its mark keeps
+     counting). `lists` is the current step's ids of each. */
+  function saveBody(uid, now){
+    var out = [];
+    for(var k=0;k<2;k++){
+      var e = sectionEntry(uid, draftFor(uid, k), now);
+      if(e) out.push(e);
+    }
+    return placeBody(uid, out, now);
   }
 
   // ---- words for the screen ----
@@ -2234,7 +2345,6 @@
     return (fams.length > 4 ? fams.slice(0, 3).join(", ") + " …" : fams.join(", ")) +
       " · " + steps.length + (steps.length === 1 ? " list" : " lists");
   }
-  var WHICH_NAME = ["First sequence", "Second sequence"];
 
   /* One way of playing a list, against the bar, in whole words:
      "Say it: 14 of 20 solid. 4 more to finish (18 of 20)." */
@@ -2285,8 +2395,8 @@
   });
 
   // ---- the editor ----
-  /* Ids in an editor: the first keeps the ids it always had; the second's
-     end in 2, so two editors on one page never share one. */
+  /* Ids in an editor: Red Words (section 0) keeps the ids the editor always
+     had; Other lists' end in 2, so two editors on one page never share one. */
   function sid(which, base){ return base + (which ? "2" : ""); }
   function seqMeter(w){
     var pct = w.total ? Math.min(100, Math.round(w.solid / w.total * 100)) : 0;
@@ -2316,7 +2426,7 @@
     var tag = kind === "fin" ? "Finished" : kind === "now" ? "Now" : i === idx + 1 ? "Next" : "Later";
     var body = '<div class="seqTop"><b class="seqName">' + t + '</b><span class="seqTag ' + kind + '">' + tag + "</span>" +
       '<span class="muted tiny">' + esc(stepWays(step)) + "</span></div>";
-    var btns = "", mark = markOf(s, which);
+    var btns = "", mark = d.slot >= 0 ? markOf(s, d.slot) : null;
 
     if(kind === "fin"){
       var low = null;
@@ -2354,14 +2464,16 @@
       '<div class="seqBody">' + body + "</div>" + (btns ? '<div class="seqBtns">' + btns + "</div>" : "") + "</li>";
   }
 
-  /* The lists a teacher could still add: every one not already in the
-     sequence, nor in `exclude` (the student's other sequence). */
+  /* The lists a teacher could still add: every one of the section's kind
+     (red lists in Red Words, the rest in Other lists) not already in the
+     sequence, nor in `exclude`. */
   function addableLists(d, exclude){
     var used = stepKeys(d).concat(exclude || []), out = [];
     WordLists.families().forEach(function(fam){
       WordLists.listNumsOf(fam.key).forEach(function(n){
         var ids = WordLists.idsOfList(fam.key, n);
         if(!ids.length || used.indexOf(fam.key + ":" + n) !== -1) return;
+        if(d.kind && WordLists.stepKind(ids) !== d.kind) return;
         out.push({ key: fam.key + ":" + n, family: fam, n: n, ids: ids, title: WordLists.byId(ids[0]).listTitle });
       });
     });
@@ -2387,7 +2499,7 @@
     var ui = seqUIs[which];
     var lists = addableLists(d, exclude);
     if(!lists.length) return '<div class="seqAdd"><p class="muted">' +
-      (exclude && exclude.length ? "Every list is already in one of the two sequences." : "Every list is already in the sequence.") + "</p>" +
+      (d.kind === "red" ? "Every Red Words list is already in this sequence." : d.kind === "other" ? "Every other list is already in this sequence." : "Every list is already in the sequence.") + "</p>" +
       '<div class="rowActions"><button type="button" class="btn ghost sm" data-seq="add-cancel">Close</button></div></div>';
     if(!ui.addKey || !lists.some(function(x){ return x.key === ui.addKey; })){
       // Start on the next list of the family the sequence ends in (after
@@ -2418,31 +2530,29 @@
         ">Tick at least one way of playing.</span></div></div>";
   }
 
-  /* Another student's sequences to copy from: one entry per sequence, named
-     "first" and "second" only for a student who has two. The value is the
-     student's id, with "#2" after it for a second. */
-  function copyChoices(s){
+  /* Another student's sequence of the same kind to copy from — their Red
+     Words in the Red Words section, their Other lists in Other lists — one
+     entry per student who has one. The value is the student's id. */
+  function copyChoices(s, which){
     var out = [];
+    which = which ? 1 : 0;
     students.forEach(function(x){
       if(x.uid === s.uid) return;
-      var ps = plansFor(x.uid);
-      ps.forEach(function(p, k){
-        out.push({ value: k ? x.uid + "#2" : x.uid, plan: p,
-                   label: stuName(x) + (ps.length > 1 ? (k ? " (second)" : " (first)") : "") });
-      });
+      var d = sectionsOf(x.uid).drafts[which];
+      if(d && d.steps.length) out.push({ value: x.uid, steps: cloneSteps(d.steps), label: stuName(x) });
     });
     return out;
   }
-  function copyChoice(s, value){
-    return copyChoices(s).filter(function(c){ return c.value === value; })[0] || null;
+  function copyChoice(s, value, which){
+    return copyChoices(s, which).filter(function(c){ return c.value === value; })[0] || null;
   }
 
   function seqControlsHtml(s, d, which){
-    var others = copyChoices(s), ui = seqUIs[which];
+    var others = copyChoices(s, which), ui = seqUIs[which];
     return '<div class="seqControls">' +
       '<button type="button" class="btn ghost sm" data-seq="add-open"' + (ui.adding ? ' aria-expanded="true"' : ' aria-expanded="false"') + ">Add a list</button>" +
       '<span class="seqPick"><label class="muted tiny" for="' + sid(which, "seqReady") + '">Use a saved sequence</label>' +
-        '<select class="sel" id="' + sid(which, "seqReady") + '">' + sourceOptionsHtml(sequenceSources(false)) +
+        '<select class="sel" id="' + sid(which, "seqReady") + '">' + sourceOptionsHtml(sequenceSources(false, KINDS[which])) +
         '</select><button type="button" class="btn ghost sm" data-seq="ready-go">Use it</button></span>' +
       (others.length
         ? '<span class="seqPick"><label class="muted tiny" for="' + sid(which, "seqCopy") + '">Copy from another student</label>' +
@@ -2450,7 +2560,7 @@
             return '<option value="' + esc(c.value) + '">' + esc(c.label) + "</option>";
           }).join("") + '</select><button type="button" class="btn ghost sm" data-seq="copy-go">Copy</button></span>'
         : "") +
-      "</div>" + (ui.adding ? addPanelHtml(d, which, otherKeys(s.uid, which)) : "") + saveSeqHtml(s, d, which);
+      "</div>" + (ui.adding ? addPanelHtml(d, which) : "") + saveSeqHtml(s, d, which);
   }
   /* Keep what is on the screen for the whole class. A student in no class has
      nowhere to keep it, so the button is there but says why it can't be
@@ -2475,37 +2585,57 @@
       "</div>";
   }
 
-  /* One editor. `two` is whether the page shows two: then each is headed
-     "First sequence" / "Second sequence" and what it holds; a student with
-     one keeps the heading they always had. */
-  function editorHtml(s, d, which, two, empty, extra){
-    var uid = s.uid, plan = planFor(uid, which);
-    var idx = empty ? 0 : draftIndex(d), n = d.steps.length;
+  /* One section's editor: "Red Words" or "Other lists", with what it holds
+     beside the heading ("Red Words · 10 lists"). `extra` is drawn at its
+     foot. Stop is offered for a sequence that is stored as it stands. */
+  function editorHtml(s, d, which, extra){
+    var uid = s.uid, plan = d.slot >= 0 ? planFor(uid, d.slot) : null, name = SECTION_NAME[which];
+    var idx = d.steps.length ? draftIndex(d) : 0, n = d.steps.length;
     var rows = d.steps.map(function(st, i){ return seqRowHtml(s, d, i, idx, d.hasPlan ? plan : null, which); }).join("");
     var bar = Math.round(d.bar * 100);
-    var head = two
-      ? esc(WHICH_NAME[which]) + ' <span class="seqHolds">' + esc(holdsText(d.steps)) + "</span>"
-      : esc(stuName(s)) + "’s word lists, in order";
-    var stop = "";
-    if(plan){
-      stop = '<div class="rowActions"><button type="button" class="btn ghost sm" data-seq="stop">' +
-        (two ? "Stop using this sequence" : "Stop using a sequence") + "</button></div>";
-    } else if(which === 1){
-      stop = '<div class="rowActions"><button type="button" class="btn ghost sm" data-seq="second-cancel">Don’t add a second sequence</button></div>';
-    }
+    // Beside the name, what it holds: for Red Words just how many; for Other lists the families too.
+    var holds = which ? holdsText(d.steps) : n + (n === 1 ? " list" : " lists");
+    var head = esc(name) + (n ? ' <span class="seqHolds">' + esc(holds) + "</span>" : "");
+    var stop = plan ? '<div class="rowActions"><button type="button" class="btn ghost sm" data-seq="stop">Stop using this sequence</button></div>' : "";
     return '<div class="panel seqEditor" data-which="' + which + '"><h2 id="' + sid(which, "seqHead") + '" tabindex="-1">' + head + "</h2>" +
       '<p class="saveNote ok" id="' + sid(which, "seqFlash") + '" role="status" aria-live="polite"></p>' +
       '<div class="seqBar" aria-live="polite">A list is finished when ' +
-        '<button type="button" class="btn ghost sm seqIcon" data-seq="bar-" aria-label="Lower the percent' + (two ? " for the " + WHICH_NAME[which].toLowerCase() : "") + '"' + (d.bar <= 0.5 ? " disabled" : "") + ">−</button>" +
+        '<button type="button" class="btn ghost sm seqIcon" data-seq="bar-" aria-label="Lower the percent for ' + esc(name) + '"' + (d.bar <= 0.5 ? " disabled" : "") + ">−</button>" +
         '<b class="seqPct" id="' + sid(which, "seqPct") + '">' + bar + '%</b>' +
-        '<button type="button" class="btn ghost sm seqIcon" data-seq="bar+" aria-label="Raise the percent' + (two ? " for the " + WHICH_NAME[which].toLowerCase() : "") + '"' + (d.bar >= 1 ? " disabled" : "") + ">+</button>" +
+        '<button type="button" class="btn ghost sm seqIcon" data-seq="bar+" aria-label="Raise the percent for ' + esc(name) + '"' + (d.bar >= 1 ? " disabled" : "") + ">+</button>" +
         " of its words are solid.</div>" +
       (n ? '<ol class="seqRows" id="' + sid(which, "seqRows") + '">' + rows + "</ol>"
-         : '<p class="muted">No lists yet. Start from a ready-made sequence, copy another student’s, or add a list.</p>') +
+         : '<p class="muted">No lists yet. Start from Sounding it out or a saved sequence, copy another student’s, or add a list.</p>') +
       seqControlsHtml(s, d, which) + stop + (extra || "") + "</div>";
   }
+  /* Red Words for a student who has none: one button. It fills the section
+     with every red list in order, Say it and Cards (the ready-made "Red
+     Words, Lists 1 to 10"), at the usual percent, as a draft — nothing is
+     given until Save, as with every edit. */
+  function redWordsText(){
+    var st = readyMadeSteps("red");
+    return st.length ? "Every Red Words list in order, " + stepTitle(st[0]).replace(/^Red Words · /, "") + " to " +
+      stepTitle(st[st.length - 1]).replace(/^Red Words · /, "") + ", with Say it and Cards. Nothing changes until you press Save." : "";
+  }
+  function giveRedHtml(){
+    return '<div class="panel seqEditor" data-which="0"><h2 id="seqHead" tabindex="-1">Red Words</h2>' +
+      '<p class="saveNote ok" id="seqFlash" role="status" aria-live="polite"></p>' +
+      '<p class="muted">No Red Words lists yet.</p>' +
+      '<div class="rowActions"><button type="button" class="btn sm" data-seq="give-red" aria-describedby="seqGiveRedWhy">Give Red Words</button>' +
+      '<span class="muted tiny" id="seqGiveRedWhy">' + esc(redWordsText()) + "</span></div></div>";
+  }
+  /* The one line over a document from before the two sections, which the
+     page shows split (sectionsOf). "" for any other student. */
+  function splitNoteText(s){
+    var note = sectionsOf(s.uid).note;
+    if(!note) return "";
+    var who = stuName(s) + "’s";
+    if(note === "mixed") return who + " Red Words lists and other lists were in one order. They are now two: Red Words and Other lists. Press Save to keep this.";
+    var kind = WordLists.seqKind(planFor(s.uid, 0) ? planFor(s.uid, 0).steps : []);
+    return who + (kind === "red" ? " Red Words lists" : " other lists") + " were in two sequences. They are now one. Press Save to keep this.";
+  }
 
-  // The "Word lists" tab.
+  // The "Word lists" tab: Red Words, then Other lists.
   function seqPanelHtml(s){
     var uid = s.uid, eff = effectiveLists(uid), d = draftFor(uid, 0), d2 = draftFor(uid, 1);
     var name = esc(stuName(s)) + "’s word lists";
@@ -2518,7 +2648,7 @@
         '<span class="saveNote" id="tANote"></span></div></details>';
 
     // A student with games and no order: say so, and offer to put them in order.
-    if(!d && eff.ids.length){
+    if(!d && !d2 && eff.ids.length){
       var n = eff.ids.length;
       return '<div class="panel"><h2 id="seqHead" tabindex="-1">' + name + "</h2>" +
         '<p class="saveNote ok" id="seqFlash" role="status" aria-live="polite"></p>' +
@@ -2528,29 +2658,25 @@
         fold + "</div>";
     }
 
-    var empty = !d;
-    if(empty) d = emptyDraft(uid, 0);
-    var two = !!d2, dirty = seqDirty();
-    var canSave = d.steps.length > 0 || (two && d2.steps.length > 0);
-    var main = editorHtml(s, d, 0, two, empty, empty ? fold : "");
-    if(two) main += editorHtml(s, d2, 1, true, false);
-    else if(d.steps.length){
-      main += '<div class="seqAddSecond"><button type="button" class="btn ghost sm" data-seq="second-add">Add a second sequence</button>' +
-        '<span class="muted tiny">A second sequence moves on by itself, beside this one.</span></div>';
-    }
+    var nothing = !d && !d2, dirty = pageDirty(uid);
+    var canSave = (d && d.steps.length > 0) || (d2 && d2.steps.length > 0);
+    var split = splitNoteText(s);
+    var main = (split ? '<p class="note seqSplit" id="seqSplit">' + esc(split) + "</p>" : "") +
+      (d ? editorHtml(s, d, 0) : giveRedHtml()) +
+      editorHtml(s, d2 || emptyDraft(uid, 1), 1, nothing ? fold : "");
     main += '<div class="seqSave" id="seqSave"' + (dirty ? "" : " hidden") + ' role="status">' +
         '<span class="seqCount">Changes not saved yet</span>' +
         '<span class="saveNote" id="seqNote"></span>' +
         '<button type="button" class="btn ghost sm" data-seq="discard">Discard</button>' +
         '<button type="button" class="btn sm" data-seq="save"' + (canSave ? "" : " disabled") + ">Save</button></div>";
 
-    // Beside it: the list they are on (in each sequence), and the ones they have finished.
-    var side = "", shown = [d].concat(two ? [d2] : []).filter(function(x){ return x.steps.length; });
+    // Beside it: the list they are on in each, and the ones they have finished.
+    var side = "", shown = [d, d2].filter(function(x){ return x && x.steps.length; });
     if(shown.length){
       var nowCards = "", fin = [];
       shown.forEach(function(x){
-        var i = x === d && empty ? 0 : draftIndex(x), nx = x.steps.length, cur = i < nx ? x.steps[i] : null;
-        nowCards += (two ? '<p class="muted tiny seqWhich">' + esc(WHICH_NAME[x.which]) + "</p>" : "") + (cur
+        var i = draftIndex(x), nx = x.steps.length, cur = i < nx ? x.steps[i] : null;
+        nowCards += '<p class="muted tiny seqWhich">' + esc(SECTION_NAME[x.which]) + "</p>" + (cur
           ? "<p><b>" + esc(stepTitle(cur)) + "</b></p><p class=\"muted tiny\">" + esc(stepWays(cur)) + " · list " + (i + 1) + " of " + nx + "</p>"
           : "<p><b>Finished every list</b></p><p class=\"muted tiny\">Add the next ones.</p>");
         fin = fin.concat(x.steps.slice(0, Math.min(i, nx)));
@@ -2638,8 +2764,9 @@
   var nameBusy = false;    // a saved sequence is being written: a second press must not write a second copy
   var seqSaving = false;   // a write is on the wire: edits wait, so none can be lost under it
   function saveSeq(){
-    var uid = draftUid();
-    if(seqSaving || !uid || !seqDirty() || !studentByUid(uid)) return;
+    // The drafts' student — or, with no edit, the open student whose older document is shown split.
+    var uid = draftUid() || detailUid;
+    if(seqSaving || !uid || !pageDirty(uid) || !studentByUid(uid)) return;
     var now = Date.now(), data = saveBody(uid, now);
     if(!data) return;
     var mine = drafts.slice();
@@ -2654,14 +2781,15 @@
     }, function(){ seqSaving = false; seqFail(uid, 0); });
   }
   /* What Stop writes, as data, or null when there is no such sequence.
-     The first, alone: the plan goes and `lists` is the list they were on
-     (or the last one, if they had finished), all at once — as it always was.
-     The first, with a second: the second becomes the first, worked out
-     where the student really is in it and saved afresh (its old mark, seq2,
-     belongs to plan2 and would not count as plan's; a setAt that the first's
-     mark could match is never used), and plan2 goes. The second: plan2
-     goes, the first is written back as stored, and `lists` is the first's
-     current list. Every body that writes or deletes plan2 carries a plan. */
+     `which` here is the FIELD (0 plan, 1 plan2) — stopSeq finds it from the
+     section. The only one: the plan goes and `lists` is the list they were
+     on (or the last one, if they had finished), all at once — as it always
+     was. `plan`, with `plan2` beside it: plan2 becomes plan, worked out where
+     the student really is in it and saved afresh (its old mark, seq2,
+     belongs to plan2 and would not count as plan's; a setAt that plan's
+     mark could match is never used), and plan2 goes. `plan2`: it goes, plan
+     is written back as stored, and `lists` is plan's current list. Every
+     body that writes or deletes plan2 carries a plan. */
   function stopBody(uid, now, which){
     which = which ? 1 : 0;
     var ps = positionsOf(uid);
@@ -2676,27 +2804,28 @@
     var pb = planBody(d2, ps[1].state.index, stamp);
     return withStamp({ plan: pb.plan, plan2: DELETE, lists: pb.lists, updatedAt: now }, uid);
   }
+  // Stop one SECTION: the sequence stored as it stands behind it, in whichever field that is.
   function stopSeq(which){
     which = which ? 1 : 0;
-    var uid = detailUid, s = studentByUid(uid), ps = positionsOf(uid), p = ps[which];
-    if(!s || !p) return;
+    var uid = detailUid, s = studentByUid(uid), d = s ? draftFor(uid, which) : null;
+    if(!s || !d || d.slot < 0) return;
+    var slot = d.slot, ps = positionsOf(uid), p = ps[slot];
+    if(!p) return;
     if(seqSaving) return;
     var unsaved = seqDirty() && draftUid() === uid
       ? "\n\nChanges you haven’t saved to their lists will be lost." : "";
+    var name = SECTION_NAME[which], other = SECTION_NAME[1 - which];
     var msg;
     if(ps.length < 2){
       var keep = p.state.finished ? p.plan.steps[p.plan.steps.length - 1] : p.plan.steps[p.state.index];
-      msg = "Stop using a sequence for " + stuName(s) + "?\n\nThey will get just " + stepTitle(keep) +
+      msg = "Stop using the " + name + " sequence for " + stuName(s) + "?\n\nThey will get just " + stepTitle(keep) +
         ", all at once. The lists they finished leave their home page; their practice record is kept.";
-    } else if(which === 0){
-      msg = "Stop using the first sequence for " + stuName(s) + "?\n\nTheir second sequence (" + holdsText(ps[1].plan.steps) +
-        ") becomes their only one, and stays where they are in it. The lists of the first leave their home page; their practice record is kept.";
     } else {
-      msg = "Stop using the second sequence for " + stuName(s) + "?\n\nIts lists leave their home page; their practice record is kept. " +
-        "Their first sequence stays as it is.";
+      msg = "Stop using the " + name + " sequence for " + stuName(s) + "?\n\nIts lists leave their home page; their practice record is kept. " +
+        "Their " + other + " sequence stays as it is, and they stay where they are in it.";
     }
     if(!window.confirm(msg + unsaved)) return;
-    var data = stopBody(uid, Date.now(), which);
+    var data = stopBody(uid, Date.now(), slot);
     seqSaving = true;
     return commitStudentBody(uid, data).then(function(){
       seqSaving = false;
@@ -2713,7 +2842,7 @@
       ? "This replaces the lists still to come (" + later.join(", ") + ") with " + what + ". Lists already finished, and the one they are on, stay."
       : "";
   }
-  // Which editor a button is in: 0 unless it sits inside the second.
+  // Which section a button is in: 0 (Red Words) unless it sits inside Other lists.
   function whichOf(el){
     var box = el && el.closest ? el.closest("[data-which]") : null;
     return box && box.getAttribute("data-which") === "1" ? 1 : 0;
@@ -2732,15 +2861,18 @@
     var editor = document.querySelector("#stuPanel-lists " + box) || document.getElementById("stuPanel-lists") || document;
     switch(act){
       case "inorder":
-        d = ensureDraft(uid, 0); d.steps = stepsFromIds(effectiveLists(uid).ids); d.at = 0; d.hold = false;
+        // Red games to Red Words (in list order), the rest to Other lists (in the library's order).
+        var all = stepsFromIds(effectiveLists(uid).ids);
+        [0, 1].forEach(function(k){
+          var mine = all.filter(function(st){ return WordLists.stepKind(st.ids) === KINDS[k]; });
+          if(!mine.length) return;
+          var dk = ensureDraft(uid, k); dk.steps = mine; dk.at = 0; dk.hold = false;
+        });
         break;
-      case "second-add":
-        ensureDraft(uid, 1); seqUIs[1] = seqUIFresh();
-        focus = "#seqHead2";
-        break;
-      case "second-cancel":
-        drafts[1] = null; seqUIs[1] = seqUIFresh();
-        focus = '[data-seq="second-add"]';
+      case "give-red":
+        d = ensureDraft(uid, 0);
+        if(!d.steps.length){ d.steps = readyMadeSteps("red"); d.at = 0; d.hold = false; }
+        focus = ["#seqHead", '[data-seq="save"]'];
         break;
       case "bar-": case "bar+":
         d = ensureDraft(uid, which); draftBar(d, act === "bar+" ? 1 : -1);
@@ -2784,25 +2916,26 @@
       case "add-cancel": ui.adding = false; focus = F('[data-seq="add-open"]'); break;
       case "add-go":
         d = ensureDraft(uid, which);
-        if(draftAdd(d, ui.addIds, otherKeys(uid, which))){ ui.adding = false; ui.addKey = ""; ui.addIds = []; }
+        if(draftAdd(d, ui.addIds)){ ui.adding = false; ui.addKey = ""; ui.addIds = []; }
         focus = F('[data-seq="add-open"]');
         break;
       case "ready-go":
         d = ensureDraft(uid, which); idx = draftIndex(d);
-        var rm = sequenceSources(false).filter(function(x){ return x.key === $(sid(which, "seqReady")).value; })[0];
+        var rm = sequenceSources(false, KINDS[which]).filter(function(x){ return x.key === $(sid(which, "seqReady")).value; })[0];
         if(!rm) return;
         // One that would bring nothing changes nothing: no confirm, and the
         // lists still to come stay (cutting them would leave a draft that
-        // Save makes permanent, for a sequence that added no list).
-        if(rm.steps.length && !addsAny(d, idx, rm.steps, otherKeys(uid, which))){
-          repaintLists(F('[data-seq="ready-go"]'), which); allTaken(which); return;
+        // Save makes permanent, for a sequence that added no list). That
+        // includes an order with none of this section's kind.
+        if(!addsAny(d, idx, rm.steps)){
+          repaintLists(F('[data-seq="ready-go"]'), which); allTaken(which, rm.label, rm.steps); return;
         }
         // A saved sequence brings its own percent; a ready-made one leaves it.
         var takesBar = rm.saved && rm.bar !== d.bar;
         var msg = replaceText(d, idx, rm.label);
         if(msg && takesBar) msg += " The percent becomes " + Math.round(rm.bar * 100) + "%.";
         if(msg && !window.confirm(msg)) return;
-        draftReplaceLater(d, idx, rm.steps, otherKeys(uid, which));
+        draftReplaceLater(d, idx, rm.steps);
         if(takesBar) d.bar = rm.bar;
         break;
       case "savedo-open": ui.naming = !ui.naming; ensureDraft(uid, which); focus = ui.naming ? "#" + sid(which, "seqName") : null; break;
@@ -2833,15 +2966,15 @@
         });
       case "copy-go":
         d = ensureDraft(uid, which); idx = draftIndex(d);
-        var from = copyChoice(s, $(sid(which, "seqCopy")).value);
+        var from = copyChoice(s, $(sid(which, "seqCopy")).value, which);
         if(!from) return;
         // As with a saved sequence: one that would bring nothing changes nothing.
-        if(!addsAny(d, idx, from.plan.steps, otherKeys(uid, which))){
-          repaintLists(F('[data-seq="copy-go"]'), which); allTaken(which); return;
+        if(!addsAny(d, idx, from.steps)){
+          repaintLists(F('[data-seq="copy-go"]'), which); allTaken(which, from.label + "’s", from.steps); return;
         }
-        var msg2 = replaceText(d, idx, from.label.replace(/ \((first|second)\)$/, "") + "’s lists");
+        var msg2 = replaceText(d, idx, from.label + "’s " + SECTION_NAME[which]);
         if(msg2 && !window.confirm(msg2)) return;
-        draftReplaceLater(d, idx, from.plan.steps, otherKeys(uid, which));
+        draftReplaceLater(d, idx, from.steps);
         break;
       case "discard":
         dropDraft();
@@ -2852,10 +2985,17 @@
     }
     repaintLists(focus, which);
   }
-  // A sequence chosen to start from brought nothing: every list in it is already there.
-  function allTaken(which){
+  /* An order chosen to start from brought nothing: it has none of this
+     section's kind, or every list of that kind in it is already there. */
+  function allTaken(which, label, steps){
     var flash = $(sid(which, "seqFlash"));
-    if(flash){ flash.className = "saveNote err"; flash.textContent = "Nothing added: every list in it is already in one of their sequences."; }
+    var none = !(steps || []).some(function(st){ return WordLists.stepKind(st.ids) === KINDS[which]; });
+    if(flash){
+      flash.className = "saveNote err";
+      flash.textContent = none
+        ? "Nothing added: " + (label ? "“" + label + "”" : "it") + (which ? " has no other lists." : " has no Red Words lists.")
+        : "Nothing added: every list in it is already in this sequence.";
+    }
   }
 
   /* One delegated handler for the whole tab, bound once to #tBody (whose
@@ -3845,7 +3985,9 @@
      at their percent, the count in whole words (the way of playing furthest
      from finished, named when there is more than one), and "List 3 of 6".
      A student with two sequences: { kind: "two", seqs: [those, those] }, one
-     per sequence, stacked in the one row. Without a sequence: today's
+     per sequence, stacked in the one row, Red Words first, each with its
+     `label` ("Red Words", "Other lists"; "Mixed" for a sequence from before
+     the two sections that holds both). Without a sequence: today's
      sentence, and "no order". */
   function seqFacts(s, pos){
     var n = pos.plan.steps.length;
@@ -3864,7 +4006,18 @@
   function rowFacts(s){
     var ps = positionsOf(s.uid);
     if(ps.length === 1) return seqFacts(s, ps[0]);
-    if(ps.length > 1) return { kind: "two", seqs: ps.map(function(p){ return seqFacts(s, p); }) };
+    if(ps.length > 1){
+      var seqs = ps.map(function(p){
+        var f = seqFacts(s, p), k = WordLists.seqKind(p.plan.steps);
+        f.label = k === "red" ? "Red Words" : k === "other" ? "Other lists" : "Mixed";
+        f.order = k === "red" ? 0 : k === "mixed" ? 1 : 2;
+        return f;
+      });
+      // Red Words first, whichever field it is stored in (a stable sort: two of one kind keep their order).
+      seqs = seqs.map(function(f, i){ return { f: f, i: i }; })
+        .sort(function(a, b){ return (a.f.order - b.f.order) || (a.i - b.i); }).map(function(x){ return x.f; });
+      return { kind: "two", seqs: seqs };
+    }
     var ids = effectiveLists(s.uid).ids;
     if(ids.length) return { kind: "plain", text: WordLists.describeAssignment(ids) };
     return { kind: "none" };
@@ -3899,12 +4052,13 @@
     var nowOn, prog, place;
     if(f.kind === "two"){
       // One part per sequence, stacked: the same three things, twice.
-      var parts = f.seqs.map(function(x, k){
-        var lab = '<span class="stWhich">' + (k ? "2nd" : "1st") + "</span> ";
-        if(x.kind === "done") return { now: lab + '<span class="pill good">' + esc(x.title) + "</span>", prog: '<span class="muted">—</span>', place: '<span class="muted">—</span>' };
+      var parts = f.seqs.map(function(x){
+        // The label sits over the list's name; the other two columns keep a blank line in its place, so the parts line up.
+        var lab = '<span class="stWhich">' + esc(x.label) + "</span>", pad = '<span class="stWhich" aria-hidden="true">&nbsp;</span>';
+        if(x.kind === "done") return { now: lab + '<span class="pill good">' + esc(x.title) + "</span>", prog: pad + '<span class="muted">—</span>', place: pad + '<span class="muted">—</span>' };
         return { now: lab + "<b>" + esc(x.title) + "</b>",
-                 prog: '<div class="stProg">' + seqMeter(x.w) + '<span class="stCount">' + esc(x.count) + "</span></div>",
-                 place: esc(x.place) };
+                 prog: pad + '<div class="stProg">' + seqMeter(x.w) + '<span class="stCount">' + esc(x.count) + "</span></div>",
+                 place: pad + esc(x.place) };
       });
       var col = function(key){ return parts.map(function(p){ return '<div class="stPart">' + p[key] + "</div>"; }).join(""); };
       nowOn = col("now"); prog = col("prog"); place = col("place");
@@ -4064,58 +4218,58 @@
      list they have not already finished (planState, from their own stats);
      `lists` is that list's ids. A student already solid on the first two
      lands on the third; one who has never practiced lands on the first. */
-  /* `mode` is "replace" (the default: this becomes their one sequence, and
-     anything they had goes) or "add" (as a second sequence): for a student
-     with no sequence it becomes their first; with one, their second; with
-     two, it replaces their second. Added as a second, it leaves out every
-     list already in their first — and a student left with nothing is
-     skipped: the body is null. */
+  /* The order goes where it belongs (2026-11-25): its red lists become the
+     student's Red Words sequence, the rest their Other lists sequence, each
+     REPLACING what they had of that kind; a kind the order does not hold is
+     left as it is (written back exactly as stored, in its own field, so its
+     mark keeps counting). A mixed saved order is split the same way. Games
+     given with no order are replaced, as they always were. */
   function givePlan(s, steps, bar, now){
     var plan = { steps: steps.map(function(st){ return { ids: WordLists.withSay(st.ids) }; }), bar: bar, at: 0, hold: false, setAt: now };
     var st = Adaptive.planState(plan, s.stats, listTotal, null);
     var at = Math.max(0, Math.min(st ? st.index : 0, steps.length - 1));
-    return { plan: plan, lists: steps[at].ids.slice() };
+    return { plan: plan, lists: plan.steps[at].ids.slice() };
   }
-  function stepsLeaving(steps, keys){
-    return steps.filter(function(st){ return keys.indexOf(listKeyOf(st.ids[0])) === -1; });
+  // An order's steps of one kind ("red" or "other").
+  function stepsOfKind(steps, kind){
+    return steps.filter(function(st){ return WordLists.stepKind(st.ids) === kind; });
   }
-  function giveBody(s, steps, bar, now, mode){
-    var ps = mode === "add" ? positionsOf(s.uid) : [];
-    if(!ps.length){
-      var g = givePlan(s, steps, bar, now), body = { plan: g.plan, lists: g.lists, updatedAt: now };
-      // Replacing what they have takes a second sequence with it.
-      if(planFor(s.uid, 1)) body.plan2 = DELETE;
-      return withStamp(body, s.uid);
-    }
-    var left = stepsLeaving(steps, ps[0].plan.steps.map(function(st){ return listKeyOf(st.ids[0]); }));
-    if(!left.length) return null;
-    var g2 = givePlan(s, left, bar, now);
-    // The first is written back exactly as stored (same setAt, so its mark
-    // keeps counting). It must be: a signed-in student's plans may live on
-    // their roster row, and an assignment that gained `lists` and `plan2`
-    // but no `plan` would become the source and hold no sequence at all.
-    return withStamp({ plan: ps[0].plan, plan2: g2.plan, lists: unionIds([nowIds(ps[0]), g2.lists]), updatedAt: now }, s.uid);
-  }
-  /* What the dialog warns about, in counts of students, for the choice made:
-     replacing — everyone who already has games or a sequence; adding as a
-     second — who has two already (their second is replaced), who has games
-     and no sequence (those games are replaced), and who would be skipped. */
-  function giveCounts(list, steps, mode){
-    var out = { replaced: 0, seconds: 0, games: 0, skipped: 0 };
-    list.forEach(function(s){
-      var ps = plansFor(s.uid);
-      if(mode !== "add"){
-        if(ps.length || effectiveLists(s.uid).ids.length > 0) out.replaced++;
-        return;
+  function giveBody(s, steps, bar, now){
+    var have = sectionsOf(s.uid).drafts, out = [];
+    KINDS.forEach(function(kind, k){
+      var mine = stepsOfKind(steps, kind);
+      if(mine.length){
+        var g = givePlan(s, mine, bar, now);
+        out.push({ plan: g.plan, lists: g.lists, keep: -1 });
+      } else {
+        // Not in this order: kept. (One shown split from an older document is
+        // written as the page would save it.)
+        var e = sectionEntry(s.uid, have[k], now);
+        if(e) out.push(e);
       }
-      if(!ps.length){ if(effectiveLists(s.uid).ids.length > 0) out.games++; return; }
-      if(!stepsLeaving(steps, ps[0].steps.map(function(st){ return listKeyOf(st.ids[0]); })).length){ out.skipped++; return; }
-      if(ps.length > 1) out.seconds++;
+    });
+    return placeBody(s.uid, out, now);
+  }
+  /* What the dialog warns about, in counts of students: who already has a
+     Red Words sequence that this replaces (only when the order holds red
+     lists), who has an Other lists sequence that this replaces (only when it
+     holds other lists), who has games in no order (always replaced), and who
+     has a sequence of a kind the order does not hold (kept). */
+  function giveCounts(list, steps){
+    var hasRed = stepsOfKind(steps, "red").length > 0, hasOther = stepsOfKind(steps, "other").length > 0;
+    var out = { red: 0, other: 0, games: 0, keptRed: 0, keptOther: 0 };
+    list.forEach(function(s){
+      var have = sectionsOf(s.uid).drafts;
+      if(!have[0] && !have[1]){ if(effectiveLists(s.uid).ids.length > 0) out.games++; return; }
+      if(have[0]){ if(hasRed) out.red++; else out.keptRed++; }
+      if(have[1]){ if(hasOther) out.other++; else out.keptOther++; }
     });
     return out;
   }
-  // How many of these students already have games or a sequence, which replacing replaces.
-  function replacedCount(list){ return giveCounts(list, [], "replace").replaced; }
+  // How many of these students already have games or a sequence.
+  function replacedCount(list){
+    return list.filter(function(s){ return plansFor(s.uid).length > 0 || effectiveLists(s.uid).ids.length > 0; }).length;
+  }
   /* ---------------- saved sequences ----------------
      A sequence a teacher keeps for a class, to use again: { name, steps,
      bar } under classes/{id}.sequences.<key>. Using one COPIES it — a
@@ -4150,10 +4304,13 @@
       (wl.length === 1 ? " — " + wl[0] : "") + (bar != null ? ", finished at " + Math.round(bar * 100) + "%" : "") + ".";
   }
   /* What a teacher can start from: the ready-made ones, then what has been
-     saved in each class, then (for the several-students dialog) any
-     student's own sequence. */
-  function sequenceSources(withStudents){
-    var out = READY_MADE.map(function(r){
+     saved in each class, then (for the several-students dialog) each
+     student's Red Words and Other lists. In a student's editor `kind` names
+     the section: only its ready-made one is offered ("Red Words, Lists 1 to
+     10" in Red Words, "Sounding it out" in Other lists); saved orders are all
+     offered, and only their steps of that kind are used. */
+  function sequenceSources(withStudents, kind){
+    var out = READY_MADE.filter(function(r){ return !kind || r.kind === kind; }).map(function(r){
       return { key: "rm:" + r.key, label: r.title, steps: readyMadeSteps(r.key), bar: Adaptive.defaultBar, group: "Ready-made" };
     });
     savedSequences().forEach(function(x){
@@ -4161,11 +4318,11 @@
     });
     if(withStudents){
       students.forEach(function(x){
-        var ps = plansFor(x.uid);
-        ps.forEach(function(p, k){
-          out.push({ key: (k ? "st2:" : "st:") + x.uid,
-                     label: stuName(x) + "’s " + (ps.length > 1 ? (k ? "second " : "first ") : "") + "sequence",
-                     steps: p.steps, bar: p.bar, group: "Copy a student’s" });
+        var sec = sectionsOf(x.uid).drafts;
+        sec.forEach(function(d, k){
+          if(!d || !d.steps.length) return;
+          out.push({ key: (k ? "st2:" : "st:") + x.uid, label: stuName(x) + "’s " + SECTION_NAME[k],
+                     steps: cloneSteps(d.steps), bar: d.bar, group: "Copy a student’s" });
         });
       });
     }
@@ -4311,14 +4468,14 @@
   function openGive(list){
     if(!list.length) return;
     closeGive();
-    var sources = giveSources(), cur = sources[0], bar = cur.bar, mode = "replace";
+    var sources = giveSources(), cur = sources[0], bar = cur.bar;
     giveWrap = document.createElement("div");
     giveWrap.className = "abModal";
     giveWrap.innerHTML =
       '<div class="abModalBox" role="dialog" aria-modal="true" aria-labelledby="giveTitle">' +
         '<h2 id="giveTitle">Give a sequence to ' + list.length + (list.length === 1 ? " student" : " students") + "</h2>" +
-        '<p class="note">Each student starts on the first list they haven’t already finished. ' +
-        "Nothing changes until you press Give it.</p>" +
+        '<p class="note">Red Words lists go into each student’s Red Words sequence. Other lists go into their Other lists sequence. ' +
+        "Each student starts on the first list they haven’t already finished. Nothing changes until you press Give it.</p>" +
         '<div class="giveRow"><label class="muted tiny" for="giveSrc">Which sequence</label>' +
         '<select class="sel" id="giveSrc"></select></div>' +
         '<div class="seqBar">A list is finished when ' +
@@ -4327,9 +4484,6 @@
           '<button type="button" class="btn ghost sm seqIcon" id="giveMore" aria-label="Raise the percent">+</button>' +
           " of its words are solid.</div>" +
         '<p class="muted" id="givePreview"></p>' +
-        '<fieldset class="giveMode"><legend class="muted tiny">What they have now</legend>' +
-          '<label class="check"><input type="radio" name="giveMode" value="replace" checked> Replace what they have</label>' +
-          '<label class="check"><input type="radio" name="giveMode" value="add"> Add as a second sequence</label></fieldset>' +
         '<p class="giveReplace" id="giveReplace" hidden></p>' +
         '<div class="rowActions stickyActions"><button class="btn sm" id="giveGo">Give it</button>' +
           '<button class="btn ghost sm" id="giveCancel">Cancel</button>' +
@@ -4342,17 +4496,14 @@
     sel.innerHTML = sourceOptionsHtml(sources);
     var counts = null;
     function paint(){
-      counts = giveCounts(list, cur.steps, mode);
+      counts = giveCounts(list, cur.steps);
       $("givePct").textContent = Math.round(bar * 100) + "%";
       $("giveLess").disabled = bar <= 0.5; $("giveMore").disabled = bar >= 1;
       $("givePreview").textContent = sequencePreview(cur.steps);
-      var warn = giveWarning(counts, list.length, mode), w = $("giveReplace");
+      var warn = giveWarning(counts, list.length), w = $("giveReplace");
       w.textContent = warn; w.hidden = !warn;
-      $("giveGo").disabled = !cur.steps.length || list.length > GIVE_MAX || counts.skipped >= list.length;
+      $("giveGo").disabled = !cur.steps.length || list.length > GIVE_MAX;
     }
-    Array.prototype.forEach.call(giveWrap.querySelectorAll('input[name="giveMode"]'), function(r){
-      r.addEventListener("change", function(){ if(r.checked){ mode = r.value; paint(); } });
-    });
     sel.addEventListener("change", function(){
       cur = sources.filter(function(x){ return x.key === sel.value; })[0] || cur;
       bar = cur.bar; paint();
@@ -4371,20 +4522,19 @@
       else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
     });
     $("giveGo").addEventListener("click", function(){
-      var msg = giveConfirm(cur.label, counts, list.length, mode);
+      var msg = giveConfirm(cur.label, counts, list.length);
       if(msg && !window.confirm(msg)) return;
       var note = $("giveNote");
       note.className = "saveNote"; note.textContent = "Saving…";
       $("giveGo").disabled = true;
-      giveSequence(list.map(function(s){ return s.uid; }), cur.steps, bar, mode).then(function(r){
-        var n = r ? r.given : list.length, sk = r ? r.skipped : 0;
+      giveSequence(list.map(function(s){ return s.uid; }), cur.steps, bar).then(function(r){
+        var n = r ? r.given : list.length;
         picked = {};
         closeGive();
         render();
         var flash = $("stNote");
         if(flash){
-          flash.textContent = "Gave a sequence to " + n + (n === 1 ? " student." : " students.") +
-            (sk ? " Skipped " + sk + ": every list in it is already in their first sequence." : "");
+          flash.textContent = "Gave a sequence to " + n + (n === 1 ? " student." : " students.");
           flash.focus();     // the message, so it is read out and focus is not lost with the dialog
         }
       }, function(){
@@ -4403,44 +4553,34 @@
   /* One batch for every student: local state moves first (the page redraws
      without waiting on school Wi-Fi) and `undo` puts every copy back if the
      batch fails, so nobody is left half-moved. */
-  function giveSequence(uids, steps, bar, mode){
+  function giveSequence(uids, steps, bar){
     // Past one batch it would no longer be all-or-nothing, so refuse.
     if(uids.length > GIVE_MAX) return Promise.reject(new Error("too many"));
-    var now = Date.now(), items = [], skipped = 0;
+    var now = Date.now(), items = [];
     uids.forEach(function(uid){
-      var data = giveBody(studentByUid(uid), steps, bar, now, mode);
-      if(data) items.push({ uid: uid, data: data }); else skipped++;
+      var data = giveBody(studentByUid(uid), steps, bar, now);
+      if(data) items.push({ uid: uid, data: data });
     });
-    var done = { given: items.length, skipped: skipped };
+    var done = { given: items.length };
     if(!items.length) return Promise.resolve(done);
     return commitBodies(items).then(function(){ return done; });
   }
-  /* The dialog's warning, for the choice made, or "". Replacing says what it
-     always said; adding as a second names each thing it will replace or
-     skip. Every number is a count of students. */
-  function giveWarning(c, n, mode){
-    var these = function(k){ return k + " of these " + n + (n === 1 ? " student" : " students") + " already " + (k === 1 ? "has" : "have"); };
-    if(mode !== "add"){
-      return c.replaced ? these(c.replaced) + " games or a sequence. This replaces " + (c.replaced === 1 ? "it" : "them") + "." : "";
-    }
+  /* The dialog's warning, or "": what this replaces and what it leaves, in
+     counts of students, one short sentence each. */
+  function giveWarning(c, n){
+    var of = function(k, has, have){ return k + " of these " + n + (n === 1 ? " student " : " students ") + (k === 1 ? has : have); };
     var out = [];
-    if(c.seconds) out.push(these(c.seconds) + " two sequences. This replaces their second.");
-    if(c.games) out.push(c.games + (c.games === 1 ? " has" : " have") + " games and no sequence. This replaces those games.");
-    if(c.skipped) out.push(c.skipped + (c.skipped === 1 ? " is skipped:" : " are skipped:") +
-      " every list in it is already in their first sequence.");
+    if(c.red) out.push(of(c.red, "already has", "already have") + " a Red Words sequence. This replaces " + (c.red === 1 ? "it." : "them."));
+    if(c.other) out.push(of(c.other, "already has", "already have") + " an Other lists sequence. This replaces " + (c.other === 1 ? "it." : "them."));
+    if(c.games) out.push(of(c.games, "has", "have") + " games in no order. This replaces them.");
+    if(c.keptRed) out.push("It has no Red Words lists: " + c.keptRed + " of them " + (c.keptRed === 1 ? "keeps their" : "keep their") + " Red Words sequence as it is.");
+    if(c.keptOther) out.push("It has no other lists: " + c.keptOther + " of them " + (c.keptOther === 1 ? "keeps their" : "keep their") + " Other lists sequence as it is.");
     return out.join(" ");
   }
   // The confirm before Give it, or "" when nothing they have is replaced.
-  function giveConfirm(label, c, n, mode){
-    var who = n + (n === 1 ? " student" : " students");
-    if(mode !== "add"){
-      return c.replaced
-        ? "Give " + label + " to " + who + "?\n\n" +
-          c.replaced + " of them already " + (c.replaced === 1 ? "has" : "have") + " games or a sequence, and this replaces " + (c.replaced === 1 ? "it." : "them.")
-        : "";
-    }
-    if(!c.seconds && !c.games && !c.skipped) return "";
-    return "Give " + label + " to " + who + " as a second sequence?\n\n" + giveWarning(c, n, mode);
+  function giveConfirm(label, c, n){
+    if(!c.red && !c.other && !c.games) return "";
+    return "Give " + label + " to " + n + (n === 1 ? " student" : " students") + "?\n\n" + giveWarning(c, n);
   }
 
   /* diagnose()'s seven kinds, in the words a teacher would write in a
@@ -4993,7 +5133,8 @@
       // sequences
       planFor: planFor, plansFor: plansFor, positionOf: positionOf, positionsOf: positionsOf,
       draftFromSaved: draftFromSaved, emptyDraft: emptyDraft, saveBody: saveBody, holdsText: holdsText,
-      copyChoices: copyChoices, ensureDraft: ensureDraft,
+      copyChoices: copyChoices, ensureDraft: ensureDraft, draftFor: draftFor, sectionsOf: sectionsOf, pageDirty: pageDirty,
+      placeBody: placeBody, splitNoteText: splitNoteText, SECTION_NAME: SECTION_NAME,
       draftIndex: draftIndex, draftMove: draftMove, draftRemove: draftRemove, draftWays: draftWays,
       draftAdd: draftAdd, draftBar: draftBar, draftMoveOn: draftMoveOn, draftGoBack: draftGoBack,
       draftReplaceLater: draftReplaceLater, addsAny: addsAny, stepsFromIds: stepsFromIds, readyMadeSteps: readyMadeSteps,

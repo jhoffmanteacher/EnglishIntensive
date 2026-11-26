@@ -59,6 +59,11 @@
    "the mark" is true of each pair separately. A document with no `plan2`
    is exactly what it was before there could be two.
 
+   The dashboard calls the two "Red Words" and "Other lists", by what each
+   holds (2026-11-25). This file never needs the names and never assumes
+   `plan` is Red Words: either may be in either field, and each mark
+   follows its own field.
+
    Why not on the teacher's page and written down? Because the student
    can never write assignments/{uid} (firestore.rules), and a teacher's
    browser does not have a student's stats until it opens the dashboard.

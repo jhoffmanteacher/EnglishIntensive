@@ -747,6 +747,37 @@ window.WordLists = (function(){
     return out;
   }
 
+  /* WHICH KIND OF SEQUENCE (the teacher, 2026-11-25: "the red lists are
+     themselves a sequence … the other lists are the ones that can be assigned
+     in an order"). A student has at most one Red Words sequence and at most
+     one Other lists sequence, and which is which is decided by what it HOLDS,
+     never by the field it is stored in (`plan` or `plan2`): documents from
+     before this hold them either way round.
+       stepKind(ids)  "red" for a step of the Red Words family, else "other".
+                      An id the library no longer has is judged by its id
+                      ("red-…"), which is permanent.
+       seqKind(steps) "red" when every step is red, "other" when none is,
+                      "mixed" when there are both, "" for no steps.
+     Pure. Only the dashboard asks; the student's browser never needs to know
+     the names. */
+  var RED_FAMILY = "red";
+  function stepKind(ids){
+    var list = Array.isArray(ids) ? ids : [];
+    for(var i=0;i<list.length;i++){
+      var l = index[list[i]];
+      if(l) return l.family === RED_FAMILY ? "red" : "other";
+    }
+    for(var j=0;j<list.length;j++) if(/^red-/.test(String(list[j]))) return "red";
+    return "other";
+  }
+  function seqKind(steps){
+    var red = 0, other = 0;
+    (Array.isArray(steps) ? steps : []).forEach(function(st){
+      if(stepKind(st && st.ids) === "red") red++; else other++;
+    });
+    return red && other ? "mixed" : red ? "red" : other ? "other" : "";
+  }
+
   function idsOfList(familyKey, listNum){
     return all.filter(function(l){ return l.family === familyKey && l.listNum === listNum && !l.retired; })
               .map(function(l){ return l.id; });
@@ -845,6 +876,8 @@ window.WordLists = (function(){
     withSay: withSay,
     planWithSay: planWithSay,
     docWithSay: docWithSay,
+    stepKind: stepKind,
+    seqKind: seqKind,
     // Every OFFERED id in one family — what a column toggle on the board
     // sets. Retired ids are left out, so no bulk action can add one.
     idsOfFamily: function(familyKey){

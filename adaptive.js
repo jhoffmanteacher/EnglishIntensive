@@ -649,8 +649,9 @@ window.Adaptive = (function(){
      the second, and a second left with nothing is no second. That is ids,
      not lists: there is no word library here, so `red-1-say` in the first
      and `red-1-cards` in the second both stay. Keeping a list in one
-     sequence only is the dashboard's job. Pure; returns [], [plan] or
-     [plan, plan2]. */
+     sequence only is the dashboard's job (it names them Red Words and
+     Other lists by what they hold, never by the field — this file knows
+     neither name). Pure; returns [], [plan] or [plan, plan2]. */
   var PLAN_FIELDS = ["plan", "plan2"];
   var SEQ_FIELDS  = ["seq", "seq2"];
   function sanitizePlans(doc){

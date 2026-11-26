@@ -96,7 +96,33 @@ Two things worth watching once it has had one:
   each. This reverses "one list per student at a time" from the 2026-11-24
   note: a student in two sequences works on two lists at once. A document with
   no `plan2` behaves exactly as before; a list is in one of the two only; no
-  `firestore.rules` change. See the README, *Sequences*.
+  `firestore.rules` change. See the README, *Sequences*. *(Its two generic
+  slots were replaced the same evening by Red Words and Other lists — next
+  item.)*
+
+- **Red Words and Other lists** (2026-11-25, evening). The teacher, on the
+  two sequences shipped that morning: *"the red lists are themselves a
+  sequence. perhaps it's easiest to treat them as that. the other lists are the
+  ones that can be assigned in an order"*, and then *"maybe set up redwords to
+  automatically be a sequence but it can be editable"*. So the two slots are
+  now two **named** sequences, told apart by what they hold: **Red Words**
+  (red lists only) and **Other lists** (every other family). This replaces,
+  from earlier the same day, *First sequence* / *Second sequence*, *Add a
+  second sequence* / *Don't add a second sequence*, *1st* / *2nd* on the
+  Students rows, and the Give dialog's *Replace what they have* / *Add as a
+  second sequence* choice. A student's page always shows both sections, Red
+  Words first; with no Red Words, one button, **Give Red Words**, fills it
+  with every red list in order (Say it and Cards, 90 %) as a draft — nothing is
+  given until Save. Give a sequence puts an order's red lists into Red Words and
+  the rest into Other lists, replacing only the kinds it holds. Decided with it:
+  no new field and no `firestore.rules` change — `plan` / `plan2` and `seq` /
+  `seq2` stay, which is which is decided by content (`WordLists.seqKind`), a
+  sequence written back as stored keeps its field (so nobody's mark moves), and
+  only a fresh pair is written Red Words as `plan`; documents from the two days
+  before that mix the kinds are shown split as an unsaved draft and rewritten
+  only when a teacher saves that student (no load-time upkeep), nobody moving
+  backwards. The student's home page did not change. See the README,
+  *Sequences* and *A student's page*.
 
 ## Shipped 2026-11-25: saves on shared Chromebooks, and small fixes
 

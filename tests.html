@@ -4278,7 +4278,9 @@
       eq("…with this student marked", body.querySelector('.stuPick[aria-current="true"]').textContent, "Ana Lopez");
       eq("the header says who, with one line",
          /^Period 3 · practiced .+ · 1 round this week$/.test(body.querySelector("#stuLine").textContent), true);
-      eq("the editor is titled with the name", body.querySelector("#seqHead").textContent, "Ana Lopez’s word lists, in order");
+      eq("the Red Words section comes first, headed with how many lists it holds", body.querySelector("#seqHead").textContent, "Red Words 3 lists");
+      eq("…and Other lists under it, empty, with nothing in it yet", body.querySelector("#seqHead2").textContent + "/" + body.querySelectorAll('[data-which="1"] .seqRow').length, "Other lists/0");
+      eq("…no Stop for a section with nothing stored", !!body.querySelector('[data-which="1"] [data-seq="stop"]'), false);
       eq("one row per list", body.querySelectorAll(".seqRow").length, 3);
       eq("…the first finished, the second Now, the third Next",
          Array.prototype.map.call(body.querySelectorAll(".seqTag"), function(t){ return t.textContent; }).join(","), "Finished,Now,Next");
@@ -4345,16 +4347,25 @@
       eq("…the ticks starting as a copy of the step above when it is the same family",
          Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).length, 2);
       var sel = body.querySelector("#seqAddList");
-      sel.value = "blends-start:1"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+      eq("Add a list in Red Words offers only red lists",
+         Array.prototype.map.call(sel.options, function(o){ return o.value.split(":")[0]; }).filter(function(f){ return f !== "red"; }).length + "/" + sel.options.length, "0/7");
+      // Other lists: no red list on offer, and a list of a new family starts with Say it alone ticked.
+      body.querySelector('[data-which="1"] [data-seq="add-open"]').click();
+      var sel2 = body.querySelector("#seqAddList2");
+      eq("Add a list in Other lists offers no red list",
+         Array.prototype.some.call(sel2.options, function(o){ return o.value.split(":")[0] === "red"; }), false);
+      sel2.value = "blends-start:1"; sel2.dispatchEvent(new Event("change", { bubbles: true }));
       eq("choosing a list of another family starts with Say it alone ticked (Say it is in every step of a sequence)",
-         Array.prototype.filter.call(body.querySelectorAll("[data-addway]"), function(c){ return c.checked; }).map(function(c){ return c.dataset.addway; }).join(","), "initial-blends");
+         Array.prototype.filter.call(body.querySelectorAll('[data-which="1"] [data-addway]'), function(c){ return c.checked; }).map(function(c){ return c.dataset.addway; }).join(","), "initial-blends");
       eq("…locked: it cannot be unticked", body.querySelector('[data-addway="initial-blends"]').disabled, true);
-      eq("…with one line saying why", body.querySelector("#seqSayWhy").textContent, "Say it is always part of a sequence. It is the one mode that hears the student read.");
-      eq("…and Add is ready", body.querySelector("#seqAddGo").disabled, false);
-      eq("…and the hint stays hidden, with Say it ticked and locked", body.querySelector("#seqAddHint").hidden, true);
-      eq("…and the hint is computed visibly hidden", getComputedStyle(body.querySelector("#seqAddHint")).display, "none");
+      eq("…with one line saying why", body.querySelector("#seqSayWhy2").textContent, "Say it is always part of a sequence. It is the one mode that hears the student read.");
+      eq("…and Add is ready", body.querySelector("#seqAddGo2").disabled, false);
+      eq("…and the hint stays hidden, with Say it ticked and locked", body.querySelector("#seqAddHint2").hidden, true);
+      eq("…and the hint is computed visibly hidden", getComputedStyle(body.querySelector("#seqAddHint2")).display, "none");
       body.querySelector('[data-addway="initial-blends"]').click();
       eq("…a click on the locked box changes nothing", body.querySelector('[data-addway="initial-blends"]').checked, true);
+      body.querySelector('[data-which="1"] [data-seq="add-cancel"]').click();
+      eq("no id is on the page twice", (function(){ var seen = {}, dup = 0; Array.prototype.forEach.call(body.querySelectorAll("[id]"), function(e){ if(seen[e.id]) dup++; seen[e.id] = 1; }); return dup; })(), 0);
       sel = body.querySelector("#seqAddList");
       sel.value = "red:4"; sel.dispatchEvent(new Event("change", { bubbles: true }));
       body.querySelector('[data-seq="add-go"]').click();
@@ -4417,29 +4428,39 @@
       eq("…the picker is behind a fold", body.querySelector("details.seqFold summary").textContent, "Change these games");
       eq("…with the old Save games button", !!body.querySelector("#tSaveA"), true);
       body.querySelector('[data-seq="inorder"]').click();
-      eq("Put these in order makes a draft, one step per list in the library's order",
-         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "initial-blends | red-1-say+red-1-cards");
+      eq("Put these in order puts the red games in Red Words, in list order",
+         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards");
+      eq("…and the others in Other lists", T.getDraft2().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "initial-blends");
       eq("…and offers to save it", body.querySelector("#seqSave").hidden, false);
       eq("…with Save enabled", body.querySelector('[data-seq="save"]').disabled, false);
       body.querySelector('[data-seq="discard"]').click();
       eq("Discard puts the games back, in no order", !!body.querySelector(".seqNoOrder"), true);
 
       T.open("u3"); T.renderDetail();
-      eq("a student with nothing gets the editor with no rows", body.querySelectorAll(".seqRow").length, 0);
-      eq("…and the words that say so", /No lists yet/.test(body.querySelector("#stuPanel-lists").textContent), true);
-      eq("…ready-made sequences on offer", body.querySelectorAll("#seqReady option").length, 2);
+      eq("a student with nothing gets no rows", body.querySelectorAll(".seqRow").length, 0);
+      eq("…Red Words first, with one button", body.querySelector("#seqHead").textContent + "/" + body.querySelector('[data-seq="give-red"]').textContent, "Red Words/Give Red Words");
+      eq("…which says what it does", body.querySelector("#seqGiveRedWhy").textContent, "Every Red Words list in order, List 1 to List 10, with Say it and Cards. Nothing changes until you press Save.");
+      eq("…then Other lists, empty, with the words that say so", body.querySelector("#seqHead2").textContent + "/" + /No lists yet/.test(body.querySelector('[data-which="1"]').textContent), "Other lists/true");
+      eq("…offering its own ready-made one only", Array.prototype.map.call(body.querySelectorAll("#seqReady2 option"), function(o){ return o.textContent; }).join(","), "Sounding it out");
       asked.length = 0;
-      body.querySelector('[data-seq="ready-go"]').click();
-      eq("starting from Red Words, Lists 1 to 10 fills it", T.getDraft().steps.length, 10);
-      eq("…without asking, since there was nothing to replace", asked.length, 0);
+      body.querySelector('[data-seq="give-red"]').click();
+      eq("Give Red Words fills Red Words with every red list, in order", T.getDraft().steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "1,2,3,4,5,6,7,8,9,10");
+      eq("…each with Say it first, then Cards", T.getDraft().steps.every(function(x, i){ return x.ids.join(",") === "red-" + (i + 1) + "-say,red-" + (i + 1) + "-cards"; }), true);
+      eq("…at the usual percent", T.getDraft().bar, A4.defaultBar);
+      eq("…without asking, and without writing: it is a draft", asked.length + "/" + T.seqDirty() + "/" + body.querySelector("#seqSave").hidden, "0/true/false");
+      eq("…and the button gives way to the editor", !!body.querySelector('[data-seq="give-red"]') + "/" + body.querySelectorAll('[data-which="0"] .seqRow').length, "false/10");
+      body.querySelector('[data-seq="discard"]').click();
+      eq("Discard brings the button back", !!body.querySelector('[data-seq="give-red"]'), true);
+      body.querySelector('[data-which="1"] [data-seq="ready-go"]').click();
+      eq("Sounding it out in Other lists fills Other lists, and no red list", T.getDraft2().steps.length + "/" + T.getDraft2().steps.some(function(x){ return W4.stepKind(x.ids) === "red"; }), T.readyMadeSteps("sounding").length + "/false");
       body.querySelector('[data-seq="discard"]').click();
 
       // A student who is solid on the first steps lands past them.
       feed({ students: [kid("u4", "Dev", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 19), solid("red-2-cards", 19)) })],
              assignments: {} });
       T.open("u4"); T.renderDetail();
-      body.querySelector('[data-seq="ready-go"]').click();
-      eq("a ready-made sequence puts a student who is already solid on steps 1 and 2 on step 3",
+      body.querySelector('[data-seq="give-red"]').click();
+      eq("Give Red Words puts a student who is already solid on steps 1 and 2 on step 3",
          Array.prototype.map.call(body.querySelectorAll(".seqTag"), function(t){ return t.textContent; }).slice(0, 4).join(","), "Finished,Finished,Now,Next");
     });
 
@@ -4747,7 +4768,7 @@
       eq("the dialog opens, titled with how many", document.getElementById("giveTitle").textContent, "Give a sequence to 3 students");
       eq("…it is a dialog for a screen reader", document.querySelector(".abModalBox").getAttribute("role"), "dialog");
       eq("…offering the ready-made sequences and another student's", Array.prototype.map.call(document.querySelectorAll("#giveSrc option"), function(o){ return o.textContent; }).join(" | "),
-         "Red Words, Lists 1 to 10 | Sounding it out | Ana Lopez’s sequence");
+         "Red Words, Lists 1 to 10 | Sounding it out | Ana Lopez’s Red Words");
       eq("…at 90%", document.getElementById("givePct").textContent, "90%");
       document.getElementById("giveLess").click();
       eq("…which can be changed in steps of 5", document.getElementById("givePct").textContent, "85%");
@@ -4755,8 +4776,10 @@
       src.value = "st:u1"; src.dispatchEvent(new Event("change", { bubbles: true }));
       eq("copying a student's sequence takes their percent", document.getElementById("givePct").textContent, "90%");
       eq("…and previews its lists", /^3 lists: Red Words · List 1, Red Words · List 2, Red Words · List 3\.$/.test(document.getElementById("givePreview").textContent), true);
-      eq("the dialog says how many already have games or a sequence, which this replaces",
-         document.getElementById("giveReplace").textContent, "2 of these 3 students already have games or a sequence. This replaces them.");
+      eq("the dialog says, in plain words, what this replaces",
+         document.getElementById("giveReplace").textContent, "1 of these 3 students already has a Red Words sequence. This replaces it. 1 of these 3 students has games in no order. This replaces them.");
+      eq("…there is no choice to make about where it goes", document.querySelectorAll('input[name="giveMode"]').length, 0);
+      eq("…and the dialog says where it goes", /Red Words lists go into each student’s Red Words sequence\. Other lists go into their Other lists sequence\./.test(document.querySelector(".abModalBox .note").textContent), true);
       eq("nothing was written by opening it", T.getPicked() && Object.keys(T.getPicked()).length, 3);
       document.getElementById("giveCancel").click();
       eq("Cancel closes it", !!document.getElementById("giveTitle"), false);
@@ -4979,8 +5002,8 @@
       eq("putting games in order gives each list its Say it", T.stepsFromIds(["red-4-cards"])[0].ids.join(","), "red-4-say,red-4-cards");
       eq("Add a list's ticks start with Say it", T.defaultAddIds({ steps: [] }, "red:5").join(","), "red-5-say");
       eq("a saved sequence is saved with Say it", T.savedBody("x", [{ ids: ["red-6-match"] }], 0.9, 1).steps[0].ids.join(","), "red-6-say,red-6-match");
-      eq("Give a sequence gives Say it", T.giveBody(T.positionOf("u1") && kid("u2", "Bo"), [{ ids: ["red-7-cards"] }], 0.9, 1, "replace").plan.steps[0].ids.join(","), "red-7-say,red-7-cards");
-      eq("…as a second sequence too", T.giveBody(kid("u1", "Lee Gray", { stats: cardsDone }), [{ ids: ["red-8-cards"] }], 0.9, 1, "add").plan2.steps[0].ids.join(","), "red-8-say,red-8-cards");
+      eq("Give a sequence gives Say it", T.giveBody(T.positionOf("u1") && kid("u2", "Bo"), [{ ids: ["red-7-cards"] }], 0.9, 1).plan.steps[0].ids.join(","), "red-7-say,red-7-cards");
+      eq("…to Other lists beside a Red Words sequence too", T.giveBody(kid("u1", "Lee Gray", { stats: cardsDone }), [{ ids: [TB1C] }], 0.9, 1).plan2.steps[0].ids.join(","), TB1 + "," + TB1C);
       T.reset();
 
       // The ways editor: Say it ticked, locked, and why.
@@ -5056,73 +5079,72 @@
       eq("…and says how much it brought (nothing, when it is all taken)", T.draftReplaceLater(d, 0, [{ ids: ["red-1-say"] }], ["red:1"]), 0);
     });
 
-    guard("the page with two sequences", function(){
+    guard("the page with Red Words and Other lists", function(){
       body.hidden = false;
       feed(twoFixture());
       T.open("u1"); T.renderDetail();
       var eds = body.querySelectorAll(".seqEditor");
-      eq("two editors, one under the other", eds.length, 2);
-      eq("each headed with which one and what it holds",
+      eq("two sections, one under the other", eds.length, 2);
+      eq("each headed with its name and what it holds",
          body.querySelector("#seqHead").textContent + " | " + body.querySelector("#seqHead2").textContent,
-         "First sequence Red Words · 3 lists | Second sequence Starting Blends, Blend Words · 2 lists");
+         "Red Words 3 lists | Other lists Starting Blends, Blend Words · 2 lists");
+      eq("no 'first' or 'second' anywhere a teacher reads", (body.querySelector("#stuPanel-lists").textContent.match(/(first|second) sequence|\b1st\b|\b2nd\b|Add a second/i) || [""])[0], "");
       var all = Array.prototype.map.call(body.querySelectorAll("[id]"), function(e){ return e.id; }), dup = all.filter(function(x, i){ return all.indexOf(x) !== i; });
       eq("no id is used twice on the page", dup.join(","), "");
-      eq("the first's rows: Finished, Now, Next", tags(eds[0]), "Finished,Now,Next");
-      eq("the second's rows: Finished, Now", tags(eds[1]), "Finished,Now");
+      eq("Red Words' rows: Finished, Now, Next", tags(eds[0]), "Finished,Now,Next");
+      eq("Other lists' rows: Finished, Now", tags(eds[1]), "Finished,Now");
       eq("each has its own Stop", Array.prototype.map.call(body.querySelectorAll('[data-seq="stop"]'), function(b){ return b.textContent; }).join(","), "Stop using this sequence,Stop using this sequence");
-      eq("…its own percent, labelled for which", eds[1].querySelector('[data-seq="bar-"]').getAttribute("aria-label"), "Lower the percent for the second sequence");
-      eq("there is no Add a second sequence when there are two", !!body.querySelector('[data-seq="second-add"]'), false);
-      eq("beside them, On now names each", Array.prototype.map.call(body.querySelectorAll(".seqWhich"), function(p){ return p.textContent; }).join(","), "First sequence,Second sequence");
+      eq("…its own percent, labelled with its name", eds[1].querySelector('[data-seq="bar-"]').getAttribute("aria-label"), "Lower the percent for Other lists");
+      eq("there is no Give Red Words when they have Red Words", !!body.querySelector('[data-seq="give-red"]'), false);
+      eq("beside them, On now names each", Array.prototype.map.call(body.querySelectorAll(".seqWhich"), function(p){ return p.textContent; }).join(","), "Red Words,Other lists");
       eq("…and the finished lists of both", Array.prototype.map.call(body.querySelectorAll(".seqFinList li"), function(li){ return li.textContent; }).join(","),
          "Red Words · List 1," + W4.byId(TB1).listTitle);
-      eq("a finished row in the second shows the date from its own mark (seq2)", /^Finished .+ · 28 of 28 solid$/.test(eds[1].querySelector(".seqRow.fin .seqNote").textContent), true);
+      eq("a finished row in Other lists shows the date from its own mark (seq2)", /^Finished .+ · 28 of 28 solid$/.test(eds[1].querySelector(".seqRow.fin .seqNote").textContent), true);
+      eq("nothing to save on opening", body.querySelector("#seqSave").hidden + "/" + T.pageDirty("u1"), "true/false");
 
       eds[1].querySelector('[data-seq="bar-"]').click();
-      eq("the second's percent moves on its own", body.querySelector("#seqPct").textContent + " " + body.querySelector("#seqPct2").textContent, "90% 85%");
-      eq("…focus stays on the button just pressed, in the second", document.activeElement.getAttribute("data-seq") + "/" + document.activeElement.closest("[data-which]").getAttribute("data-which"), "bar-/1");
-      eq("…the edit is the second's draft", (T.getDraft() === null) + "/" + T.getDraft2().bar, "true/0.85");
+      eq("Other lists' percent moves on its own", body.querySelector("#seqPct").textContent + " " + body.querySelector("#seqPct2").textContent, "90% 85%");
+      eq("…focus stays on the button just pressed, in Other lists", document.activeElement.getAttribute("data-seq") + "/" + document.activeElement.closest("[data-which]").getAttribute("data-which"), "bar-/1");
+      eq("…the edit is Other lists' draft", (T.getDraft() === null) + "/" + T.getDraft2().bar, "true/0.85");
       eq("…and one Save bar for both", body.querySelectorAll("#seqSave").length + "/" + body.querySelector("#seqSave").hidden, "1/false");
       body.querySelector('[data-seq="discard"]').click();
       eq("Discard puts both back", body.querySelector("#seqPct2").textContent + "/" + T.seqDirty(), "90%/false");
 
       body.querySelectorAll('.seqEditor')[0].querySelector('[data-seq="moveon"]').click();
-      eq("Move on now in the first moves the first only", tags(body.querySelectorAll(".seqEditor")[0]) + " | " + tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Finished,Now | Finished,Now");
+      eq("Move on now in Red Words moves Red Words only", tags(body.querySelectorAll(".seqEditor")[0]) + " | " + tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Finished,Now | Finished,Now");
       body.querySelector('[data-seq="discard"]').click();
 
       body.querySelectorAll('.seqEditor')[1].querySelector('[data-seq="add-open"]').click();
       var opts = Array.prototype.map.call(body.querySelectorAll("#seqAddList2 option"), function(o){ return o.value; });
-      eq("Add a list in the second offers no list from the first", opts.indexOf("red:1") + opts.indexOf("red:2") + opts.indexOf("red:3"), -3);
-      eq("…nor one already in the second", opts.indexOf("blends-start:1"), -1);
+      eq("Add a list in Other lists offers no red list at all", opts.filter(function(v){ return v.indexOf("red:") === 0; }).length, 0);
+      eq("…nor one already in it", opts.indexOf("blends-start:1"), -1);
       eq("…and focus is in its own chooser", document.activeElement.id, "seqAddList2");
       body.querySelectorAll('.seqEditor')[1].querySelector('[data-seq="add-cancel"]').click();
+      body.querySelectorAll('.seqEditor')[0].querySelector('[data-seq="add-open"]').click();
+      opts = Array.prototype.map.call(body.querySelectorAll("#seqAddList option"), function(o){ return o.value; });
+      eq("Add a list in Red Words offers only the red lists it does not hold", opts.join(","), "red:4,red:5,red:6,red:7,red:8,red:9,red:10");
+      body.querySelectorAll('.seqEditor')[0].querySelector('[data-seq="add-cancel"]').click();
 
-      // A one-sequence student: the way to a second.
+      // A Red Words student: Other lists is there, empty, and takes Sounding it out.
       T.reset(); feed(fixture()); T.open("u1"); T.renderDetail();
-      eq("one sequence keeps its heading", body.querySelector("#seqHead").textContent, "Ana Lopez’s word lists, in order");
-      var add2 = body.querySelector('[data-seq="second-add"]');
-      eq("…and offers Add a second sequence", add2 && add2.textContent, "Add a second sequence");
-      add2.click();
-      eq("pressing it opens an empty second editor, focus on its heading", body.querySelectorAll(".seqEditor").length + "/" + document.activeElement.id, "2/seqHead2");
-      eq("…the two are now headed First and Second", body.querySelector("#seqHead").textContent.indexOf("First sequence") + "/" + body.querySelector("#seqHead2").textContent, "0/Second sequence no lists yet");
+      eq("a student with Red Words only: both sections", body.querySelector("#seqHead").textContent + " | " + body.querySelector("#seqHead2").textContent, "Red Words 3 lists | Other lists");
       eq("…nothing to save yet", body.querySelector("#seqSave").hidden, true);
-      var sel2 = body.querySelector("#seqReady2"); sel2.value = "rm:red";
+      eq("…Other lists offers Sounding it out", Array.prototype.map.call(body.querySelectorAll("#seqReady2 option"), function(o){ return o.textContent; }).join(","), "Sounding it out");
+      eq("…and Red Words offers its own", Array.prototype.map.call(body.querySelectorAll("#seqReady option"), function(o){ return o.textContent; }).join(","), "Red Words, Lists 1 to 10");
       body.querySelectorAll('.seqEditor')[1].querySelector('[data-seq="ready-go"]').click();
-      eq("Red Words in the second leaves out the first's three lists", T.getDraft2().steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "4,5,6,7,8,9,10");
+      eq("Sounding it out fills Other lists", T.getDraft2().steps.length, T.readyMadeSteps("sounding").length);
       eq("…and there is now something to save", body.querySelector("#seqSave").hidden, false);
       body.querySelector('[data-seq="discard"]').click();
-      eq("Discard closes the unsaved second", body.querySelectorAll(".seqEditor").length, 1);
-      body.querySelector('[data-seq="second-add"]').click();
-      body.querySelector('[data-seq="second-cancel"]').click();
-      eq("Don’t add a second sequence closes it, focus back on the button", body.querySelectorAll(".seqEditor").length + "/" + document.activeElement.getAttribute("data-seq"), "1/second-add");
+      eq("Discard empties it again", body.querySelectorAll('[data-which="1"] .seqRow').length, 0);
 
-      // Copying from a student who has two offers each of theirs.
+      // Copying from another student copies their sequence of the same kind.
       T.reset(); feed(twoFixture()); T.open("u2"); T.renderDetail();
-      eq("Copy from another student offers each of a two-sequence student's",
-         Array.prototype.map.call(body.querySelectorAll("#seqCopy option"), function(o){ return o.textContent; }).join(" | "),
-         "Ana Lopez (first) | Ana Lopez (second)");
-      body.querySelector("#seqCopy").value = "u1#2";
-      body.querySelector('[data-seq="copy-go"]').click();
-      eq("…copying the second takes the second's lists", T.getDraft().steps.slice(-2).map(function(x){ return x.ids[0]; }).join(","), TB1 + "," + TB2);
+      eq("Copy in Red Words offers each student's Red Words", Array.prototype.map.call(body.querySelectorAll("#seqCopy option"), function(o){ return o.textContent; }).join(" | "), "Ana Lopez");
+      eq("…and in Other lists each student's Other lists", Array.prototype.map.call(body.querySelectorAll("#seqCopy2 option"), function(o){ return o.textContent; }).join(" | "), "Ana Lopez");
+      body.querySelector("#seqCopy2").value = "u1";
+      body.querySelectorAll('.seqEditor')[1].querySelector('[data-seq="copy-go"]').click();
+      eq("…copying in Other lists takes Ana's Other lists", T.getDraft2().steps.map(function(x){ return x.ids[0]; }).join(","), TB1 + "," + TB2);
+      eq("…and leaves Ben's Red Words alone", T.getDraft(), null);
       body.hidden = true;
     });
 
@@ -5137,7 +5159,15 @@
       var row = body.querySelector('tr[data-uid="u1"]');
       eq("…stacked in the one row: two parts in each cell", [".stNow", "td:nth-child(4)", ".stPlace"].map(function(sel){ return row.querySelector(sel).querySelectorAll(".stPart").length; }).join(","), "2,2,2");
       eq("…two bars", row.querySelectorAll(".seqMeter").length, 2);
-      eq("…the place of each", Array.prototype.map.call(row.querySelectorAll(".stPlace .stPart"), function(p){ return p.textContent; }).join(" | "), "List 2 of 3 | List 2 of 2");
+      eq("…the place of each", Array.prototype.map.call(row.querySelectorAll(".stPlace .stPart"), function(p){ return p.textContent.trim(); }).join(" | "), "List 2 of 3 | List 2 of 2");
+      eq("…each labelled with its name, Red Words first", Array.prototype.map.call(row.querySelectorAll(".stNow .stWhich"), function(p){ return p.textContent; }).join(" | "), "Red Words | Other lists");
+      eq("…and no 1st / 2nd", /1st|2nd/.test(row.textContent), false);
+      // The same student with the two stored the other way round: the row still reads Red Words first.
+      feed(twoFixture({ assignments: { u1: merge({ plan: plan2Doc(), plan2: planDoc({ setAt: SETAT2 + 1 }) }, stamp) } }));
+      eq("stored the other way round, Red Words still comes first", T.rowFacts(T.studentByUid("u1")).seqs.map(function(x){ return x.label; }).join(","), "Red Words,Other lists");
+      feed(twoFixture());
+      T.renderRoster();
+      row = body.querySelector('tr[data-uid="u1"]');
       eq("…and still one flag line at most", row.querySelectorAll(".stFlag").length <= 1, true);
       eq("a one-sequence student's row is as it was", body.querySelector('tr[data-uid="u2"] .stNow').textContent, "Red Words · List 1");
       eq("the flag line's lists are the current lists of both", T.nextStepInfo(T.studentByUid("u1")).lists.map(function(l){ return l.id; }).join(","), "red-2-say,red-2-cards," + TB2);
@@ -5168,37 +5198,68 @@
       body.hidden = true;
     });
 
-    guard("giving as a second sequence", function(){
+    guard("giving a sequence: each kind goes where it belongs", function(){
       var snd = T.readyMadeSteps("sounding"), red = T.readyMadeSteps("red"), NOWT = 1795563000000;
-      feed({ students: [kid("u1", "Ana"), kid("u2", "Ben"), kid("u3", "Cy"), kid("u4", "Di"), kid("u5", "Ed")],
+      var mixedOrder = [{ ids: ["red-1-say", "red-1-cards"] }, { ids: [TB1] }, { ids: ["red-2-say"] }];
+      feed({ students: [kid("u1", "Ana", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20)) }), kid("u2", "Ben"), kid("u3", "Cy"), kid("u4", "Di"), kid("u5", "Ed"),
+                        kid("u6", "Flo", { seq2: { at: 1, of: 4000, when: 1 } }), kid("u7", "Gus")],
              assignments: {
-               u2: merge({ lists: ["red-9-say"] }, stamp),
+               u2: merge({ lists: ["red-9-say", "initial-blends"] }, stamp),
                u3: merge({ plan: planDoc() }, stamp),
                u4: merge({ plan: planDoc(), plan2: plan2Doc() }, stamp),
-               u5: merge({ plan: { steps: snd, bar: 0.9, at: 0, hold: false, setAt: 9 } }, stamp) } });
-      function gb(uid, steps, mode){ return T.giveBody(T.studentByUid(uid), steps, 0.9, NOWT, mode); }
-      eq("no sequence: it becomes their first", Object.keys(gb("u1", snd, "add")).sort().join(","), "classId,lists,plan,teachers,updatedAt");
-      eq("games and no sequence: it becomes their first (the games are replaced)", gb("u2", snd, "add").plan.steps.length, 4);
-      var b3 = gb("u3", snd, "add");
-      eq("one sequence: it becomes their second, and the first is not changed", Object.keys(b3).sort().join(","), "classId,lists,plan,plan2,teachers,updatedAt");
-      eq("…it is written back exactly as stored (same setAt)", JSON.stringify(b3.plan), JSON.stringify(A4.sanitizePlan(planDoc())));
-      eq("…`lists` is the union of the two current lists", b3.lists.join(","), "red-1-say,red-1-cards," + snd[0].ids.join(","));
-      eq("…and it leaves out lists already in their first", gb("u3", red, "add").plan2.steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "4,5,6,7,8,9,10");
-      var b4 = gb("u4", red, "add");
-      eq("two sequences: it replaces their second, the first written back as stored", b4.plan2.setAt + "/" + b4.plan2.steps.length + "/" + b4.plan.setAt, NOWT + "/7/" + SETAT);
-      eq("a student whose first already holds every list in it is skipped", gb("u5", snd, "add"), null);
-      var r4 = gb("u4", snd, "replace");
-      eq("Replace what they have takes the second with it", r4.plan.steps.length + "/" + r4.plan2, "4/\u0000delete");
-      eq("…and for a student with no second the body is what it always was", Object.keys(gb("u3", snd)).sort().join(","), "classId,lists,plan,teachers,updatedAt");
-      var list = ["u1", "u2", "u3", "u4", "u5"].map(T.studentByUid);
-      var cr = T.giveCounts(list, snd, "replace"), ca = T.giveCounts(list, snd, "add");
-      eq("replacing counts everyone who has something", cr.replaced, 4);
-      eq("adding counts who has two, who has games, and who is skipped", ca.seconds + "/" + ca.games + "/" + ca.skipped, "1/1/1");
-      eq("the replace warning is what it was", T.giveWarning(cr, 5, "replace"), "4 of these 5 students already have games or a sequence. This replaces them.");
-      eq("the add warning says each thing",
-         T.giveWarning(ca, 5, "add"), "1 of these 5 students already has two sequences. This replaces their second. 1 has games and no sequence. This replaces those games. 1 is skipped: every list in it is already in their first sequence.");
-      eq("adding to students with nothing to replace asks nothing", T.giveConfirm("X", T.giveCounts([T.studentByUid("u1"), T.studentByUid("u3")], snd, "add"), 2, "add"), "");
-      eq("…and with something, asks, saying it is a second sequence", /^Give X to 5 students as a second sequence\?/.test(T.giveConfirm("X", ca, 5, "add")), true);
+               u5: merge({ plan: { steps: snd, bar: 0.9, at: 0, hold: false, setAt: 9 } }, stamp),
+               u6: merge({ plan: plan2Doc(), plan2: planDoc({ setAt: 4000 }) }, stamp),
+               u7: merge({ plan: { steps: mixedOrder, bar: 0.9, at: 0, hold: false, setAt: 70 } }, stamp) } });
+      function gb(uid, steps){ return T.giveBody(T.studentByUid(uid), steps, 0.9, NOWT); }
+      function kinds(b){ return ["plan", "plan2"].map(function(f){ return b[f] === undefined ? "-" : b[f] === "\u0000delete" ? "del" : W4.seqKind(b[f].steps) + "@" + b[f].setAt; }).join(" "); }
+      // A Red Words order.
+      eq("Red to no sequence: it is their plan", Object.keys(gb("u1", red)).sort().join(",") + " " + kinds(gb("u1", red)), "classId,lists,plan,teachers,updatedAt red@" + NOWT + " -");
+      eq("…landing on the first red list they have not finished", gb("u1", red).lists.join(","), "red-2-say,red-2-cards");
+      eq("Red to loose games: the games are replaced", kinds(gb("u2", red)) + " " + gb("u2", red).lists.join(","), "red@" + NOWT + " - red-1-say,red-1-cards");
+      eq("Red to Red Words only: it replaces it", kinds(gb("u3", red)), "red@" + NOWT + " -");
+      eq("Red to both: Red Words replaced, Other lists written back exactly as stored", kinds(gb("u4", red)) + " " + (JSON.stringify(gb("u4", red).plan2) === JSON.stringify(A4.sanitizePlan(plan2Doc()))), "red@" + NOWT + " other@" + SETAT2 + " true");
+      eq("Red to Other lists only: Other lists stays in plan, Red Words beside it", kinds(gb("u5", red)), "other@9 red@" + NOWT);
+      eq("Red to both stored the other way round: Other lists stays in plan as stored", kinds(gb("u6", red)), "other@" + SETAT2 + " red@" + NOWT);
+      eq("Red to a mixed older sequence: split, Red Words new, its other lists kept as Other lists", kinds(gb("u7", red)) + " " + gb("u7", red).plan2.steps.map(function(x){ return x.ids[0]; }).join(","), "red@" + NOWT + " other@" + NOWT + " " + TB1);
+      // An Other lists order.
+      eq("Other to both: Red Words written back as stored, Other lists replaced", kinds(gb("u4", snd)), "red@" + SETAT + " other@" + NOWT);
+      eq("Other to Red Words only: Red Words stays in plan, Other lists is plan2", kinds(gb("u3", snd)), "red@" + SETAT + " other@" + NOWT);
+      eq("Other to both stored the other way round: Red Words stays in plan2 (its seq2 keeps counting), the new Other lists is plan", kinds(gb("u6", snd)), "other@" + NOWT + " red@4000");
+      eq("…and Flo's Red Words position is unchanged by it", (function(){
+        var before = T.positionOf("u6", 1).state.index, b = gb("u6", snd);
+        feed({ students: [kid("u6", "Flo", { seq2: { at: 1, of: 4000, when: 1 } })], assignments: { u6: merge(b, {}) } });
+        var after = T.positionOf("u6", 1).state.index;
+        return before + "/" + after;
+      })(), "1/1");
+      feed({ students: [kid("u1", "Ana", { stats: merge(solid("red-1-say", 20), solid("red-1-cards", 20)) }), kid("u2", "Ben"), kid("u3", "Cy"), kid("u4", "Di"), kid("u5", "Ed"),
+                        kid("u6", "Flo", { seq2: { at: 1, of: 4000, when: 1 } }), kid("u7", "Gus")],
+             assignments: {
+               u2: merge({ lists: ["red-9-say", "initial-blends"] }, stamp),
+               u3: merge({ plan: planDoc() }, stamp),
+               u4: merge({ plan: planDoc(), plan2: plan2Doc() }, stamp),
+               u5: merge({ plan: { steps: snd, bar: 0.9, at: 0, hold: false, setAt: 9 } }, stamp),
+               u6: merge({ plan: plan2Doc(), plan2: planDoc({ setAt: 4000 }) }, stamp),
+               u7: merge({ plan: { steps: mixedOrder, bar: 0.9, at: 0, hold: false, setAt: 70 } }, stamp) } });
+      eq("Other to Other lists only: replaced, nothing else", kinds(gb("u5", snd)), "other@" + NOWT + " -");
+      // A mixed order is split the same way.
+      var bm = gb("u4", mixedOrder);
+      eq("a mixed order: its red lists become Red Words, the rest Other lists", kinds(bm) + " " + bm.plan.steps.length + "/" + bm.plan2.steps.length, "red@" + NOWT + " other@" + NOWT + " 2/1");
+      eq("…each step with Say it", bm.plan2.steps[0].ids[0], TB1);
+      eq("…and a plan the student's code reads back as both", A4.sanitizePlans(bm).length, 2);
+      // The counts the dialog shows.
+      var list = ["u1", "u2", "u3", "u4", "u5", "u6", "u7"].map(T.studentByUid);
+      var cr = T.giveCounts(list, red), co = T.giveCounts(list, snd), cm = T.giveCounts(list, mixedOrder);
+      eq("a Red Words order counts who has Red Words, games, and who keeps Other lists", [cr.red, cr.other, cr.games, cr.keptRed, cr.keptOther].join(","), "4,0,1,0,4");
+      eq("an Other lists order the other way about", [co.red, co.other, co.games, co.keptRed, co.keptOther].join(","), "0,4,1,4,0");
+      eq("a mixed order replaces both", [cm.red, cm.other, cm.games, cm.keptRed, cm.keptOther].join(","), "4,4,1,0,0");
+      eq("the warning says it in plain words", T.giveWarning(cr, 7),
+         "4 of these 7 students already have a Red Words sequence. This replaces them. 1 of these 7 students has games in no order. This replaces them. It has no other lists: 4 of them keep their Other lists sequence as it is.");
+      eq("…for an Other lists order", T.giveWarning(co, 7),
+         "4 of these 7 students already have an Other lists sequence. This replaces them. 1 of these 7 students has games in no order. This replaces them. It has no Red Words lists: 4 of them keep their Red Words sequence as it is.");
+      eq("…and in the singular", T.giveWarning(T.giveCounts([T.studentByUid("u4")], red), 1),
+         "1 of these 1 student already has a Red Words sequence. This replaces it. It has no other lists: 1 of them keeps their Other lists sequence as it is.");
+      eq("giving to students with nothing to replace asks nothing", T.giveConfirm("X", T.giveCounts([T.studentByUid("u1")], red), 1), "");
+      eq("…and with something, asks, saying what it replaces", /^Give X to 7 students\?\n\n4 of these 7 students already have a Red Words sequence\./.test(T.giveConfirm("X", cr, 7)), true);
     });
 
     /* ---- a write about the second sequence keeps the first, wherever it lived ----
@@ -5231,14 +5292,14 @@
       }
       [["no assignment", null], ["an assignment with only the class stamp", merge({}, stamp)]].forEach(function(c){
         var name = c[0], a0 = c[1];
-        // One sequence on the roster row: add as a second.
+        // Red Words on the roster row: give an Other lists order.
         var row1 = merge({ name: "Ana", plan: planDoc() }, stamp), as0 = {};
         if(a0) as0.u1 = a0;
         feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row1 } });
         eq(name + ": the dashboard reads the roster row's one sequence", T.plansFor("u1").length, 1);
-        var b = T.giveBody(T.studentByUid("u1"), snd, 0.9, NOWT, "add");
-        var a1 = mergeInto(a0, b), got = agree(name + ", added as a second", a1, row1);
-        eq(name + ": add as a second keeps the first and gains the second", got.length, 2);
+        var b = T.giveBody(T.studentByUid("u1"), snd, 0.9, NOWT);
+        var a1 = mergeInto(a0, b), got = agree(name + ", Other lists given", a1, row1);
+        eq(name + ": giving Other lists keeps Red Words and gains Other lists", got.length, 2);
         eq(name + ": …the first exactly as stored, same setAt (its mark still counts)", JSON.stringify(got[0]), JSON.stringify(A4.sanitizePlan(planDoc())));
         eq(name + ": …the second is what was given", got[1] && got[1].setAt + "/" + got[1].steps.length, NOWT + "/" + snd.length);
 
@@ -5249,10 +5310,10 @@
         var s2 = T.stopBody("u1", 7000, 1), got2 = agree(name + ", second stopped", mergeInto(a0, s2), row2);
         eq(name + ": stopping the second leaves exactly the first", JSON.stringify(got2), JSON.stringify([A4.sanitizePlan(planDoc())]));
 
-        // Two on the roster row: add as a second replaces the second, keeps the first.
+        // Both on the roster row: an Other lists order replaces Other lists, keeps Red Words.
         feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
-        var got3 = agree(name + ", second replaced", mergeInto(a0, T.giveBody(T.studentByUid("u1"), T.readyMadeSteps("red"), 0.9, NOWT, "add")), row2);
-        eq(name + ": adding over two keeps the first and replaces the second",
+        var got3 = agree(name + ", Other lists replaced", mergeInto(a0, T.giveBody(T.studentByUid("u1"), snd, 0.9, NOWT)), row2);
+        eq(name + ": giving Other lists over both keeps Red Words and replaces Other lists",
            got3.length + "/" + (got3[0] || {}).setAt + "/" + (got3[1] && got3[1].setAt), "2/" + SETAT + "/" + NOWT);
 
         // The mirror cases: stop the first (promote), and Replace.
@@ -5260,8 +5321,8 @@
         var got4 = agree(name + ", first stopped", mergeInto(a0, T.stopBody("u1", 7000, 0)), row2);
         eq(name + ": stopping the first leaves the second, promoted", got4.length + "/" + JSON.stringify((got4[0] || {}).steps), "1/" + JSON.stringify(plan2Doc().steps));
         feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
-        var got5 = agree(name + ", replaced", mergeInto(a0, T.giveBody(T.studentByUid("u1"), snd, 0.9, NOWT, "replace")), row2);
-        eq(name + ": Replace leaves exactly the new one", got5.length + "/" + (got5[0] || {}).setAt, "1/" + NOWT);
+        var got5 = agree(name + ", Red Words replaced", mergeInto(a0, T.giveBody(T.studentByUid("u1"), T.readyMadeSteps("red"), 0.9, NOWT)), row2);
+        eq(name + ": giving Red Words over both replaces Red Words and keeps Other lists as stored", got5.length + "/" + (got5[0] || {}).setAt + "/" + (got5[1] || {}).setAt, "2/" + NOWT + "/" + SETAT2);
         // And Save from the editor, with the second edited.
         feed({ students: [stu()], assignments: as0, roster: { "u1@seq.org": row2 } });
         T.draftBar(T.ensureDraft("u1", 1), -1);
@@ -5269,6 +5330,153 @@
         eq(name + ": Save with the second edited keeps the first as stored", got6.length + "/" + (got6[0] || {}).setAt + "/" + (got6[1] || {}).setAt, "2/" + SETAT + "/8000");
         T.reset();
       });
+    });
+
+    /* ---- Red Words and Other lists: which is which (2026-11-25) ----
+       Decided by what a sequence holds, never by the field it is in. */
+    guard("the kind of a sequence is what it holds", function(){
+      eq("a red step is red", W4.stepKind(["red-3-say", "red-3-cards"]), "red");
+      eq("any other family's step is other", [TB1, TB2, "nonsense", W4.idFor("oi-oy", 1, "say")].map(function(id){ return W4.stepKind([id]); }).join(","), "other,other,other,other");
+      eq("a red id the library no longer has is still red (ids are permanent)", W4.stepKind(["red-99-say"]), "red");
+      eq("a sequence of red steps is Red Words", W4.seqKind(planDoc().steps), "red");
+      eq("one with no red step is Other lists", W4.seqKind(plan2Doc().steps), "other");
+      eq("one with both is mixed", W4.seqKind([{ ids: ["red-1-say"] }, { ids: [TB1] }]), "mixed");
+      eq("none is nothing", W4.seqKind([]), "");
+      var d = T.emptyDraft("u1", 1);
+      eq("Other lists refuses a red list", T.draftAdd(d, ["red-4-say"]), false);
+      eq("…and takes another", T.draftAdd(d, [TB1]), true);
+      var r = T.emptyDraft("u1", 0);
+      eq("Red Words refuses any other list", T.draftAdd(r, [TB1]), false);
+      eq("…and takes a red one", T.draftAdd(r, ["red-4-say"]), true);
+      var mixed = [{ ids: ["red-1-say"] }, { ids: [TB1] }, { ids: ["red-2-say"] }, { ids: [TB2] }];
+      d = T.emptyDraft("u1", 1);
+      eq("an order used in Other lists brings only its other lists", T.draftReplaceLater(d, 0, mixed) + " " + d.steps.map(function(x){ return x.ids[0]; }).join(","), "2 " + TB1 + "," + TB2);
+      r = T.emptyDraft("u1", 0);
+      eq("…in Red Words only its red lists", T.draftReplaceLater(r, 0, mixed) + " " + r.steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "2 1,2");
+      eq("…and an order with none of the kind adds nothing", T.addsAny(T.emptyDraft("u1", 1), 0, planDoc().steps), false);
+    });
+
+    guard("stored either way round: each in its own section, with its own mark", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      // Other lists stored as plan (mark seq), Red Words as plan2 (mark seq2).
+      var doc = { plan: plan2Doc({ setAt: 2222 }), plan2: planDoc({ setAt: 1111 }) };
+      var marks = [{ at: 1, of: 2222, when: 1795600000000 }, { at: 2, of: 1111, when: 1795500000000 }];
+      var st = merge(solid("red-1-say", 20), solid(TB1, 28));
+      feed({ students: [kid("u1", "Ana Lopez", { stats: st, seq: marks[0], seq2: marks[1] }), kid("u2", "Ben Ortiz")], assignments: { u1: merge(doc, stamp) } });
+      var sec = T.sectionsOf("u1");
+      eq("Red Words is the plan2 one, Other lists the plan one", sec.drafts[0].slot + "/" + sec.drafts[1].slot + "/" + sec.note, "1/0/");
+      eq("…both unedited", T.pageDirty("u1"), false);
+      var store = ST4.resolve(doc, null, st, marks, tot).positions;
+      eq("the dashboard's Now in each is store.js's position for that field", T.draftIndex(sec.drafts[0]) + "/" + T.draftIndex(sec.drafts[1]), store[1].state.index + "/" + store[0].state.index);
+      eq("…Red Words on List 3 by its own mark (seq2), Other lists on its second by seq", T.draftIndex(sec.drafts[0]) + "/" + T.draftIndex(sec.drafts[1]), "2/1");
+      body.hidden = false;
+      T.open("u1"); T.renderDetail();
+      eq("on the page, Red Words is first", body.querySelector("#seqHead").textContent + " | " + body.querySelector("#seqHead2").textContent, "Red Words 3 lists | Other lists Starting Blends, Blend Words · 2 lists");
+      eq("…its Now is List 3", body.querySelector('[data-which="0"] .seqRow.now .seqName').textContent, "Red Words · List 3");
+      eq("…and its finished row carries the date of its own mark (seq2)", /^Finished /.test(body.querySelectorAll('[data-which="0"] .seqRow.fin .seqNote')[1].textContent), true);
+      eq("nothing to save on opening", body.querySelector("#seqSave").hidden, true);
+      // An edit to Red Words only: Other lists is written back exactly as stored, in plan, where its mark is.
+      body.querySelector('[data-which="0"] [data-seq="bar-"]').click();
+      var b = T.saveBody("u1", 9000);
+      eq("an edit to Red Words keeps Other lists in plan, exactly as stored", JSON.stringify(b.plan) === JSON.stringify(A4.sanitizePlan(doc.plan)) && b.plan.setAt, 2222);
+      eq("…and writes Red Words afresh in plan2, at the step it was on", b.plan2.setAt + "/" + b.plan2.at + "/" + b.plan2.bar, "9000/2/0.85");
+      var after = mergeInto(merge(doc, stamp), b), pos = ST4.resolve(after, null, st, marks, tot).positions;
+      eq("…so the student's code still finds each where it was", pos.map(function(p){ return p.state.index; }).join(","), "1,2");
+      body.hidden = true;
+      T.reset();
+      // Dashboard and store.js agree in both field orders, over the same cases.
+      var same = 0, n = 0;
+      [[planDoc(), plan2Doc()], [plan2Doc(), planDoc()]].forEach(function(pair){
+        [{}, solid(TB1, 28), merge(solid("red-1-say", 18), solid("red-1-cards", 18)), merge(solid(TB1, 28), solid(TB2, 31))].forEach(function(stats){
+          [[null, null], [{ at: 1, of: SETAT, when: 1 }, null], [null, { at: 1, of: SETAT2, when: 1 }]].forEach(function(mk){
+            var d2 = { plan: pair[0], plan2: pair[1] };
+            feed({ students: [kid("u1", "Ana", { stats: stats, seq: mk[0], seq2: mk[1] })], assignments: { u1: merge(d2, stamp) } });
+            var sp = ST4.resolve(d2, null, stats, mk, tot).positions, sc = T.sectionsOf("u1").drafts;
+            n++;
+            var ok = sc.every(function(dd){ return T.draftIndex(dd) === sp[dd.slot].state.index; });
+            if(ok) same++;
+          });
+        });
+      });
+      eq("each section's Now is store.js's position, in both field orders, in all " + n + " cases", same, n);
+    });
+
+    guard("an unedited Save moves nobody", function(){
+      feed(twoFixture());
+      eq("two clean sequences: nothing to save", T.pageDirty("u1") + "/" + T.seqDirty(), "false/false");
+      var b = T.saveBody("u1", 9999);
+      eq("…and if asked, what would be written is each exactly as stored, in its own field (same setAt)",
+         JSON.stringify([b.plan, b.plan2]), JSON.stringify([A4.sanitizePlan(planDoc()), A4.sanitizePlan(plan2Doc())]));
+      feed(twoFixture({ assignments: { u1: merge({ plan: plan2Doc(), plan2: planDoc() }, stamp) } }));
+      b = T.saveBody("u1", 9999);
+      eq("…the other way round too: nothing swaps field", b.plan.setAt + "/" + b.plan2.setAt + "/" + W4.seqKind(b.plan.steps), SETAT2 + "/" + SETAT + "/other");
+      body.hidden = false;
+      feed(twoFixture()); T.open("u1"); T.renderDetail();
+      eq("on the page the Save bar is hidden", body.querySelector("#seqSave").hidden, true);
+      T.seqAct("save");
+      eq("…and pressing Save (by code) writes nothing", T.seqDirty() + "/" + T.planFor("u1").setAt, "false/" + SETAT);
+      body.hidden = true;
+    });
+
+    guard("an older mixed sequence is shown split, and Save splits it", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      var mixed = { steps: [{ ids: ["red-1-say"] }, { ids: [TB1] }, { ids: ["red-2-say"] }, { ids: [TB2] }, { ids: ["red-3-say"] }], bar: 0.9, at: 0, hold: false, setAt: 500 };
+      function run(label, stats, seq, plan, expect){
+        var doc = { plan: plan || mixed };
+        feed({ students: [kid("u1", "Ana Lopez", { stats: stats, seq: seq }), kid("u2", "Ben Ortiz")], assignments: { u1: merge(doc, stamp) } });
+        var before = ST4.resolve(doc, null, stats, [seq, null], tot).positions[0];
+        var sec = T.sectionsOf("u1");
+        var b = T.saveBody("u1", 7000), after = mergeInto(merge(doc, stamp), b);
+        var pos = ST4.resolve(after, null, stats, [seq, null], tot).positions;
+        var got = { note: sec.note, red: sec.drafts[0] && sec.drafts[0].steps.length, other: sec.drafts[1] && sec.drafts[1].steps.length,
+                    kinds: W4.seqKind(b.plan.steps) + "/" + (b.plan2 && b.plan2.steps ? W4.seqKind(b.plan2.steps) : "-"),
+                    now: pos.map(function(p){ return p.state.finished ? "done" : p.plan.steps[p.state.index].ids[0]; }).join(",") };
+        eq(label, JSON.stringify(got), JSON.stringify(expect));
+        return { before: before, pos: pos, b: b };
+      }
+      // On step 3 (red-2), by their mark; nothing in their stats.
+      var r1 = run("on the third step: Red Words red-1, red-2, red-3 from red-2; Other lists TB1, TB2 from TB2",
+        {}, { at: 2, of: 500, when: 1 }, null, { note: "mixed", red: 3, other: 2, kinds: "red/other", now: "red-2-say," + TB2 });
+      eq("…nobody backwards: both saved afresh, each `at` past what they had passed", r1.b.plan.at + "/" + r1.b.plan2.at + "/" + r1.b.plan.setAt + "/" + r1.b.plan2.setAt, "1/1/7000/7000");
+      // Finished every list (mark past the end), and slipped on the last since.
+      var r2 = run("a finished student stays finished in both", solid("red-3-say", 5), { at: 5, of: 500, when: 1 }, null,
+        { note: "mixed", red: 3, other: 2, kinds: "red/other", now: "done,done" });
+      eq("…each written past its end", r2.b.plan.at + "/" + r2.b.plan2.at, "3/2");
+      // On step 1, but solid on TB1 already: Other lists walks past it.
+      run("a list they have finished by their own stats is walked past", solid(TB1, 28), null, null,
+        { note: "mixed", red: 3, other: 2, kinds: "red/other", now: "red-1-say," + TB2 });
+      // Held on step 2 (TB1): the hold stays with Other lists.
+      var held = merge(mixed, { at: 1, hold: true });
+      var r4 = run("a hold stays on the list it was on", {}, null, held, { note: "mixed", red: 3, other: 2, kinds: "red/other", now: "red-2-say," + TB1 });
+      eq("…held in Other lists, not in Red Words", r4.b.plan.hold + "/" + r4.b.plan2.hold, "false/true");
+
+      // Two stored, one mixed: the misplaced red step goes after Red Words' own.
+      var two = { plan: planDoc({ steps: [{ ids: ["red-1-say"] }, { ids: ["red-2-say"] }] }), plan2: { steps: [{ ids: [TB1] }, { ids: ["red-5-say"] }, { ids: ["red-1-say", "red-1-cards"] }, { ids: [TB2] }], bar: 0.85, at: 0, hold: false, setAt: SETAT2 } };
+      feed({ students: [kid("u1", "Ana Lopez", { seq: { at: 1, of: SETAT, when: 1 } })], assignments: { u1: merge(two, stamp) } });
+      var sc = T.sectionsOf("u1");
+      eq("two stored, one mixed: Red Words is its own lists then the misplaced one, a list it has already left out",
+         sc.note + " " + sc.drafts[0].steps.map(function(x){ return x.ids[0]; }).join(",") + " | " + sc.drafts[1].steps.map(function(x){ return x.ids[0]; }).join(","),
+         "mixed red-1-say,red-2-say,red-5-say | " + TB1 + "," + TB2);
+      eq("…Red Words keeps its own percent and Other lists its own", sc.drafts[0].bar + "/" + sc.drafts[1].bar, "0.9/0.85");
+      eq("…and Red Words starts where they were (List 2)", T.draftIndex(sc.drafts[0]), 1);
+
+      // Two of the same kind: one Other lists.
+      feed({ students: [kid("u1", "Ana Lopez")], assignments: { u1: merge({ plan: plan2Doc({ steps: [{ ids: [TB1] }] }), plan2: plan2Doc({ steps: [{ ids: [TB2] }], setAt: 3 }) }, stamp) } });
+      sc = T.sectionsOf("u1");
+      eq("two of one kind become one", sc.note + " " + !!sc.drafts[0] + " " + sc.drafts[1].steps.map(function(x){ return x.ids[0]; }).join(","), "same false " + TB1 + "," + TB2);
+      var bs = T.saveBody("u1", 7000);
+      eq("…Save writes it as plan and deletes plan2", W4.seqKind(bs.plan.steps) + "/" + bs.plan2, "other/\u0000delete");
+
+      // On the page.
+      body.hidden = false;
+      feed({ students: [kid("u1", "Ana Lopez", { seq: { at: 2, of: 500, when: 1 } }), kid("u2", "Ben Ortiz")], assignments: { u1: merge({ plan: mixed }, stamp) } });
+      T.open("u1"); T.renderDetail();
+      eq("the page says so in one line", body.querySelector("#seqSplit").textContent, "Ana Lopez’s Red Words lists and other lists were in one order. They are now two: Red Words and Other lists. Press Save to keep this.");
+      eq("…shows the two sections", body.querySelector("#seqHead").textContent + " | " + body.querySelector("#seqHead2").textContent, "Red Words 3 lists | Other lists Starting Blends, Blend Words · 2 lists");
+      eq("…with Save showing, though the teacher has edited nothing", body.querySelector("#seqSave").hidden + "/" + T.seqDirty() + "/" + T.pageDirty("u1"), "false/false/true");
+      eq("…and no Stop until it is saved", body.querySelectorAll('[data-seq="stop"]').length, 0);
+      eq("…and nothing was written by looking", JSON.stringify(T.planFor("u1")), JSON.stringify(A4.sanitizePlan(mixed)));
+      body.hidden = true;
     });
 
     guard("a saved or copied sequence that adds nothing changes nothing", function(){
@@ -5286,25 +5494,32 @@
       var ed = body.querySelectorAll(".seqEditor")[1];
       eq("(the second is on its second list, with one still to come)", tags(ed), "Finished,Now,Next");
       asked = [];
-      body.querySelector("#seqReady2").value = "sv:c3/s1";   // Red Words 1 and 2: both in the first
+      body.querySelector("#seqReady2").value = "sv:c3/s1";   // Red Words 1 and 2: no other lists in it
       body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
-      eq("a saved sequence whose lists are all in the other: the lists still to come stay", tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Now,Next");
+      eq("a saved order with no other lists, used in Other lists: the lists still to come stay", tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Now,Next");
       eq("…nothing to save", T.seqDirty() + "/" + body.querySelector("#seqSave").hidden, "false/true");
       eq("…no confirm was asked", asked.length, 0);
-      eq("…and it says nothing was added", body.querySelector("#seqFlash2").textContent, "Nothing added: every list in it is already in one of their sequences.");
+      eq("…and it says why nothing was added", body.querySelector("#seqFlash2").textContent, "Nothing added: “Red Words 1 and 2” has no other lists.");
 
       T.reset(); feed(fx()); T.open("u1"); T.renderDetail();
       asked = [];
-      body.querySelector("#seqCopy2").value = "u2";      // Ben's Red Words 1 and 2: both in Ana's first
-      body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="copy-go"]').click();
-      eq("copying a student whose lists are all in the other: the lists still to come stay", tags(body.querySelectorAll(".seqEditor")[1]), "Finished,Now,Next");
-      eq("…nothing to save, no confirm", T.seqDirty() + "/" + asked.length, "false/0");
-      eq("…and it says nothing was added", body.querySelector("#seqFlash2").textContent, "Nothing added: every list in it is already in one of their sequences.");
+      body.querySelector("#seqReady").value = "sv:c3/s1";    // Red Words 1 and 2: both already in Ana's Red Words
+      body.querySelectorAll(".seqEditor")[0].querySelector('[data-seq="ready-go"]').click();
+      eq("one whose red lists Red Words already holds: nothing changes", tags(body.querySelectorAll(".seqEditor")[0]) + "/" + T.seqDirty() + "/" + asked.length, "Finished,Now,Next/false/0");
+      eq("…and it says nothing was added", body.querySelector("#seqFlash").textContent, "Nothing added: every list in it is already in this sequence.");
 
       T.reset(); feed(fx()); T.open("u1"); T.renderDetail();
-      body.querySelector("#seqReady2").value = "rm:red";  // Red Words 4 to 10 are new
+      asked = [];
+      body.querySelector("#seqCopy").value = "u2";      // Ben's Red Words 1 and 2: both in Ana's Red Words
+      body.querySelectorAll(".seqEditor")[0].querySelector('[data-seq="copy-go"]').click();
+      eq("copying a student whose lists Ana already has: the lists still to come stay", tags(body.querySelectorAll(".seqEditor")[0]), "Finished,Now,Next");
+      eq("…nothing to save, no confirm", T.seqDirty() + "/" + asked.length, "false/0");
+      eq("…and it says nothing was added", body.querySelector("#seqFlash").textContent, "Nothing added: every list in it is already in this sequence.");
+
+      T.reset(); feed(fx()); T.open("u1"); T.renderDetail();
+      body.querySelector("#seqReady2").value = "rm:sounding";  // Multisyllable is new
       body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
-      eq("one that adds something still replaces what is still to come", T.getDraft2().steps.length + "/" + T.seqDirty(), "9/true");
+      eq("one that adds something still replaces what is still to come", T.getDraft2().steps.map(function(x){ return W4.byId(x.ids[0]).family; }).join(",") + "/" + T.seqDirty(), "blends-start,blends-end,oi-oy,multi/true");
       eq("addsAny asks on a copy: the draft is not touched", (function(){
         var d = { steps: [{ ids: [TB1] }, { ids: [TB2] }, { ids: [TB3] }], at: 1 };
         var r = T.addsAny(d, 1, [{ ids: ["red-1-say"] }], ["red:1"]);
@@ -5319,7 +5534,7 @@
     function withSaved(extra){
       var o = fixture();
       o.classes = { c3: { name: "Period 3", teachers: [ME, "b@seq.org"], sequences: JSON.parse(JSON.stringify(SV)) },
-                    c5: { name: "Period 5", teachers: [ME], sequences: { z9: { name: "Period 5's", steps: [{ ids: ["nonsense"] }], bar: 1 } } } };
+                    c5: { name: "Period 5", teachers: [ME], sequences: { z9: { name: "Period 5's", steps: [{ ids: ["nonsense"] }, { ids: ["red-5-say"] }], bar: 1 } } } };
       for(var k in (extra || {})) o[k] = extra[k];
       return o;
     }
@@ -5355,7 +5570,9 @@
       eq("the editor offers the ready-made ones and then each class's saved ones",
          src.map(function(x){ return x.group + ": " + x.label; }).join(" | "),
          "Ready-made: Red Words, Lists 1 to 10 | Ready-made: Sounding it out | Saved in Period 3: A first one | Saved in Period 3: Red Words, Lists 1 to 10 | Saved in Period 5: Period 5's");
-      eq("…and the several-students dialog adds another student's", T.sequenceSources(true).filter(function(x){ return /^Copy a student/.test(x.group); }).map(function(x){ return x.label; }).join(","), "Ana Lopez’s sequence");
+      eq("…and the several-students dialog adds each student's, by name", T.sequenceSources(true).filter(function(x){ return /^Copy a student/.test(x.group); }).map(function(x){ return x.label; }).join(","), "Ana Lopez’s Red Words");
+      eq("in a section, only that section's ready-made one", T.sequenceSources(false, "red").filter(function(x){ return !x.saved; }).map(function(x){ return x.label; }).join(",") + " | " +
+         T.sequenceSources(false, "other").filter(function(x){ return !x.saved; }).map(function(x){ return x.label; }).join(","), "Red Words, Lists 1 to 10 | Sounding it out");
       eq("a saved one says it is saved, a ready-made one does not", !!src[2].saved && !src[0].saved, true);
       eq("a preview names the lists, the ways and the percent",
          T.sequencePreview(T.readyMadeSteps("red"), 0.9), "10 lists: Red Words · List 1, Red Words · List 2, Red Words · List 3 … Red Words · List 10 — Say it · Cards, finished at 90%.");
@@ -5381,21 +5598,25 @@
       eq("…and changes nothing: the list still to come stays, the percent too",
          T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | ") + "/" + T.getDraft().bar + "/" + T.seqDirty(),
          "red-1-say+red-1-cards | red-2-say+red-2-cards | red-3-say/0.9/false");
-      eq("…and says nothing was added", body.querySelector("#seqFlash").textContent, "Nothing added: every list in it is already in one of their sequences.");
+      eq("…and says nothing was added", body.querySelector("#seqFlash").textContent, "Nothing added: every list in it is already in this sequence.");
       sel = body.querySelector("#seqReady");
       sel.value = "sv:c5/z9";
       asked.length = 0;
       body.querySelector('[data-seq="ready-go"]').click();
       eq("using one asks first, naming what it replaces and the percent it brings",
          /replaces the lists still to come \(Red Words · List 3\) with Period 5's\..*The percent becomes 100%\./.test(asked[0] || ""), true);
-      eq("it keeps the finished list and the one they are on, and puts the saved ones after",
-         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards | red-2-say+red-2-cards | nonsense");
+      eq("it keeps the finished list and the one they are on, and puts the saved red ones after (its other list is not used here)",
+         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards | red-2-say+red-2-cards | red-5-say");
       eq("…and takes the saved percent", T.getDraft().bar, 1);
       // A copy: changing the saved one afterwards does not touch the draft.
       var saved = T.savedSequences().filter(function(x){ return x.key === "z9"; })[0];
       var before = JSON.stringify(T.getDraft().steps);
       saved.steps[0].ids.push("zzz"); saved.steps.pop();
       eq("a copy, not a link: changing the saved one afterwards leaves the draft as it was", JSON.stringify(T.getDraft().steps), before);
+      // The same order in Other lists brings only its other list.
+      body.querySelector("#seqReady2").value = "sv:c5/z9";
+      body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
+      eq("in Other lists the same order brings only its other list", T.getDraft2().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "nonsense");
       body.hidden = true;
     });
     guard("Save this sequence, and the student who has no class", function(){
@@ -5619,7 +5840,7 @@
       asked.length = 0;
       document.getElementById("giveGo").click();
       return ticks(40).then(function(){
-        eq("with games to replace it asks first, naming how many", /Give Red Words, Lists 1 to 10 to 2 students\?[\s\S]*1 of them already has games or a sequence, and this replaces it\./.test(asked[0] || ""), true);
+        eq("with games to replace it asks first, naming how many", /Give Red Words, Lists 1 to 10 to 2 students\?[\s\S]*1 of these 2 students has games in no order\. This replaces them\./.test(asked[0] || ""), true);
         eq("then one batch with both students", db.ops + "/" + db.log.length, "1/2");
         eq("the dialog closes", !!document.getElementById("giveTitle"), false);
         eq("the ticks are cleared", Object.keys(T.getPicked()).length, 0);
@@ -5659,43 +5880,57 @@
         eq("both drafts are gone, and the status line says Saved.", (T.getDraft() === null && T.getDraft2() === null) + "/" + body.querySelector("#seqFlash").textContent, "true/Saved.");
       });
     });
-    guardAsync("adding a second sequence on the page and saving it", function(){
+    guardAsync("starting Other lists beside Red Words on the page and saving it", function(){
       feed(fixture()); var db = fakeDb(); T.setDb(db);
       T.open("u1"); T.renderDetail();
-      body.querySelector('[data-seq="second-add"]').click();
       body.querySelector("#seqReady2").value = "rm:sounding";
       body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
       return T.seqAct("save").then(function(){
         var d = (db.log[0] || {}).data || {};
-        eq("the first is written back as stored, the second new", d.plan.setAt + "/" + d.plan2.steps.length, SETAT + "/4");
-        eq("…and the page now shows two editors", body.querySelectorAll(".seqEditor").length, 2);
+        eq("Red Words is written back as stored in plan, Other lists new in plan2", d.plan.setAt + "/" + d.plan2.steps.length, SETAT + "/4");
+        eq("…and the page now shows both with lists", body.querySelectorAll(".seqEditor .seqRow").length, 3 + 4);
       });
     });
-    guardAsync("stopping the first promotes the second", function(){
+    guardAsync("stopping Red Words, stored as plan, promotes Other lists", function(){
       feed(twoFixture()); var db = fakeDb(); T.setDb(db);
       T.open("u1"); T.renderDetail();
       asked.length = 0;
       return T.seqAct("stop", body.querySelectorAll(".seqEditor")[0].querySelector('[data-seq="stop"]')).then(function(){
         var d = (db.log[0] || {}).data || {};
-        eq("it asks first, saying the second becomes their only one", /Stop using the first sequence for Ana Lopez\?[\s\S]*second sequence \(Starting Blends, Blend Words · 2 lists\) becomes their only one/.test(asked[0] || ""), true);
+        eq("it asks first, saying Other lists stays", /Stop using the Red Words sequence for Ana Lopez\?[\s\S]*Their Other lists sequence stays as it is, and they stay where they are in it\./.test(asked[0] || ""), true);
         eq("the second is written as `plan`, plan2 is deleted", JSON.stringify(d.plan && d.plan.steps) + "/" + d.plan2, JSON.stringify(plan2Doc().steps) + "/DEL");
         eq("…at where they were in it", d.plan && d.plan.at, 1);
-        eq("the page now has one sequence: the old second", T.plansFor("u1").length + "/" + T.planFor("u1").steps[0].ids[0], "1/" + TB1);
+        eq("the page now has one sequence: Other lists", T.plansFor("u1").length + "/" + T.planFor("u1").steps[0].ids[0], "1/" + TB1);
+        eq("…shown in Other lists, with Give Red Words above it", !!body.querySelector('[data-seq="give-red"]') + "/" + body.querySelectorAll('[data-which="1"] .seqRow').length, "true/2");
         eq("…and says so", body.querySelector("#seqFlash").textContent, "Stopped. They have one sequence now.");
       });
     });
-    guardAsync("stopping the second", function(){
+    guardAsync("stopping Other lists", function(){
       feed(twoFixture()); var db = fakeDb(); T.setDb(db);
       T.open("u1"); T.renderDetail();
       asked.length = 0;
       return T.seqAct("stop", body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="stop"]')).then(function(){
         var d = (db.log[0] || {}).data || {};
-        eq("it asks, saying the first stays", /Stop using the second sequence for Ana Lopez\?[\s\S]*Their first sequence stays as it is\./.test(asked[0] || ""), true);
+        eq("it asks, saying Red Words stays", /Stop using the Other lists sequence for Ana Lopez\?[\s\S]*Their Red Words sequence stays as it is/.test(asked[0] || ""), true);
         eq("plan2 is deleted and the first is written back exactly as stored", d.plan2 + "/" + JSON.stringify(d.plan), "DEL/" + JSON.stringify(A4.sanitizePlan(planDoc())));
         eq("the page keeps the first", T.plansFor("u1").length + "/" + T.planFor("u1").setAt, "1/" + SETAT);
       });
     });
-    guardAsync("the dialog: Add as a second sequence", function(){
+    guardAsync("Save on an older mixed sequence writes it as two, without an edit", function(){
+      var mixed = { steps: [{ ids: ["red-1-say"] }, { ids: [TB1] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 500 };
+      feed({ students: [kid("u1", "Ana Lopez", { seq: { at: 1, of: 500, when: 1 } })], assignments: { u1: merge({ plan: mixed }, stamp) } });
+      var db = fakeDb(); T.setDb(db);
+      T.open("u1"); T.renderDetail();
+      return T.seqAct("save").then(function(){
+        var w = db.log[0] || {}, d = w.data || {};
+        eq("one write, to the assignment", db.log.length + "/" + w.col + "/" + w.id, "1/assignments/u1");
+        eq("…Red Words as plan, Other lists as plan2", W4.seqKind(d.plan.steps) + "/" + W4.seqKind(d.plan2.steps), "red/other");
+        eq("…nobody backwards: Red Words past List 1 (passed), Other lists on its only list", d.plan.at + "/" + d.plan2.at, "1/0");
+        eq("…the line is gone and the page says Saved.", !!body.querySelector("#seqSplit") + "/" + body.querySelector("#seqFlash").textContent, "false/Saved.");
+        eq("…and each section can now be stopped", body.querySelectorAll('[data-seq="stop"]').length, 2);
+      });
+    });
+    guardAsync("the dialog: an Other lists order goes beside Red Words", function(){
       body.hidden = false;
       var snd = T.readyMadeSteps("sounding");
       feed({ students: [kid("u1", "Ana"), kid("u3", "Cy"), kid("u5", "Ed")],
@@ -5706,20 +5941,19 @@
       var all = body.querySelector("#stSelAll"); all.checked = true; all.dispatchEvent(new Event("change", { bubbles: true }));
       body.querySelector("#stGive").click();
       var src = document.getElementById("giveSrc"); src.value = "rm:sounding"; src.dispatchEvent(new Event("change", { bubbles: true }));
-      eq("the dialog offers the two choices, Replace first and chosen",
-         Array.prototype.map.call(document.querySelectorAll('input[name="giveMode"]'), function(r){ return r.parentNode.textContent.trim() + (r.checked ? "*" : ""); }).join(" | "),
-         "Replace what they have* | Add as a second sequence");
-      eq("replacing: the warning counts who has something", document.getElementById("giveReplace").textContent, "2 of these 3 students already have games or a sequence. This replaces them.");
-      var add = document.querySelector('input[name="giveMode"][value="add"]'); add.checked = true; add.dispatchEvent(new Event("change", { bubbles: true }));
-      eq("adding: the warning says who is skipped instead", document.getElementById("giveReplace").textContent, "1 is skipped: every list in it is already in their first sequence.");
+      eq("there is no Replace / Add as a second choice", document.querySelectorAll('input[name="giveMode"]').length + "/" + /second sequence|Replace what they have/.test(document.querySelector(".abModalBox").textContent), "0/false");
+      eq("the warning says what it replaces and what it leaves", document.getElementById("giveReplace").textContent,
+         "1 of these 3 students already has an Other lists sequence. This replaces it. It has no Red Words lists: 1 of them keeps their Red Words sequence as it is.");
       asked.length = 0;
       document.getElementById("giveGo").click();
       return ticks(40).then(function(){
-        eq("it asks first, as a second sequence", /^Give Sounding it out to 3 students as a second sequence\?/.test(asked[0] || ""), true);
-        eq("one batch, the skipped student not in it", db.ops + "/" + db.log.map(function(w){ return w.id; }).join(","), "1/u1,u3");
-        eq("…Ana (nothing) gets a first, Cy gets a second", db.log.map(function(w){ return "plan2" in w.data ? "second" : "first"; }).join(","), "first,second");
-        eq("the page says how many were given and skipped", body.querySelector("#stNote").textContent, "Gave a sequence to 2 students. Skipped 1: every list in it is already in their first sequence.");
-        eq("Cy's row now shows two sequences", body.querySelectorAll('tr[data-uid="u3"] .stNow .stPart').length, 2);
+        eq("it asks first", /^Give Sounding it out to 3 students\?/.test(asked[0] || ""), true);
+        eq("one batch, everyone in it", db.ops + "/" + db.log.map(function(w){ return w.id; }).join(","), "1/u1,u3,u5");
+        eq("…Ana (nothing) gets plan, Cy keeps Red Words in plan and gets Other lists as plan2, Ed's is replaced",
+           db.log.map(function(w){ return W4.seqKind(w.data.plan.steps) + "@" + (w.data.plan.setAt === 1000 ? "kept" : "new") + ("plan2" in w.data ? "+" + W4.seqKind(w.data.plan2.steps) : ""); }).join(","),
+           "other@new,red@kept+other,other@new");
+        eq("the page says how many were given", body.querySelector("#stNote").textContent, "Gave a sequence to 3 students.");
+        eq("Cy's row now shows both, labelled", Array.prototype.map.call(body.querySelectorAll('tr[data-uid="u3"] .stNow .stWhich'), function(x){ return x.textContent; }).join(","), "Red Words,Other lists");
       });
     });
     guardAsync("Save this sequence writes one merge onto the class document", function(){
