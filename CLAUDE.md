@@ -71,37 +71,30 @@ Chrome checks need `CHROME="/Applications/Google Chrome.app/Contents/MacOS/Googl
   (`--json`, then `--against`), on the real takes in `tools/mic-takes/` when
   there are any. Then re-pin with `--measure` in the same commit and say why.
   Virtual-reader numbers model the logic. Only the takes are a measurement.
+- **The emulator loops** (`tools/emu-loop.mjs`, GitHub only) cover changes to
+  `firestore.rules`, sign-in, what the site saves, a teacher's buttons and the
+  downloads. Push to a side branch and read the result before `main`. A new
+  loop comes with a planted mistake (`tools/plant-faults.mjs`).
+
+For every loop and check:
+
+- **Never weaken one to make it pass.** A failing loop is a real gap: fix the
+  site. If the loop itself is wrong, say so and why before changing it.
+- **At most two browser runs at once on this Mac**, agents included, and only
+  one heavy one (`sequence-loop`, `listen-loop`). Nothing is installed here
+  for the emulator.
+- **No test touches the real Firebase project or real student data.**
 
 A Stop hook (`.claude/hooks/stop-checks.mjs`) runs `node --check` on every
 root `.js` and `tools/*.mjs`, plus `save-loop.mjs`, after any Claude Code turn
 that changed a site file. It stays silent unless something fails. It does
 **not** run the Chrome checks. `EI_STOP_CHECKS=0` turns it off. GitHub runs
-every check on each push (`checks.yml`) and `tools/rules-test.mjs` on pushes
-to main (`rules.yml`).
+every check on each push (`checks.yml`, `emulator.yml`), and on pushes to main
+also `tools/rules-test.mjs` (`rules.yml`) and `tools/live-check.mjs`
+(`live.yml`, published site against the repo).
 
 `firestore.rules` is the only thing enforcing who may read what. It doesn't
 deploy itself: whenever it changes, re-publish it in the Firebase console.
-
-## Which loop after which change
-
-Run the row for what you changed. GitHub runs everything on every push, so
-nothing else has to run here. A row's browser tools count toward the limit
-below.
-
-| Changed | Run before committing |
-|---|---|
-| anything on the site | `run-tests.sh`, `check-pages.sh`, `boot-check.sh` |
-| `store.js`, sign-in or sign-out in `auth.js`, anything that writes `students/{uid}`, a student's data in `localStorage` or `sessionStorage` | `save-loop.mjs` |
-| the sequence editor, Save, Stop or Give in `teacher.js`; `resolve`, `settle`, `plan()` in `store.js`; the plan functions in `adaptive.js`; the home page in `practice.js` | `sequence-loop.mjs` |
-| how a game listens (the paragraph above lists the pieces) | `listen-loop.mjs`, before and after |
-| `firestore.rules`, sign-in, what the site saves, a teacher's buttons, the downloads | the emulator loops (GitHub only: push to a side branch and read the result) |
-
-- **Never weaken a loop to make it pass.** A failing loop is a real gap: fix
-  the site. If the loop itself is wrong, say so and why before changing it.
-- **At most two browser runs at once on this Mac**, helpers included, and
-  only one heavy one (`sequence-loop`, `listen-loop`).
-- **The emulator runs on GitHub only.** Nothing is installed for it here.
-- **No test touches the real Firebase project or real student data.**
 
 ## Watch out for
 
