@@ -26,6 +26,21 @@
     return app;
   };
 
+  /* The site often turns a refused write into one small line on the page, or
+     nothing. Say it on the console, where the loops can see it. */
+  function watchWrites(fs){
+    [[fs.DocumentReference, ["set", "update", "delete"]], [fs.WriteBatch, ["commit"]]].forEach(function(pair){
+      pair[1].forEach(function(name){
+        var proto = pair[0].prototype, real = proto[name];
+        proto[name] = function(){
+          var path = this.path || "batch", p = real.apply(this, arguments);
+          p.then(null, function(e){ console.error("emu-write-failed: " + name + " " + path + " " + (e && e.code)); });
+          return p;
+        };
+      });
+    });
+  }
+
   /* auth.js adds the Firestore SDK on demand. A capture listener hears the
      script's load before the script's own onload does, which is before
      anything has had a chance to use the database. */
@@ -35,6 +50,7 @@
     if(!pointed && s && s.tagName === "SCRIPT" && /firebase-firestore-compat/.test(s.src)){
       pointed = true;
       firebase.firestore().useEmulator(FS_HOST, FS_PORT);
+      watchWrites(firebase.firestore);
     }
   }, true);
 })();

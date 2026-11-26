@@ -2,7 +2,7 @@
    button and, separately, straight to the database rules; both must give
    the right answer. */
 import { ADMIN, person, assert, same, sleep, until } from "./harness.mjs";
-import { ANA, BEN, TEACHER, seedTeachers, seedClass, openDashboard } from "./flows.mjs";
+import { ANA, BEN, TEACHER, seedTeachers, seedClass, openDashboard, noRefusals } from "./flows.mjs";
 
 const OUTSIDERS = [
   person("kid@gmail.com", "Personal Account"),
@@ -15,6 +15,19 @@ const OUTSIDERS = [
 const mine = (a) => [`students/${a.uid}`, `assignments/${a.uid}`, `roster/${a.email}`];
 
 export const loops = [
+  {
+    name: "a refused write is seen by the loops",
+    async run(t) {
+      await seedTeachers(t.backend, TEACHER);
+      const [ana] = await seedClass(t.backend, "p3", [TEACHER], [ANA], ["red-1-cards"]);
+      const c = await t.computer("student");
+      await c.signIn(ANA);
+      await c.unlocked();
+      noRefusals(c);
+      await c.eval(`EIAuth.db().then(function(db){ return db.collection("assignments").doc("${ana.uid}").set({ lists: [] }); }).then(null, function(){})`);
+      await until(() => c.log.some((l) => l.indexOf("emu-write-failed: set assignments/") !== -1), "the refusal to be noticed");
+    },
+  },
   {
     name: "sign-in: a school account gets in",
     async run(t) {
@@ -49,7 +62,9 @@ export const loops = [
       const who = person("103003@seq.org", "Unverified", { email_verified: false });
       const c = await t.computer("unverified");
       await c.signIn(who);
-      await sleep(8000);
+      await c.wait(`!!(firebase.auth().currentUser && firebase.auth().currentUser.email === ${JSON.stringify(who.email)}) && EIStore.failed()`,
+        "the account signed in and its record refused", 30000);
+      await sleep(2000);
       same(Object.keys(await t.backend.storedAll("students")), [], "records written");
       same(await c.eval(`document.querySelectorAll("#sections a[href*='list=']").length`), 0, "games offered");
     },
@@ -68,6 +83,15 @@ export const loops = [
       for (const p of mine(ben)) assert(!(await b.canRead(ana, p)), `Ana can read another student's ${p}`);
       assert(!(await b.canRead(ana, `notes/${ana.uid}`)), "Ana can read the private note about her");
       assert(!(await b.canRead(null, `students/${ana.uid}`)), "someone signed out can read a student's record");
+      for (const col of ["students", "assignments", "notes", "roster", "classes"]) {
+        assert(!(await b.canList(ana, col)), `a student can list all ${col}`);
+        assert(!(await b.canList(ana, col, TEACHER.email)), `a student can list their teacher's ${col}`);
+      }
+      assert(await b.canWrite(ana, `students/${ana.uid}`, { lastSeen: 2 }), "a student cannot save their own record");
+      for (const [p, data] of [[`students/${ben.uid}`, { lastSeen: 2 }], [`teachers/${ana.email}`, { email: ana.email }], ["classes/p3", { name: "x" }],
+        [`roster/${ana.email}`, { name: "x" }], [`assignments/${ana.uid}`, { lists: [] }], [`notes/${ana.uid}`, { text: "x" }]]) {
+        assert(!(await b.canWrite(ana, p, data)), `a student can write ${p}`);
+      }
 
       for (const who of [...OUTSIDERS, person("104004@seq.org", "Unverified", { email_verified: false })]) {
         const x = await b.account(who);
@@ -90,7 +114,9 @@ export const loops = [
       await seedClass(t.backend, "p3", [TEACHER], [ANA, BEN], ["red-1-cards"]);
       const c = await t.computer("student");
       await c.signIn(ANA, "/teacher.html");
-      await sleep(8000);
+      await c.wait(`!!(firebase.auth().currentUser && firebase.auth().currentUser.email === ${JSON.stringify(ANA.email)})
+        && !document.documentElement.classList.contains("ei-locked")`, "the dashboard to answer the student", 30000);
+      await sleep(2000);
       const page = await c.eval(`document.body.textContent`);
       assert(page.indexOf(BEN.name) === -1 && page.indexOf(BEN.email) === -1, "a classmate shows on the dashboard a student opened");
       same(await c.eval(`document.querySelectorAll("#tBody tr[data-uid]").length`), 0, "student rows");

@@ -69,6 +69,8 @@ for (const loop of chosen) {
     ]);
     const asked = computers.flatMap((c) => c.forbidden);
     if (asked.length) throw new Error("a page asked for a real Google or Firebase address: " + asked[0]);
+    const broke = computers.flatMap((c) => c.log.filter((l) => /^uncaught: |Content Security Policy|Refused to (load|execute|apply|connect|frame)/.test(l)).map((l) => `${c.name}: ${l}`));
+    if (broke.length) throw new Error("a page had an error: " + broke[0]);
     console.log(`PASS: ${loop.name} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   } catch (e) {
     failed.push(loop.name);

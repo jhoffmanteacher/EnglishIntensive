@@ -29,7 +29,7 @@ for f in "$@"; do
     echo "--- $f: the server on port $PORT did not serve it"; fail=1; continue
   fi
   out=$("$CHROME" --headless=new --disable-gpu --no-sandbox --enable-logging=stderr --v=1 \
-        --host-resolver-rules="$BLOCK" \
+        --no-proxy-server --host-resolver-rules="$BLOCK" \
         --virtual-time-budget=3000 --dump-dom "http://localhost:$PORT/$f" 2>&1 >"$OUT")
   status=$?
   if [ $status -ne 0 ] || ! grep -q '<body' "$OUT"; then

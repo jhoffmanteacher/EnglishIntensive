@@ -217,7 +217,7 @@ export async function launchBrowser() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ei-emu-"));
   const proc = spawn(findChrome(), ["--headless=new", "--disable-gpu", "--no-sandbox", "--no-first-run",
     "--no-default-browser-check", "--disable-extensions", "--disable-background-networking", "--mute-audio",
-    `--user-data-dir=${dir}`, `--host-resolver-rules=${BLOCKED}`, "--remote-debugging-port=0",
+    `--user-data-dir=${dir}`, "--no-proxy-server", `--host-resolver-rules=${BLOCKED}`, "--remote-debugging-port=0",
     "--window-size=1366,900", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   const wsUrl = await new Promise((resolve, reject) => {
     let err = "";
@@ -279,8 +279,9 @@ export async function computer(browser, base, name) {
       log.push("uncaught: " + (p.exceptionDetails.exception?.description || p.exceptionDetails.text).slice(0, 300));
     } else if (method === "Log.entryAdded" && p.entry.level === "error") {
       log.push("log: " + p.entry.text.slice(0, 300) + (p.entry.url ? " " + p.entry.url : ""));
-    } else if (method === "Network.requestWillBeSent") {
-      if (FORBIDDEN.test(p.request.url) && !HARMLESS.test(p.request.url)) forbidden.push(p.request.url);
+    } else if (method === "Network.requestWillBeSent" || method === "Network.webSocketCreated") {
+      const url = p.request ? p.request.url : p.url;
+      if (FORBIDDEN.test(url) && !HARMLESS.test(url)) forbidden.push(url);
     } else if (method === "Page.javascriptDialogOpening") {
       dialogs.push(p.message);
       send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
@@ -299,8 +300,9 @@ export async function computer(browser, base, name) {
       return r.result.value;
     },
     async goto(url) {
+      await c.eval("window.__old = true");
       await send("Page.navigate", { url: base + url });
-      await until(() => c.eval(`document.readyState === "complete" && location.href.indexOf(${JSON.stringify(base)}) === 0`), `${name}: ${url} to load`);
+      await until(() => c.eval(`!window.__old && document.readyState === "complete" && location.href.indexOf(${JSON.stringify(base)}) === 0`), `${name}: ${url} to load`);
     },
     async reload() {
       await c.eval("window.__old = true");

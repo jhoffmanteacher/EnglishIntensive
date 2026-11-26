@@ -50,8 +50,10 @@ export const loops = [
 
       const words = parseCsv((await dash.download("#tExportWords")).text);
       const wh = words.shift(), w = (n) => { const i = wh.indexOf(n); assert(i >= 0, `no "${n}" column`); return i; };
-      const got = words.map((r) => [r[w("Email")], r[w("Word")], Number(r[w("Attempts")]), Number(r[w("Correct")])].join(" ")).sort();
-      const want = MINE.flatMap((s) => Object.entries(s.words).map(([k, v]) => [s.email, k.split("|")[1], v.n, v.r].join(" "))).sort();
+      const titles = await dash.eval(`({ "red-1-cards": WordLists.byId("red-1-cards").listTitle, "red-2-cards": WordLists.byId("red-2-cards").listTitle })`);
+      assert(titles["red-1-cards"] !== titles["red-2-cards"], "two lists share a title");
+      const got = words.map((r) => [r[w("Email")], r[w("List")], r[w("Word")], Number(r[w("Attempts")]), Number(r[w("Correct")])].join(" ")).sort();
+      const want = MINE.flatMap((s) => Object.entries(s.words).map(([k, v]) => [s.email, titles[k.split("|")[0]], k.split("|")[1], v.n, v.r].join(" "))).sort();
       same(got, want, "the rows of the every-word spreadsheet");
     },
   },

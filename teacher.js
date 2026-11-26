@@ -1648,6 +1648,11 @@
       localStorage.removeItem("eiStats:" + meUid);
       localStorage.removeItem("ei.plan.seen:" + meUid);
       localStorage.removeItem("ei.plan.seen2:" + meUid);
+      // The games' missed-word piles (GameCore.comebackKey).
+      for(var i = localStorage.length - 1; i >= 0; i--){
+        var k = localStorage.key(i);
+        if(/^(blend|card|match)Comeback:/.test(k) && k.indexOf("Comeback:" + meUid + ":") !== -1) localStorage.removeItem(k);
+      }
     }catch(e){}
   }
 

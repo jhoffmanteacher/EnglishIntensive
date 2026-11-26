@@ -42,8 +42,8 @@ export async function homeLists(c) {
 
 /* Play flash cards with the real buttons. `got` is one true/false per card.
    Returns what was answered, counted here and not by the site: { word: {n, r} }. */
-export async function playCards(c, listId, got, tally = {}) {
-  await c.goto(`/cards-game.html?list=${listId}`);
+export async function playCards(c, listId, got, tally = {}, query = "") {
+  await c.goto(`/cards-game.html?list=${listId}${query}`);
   await c.unlocked();
   await c.click("#btnStart");
   const shown = (id) => `(function(){ var b = document.getElementById("${id}"); return !!b && getComputedStyle(b).display !== "none" && b.offsetParent !== null; })()`;
@@ -133,11 +133,14 @@ export async function giveGames(c, lists) {
   await c.eval(`Array.from(document.querySelectorAll("#tBody #tSaveA")[0] && document.querySelectorAll("#tBody input[data-scope][data-list]"))
     .forEach(function(cb){ var want = ${JSON.stringify(lists)}.indexOf(cb.dataset.list) !== -1;
       if(cb.checked !== want){ cb.checked = want; cb.dispatchEvent(new Event("change", { bubbles: true })); } })`);
+  await c.eval(`document.querySelector("#tSaveA").__old = true`);
   await c.click("#tSaveA");
+  /* The page redraws once the save is acknowledged. */
+  await c.wait(`!!document.querySelector("#tSaveA") && !document.querySelector("#tSaveA").__old`, "the games to be saved");
 }
 
 /* No write the dashboard made may have been refused: a refused one often only shows a small line. */
 export function noRefusals(c) {
-  const bad = c.log.filter((l) => /permission|PERMISSION_DENIED|insufficient/i.test(l));
+  const bad = c.log.filter((l) => l.indexOf("emu-write-failed: ") !== -1);
   assert(!bad.length, `the database refused something on ${c.name}: ${bad[0]}`);
 }

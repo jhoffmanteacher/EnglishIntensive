@@ -1947,8 +1947,9 @@ pages' `<body>` is a centred flex row.
 
 **Reset** (`resetBody()`) deletes `words`, `heard`, `fluency`, `seq` and
 `seq2` from the teacher's own student doc, zeroes the totals, and clears the
-device's mirror and "new list" notes (`eiStats:<uid>`, `ei.plan.seen:<uid>`,
-`ei.plan.seen2:<uid>`); the lists and sequences stay. **Remove** does that and then deletes the
+device's mirror, "new list" notes and missed-word piles (`eiStats:<uid>`,
+`ei.plan.seen:<uid>`, `ei.plan.seen2:<uid>`,
+`blend|card|matchComeback:<uid>:*`); the lists and sequences stay. **Remove** does that and then deletes the
 assignment — and the note only when there is one, because the rules error on
 deleting a document that doesn't exist (there is no `resource` to check).
 Both write a clear note beside the buttons and leave the panel as it was on

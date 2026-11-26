@@ -6,10 +6,12 @@ import { ANA, BEN, TEACHER, seedTeachers, seedClass, homeLists, playCards, tally
 
 const LIST = "red-1-cards";
 
-async function scene(t) {
+async function scene(t, lists = [LIST]) {
   await seedTeachers(t.backend, TEACHER);
-  return seedClass(t.backend, "p3", [TEACHER], [ANA, BEN], [LIST]);
+  return seedClass(t.backend, "p3", [TEACHER], [ANA, BEN], lists);
 }
+/* The page keeps its own copy of the numbers. Throw it away, so what comes back can only have come from the database. */
+const forgetCopy = (c, a) => c.eval(`localStorage.removeItem("eiStats:${a.uid}")`);
 const storedTally = async (t, a) => tallyOfStored((await t.backend.stored(`students/${a.uid}`))?.words, LIST);
 async function waitStored(t, a, want, what) {
   await until(async () => { same(await storedTally(t, a), want, "stored"); return true; }, `${what}: the stored record to match`);
@@ -27,6 +29,7 @@ export const loops = [
 
       const tally = await playCards(one, LIST, [true, true, false, true]);
       await waitStored(t, ana, tally, "after playing");
+      await forgetCopy(one, ana);
       await one.reload();
       await one.unlocked();
       same(await tallyOnPage(one, LIST), tally, "what the page holds after a reload");
@@ -35,6 +38,7 @@ export const loops = [
       await playCards(one, LIST, [false, true], tally);
       await signOut(one);
       same(await storedTally(t, ana), tally, "stored, the moment sign-out finished");
+      await forgetCopy(one, ana);
       await one.signIn(ANA);
       await one.unlocked();
       await one.goto(`/cards-game.html?list=${LIST}`);
@@ -49,6 +53,7 @@ export const loops = [
       same(await tallyOnPage(two, LIST), tally, "on a second computer");
       await playCards(two, LIST, [true, true, true], tally);
       await waitStored(t, ana, tally, "after playing on the second computer");
+      await forgetCopy(one, ana);
       await one.reload();
       await one.unlocked();
       same(await tallyOnPage(one, LIST), tally, "back on the first computer");
@@ -68,11 +73,12 @@ export const loops = [
 
       await c.signIn(BEN);
       await c.unlocked();
-      await c.goto(`/cards-game.html?list=${LIST}`);
-      await c.unlocked();
+      /* Ben's FIRST page: nothing is stored for them yet, so anything here was left behind by Ana. */
       same(await tallyOnPage(c, LIST), {}, "what Ben's page holds");
+      const bens = await playCards(c, LIST, [false, true]);
+      await waitStored(t, ben, bens, "Ben");
       await sleep(2000);
-      same(await storedTally(t, ben), {}, "what is stored for Ben");
+      same(await storedTally(t, ben), bens, "what is stored for Ben is only their own");
       same(await storedTally(t, ana), tally, "Ana's record, untouched");
     },
   },
@@ -111,7 +117,33 @@ export const loops = [
       await c.goto(`/cards-game.html?list=${LIST}`);
       await c.unlocked();
       await sleep(500);
+      await c.wait(`!!document.querySelector("#btnStart")`, "Ben's game to start");
       assert(!(await c.eval(offered)), "Ben is offered the words Ana missed");
+    },
+  },
+  {
+    name: "shared computer: each game keeps each student's own missed-word pile",
+    async run(t) {
+      const GAMES = [["cards-game.html", "card", "red-1-cards"], ["match-game.html", "match", "red-1-match"], ["say-game.html", "blend", "red-1-say"]];
+      const [ana] = await scene(t, GAMES.map((g) => g[2]));
+      const c = await t.computer("shared chromebook");
+      const open = async (page, list) => {
+        await c.goto(`/${page}?list=${list}`);
+        await c.unlocked();
+        await c.wait(`!!document.querySelector("#btnStart")`, `${page} to start`);
+        await sleep(500);
+        return c.eval(`document.querySelector("#btnComeback").style.display !== "none"`);
+      };
+      await c.signIn(ANA);
+      await c.unlocked();
+      for (const [, kind, list] of GAMES) {
+        await c.eval(`localStorage.setItem("${kind}Comeback:${ana.uid}:${list}", JSON.stringify({ words: { you: { n: 2, t: 1 } } }))`);
+      }
+      for (const [page, , list] of GAMES) assert(await open(page, list), `${page} does not offer Ana her own pile`);
+      await signOut(c);
+      await c.signIn(BEN);
+      await c.unlocked();
+      for (const [page, , list] of GAMES) assert(!(await open(page, list)), `${page} offers Ben Ana's pile`);
     },
   },
 ];

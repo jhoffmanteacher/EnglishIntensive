@@ -38,9 +38,10 @@ export const loops = [
       await reloadDashboard(dash);
       await openStudent(dash, ana.uid);
       await tab(dash, "data");
-      for (const word of Object.keys(tally).filter((w) => !tally[w].r)) {
-        await dash.wait(`document.querySelector("#stuPanel-data").textContent.indexOf(${JSON.stringify(word)}) !== -1`, `the missed word "${word}" on the student's data tab`);
-      }
+      const chips = Object.entries(tally).map(([w, v]) => `${w} ${v.r}/${v.n}`).sort();
+      await dash.wait(`document.querySelectorAll("#stuPanel-data .wordchip").length > 0`, "the student's words on the data tab");
+      same(await dash.eval(`Array.from(document.querySelectorAll("#stuPanel-data .wordchip")).map(function(el){
+        return el.firstChild.textContent + " " + el.querySelector("small").textContent.split(" ")[0]; }).sort()`), chips, "the words and scores on the teacher's data tab");
 
       await giveGames(dash, ["red-3-cards"]);
       await until(async () => { same((await b.stored(`assignments/${ana.uid}`))?.lists, ["red-3-cards"], "assigned lists"); return true; }, "the change to be saved");
@@ -149,18 +150,19 @@ export const loops = [
 
       for (const a of [ana, ben]) await dash.click(`#tBody [data-pick="${a.uid}"]`);
       await dash.click("#stGive");
-      const src = await dash.wait(`(Array.from(document.querySelectorAll("#giveSrc option")).map(function(o){ return o.value; }).filter(function(v){ return v.indexOf("rm:") === 0; })[0]) || ""`,
-        "a ready-made sequence to give");
-      await dash.set("#giveSrc", src);
+      /* "Red Words, Lists 1 to 10", written out here from the README rather than read back from the dashboard. */
+      const steps = Array.from({ length: 10 }, (_, i) => [`red-${i + 1}-cards`, `red-${i + 1}-say`]);
+      await dash.wait(`!!document.querySelector('#giveSrc option[value="rm:red"]')`, "the ready-made Red Words sequence");
+      await dash.set("#giveSrc", "rm:red");
       await dash.click("#giveGo");
       for (const a of [ana, ben]) {
-        const doc = await until(async () => { const d = await b.stored(`assignments/${a.uid}`); return d && (d.plan || d.plan2) ? d : null; }, `a sequence for ${a.email}`);
-        const first = (doc.plan || doc.plan2).steps[0].ids;
-        same(doc.lists.slice().sort(), first.slice().sort(), "the lists of the first step");
+        const doc = await until(async () => { const d = await b.stored(`assignments/${a.uid}`); return d && d.plan ? d : null; }, `a sequence for ${a.email}`);
+        same(doc.plan.steps.map((s) => s.ids.slice().sort()), steps, "the lists in the sequence, in order");
+        same(doc.lists.slice().sort(), steps[0], "the lists of the first step");
         const kid = await t.computer(a.email);
         await kid.signIn({ ...ANA, sub: a.sub, email: a.email, name: a.name });
         await kid.unlocked();
-        same(await homeLists(kid), first.slice().sort(), `${a.name}'s home page`);
+        same(await homeLists(kid), steps[0], `${a.name}'s home page`);
       }
       noRefusals(dash);
     },
@@ -175,11 +177,15 @@ export const loops = [
       const before = await b.stored(`students/${ana.uid}`);
       const dash = await t.computer("teacher");
       await openDashboard(dash, TEACHER);
+      const me = await b.account(TEACHER);
       await dash.goto(`/index.html?preview=${encodeURIComponent(ana.uid)}`);
       await dash.unlocked();
       await dash.wait(`!!document.querySelector("#sections a[href*='list=red-1-cards']")`, "the student's games in Student view");
+      /* Play a game inside Student view: answers are what would be written. */
+      await playCards(dash, "red-1-cards", [true, false], {}, `&preview=${encodeURIComponent(ana.uid)}`);
       await sleep(7000);
       same(await b.stored(`students/${ana.uid}`), before, "the student's record after a look");
+      same(await b.stored(`students/${me.uid}`), null, "the teacher's own record after a look");
       noRefusals(dash);
     },
   },
@@ -197,8 +203,10 @@ export const loops = [
       await until(async () => (await b.stored(`assignments/${me.uid}`))?.test === true, "the test student to be saved");
       await dash.wait(`!!document.querySelector("#tTestOpen")`, "the test student's panel");
       await dash.click("#tTestOpen");
+      await dash.eval(`localStorage.setItem("cardComeback:${me.uid}:red-1-cards", JSON.stringify({ words: { you: { n: 2, t: 1 } } }))`);
       await dash.click("#tTestRemove");
       await until(async () => (await b.stored(`assignments/${me.uid}`)) === null, "the test student to be removed");
+      await dash.wait(`localStorage.getItem("cardComeback:${me.uid}:red-1-cards") === null`, "the test student's missed words to be forgotten");
       noRefusals(dash);
     },
   },
