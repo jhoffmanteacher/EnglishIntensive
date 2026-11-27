@@ -489,9 +489,9 @@
      it is), and its ways are in the family's one teaching order — the site sets it, the teacher only ticks. A way
      the table does not name (a retired one) goes after the named ones; an id the library does not know goes last.
      The table is the README's, written again here, never read from word-lists.js. */
-  var ORDER = { "blends-start": ["match", "say", "cards"], "blends-end": ["match", "say", "cards"],
+  var ORDER = { "blends-start": ["match", "say", "cards", "spell"], "blends-end": ["match", "say", "cards", "spell"],
                 "nonsense": ["blendit", "say", "cards", "fluency"], "oi-oy": ["match", "say", "cards", "spell"],
-                "multi": ["split", "match", "say", "cards"], "red": ["match", "cards", "say"] };
+                "multi": ["split", "match", "say", "cards", "spell"], "red": ["match", "cards", "say", "spell"] };
   function orderRank(id){
     var l = W.byId(id); if(!l) return 1e6;
     var k = (ORDER[l.family] || []).indexOf(l.mode);
