@@ -244,6 +244,10 @@ the family's `order` in `word-lists.js`:
 | Starting Blends | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Blend Words | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Nonsense Words | 🔊 Blend it → 🎤 Say it → 🃏 Cards → ⏱ One minute |
+| sh / ch / th | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
+| Silent e | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
+| ar / or / er | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
+| Vowel Teams | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | oi / oy | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Multisyllable | ✂️ Split it → 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Red Words | 🎯 Match It → 🃏 Cards → 🎤 Say it → ⌨️ Spell it |

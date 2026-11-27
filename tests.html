@@ -2719,7 +2719,11 @@
 
     /* ── the teaching order: one per family, set by the site (2026-11-27) ── */
     var ORDERS = { "blends-start": "match,say,cards,spell", "blends-end": "match,say,cards,spell", "nonsense": "blendit,say,cards,fluency",
+                   "digraphs": "match,say,cards,spell", "silent-e": "match,say,cards,spell", "r-vowels": "match,say,cards,spell",
+                   "vowel-teams": "match,say,cards,spell",
                    "oi-oy": "match,say,cards,spell", "multi": "split,match,say,cards,spell", "red": "match,cards,say,spell" };
+    eq("the order table names every family the library has, and only those",
+       Object.keys(ORDERS).sort().join(","), W.families().map(function(f){ return f.key; }).sort().join(","));
     W.families().forEach(function(f){
       eq(f.title + " is met in this order: " + ORDERS[f.key], W.orderOf(f.key).join(","), ORDERS[f.key]);
       eq("…which is every mode it offers, each once, and no retired one",
@@ -2741,6 +2745,10 @@
     W.families().forEach(function(f){
       var o = W.orderOf(f.key);
       if(o.indexOf("spell") !== -1) eq(f.title + ": Spell it comes last, after every way of reading", o[o.length - 1], "spell");
+    });
+    ["digraphs", "silent-e", "r-vowels", "vowel-teams"].forEach(function(k){
+      eq(k + ": every way of the list in the oi / oy order (Match It, Say it, Cards, Spell it)",
+         W.inTeachingOrder(W.idsOfList(k, 1).slice().reverse()).map(function(id){ return W.byId(id).mode; }).join(","), "match,say,cards,spell");
     });
     eq("inTeachingOrder puts Spell it last on Red Words, however it was ticked",
        W.inTeachingOrder(["red-4-spell", "red-4-say", "red-4-match", "red-4-cards"]).join(","), "red-4-match,red-4-cards,red-4-say,red-4-spell");
