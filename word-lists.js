@@ -796,6 +796,8 @@ window.LIST_FAMILIES = [
     note: "Base words with an ending — -s, -es, -ed, -ing. The -ed can sound like /t/, /d/ or /id/.",
     description: "Words with -s, -es, -ed or -ing — jumps, wishes, jumped, landed, fishing.",
     modes: ["say", "spell", "cards", "match"],
+    // The same as oi / oy: hear it, read it aloud, read it alone; spelling after reading.
+    order: ["match", "say", "cards", "spell"],
     config: { highlight: /(?:ing|ed|es|s)$/i },
     modeConfig: {
       say:   { blend: "start", blendLength: 0, theme: "race" },

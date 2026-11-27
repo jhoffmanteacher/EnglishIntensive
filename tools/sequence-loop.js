@@ -493,6 +493,7 @@
                 "nonsense": ["blendit", "say", "cards", "fluency"], "oi-oy": ["match", "say", "cards", "spell"],
                 "digraphs": ["match", "say", "cards", "spell"], "silent-e": ["match", "say", "cards", "spell"],
                 "r-vowels": ["match", "say", "cards", "spell"], "vowel-teams": ["match", "say", "cards", "spell"],
+                "endings": ["match", "say", "cards", "spell"],
                 "multi": ["split", "match", "say", "cards", "spell"], "red": ["match", "cards", "say", "spell"] };
   function orderRank(id){
     var l = W.byId(id); if(!l) return 1e6;

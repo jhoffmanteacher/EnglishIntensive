@@ -249,6 +249,7 @@ the family's `order` in `word-lists.js`:
 | ar / or / er | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Vowel Teams | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | oi / oy | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
+| Endings | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Multisyllable | ✂️ Split it → 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Red Words | 🎯 Match It → 🃏 Cards → 🎤 Say it → ⌨️ Spell it |
 
@@ -2155,8 +2156,9 @@ what comes next."*
 
 **Red Words and Other lists.** A student has at most two sequences, named by
 what they hold: **Red Words** (the red-word lists, and nothing else) and
-**Other lists** (every other family — Starting Blends, Blend Words, oi / oy,
-Multisyllable, Nonsense Words, …). The curriculum already decides which list
+**Other lists** (every other family — Starting Blends, Blend Words, Nonsense
+Words, sh / ch / th, Silent e, ar / or / er, Vowel Teams, oi / oy, Endings,
+Multisyllable). The curriculum already decides which list
 goes where (the teacher: *"the red lists are themselves a sequence … the other
 lists are the ones that can be assigned in an order"*). Either can be there
 without the other, and each moves on by itself.
@@ -2368,8 +2370,9 @@ row — and a **Student view** button for this student. Three tabs, a real
 Below 900px the columns stack.
 
 **The two sections.** Each editor is headed with its name and, in small type
-beside it, what it holds — **Red Words** *10 lists*; **Other lists** *Starting
-Blends, Blend Words, oi / oy, Multisyllable · 4 lists*. **Red Words, when the student has none,** is one
+beside it, what it holds — **Red Words** *10 lists*; **Other lists** given
+*Sounding it out*, *Starting Blends, Blend Words, sh / ch / th … · 9 lists*
+(past four families, the first three and "…"; `holdsText`). **Red Words, when the student has none,** is one
 button, **Give Red Words**, with one line beside it: *"Every Red Words list in
 order, List 1 to List 10, with Cards and Say it. Nothing changes until you press
 Save."* It fills the section with every red list in list-number order, Cards
