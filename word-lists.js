@@ -661,6 +661,8 @@ window.LIST_FAMILIES = [
     note: "Two letters that make one sound — sh, ch, th, wh, and ck at the end of a word.",
     description: "Words with sh, ch, th, wh or ck — ship, chop, math, when, back.",
     modes: ["say", "spell", "cards", "match"],
+    // The same as oi / oy: hear it, read it aloud, read it alone; spelling after reading.
+    order: ["match", "say", "cards", "spell"],
     config: { highlight: /sh|ch|th|wh|ck/i },
     modeConfig: {
       say:   { blend: "start", blendLength: 0, theme: "race" },
@@ -681,6 +683,8 @@ window.LIST_FAMILIES = [
     note: "A silent e at the end makes the vowel say its name — hop becomes hope.",
     description: "Words that end in a silent e — make, bike, hope, cute.",
     modes: ["say", "spell", "cards", "match"],
+    // The same as oi / oy: hear it, read it aloud, read it alone; spelling after reading.
+    order: ["match", "say", "cards", "spell"],
     // The vowel, the consonant after it and the e: the unit the rule is about.
     config: { highlight: /[aeiou][^aeiou]e$/i },
     modeConfig: {
@@ -702,6 +706,8 @@ window.LIST_FAMILIES = [
     note: "An r after a vowel changes its sound. er, ir and ur all sound the same.",
     description: "Words with ar, or, er, ir or ur — car, fork, her, bird, burn.",
     modes: ["say", "spell", "cards", "match"],
+    // The same as oi / oy: hear it, read it aloud, read it alone; spelling after reading.
+    order: ["match", "say", "cards", "spell"],
     config: { highlight: /ar|or|er|ir|ur/i },
     modeConfig: {
       say:   { blend: "start", blendLength: 0, theme: "race" },
@@ -722,6 +728,8 @@ window.LIST_FAMILIES = [
     note: "Two vowels side by side that make one sound — ai, ay, ee, ea, oa, ow.",
     description: "Words with ai, ay, ee, ea, oa or ow — rain, day, feet, team, boat, snow.",
     modes: ["say", "spell", "cards", "match"],
+    // The same as oi / oy: hear it, read it aloud, read it alone; spelling after reading.
+    order: ["match", "say", "cards", "spell"],
     config: { highlight: /ai|ay|ee|ea|oa|ow/i },
     modeConfig: {
       say:   { blend: "start", blendLength: 0, theme: "race" },
