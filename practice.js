@@ -311,10 +311,11 @@ window.EIPractice = (function(){
     return shown;
   }
 
-  /* The one line above a sequence student's tiles, or "". Three things it
-     can say, and these are the only new words a student sees: that they
-     have finished everything, or — the first time the page loads after
-     they moved to a new list — which one. "The first time" is a note kept
+  /* The one line above a sequence student's tiles, or "". These are the
+     only new words a student sees: that they have finished everything, or
+     — the first time the page loads after they moved to a new list — which
+     one, or which new way of playing opened (ONE WAY AT A TIME, below).
+     "The first time" is a note kept
      in localStorage (per student, per sequence: a teacher saving a new
      sequence starts it afresh, and the first ever load announces nothing).
      A teacher previewing a student reads nothing and writes nothing.
@@ -324,20 +325,46 @@ window.EIPractice = (function(){
      oy."), and "You finished all your lists" only when BOTH are finished —
      one finished beside one still going says nothing; the list still going
      is simply there. Each sequence keeps its own note: ei.plan.seen for Red
-     Words, ei.plan.seen2 for Other lists. */
+     Words, ei.plan.seen2 for Other lists.
+
+     ONE WAY AT A TIME. Inside a list, its ways open one at a time
+     (Adaptive.openIds). A way that opens on the list they were already on
+     gets one short sentence the first time the page shows it: "New: Cards
+     for Blend Words." (two at once: "New: Cards and Say it for …"). The note
+     remembers, per list, every way this page has already shown (`open`), so
+     a way that was shown, hid again (a word slipped below the bar before it
+     was played) and came back is not announced twice. Arriving on a new list
+     says only "New list: …". */
   var FINISHED_ALL = "You finished all your lists. Ask your teacher what comes next.";
   function seenKey(uid, k){ return (k ? "ei.plan.seen2:" : "ei.plan.seen:") + uid; }
+  // "Cards", "Cards and Say it", "Match It, Cards and Say it".
+  function andList(words){
+    return words.length < 2 ? words.join("") : words.slice(0, -1).join(", ") + " and " + words[words.length - 1];
+  }
+  function openedText(ids){
+    var first = WordLists.byId(ids[0]);
+    var names = ids.map(function(id){ var l = WordLists.byId(id), m = l && WordLists.modeOf(l.mode); return m ? m.title : ""; }).filter(Boolean);
+    return first && names.length ? "New: " + andList(names) + " for " + first.listTitle + "." : "";
+  }
   function planNotice(pl, pv){
     if(pv) return pl.finished ? FINISHED_ALL : "";
     var lines = [];
     (pl.sequences || []).forEach(function(sq){
       var key = seenKey(pl.uid, sq.which), prev = null;
       try{ prev = JSON.parse(localStorage.getItem(key)); }catch(e){}
-      if(!pl.finished && !sq.finished && prev && prev.setAt === sq.setAt && prev.index < sq.index){
+      var same = !!prev && prev.setAt === sq.setAt;
+      var seen = same && prev.index === sq.index && Array.isArray(prev.open) ? prev.open : null;
+      var going = !pl.finished && !sq.finished;
+      if(going && same && prev.index < sq.index){
         var first = WordLists.byId(sq.current[0]);
         if(first) lines.push("New list: " + first.listTitle + ".");
+      } else if(going && seen){
+        var fresh = sq.current.filter(function(id){ return seen.indexOf(id) === -1; });
+        var line = fresh.length ? openedText(fresh) : "";
+        if(line) lines.push(line);
       }
-      try{ localStorage.setItem(key, JSON.stringify({ setAt: sq.setAt, index: sq.index })); }catch(e){}
+      var shown = (seen || []).concat(sq.current.filter(function(id){ return !seen || seen.indexOf(id) === -1; }));
+      try{ localStorage.setItem(key, JSON.stringify({ setAt: sq.setAt, index: sq.index, open: shown })); }catch(e){}
     });
     return pl.finished ? FINISHED_ALL : lines.join(" ");
   }
@@ -381,9 +408,10 @@ window.EIPractice = (function(){
       }
 
       /* A student with a sequence sees the list they are on, in its
-         section; the lists they have finished sit in one closed fold under
-         it, still playable; lists they have not reached are not there at
-         all — no locks, no "coming soon". A student with two sequences sees
+         section, with the ways of playing it that are open so far; the
+         lists they have finished sit in one closed fold under it, still
+         playable, every way; lists they have not reached, and ways not yet
+         open, are not there at all — no locks, no "coming soon". A student with two sequences sees
          the list they are on in each, and one fold for the finished lists of
          both. A student with no sequence sees their set exactly as before. */
       var pl = EIStore.plan && EIStore.plan();

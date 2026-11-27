@@ -1970,7 +1970,7 @@
     if(i < 0 || i >= d.steps.length || !ids.length) return false;
     var k = listKeyOf(d.steps[i].ids[0]);
     for(var x=0;x<ids.length;x++) if(listKeyOf(ids[x]) !== k) return false;
-    d.steps[i] = { ids: WordLists.withSay(orderIds(ids)) };     // Say it stays, whatever was unticked
+    d.steps[i] = { ids: WordLists.withSay(ids) };     // Say it stays, whatever was unticked; teaching order
     return true;
   }
   /* One list at the end, once: a list already in the sequence is refused,
@@ -1983,7 +1983,7 @@
     if(KINDS[d.which] && stepKind(ids) !== KINDS[d.which]) return false;
     if(stepKeys(d).indexOf(k) !== -1) return false;
     if(exclude && exclude.indexOf(k) !== -1) return false;
-    d.steps.push({ ids: WordLists.withSay(orderIds(ids)) });
+    d.steps.push({ ids: WordLists.withSay(ids) });
     return true;
   }
   // The percent, in steps of 5 from 50 to 100.
@@ -2114,6 +2114,16 @@
     return m ? m.title : String(id);
   }
   function stepWays(step){ return step.ids.map(modeTitleOf).join(" · "); }
+  /* The Now row's line about one way at a time: "Open: Match It, Say it ·
+     Next: Cards", or "… · Next: Say it, then Cards" when more are waiting;
+     just "Open: …" once every way is open. Ids the library no longer has
+     are left out. */
+  function openText(step, open){
+    var live = step.ids.filter(function(id){ return WordLists.exists(id); });
+    var shut = live.filter(function(id){ return open.indexOf(id) === -1; });
+    var now = live.filter(function(id){ return open.indexOf(id) !== -1; });
+    return "Open: " + now.map(modeTitleOf).join(", ") + (shut.length ? " · Next: " + shut.map(modeTitleOf).join(", then ") : "");
+  }
   /* What a sequence holds, in a few words, for its heading: the families in
      order and the count — "Red Words · 10 lists", "Starting Blends, Blend
      Words, oi / oy, Multisyllable · 4 lists". */
@@ -2193,8 +2203,9 @@
     var ids = WordLists.idsOfList(l.family, l.listNum);
     // A retired way the student already holds stays shown and stays theirs.
     step.ids.forEach(function(id){ if(ids.indexOf(id) === -1) ids.push(id); });
+    // In the teaching order: the order the student will meet them in.
     return '<div class="seqWays" role="group" aria-label="Ways of playing ' + esc(stepTitle(step)) + '">' +
-      orderIds(ids).map(function(id){
+      WordLists.inTeachingOrder(ids).map(function(id){
         return '<label class="check"><input type="checkbox" data-ways="' + esc(id) + '"' +
           (isSayId(id) ? sayLockAttrs(id, which) : step.ids.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
       }).join("") +
@@ -2224,6 +2235,8 @@
         (low ? low.solid + " of " + low.total + " solid" : "") + "</div>";
       btns = '<button type="button" class="btn ghost sm" data-seq="goback" data-i="' + i + '" aria-label="Go back to ' + t + '">Go back to this list</button>';
     } else if(kind === "now"){
+      // One way at a time: which are open to the student now (Adaptive.openIds, as their own page works it out).
+      if(step.ids.length > 1) body += '<div class="muted tiny seqOpen">' + esc(openText(step, Adaptive.openIds(step, d.bar, stats, listTotal))) + "</div>";
       body += step.ids.map(function(id){
         var w = wayLine(stats, id, d.bar);
         return '<div class="seqWay"><div class="seqLine">' + esc(w.text) + "</div>" + seqMeter(w) + "</div>";
@@ -2301,7 +2314,7 @@
     }).join("");
     return '<div class="seqAdd"><label class="muted tiny" for="' + sid(which, "seqAddList") + '">List</label>' +
       '<select class="sel seqAddSel" id="' + sid(which, "seqAddList") + '">' + opts + "</select>" +
-      '<div class="seqWays" role="group" aria-label="Ways of playing">' + cur.ids.map(function(id){
+      '<div class="seqWays" role="group" aria-label="Ways of playing">' + WordLists.inTeachingOrder(cur.ids).map(function(id){
         return '<label class="check"><input type="checkbox" data-addway="' + esc(id) + '"' +
           (isSayId(id) ? sayLockAttrs(id, which) : ui.addIds.indexOf(id) !== -1 ? " checked" : "") + ">" + esc(modeTitleOf(id)) + "</label>";
       }).join("") + "</div>" +
@@ -4877,7 +4890,7 @@
       draftReplaceLater: draftReplaceLater, addsAny: addsAny, stepsFromIds: stepsFromIds, readyMadeSteps: readyMadeSteps,
       defaultAddIds: defaultAddIds, waysEditorHtml: waysEditorHtml, SAY_WHY: SAY_WHY,
       READY_MADE: READY_MADE, planBody: planBody, stopBody: stopBody, wayLine: wayLine, stuLine: stuLine,
-      stepTitle: stepTitle, stepWays: stepWays, seqPanelHtml: seqPanelHtml, seqDirty: seqDirty,
+      stepTitle: stepTitle, stepWays: stepWays, openText: openText, givePlan: givePlan, seqPanelHtml: seqPanelHtml, seqDirty: seqDirty,
       leaveDraftOk: leaveDraftOk,
       renderDetail: renderDetail, seqAct: seqAct, commitStudentBody: commitStudentBody,
       switchView: switchView, render: render,

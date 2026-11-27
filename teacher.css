@@ -523,6 +523,7 @@ body.teacher .ei-btn-google{border:1px solid var(--line)}
 .seqTag.now{background:var(--sel-ink);color:var(--sel-bg)}
 .seqTag.later{background:var(--panel);color:var(--muted);border:1px solid var(--line)}
 .seqNote{font-size:13px;margin-top:4px}
+.seqOpen{margin-top:4px}
 .seqHeld{font-weight:600;color:var(--warn)}
 .seqWay{margin-top:8px}
 .seqLine{font-size:14px;line-height:1.45}

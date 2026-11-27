@@ -55,6 +55,17 @@
    deleting it would orphan the stats and leave dangling ids in every
    assignment. Un-retiring is deleting one string from the array.
 
+   ── Teaching order ────────────────────────────────────────────────────
+   Every family has an `order`: its offered modes in the order a student
+   meets them inside a sequence (the teacher, 2026-11-27) — hear it, read
+   it with help, read it alone and checked, read it fast; spelling after
+   reading. The site sets it, one per family; the teacher only ticks which
+   ways. Every step the dashboard writes is in this order
+   (inTeachingOrder, through withSay), and a student in a sequence meets
+   the ways of a list one at a time in it (Adaptive.openIds). A mode not
+   in `order` (a retired one a student still holds) goes after it.
+   Un-retiring a mode means adding it to `order` too.
+
    ── Adding to the library ─────────────────────────────────────────────
    · another red list        one array in RED_LISTS. Nothing else.
    · another mode on a list  one key in that family's `modes`.
@@ -539,6 +550,8 @@ window.LIST_FAMILIES = [
        /m/ first) and a minute is lapped twice, so the rate is mostly
        noise. Both stay on Nonsense Words, where they are the point. */
     retired: ["blendit", "fluency"],
+    // Hear it (Match It), read it aloud and checked, then read it alone.
+    order: ["match", "say", "cards"],
     pages: { say: "initial-blends-game.html" },
     modeConfig: {
       say: { blend: "start", theme: "maze" },
@@ -563,6 +576,7 @@ window.LIST_FAMILIES = [
     description: "Words that end with a consonant blend — soft, pond, risk, milk.",
     modes: ["say", "spell", "cards", "match", "fluency", "blendit"],
     retired: ["blendit", "fluency"],   // same reasons as Starting Blends, above
+    order: ["match", "say", "cards"],
     pages: { say: "blend-words-game.html" },
     modeConfig: {
       say: { blend: "end", theme: "race" },
@@ -588,6 +602,8 @@ window.LIST_FAMILIES = [
        the answer key would be wrong. A list with no meanings can only be
        read, not heard. */
     modes: ["say", "cards", "fluency", "blendit"],
+    // Hear the sounds and blend them, read it aloud, read it alone, then fast.
+    order: ["blendit", "say", "cards", "fluency"],
     pages: { say: "nonsense-words-game.html" },
     modeConfig: {
       /* phonetic: judged by sound, not by spelling. A recogniser handed
@@ -732,6 +748,8 @@ window.LIST_FAMILIES = [
        look-alikes are four separate skills on one set of words, and a
        student can have any of them without the others. */
     modes: ["say", "spell", "cards", "match"],
+    // Spelling after reading.
+    order: ["match", "say", "cards", "spell"],
     pages: { say: "oi-oy-words-game.html", spell: "spelling-oi-oy-game.html" },
     config: { highlight: /oi|oy/i },
     modeConfig: {
@@ -789,6 +807,8 @@ window.LIST_FAMILIES = [
     note: "Two- and three-syllable words. The trick is taking them one chunk at a time.",
     description: "Two- and three-syllable words like napkin, picnic and fantastic.",
     modes: ["say", "spell", "cards", "match", "split"],
+    // Take the word apart first, then hear it, read it aloud, read it alone.
+    order: ["split", "match", "say", "cards"],
     pages: { say: "multisyllable-words-game.html" },
     modeConfig: {
       say: {
@@ -866,6 +886,8 @@ window.LIST_FAMILIES = [
        rule box says. One box; a contraction is typed with its apostrophe,
        and a missing one is a miss. */
     modes: ["say", "spell", "cards", "match"],
+    // Hear it, know it on sight, then read it aloud to the computer.
+    order: ["match", "cards", "say"],
     /* Teacher-facing one-liners, shown as a tooltip on the mode wherever
        the board or a picker names it. Match It stays here as the no-mic
        option, but it is not what red words are for: it gives the student
@@ -1004,18 +1026,38 @@ window.WordLists = (function(){
      counts as right — and a step finishes when every way of playing it
      reaches the bar, so a step without Say it could be finished without
      anything having heard the student read. One step's ids in, the same
-     ids out with that list's Say it id present and first. A list that
-     offers no Say it is left as it is, and so is a step of ids the library
-     does not know. Pure. The dashboard runs every step it makes through
-     this. */
+     ids out with that list's Say it id present, in the family's teaching
+     order (inTeachingOrder, below: Say it is no longer always first). A
+     list that offers no Say it gets only the ordering, and a step of ids
+     the library does not know is left as it is. Pure. The dashboard runs
+     every step it makes through this. */
   function withSay(ids){
     var out = Array.isArray(ids) ? ids.slice() : [];
     var l = null;
     for(var i=0;i<out.length && !l;i++) l = index[out[i]] || null;
     if(!l) return out;
     var say = idFor(l.family, l.listNum, "say");
-    if(!say || index[say].retired) return out;
-    return [say].concat(out.filter(function(id){ return id !== say; }));
+    if(say && !index[say].retired && out.indexOf(say) === -1) out.push(say);
+    return inTeachingOrder(out);
+  }
+
+  /* THE TEACHING ORDER (the teacher, 2026-11-27). A list's ways, in the
+     order its family's `order` gives — the order a student meets them in a
+     sequence, one at a time. A mode the order does not name (a retired one
+     a student still holds) goes after the ones it does, in the family's
+     `modes` order; an id the library does not know goes last, where it
+     was. Stable, pure, and the same ids out as in. */
+  function teachingRank(id){
+    var l = index[id], fam = l && familyOf(l.family);
+    if(!fam) return 1e6;
+    var k = (fam.order || []).indexOf(l.mode);
+    return k !== -1 ? k : 1000 + fam.modes.indexOf(l.mode);
+  }
+  function inTeachingOrder(ids){
+    var list = Array.isArray(ids) ? ids.slice() : [];
+    return list.map(function(id, i){ return { id: id, i: i, r: teachingRank(id) }; })
+               .sort(function(a, b){ return a.r - b.r || a.i - b.i; })
+               .map(function(x){ return x.id; });
   }
 
   function idsOfList(familyKey, listNum){
@@ -1115,6 +1157,12 @@ window.WordLists = (function(){
     },
     idFor: idFor,
     withSay: withSay,
+    inTeachingOrder: inTeachingOrder,
+    // A family's teaching order, as mode keys ([] for a family it does not know).
+    orderOf: function(familyKey){
+      var fam = familyOf(familyKey);
+      return fam && Array.isArray(fam.order) ? fam.order.slice() : [];
+    },
     // Every OFFERED id in one family — what a column toggle on the board
     // sets. Retired ids are left out, so no bulk action can add one.
     idsOfFamily: function(familyKey){
