@@ -126,6 +126,9 @@ window.SpellGame = (function(){
   .rule ul{margin:8px 0 0;padding-left:20px}
   .rule li{margin:5px 0}
   .rule .tip{margin:10px 0 0;color:var(--muted);font-size:16px}
+  /* The reveal's syllable line (partsLine) — the dotted form, in the
+     chunk colours the cards' back uses. */
+  .parts{display:inline-block;margin-top:8px}
 
   /* The big slot on the word card echoes what the student is typing, then
      becomes the reveal after a second miss. Smaller than the blend games'
@@ -263,7 +266,21 @@ window.SpellGame = (function(){
   }
 
   function start(cfg){
-    var WORDS = cfg.words;
+    /* Entries may carry the library's display marks: syllable dots
+       ("fan·tas·tic") and, on the red words, braces round the heart
+       letters. Everything that speaks, checks, boxes or reports a word
+       uses the PLAIN word (Core.parseEntry), exactly as every other
+       engine does; the marks are kept by plain word so the reveal can
+       show them once the word has been answered. */
+    var ENTRY = {};
+    function plainList(list){
+      return (list || []).map(function(e){
+        var p = Core.parseEntry(e);
+        if(!ENTRY[p.word]) ENTRY[p.word] = p;
+        return p.word;
+      });
+    }
+    var WORDS = plainList(cfg.words);
     var highlightRe = cfg.highlight || null;
     /* Sound boxes: one input per SOUND rather than one for the whole
        word. The teaching point is the mismatch — "coin" is three sounds
@@ -394,6 +411,16 @@ window.SpellGame = (function(){
       return escapeHtml(word.slice(0, m.index)) +
         '<span class="b">' + escapeHtml(m[0]) + '</span>' +
         escapeHtml(word.slice(m.index + m[0].length));
+    }
+
+    /* After a miss, the word's own marks: the syllables on a dotted
+       entry ("Syllables: fan·tas·tic"). Only ever shown on the reveal —
+       the word has been answered by then, so nothing is given away.
+       Empty for a word with no marks. */
+    function partsLine(word){
+      var p = ENTRY[word];
+      if(!p || !p.chunks) return "";
+      return '<br><span class="parts">Syllables: ' + Core.chunkMarkup(p.chunks, null) + "</span>";
     }
 
     function focusInput(){
@@ -723,7 +750,8 @@ window.SpellGame = (function(){
         (BOXES ? (badBoxes.length === 1 ? "One sound — the gold box." : "Watch the gold boxes.")
                : (gilded ? "Watch the gold letters." : "So close — count the letters again.")) +
         (typed ? '<br><span class="heard">You typed: ' + escapeHtml(typed) + "</span>" : "") +
-        (boxHint ? '<br><span class="dxmsg">' + escapeHtml(boxHint) + "</span>" : "");
+        (boxHint ? '<br><span class="dxmsg">' + escapeHtml(boxHint) + "</span>" : "") +
+        partsLine(target);
       // The word slowly, and then the one thing that went wrong.
       if(boxHint) sayParts([[target, SLOW_RATE], [boxHint.replace(/:\s*/, ", ") + ".", 0.95]]);
       else say(target, SLOW_RATE);
@@ -816,7 +844,7 @@ window.SpellGame = (function(){
     // With a scheduler attached, "Play again" asks it for a fresh set.
     $("btnAgain").addEventListener("click", function(){
       var list = null;
-      if(nextRound){ try{ list = nextRound(); }catch(e){ list = null; } }
+      if(nextRound){ try{ list = plainList(nextRound()); }catch(e){ list = null; } }
       startGame(list && list.length ? list : WORDS);
     });
     $("btnRetryMissed").addEventListener("click", function(){

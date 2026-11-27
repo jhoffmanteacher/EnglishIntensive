@@ -285,6 +285,35 @@
                       q("#sbox0").value = "z";
                       click(q("#btnCheck"));
                     } },
+    /* The shared spelling page's lists: one box, and the words arrive as
+       library entries. A dotted entry must be checked, spoken and
+       revealed as the plain word, with its syllables on the reveal. */
+    "spell-multi": { engine: "SpellGame",  list: "multi-1-spell", cfg: function(cfg){ cfg.words = ["fan·tas·tic"]; },
+                    drive: function(q, click){
+                      click(q("#btnStart"));
+                      if(!q("#uiBoxes").hidden) throw new Error("sound boxes on a one-box list");
+                      q("#uiInput").value = "fantastik";
+                      click(q("#btnCheck"));
+                      q("#uiInput").value = "fantastik";
+                      click(q("#btnCheck"));
+                      if(q("#uiWord").textContent !== "fantastic") throw new Error("the reveal shows \"" + q("#uiWord").textContent + "\", not the plain word");
+                      if(q("#uiMsg").textContent.indexOf("Syllables: fan·tas·tic") === -1) throw new Error("no syllables on the reveal");
+                    } },
+    "spell-multi-right": { engine: "SpellGame", list: "multi-1-spell", cfg: function(cfg){ cfg.words = ["fan·tas·tic"]; },
+                    drive: function(q, click){
+                      click(q("#btnStart"));
+                      q("#uiInput").value = "fantastic";
+                      click(q("#btnCheck"));
+                      if(q("#wordCard").className.indexOf("correct") === -1) throw new Error("the plain word was not accepted for a dotted entry");
+                    } },
+    "spell-blends": { engine: "SpellGame", list: "blends-start-1-spell", drive: function(q, click){
+                      click(q("#btnStart"));
+                      if(q(".rule").textContent.indexOf("st") === -1) throw new Error("no rule box");
+                      q("#uiInput").value = "zz";
+                      click(q("#btnCheck"));
+                      q("#uiInput").value = "zz";
+                      click(q("#btnCheck"));
+                    } },
     "cards":      { engine: "CardGame",    list: "red-1-cards", drive: function(q, click){
                       click(q("#btnStart"));
                       click(q("#btnFlip"));

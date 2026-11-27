@@ -2508,7 +2508,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("52 entries: six families, times their modes", W.all.length, 52);
+    eq("55 entries: six families, times their modes", W.all.length, 55);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -2628,14 +2628,14 @@
     eq("…and nothing else has a note it shouldn't", W.hintOf("red", "cards") + W.hintOf("nonsense", "match"), "");
     eq("a family with no retired key is unchanged", W.isRetired("nonsense-1-blendit") || W.isRetired("red-1-match"), false);
     eq("an unknown id is not retired", W.isRetired("no-such-id"), false);
-    eq("modesOf still lists every blends mode", W.modesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,cards,match,fluency,blendit");
-    eq("offeredModesOf drops the retired ones", W.offeredModesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,cards,match");
-    eq("…in the other blends family too", W.offeredModesOf("blends-end").map(function(m){ return m.key; }).join(","), "say,cards,match");
+    eq("modesOf still lists every blends mode", W.modesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,spell,cards,match,fluency,blendit");
+    eq("offeredModesOf drops the retired ones", W.offeredModesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
+    eq("…in the other blends family too", W.offeredModesOf("blends-end").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
     eq("a family with no retired key offers everything it has",
        W.offeredModesOf("nonsense").map(function(m){ return m.key; }).join(","), W.modesOf("nonsense").map(function(m){ return m.key; }).join(","));
     eq("offeredModesOf of an unknown family is empty", W.offeredModesOf("nope").length, 0);
-    eq("idsOfList leaves the retired out", W.idsOfList("blends-start", 1).join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
-    eq("idsOfFamily leaves the retired out", W.idsOfFamily("blends-end").join(","), "final-blends,blends-end-1-cards,blends-end-1-match");
+    eq("idsOfList leaves the retired out", W.idsOfList("blends-start", 1).join(","), "initial-blends,blends-start-1-spell,blends-start-1-cards,blends-start-1-match");
+    eq("idsOfFamily leaves the retired out", W.idsOfFamily("blends-end").join(","), "final-blends,blends-end-1-spell,blends-end-1-cards,blends-end-1-match");
     eq("idFor still finds a retired id (the board needs it to show one)", W.idFor("blends-start", 1, "blendit"), "blends-start-1-blendit");
     eq("nonsense keeps Blend it and One minute", W.idsOfList("nonsense", 1).join(","), "nonsense,nonsense-1-cards,nonsense-1-fluency,nonsense-1-blendit");
 
@@ -2651,6 +2651,32 @@
     // The tile heading: a family with ten lists has to say which one.
     eq("a many-list family names the list", W.byId("red-3-cards").listTitle, "Red Words · List 3");
     eq("a one-list family is just itself", W.byId("initial-blends").listTitle, "Starting Blends");
+
+    /* ── Spell it on every list (2026-11-27) ──
+       Starting Blends, Blend Words and Multisyllable gained a spelling
+       mode on the shared spell-game.html. oi/oy keeps its own page and
+       its pinned id. Every family that offers Spell it carries a rule:
+       the rule box is half of that game. */
+    ["blends-start-1-spell", "blends-end-1-spell", "multi-1-spell"].forEach(function(id){
+      var l = W.byId(id);
+      eq(id + " exists", !!l, true);
+      if(!l) return;
+      eq("  …on the spell engine", l.engine, "spell");
+      eq("  …on the shared spell-game.html", l.page, "spell-game.html");
+      eq("  …linked with its ?list=", W.hrefOf(id), "spell-game.html?list=" + id);
+      eq("  …one box, not sound boxes", !!l.config.boxes, false);
+    });
+    eq("offeredModesOf(blends-start) is say,spell,cards,match",
+       W.offeredModesOf("blends-start").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
+    eq("oi-oy-spell still resolves to its own page",
+       W.byId("oi-oy-spell").page + " " + W.hrefOf("oi-oy-spell"), "spelling-oi-oy-game.html spelling-oi-oy-game.html");
+    eq("…with its own rule and sound boxes, unchanged",
+       W.byId("oi-oy-spell").config.rule === OI_OY_RULE && W.byId("oi-oy-spell").config.boxes, true);
+    var ruleless = W.all.filter(function(l){
+      return l.mode === "spell" && !String(l.config.rule || "").replace(/<[^>]*>/g, "").trim();
+    }).map(function(l){ return l.id; });
+    eq("every Spell it has a rule box with words in it", ruleless.length, 0, ruleless.join(","));
+    eq("Nonsense Words has no Spell it (nothing to hear)", W.idFor("nonsense", 1, "spell"), null);
   })();
 
   /* ══════════════════════════════════════════════════════════════════
@@ -2785,8 +2811,8 @@
       return [...host.querySelectorAll("input[data-list]")].map(function(cb){ return cb.dataset.list; });
     }
     var blendsIds = function(ids){ return ids.filter(function(id){ return id.indexOf("blends-start") === 0 || id === "initial-blends"; }); };
-    eq("a picker offers three modes for Starting Blends",
-       blendsIds(boxIds(T.pickerHtml("p", [], false))).join(","), "initial-blends,blends-start-1-cards,blends-start-1-match");
+    eq("a picker offers four modes for Starting Blends",
+       blendsIds(boxIds(T.pickerHtml("p", [], false))).join(","), "initial-blends,blends-start-1-spell,blends-start-1-cards,blends-start-1-match");
     eq("a picker that holds nothing has no box for a retired id at all",
        boxIds(T.pickerHtml("p", [], false)).filter(function(id){ return W.isRetired(id); }).length, 0);
     eq("Nonsense Words still offers Blend it and One minute",

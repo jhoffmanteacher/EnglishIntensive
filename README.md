@@ -193,17 +193,18 @@ The six families:
 
 | family | lists | modes |
 |---|---|---|
-| Starting Blends | 1 | 🎤 🃏 🎯 (⏱ 🔊 retired) |
-| Blend Words | 1 | 🎤 🃏 🎯 (⏱ 🔊 retired) |
+| Starting Blends | 1 | 🎤 ⌨️ 🃏 🎯 (⏱ 🔊 retired) |
+| Blend Words | 1 | 🎤 ⌨️ 🃏 🎯 (⏱ 🔊 retired) |
 | Nonsense Words | 1 | 🎤 🃏 ⏱ 🔊 |
 | oi / oy | 1 | 🎤 ⌨️ 🃏 🎯 |
-| Multisyllable | 1 | 🎤 🃏 🎯 ✂️ |
+| Multisyllable | 1 | 🎤 ⌨️ 🃏 🎯 ✂️ |
 | Red Words | 10 | 🎤 🃏 🎯 |
 
 Some gaps are deliberate. **Nonsense words** have no Match It: that game
 *says* a word and asks the student to find it, and a synthesiser handed
 "vab" guesses — often "verb", so the answer key would be wrong. A list with
-no meanings can only be read, not heard. Every one of its modes runs with
+no meanings can only be read, not heard, and for the same reason it has
+no Spell it: there is no word to hear and type. Every one of its modes runs with
 `speak: false` for the same reason: the cards' flip shows the word without
 pronouncing it; Say It has no Hear it button or H key, its reveal shows the
 word and says only the hint, and tap-to-hear plays the sounds but not the
@@ -285,12 +286,14 @@ changes.
   `modes`.
 - **a whole new family** — one entry in `LIST_FAMILIES`. Every mode has
   a shared page that takes the list from `?list=` — `cards-game.html`,
-  `match-game.html`, `say-game.html`, `fluency-game.html`,
-  `blend-it-game.html` — so nothing new is needed unless the family wants
-  list-specific coaching on its start screen. The five phonics families
-  name their own say-it page in `pages` for that reason (the oi/oy rule
-  box, the blend explainer), and `spell` has no shared page: the only list
-  with a spelling mode carries the oi/oy rule box.
+  `match-game.html`, `say-game.html`, `spell-game.html`,
+  `fluency-game.html`, `blend-it-game.html` — so nothing new is needed
+  unless the family wants list-specific coaching on its start screen. The
+  five phonics families name their own say-it page in `pages` for that
+  reason (the oi/oy rule box, the blend explainer), and oi/oy keeps its
+  own spelling page (`spelling-oi-oy-game.html`, id `oi-oy-spell`). A
+  family that offers `spell` must give `modeConfig.spell.rule`: the rule
+  box is half of that game, and `tests.html` fails on an empty one.
 
 `config` is what every mode of the family passes to its engine;
 `modeConfig[mode]` is what only that mode passes, and it wins on a clash.
@@ -471,7 +474,7 @@ In the core: combo scoring and the star thresholds, the comeback deck (and
 the one function that touches `localStorage`), the race/vault progress
 graphics, the confetti, the score pop-up, the feedback blips, the voice
 ranking, the syllable-chunk parser (`parseEntry`, `chunkMarkup` — every
-engine but spell-it handles dotted entries and all need the same answer to
+engine handles dotted entries and all need the same answer to
 "what word is this really?"), the start screen's read-aloud
 (`directionParts`, below), and the word-list helpers (`shuffled`,
 `dedupeWords`, `sampleWords`, `escapeHtml`).
@@ -674,6 +677,8 @@ Current games:
 - `multisyllable-words-game.html` — two- and three-syllable real words, with
   syllable-chunk scaffolding.
 - `spelling-oi-oy-game.html` — the site's first **spelling** game (see below).
+- `spell-game.html` — the shared spelling page for every other list with
+  Spell it, told which by `?list=`.
 
 ### Comeback words (missed-word persistence)
 
@@ -711,6 +716,18 @@ spelling with the letters the student failed to produce in gold (a
 Levenshtein backtrace, `diffLetters()`), then moves on. Scoring, streaks,
 stars and the missed-words list match the blend games, and the pure helpers
 are covered by `tests.html`.
+
+Every list but Nonsense Words can be spelled. oi/oy has its own page and
+sound boxes; Starting Blends, Blend Words and Multisyllable play on the
+shared `spell-game.html` (`?list=blends-start-1-spell` and so on) with
+one box, because every letter in a blend word is its own sound and the
+boxes would only say how long the word is. Each family's rule box is its
+`modeConfig.spell.rule` in `word-lists.js`. The engine takes library
+entries, so a dotted multisyllable word is spoken, checked, boxed and
+stored as the plain word (`Core.parseEntry`), and the reveal after a
+second miss adds its syllables (`partsLine`). Adding Spell it to a list
+adds nothing to any student's assignment or sequence: it is offered on
+the Assign board and in the pickers, and a teacher ticks it.
 
 ### How the listening works
 

@@ -60,9 +60,11 @@
    · another mode on a list  one key in that family's `modes`.
    · a whole new family      one entry in LIST_FAMILIES. Its cards and
                              Match It modes need no new page — they share
-                             cards-game.html and match-game.html. A `say`
-                             or `spell` mode needs its own page, named in
-                             `pages`, because its copy is list-specific.
+                             cards-game.html and match-game.html, and Say
+                             it and Spell it have say-game.html and
+                             spell-game.html. A family names its own page
+                             in `pages` only for list-specific coaching.
+                             Spell it needs a `modeConfig.spell.rule`.
    ════════════════════════════════════════════════════════════════════ */
 
 /* ── The seven modes ───────────────────────────────────────────────────
@@ -77,15 +79,20 @@
    by the address. Say-it now has a generic page too: the four phonics
    families still name their own in `pages`, because those carry
    list-specific coaching, but a family that doesn't need any (the red
-   words) gets say-game.html and no new file. Spell-it has no default —
-   the only list with a spelling mode carries the oi/oy rule box. */
+   words) gets say-game.html and no new file. Spell-it works the same
+   way: spell-game.html is its shared page, and oi/oy keeps its own
+   (spelling-oi-oy-game.html, id oi-oy-spell) in `pages`. What a spelling
+   mode can't do without is a rule: the rule box on the start screen is
+   half of the game (see spell-game.js), so every family that offers
+   Spell it gives `modeConfig.spell.rule`, and tests.html fails on an
+   empty one. */
 var MODES = {
   say: {
     key: "say", engine: "blend", icon: "🎤", title: "Say it", needs: "mic", page: "say-game.html",
     intro: "Say each word out loud. The computer listens and tells you if you're right.<br>Every 5 in a row earns bonus points."
   },
   spell: {
-    key: "spell", engine: "spell", icon: "⌨️", title: "Spell it", needs: "headphones",
+    key: "spell", engine: "spell", icon: "⌨️", title: "Spell it", needs: "headphones", page: "spell-game.html",
     intro: "Put on headphones. Listen to the word, then type what you hear.<br>You get two tries for each word."
   },
   cards: {
@@ -357,6 +364,21 @@ var OI_OY_RULE =
   "</ul>" +
   '<p class="tip">Stuck? Ask what comes after the sound. Nothing or a vowel → <b>oy</b>. A consonant → <b>oi</b>.</p>';
 
+/* ── Spelling rules for the lists that gained Spell it ──────────────────
+   The rule box on Spell it's start screen. Short and plain: the student
+   reads it before the first word, and it must not be a decoding test of
+   its own. Same markup style as OI_OY_RULE. */
+var BLENDS_START_RULE =
+  '<p style="margin:0">Two consonants side by side each keep their own sound. Say the word slowly and write a letter for every sound you hear.</p>' +
+  '<p class="tip">The blend is the part people drop: <b>st</b>, not <b>s</b>.</p>';
+
+var BLENDS_END_RULE =
+  '<p style="margin:0">The blend is at the end. Say the word slowly and listen for both sounds: <b>so-f-t</b>, not <b>sof</b>.</p>';
+
+var MULTI_RULE =
+  '<p style="margin:0">Say the word one syllable at a time. Spell each syllable, then put them together.</p>' +
+  '<p class="tip">Every syllable has a vowel.</p>';
+
 /* ══════════════════════════════════════════════════════════════════════
    The families.
 
@@ -388,7 +410,7 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Words that begin with a consonant blend — bl, cr, sl, tr.",
     description: "Words that begin with a consonant blend — bl, cr, sl, tr.",
-    modes: ["say", "cards", "match", "fluency", "blendit"],
+    modes: ["say", "spell", "cards", "match", "fluency", "blendit"],
     /* On a 28-word list of real words, Blend it is an easier Say it (a
        student who can read "clam" gains nothing from hearing /k/ /l/ /a/
        /m/ first) and a minute is lapped twice, so the rate is mostly
@@ -396,7 +418,10 @@ window.LIST_FAMILIES = [
     retired: ["blendit", "fluency"],
     pages: { say: "initial-blends-game.html" },
     modeConfig: {
-      say: { blend: "start", theme: "maze" }
+      say: { blend: "start", theme: "maze" },
+      // One box, not sound boxes: every letter here is its own sound, so
+      // the boxes would only say how long the word is.
+      spell: { rule: BLENDS_START_RULE }
     },
     // From the classroom flashcard set.
     lists: [{ n: 1, ids: { say: "initial-blends" },
@@ -413,11 +438,12 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Words that end with a consonant blend — the hard half of a blend, because the sounds run together on the way out.",
     description: "Words that end with a consonant blend — soft, pond, risk, milk.",
-    modes: ["say", "cards", "match", "fluency", "blendit"],
+    modes: ["say", "spell", "cards", "match", "fluency", "blendit"],
     retired: ["blendit", "fluency"],   // same reasons as Starting Blends, above
     pages: { say: "blend-words-game.html" },
     modeConfig: {
-      say: { blend: "end", theme: "race" }
+      say: { blend: "end", theme: "race" },
+      spell: { rule: BLENDS_END_RULE }
     },
     lists: [{ n: 1, ids: { say: "final-blends" },
       words: ["soft","golf","honk","cost","pond","vest","nest","tent","kelp","helm",
@@ -520,7 +546,7 @@ window.LIST_FAMILIES = [
     section: "decode",
     note: "Two- and three-syllable words. The trick is taking them one chunk at a time.",
     description: "Two- and three-syllable words like napkin, picnic and fantastic.",
-    modes: ["say", "cards", "match", "split"],
+    modes: ["say", "spell", "cards", "match", "split"],
     pages: { say: "multisyllable-words-game.html" },
     modeConfig: {
       say: {
@@ -534,6 +560,9 @@ window.LIST_FAMILIES = [
            thinking out loud. */
         intro: "Break the word into parts in your head. Then say the whole word out loud.<br>The computer listens and tells you if you're right."
       },
+      // One box. The answer is the plain word; the reveal shows the
+      // syllables (spell-game.js, partsLine).
+      spell: { rule: MULTI_RULE },
       split: {
         split: true,
         note: `
