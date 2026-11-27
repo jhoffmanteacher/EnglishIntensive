@@ -10,8 +10,10 @@
    A `find` that no longer occurs exactly once is STALE: the code moved on,
    so update the table.
 
-   The emulator faults need the emulators (GitHub runs them); --list only
-   checks that every `find` still occurs once and runs nothing.
+   The emulator faults need the emulators (GitHub runs them); the sequence
+   loop's need only a Chrome (--only=played-way-closes,ways-out-of-order runs
+   them anywhere). --list only checks that every `find` still occurs once and
+   runs nothing.
    Exit 1 if anything got through or is stale, or a loop fails unplanted. */
 import fs from "node:fs";
 import os from "node:os";
@@ -21,6 +23,9 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const emu = (only) => ["tools/emu-loop.mjs", `--only=${only}`];
+/* The sequence loop needs no emulator, only a Chrome (CHROME=…). Six one-sequence cases: that family opens with
+   Red Words given, its first way finished, the next one played, then the first slipping below the bar. */
+const seq = ["tools/sequence-loop.mjs", "--family=one-sequence", "--cases=6"];
 
 const FAULTS = [
   { id: "domain-check-off", expect: "school account", file: "auth.js", run: emu("turned away"),
@@ -73,6 +78,12 @@ const FAULTS = [
   { id: "backup-drops-notes", expect: "notes in the backup", file: "teacher.js", run: emu("backup equals"),
     find: "cols.forEach(function(c, i){ out[c] = r[i]; });", replace: 'cols.forEach(function(c, i){ out[c] = c === "notes" ? {} : r[i]; });',
     why: "the backup looks complete and has no notes in it" },
+  { id: "played-way-closes", expect: "a way they played disappeared", file: "adaptive.js", run: seq,
+    find: "if(reached || playedAny(stats, id)) out.push(id);", replace: "if(reached) out.push(id);",
+    why: "a way of playing the student has already played disappears when a word slips out of the top box" },
+  { id: "ways-out-of-order", expect: "teaching order", file: "word-lists.js", run: seq,
+    find: "    return inTeachingOrder(out);\n  }", replace: "    return out;\n  }",
+    why: "the dashboard writes a step's ways in the order they were ticked, not the order the student should meet them" },
 ];
 
 const args = process.argv.slice(2);
@@ -115,7 +126,8 @@ for (const f of chosen) {
   const r = run(f.run);
   fs.writeFileSync(file, original);
   /* Red is not enough: it has to be red for this mistake's reason, or a flake or a broken page would "prove" the loop. */
-  const fails = (r.stdout || "").split("\n").filter((l) => l.startsWith("FAIL"));
+  // The emulator loops print "FAIL …"; the sequence loop prints "✗ <check> …".
+  const fails = (r.stdout || "").split("\n").filter((l) => l.startsWith("FAIL") || l.startsWith("✗ "));
   if (r.status === 1 && fails.some((l) => l.includes(f.expect))) console.log(`CAUGHT ${f.id}: ${f.why}`);
   else { bad++; console.log(`GOT THROUGH ${f.id} (exit ${r.status}${fails.length ? ", red for another reason: " + fails[0].slice(0, 200) : ""}): ${f.why}`); }
 }

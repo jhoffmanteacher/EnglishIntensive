@@ -495,7 +495,7 @@ window.Adaptive = (function(){
      below); everything here is about one of them, and the two never touch.
 
        plan: {
-         steps: [ { ids: ["red-1-say", "red-1-cards"] }, ... ],
+         steps: [ { ids: ["red-1-cards", "red-1-say"] }, ... ],   // each in its family's teaching order
          bar:   0.9,     // 0.5 to 1 in steps of 0.05: how much of a list must be solid
          at:    0,       // the step the teacher last set as current (0-based);
                          // steps.length means past the end: finished every list
@@ -614,24 +614,64 @@ window.Adaptive = (function(){
     return { index: i, finished: i >= n, hold: false };
   }
 
+  /* ONE WAY AT A TIME (the teacher, 2026-11-27). Inside a sequence a
+     student meets the ways of the list they are on one at a time, in the
+     step's order (the dashboard writes every step in its family's teaching
+     order: WordLists.inTeachingOrder). Which of a step's ids are OPEN — the
+     student can see and play them — in the step's order:
+
+       · the first is always open;
+       · each next one opens when every one before it has reached the bar:
+         the same whole-word measure as stepFinished (listSolid against
+         stepNeed, solid AND at pace), and an id the library no longer has
+         (total 0) is skipped, not waited on, as there;
+       · and an id the student has already played (any stat for it) is
+         open whatever the ones before it say, so a way they have played
+         never disappears again when a word drops out of the top box.
+
+     Nothing is stored: it is worked out from the stats on every load, like
+     the position. So the step is still finished exactly when every way
+     reaches the bar (stepFinished is unchanged), and the last way to open
+     is the last to finish. Without `totalOf` there is no evidence: only the
+     first, and what they have played, is open. Pure. */
+  function playedAny(stats, listId){
+    var prefix = listId + "|";
+    for(var k in stats) if(has(stats, k) && k.indexOf(prefix) === 0) return true;
+    return false;
+  }
+  function openIds(step, bar, stats, totalOf){
+    var ids = step && Array.isArray(step.ids) ? step.ids : [], out = [], reached = true, i;
+    stats = stats || {};
+    for(i=0;i<ids.length;i++){
+      var id = ids[i];
+      if(reached || playedAny(stats, id)) out.push(id);
+      var total = typeof totalOf === "function" ? Math.floor(num(totalOf(id), 0)) : -1;
+      if(total < 0 || (total > 0 && listSolid(stats, id) < stepNeed(bar, total))) reached = false;
+    }
+    return out;
+  }
+
   /* Where a student is in ONE plan, with what the screens need: the state,
-     the current step's ids, the finished steps' ids, and every id they can
-     play (finished, then current). null for no plan. store.js (the
-     student's browser) and teacher.js (the dashboard) both call this, so the
-     two cannot disagree about what a student is shown. */
+     what they can play on the list they are on now (`current`: its OPEN
+     ways, above; `step` is all of that step's ids), the finished steps' ids
+     (every way: a finished list shows them all), and every id they can play
+     (finished, then current). null for no plan. store.js (the student's
+     browser) and teacher.js (the dashboard) both call this, so the two
+     cannot disagree about what a student is shown. */
   function planPosition(plan, stats, totalOf, seq){
     var p = sanitizePlan(plan);
     if(!p) return null;
     var state = planState(p, stats, totalOf, seq);
-    var current = state.finished ? [] : p.steps[state.index].ids.slice();
+    var step = state.finished ? [] : p.steps[state.index].ids.slice();
+    var current = state.finished ? [] : openIds(p.steps[state.index], p.bar, stats, totalOf);
     var done = [], i, j, n = Math.min(state.index, p.steps.length);
     for(i=0;i<n;i++){
       for(j=0;j<p.steps[i].ids.length;j++){
         var id = p.steps[i].ids[j];
-        if(current.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id);
+        if(step.indexOf(id) === -1 && done.indexOf(id) === -1) done.push(id);
       }
     }
-    return { plan: p, state: state, current: current, finishedIds: done, ids: done.concat(current) };
+    return { plan: p, state: state, step: step, current: current, finishedIds: done, ids: done.concat(current) };
   }
 
   /* ── a student's two sequences ────────────────────────────────────
@@ -713,8 +753,9 @@ window.Adaptive = (function(){
        -> { rule, text, listId, addId } | null
 
      A student in a sequence is judged on the list they are on now — the
-     caller passes only that step's ways of playing as `lists` — and the
-     third rule changes with them: "coasting" (everything on a plain set
+     caller passes only that step's open ways of playing as `lists` (what
+     the student can play: planPosition's `current`) — the second rule does
+     not apply (the order is the site's), and the third rule changes with them: "coasting" (everything on a plain set
      is solid) becomes "finished every list" (the whole sequence is done),
      and fires only then; a student half way through a sequence is not
      coasting. A fifth, positive rule says when they last moved on.
@@ -784,8 +825,11 @@ window.Adaptive = (function(){
     /* 2. Match It before the cards are solid. Picking a word out of six
           look-alikes is harder than reading it, not easier, so a student
           failing at it on words they can't yet read has been given the
-          two in the wrong order. */
-    for(i=0;i<lists.length;i++){
+          two in the wrong order. Not inside a sequence: there the site
+          sets the order (WordLists `order`, Match It first on purpose) and
+          the teacher cannot change it, so "Cards first" would be advice
+          nobody can take. */
+    for(i=0;i<lists.length && !info.plan;i++){
       var m = lists[i];
       if(m.mode !== "match" || m.accuracy == null) continue;
       if(m.accuracy >= MATCH_ACC) continue;
@@ -883,6 +927,7 @@ window.Adaptive = (function(){
     sanitizeSeq: sanitizeSeq,
     stepNeed: stepNeed,
     planState: planState,
+    openIds: openIds,
     planPosition: planPosition,
     sanitizePlans: sanitizePlans,
     plansOf: plansOf,

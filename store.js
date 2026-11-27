@@ -45,10 +45,12 @@
 
    ── A sequence ────────────────────────────────────────────────────────
    When the assignment (or roster row) carries a `plan`, the student's
-   lists are not a fixed set: they are the current step, plus every step
-   before it (finished lists stay playable). Later steps are never shown.
-   Where the student IS is worked out here, in their browser, from their
-   own stats, by the same Adaptive.planState the dashboard runs.
+   lists are not a fixed set: they are the OPEN ways of the current step
+   (one at a time, in the step's teaching order: Adaptive.openIds), plus
+   every way of every step before it (finished lists stay playable). Later
+   steps, and the ways of this one not yet open, are never shown. Where
+   the student IS is worked out here, in their browser, from their own
+   stats, by the same Adaptive.planPosition the dashboard runs.
 
    TWO AT ONCE. A student has at most two sequences, in fixed fields:
    `plan` (Red Words, its mark `seq`) and `plan2` (Other lists, its mark
@@ -635,9 +637,10 @@ window.EIStore = (function(){
        who still holds a retired id keeps it: it is in their assignment,
        so it is in the list below, and it plays. A teacher previewing a
        student gets that student's list, exactly. */
-    /* With a sequence, the current step and the ones before it — see "A
-       sequence" at the top. `pos` is this page load's, so the answer does
-       not change under a student in the middle of a round. */
+    /* With a sequence, the open ways of the current step and every way of
+       the ones before it — see "A sequence" at the top. `pos` is this page
+       load's, so the answer does not change under a student in the middle
+       of a round: a way that opens mid-round is there on the next page. */
     var mine = pos ? pos.ids.slice() : effectiveLists(assignment, rosterRow);
     var ids = preview ? mine
             : seesEverything()
@@ -675,7 +678,8 @@ window.EIStore = (function(){
        page); otherwise what the home page draws:
 
          { uid,
-           current,        // the ids they are on now, in every sequence
+           current,        // the ids they can play on the list they are on now
+                           // (its open ways), in every sequence
            finishedIds,    // the ids of every finished list, in every sequence
            finishedCount,  // how many finished lists, all sequences together
            finished,       // true only when EVERY sequence is finished
