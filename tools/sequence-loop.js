@@ -624,8 +624,11 @@
   function savedDraft(s, sec){
     var p = s.plans[sec]; if(!p) return null;
     var pos = s.pos(sec);
+    /* wasN is the end only for a student who WAS past the end when the editor opened (teacher.js draftFromSaved's
+       endAt). A student Move on now carries onto a step added in the same edit is not "past the end", and a raised
+       percent must not walk them back to the old last list. */
     var d = { kind: KINDS[sec], steps: cloneSteps(p.steps), bar: p.bar, at: pos.index, hold: pos.hold, hasPlan: true,
-              wasN: p.steps.length, wasBar: p.bar };
+              wasN: pos.index >= p.steps.length ? p.steps.length : -1, wasBar: p.bar };
     d.base = draftShape(d);
     return d;
   }
