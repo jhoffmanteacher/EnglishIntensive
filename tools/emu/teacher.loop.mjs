@@ -150,19 +150,22 @@ export const loops = [
 
       for (const a of [ana, ben]) await dash.click(`#tBody [data-pick="${a.uid}"]`);
       await dash.click("#stGive");
-      /* "Red Words, Lists 1 to 10", written out here from the README rather than read back from the dashboard. */
+      /* "Red Words, Lists 1 to 10", written out here from the README rather than read back from the dashboard: Say it
+         and Cards, in the Red Words teaching order (Match It, Cards, Say it), so Cards first. */
       const steps = Array.from({ length: 10 }, (_, i) => [`red-${i + 1}-cards`, `red-${i + 1}-say`]);
       await dash.wait(`!!document.querySelector('#giveSrc option[value="rm:red"]')`, "the ready-made Red Words sequence");
       await dash.set("#giveSrc", "rm:red");
       await dash.click("#giveGo");
       for (const a of [ana, ben]) {
         const doc = await until(async () => { const d = await b.stored(`assignments/${a.uid}`); return d && d.plan ? d : null; }, `a sequence for ${a.email}`);
-        same(doc.plan.steps.map((s) => s.ids.slice().sort()), steps, "the lists in the sequence, in order");
+        same(doc.plan.steps.map((s) => s.ids.slice()), steps, "the lists in the sequence, in order, each in its teaching order");
         same(doc.lists.slice().sort(), steps[0], "the lists of the first step");
         const kid = await t.computer(a.email);
         await kid.signIn({ ...ANA, sub: a.sub, email: a.email, name: a.name });
         await kid.unlocked();
-        same(await homeLists(kid), steps[0], `${a.name}'s home page`);
+        /* One way at a time (README "Sequences"): a student who has never practised sees only the first way of the
+           first list. The other opens when that one reaches the bar. */
+        same(await homeLists(kid), [steps[0][0]], `${a.name}'s home page`);
       }
       noRefusals(dash);
     },
