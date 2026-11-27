@@ -2062,12 +2062,15 @@
   /* What Save writes for one draft, as data. The plan starts afresh (setAt
      now) at the step shown as Now — steps.length when that is past the end,
      so a finished student stays finished without their old mark; `lists` is
-     that step's ids (the last step's, past the end). */
+     that step's ids (the last step's, past the end). Every step goes through
+     withSay, the ones not edited too, so what is stored is always Say it in
+     every step and each step in its teaching order. */
   function planBody(d, idx, now){
     var n = d.steps.length, at = Math.max(0, Math.min(idx, n));
+    var steps = d.steps.map(function(st){ return { ids: WordLists.withSay(st.ids) }; });
     return {
-      plan: { steps: cloneSteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at && at < n, setAt: now },
-      lists: d.steps[Math.min(at, n - 1)].ids.slice()
+      plan: { steps: steps, bar: d.bar, at: at, hold: !!d.hold && at === d.at && at < n, setAt: now },
+      lists: steps[Math.min(at, n - 1)].ids.slice()
     };
   }
   function unionIds(lists){
@@ -2404,13 +2407,13 @@
       seqControlsHtml(s, d, which) + stop + (extra || "") + "</div>";
   }
   /* Red Words for a student who has none: one button. It fills the section
-     with every red list in order, Say it and Cards (the ready-made "Red
+     with every red list in order, Cards and Say it (the ready-made "Red
      Words, Lists 1 to 10"), at the usual percent, as a draft — nothing is
      given until Save, as with every edit. */
   function redWordsText(){
     var st = readyMadeSteps("red");
     return st.length ? "Every Red Words list in order, " + stepTitle(st[0]).replace(/^Red Words · /, "") + " to " +
-      stepTitle(st[st.length - 1]).replace(/^Red Words · /, "") + ", with Say it and Cards. Nothing changes until you press Save." : "";
+      stepTitle(st[st.length - 1]).replace(/^Red Words · /, "") + ", with Cards and Say it. Nothing changes until you press Save." : "";
   }
   function giveRedHtml(){
     return '<div class="panel seqEditor" data-which="0"><h2 id="seqHead" tabindex="-1">Red Words</h2>' +
@@ -3748,8 +3751,10 @@
   /* ---------------- one row ----------------
      What the Now on / Progress / Place cells say, as data. A student in a
      sequence: the list they are on, a bar toward finishing it with a tick
-     at their percent, the count in whole words (the way of playing furthest
-     from finished, named when there is more than one), and "List 3 of 6".
+     at their percent, the count in whole words (the way of playing they are
+     working toward: the first, in the step's order, still below the bar —
+     one way at a time, so a later way is usually not open yet — named when
+     there is more than one), and "List 3 of 6".
      A student with two sequences: { kind: "two", seqs: [those, those] }, one
      per sequence, stacked in the one row, Red Words first, each with its
      `label` ("Red Words", "Other lists"). Without a sequence: today's
@@ -3757,14 +3762,13 @@
   function seqFacts(s, pos){
     var n = pos.plan.steps.length;
     if(pos.state.finished) return { kind: "done", title: "Finished all " + n };
-    var step = pos.plan.steps[pos.state.index], far = null;
-    step.ids.forEach(function(id){
-      var w = wayLine(s.stats, id, pos.plan.bar), left = w.need - w.solid;
-      if(!far || left > far.left) far = { w: w, id: id, left: left };
-    });
+    var step = pos.plan.steps[pos.state.index];
+    // The first way below the bar, in step order; with none below (a held step), the first way.
+    var ways = step.ids.map(function(id){ return { id: id, w: wayLine(s.stats, id, pos.plan.bar) }; });
+    var next = ways.filter(function(x){ return x.w.solid < x.w.need; })[0] || ways[0];
     return {
-      kind: "seq", title: stepTitle(step), w: far.w,
-      count: far.w.solid + " of " + far.w.total + (step.ids.length > 1 ? " · " + modeTitleOf(far.id) : ""),
+      kind: "seq", title: stepTitle(step), w: next.w,
+      count: next.w.solid + " of " + next.w.total + (step.ids.length > 1 ? " · " + modeTitleOf(next.id) : ""),
       place: "List " + (pos.state.index + 1) + " of " + n + (pos.state.hold ? " · held" : "")
     };
   }
