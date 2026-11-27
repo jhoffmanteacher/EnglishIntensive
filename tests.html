@@ -2514,7 +2514,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("81 entries: ten families, times their modes", W.all.length, 81);
+    eq("85 entries: eleven families, times their modes", W.all.length, 85);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -2545,14 +2545,14 @@
     });
     eq("every mode of a list plays exactly the same words", drift.length, 0, drift.join(","));
 
-    eq("ten families", W.families().length, 10);
+    eq("eleven families", W.families().length, 11);
     eq("the red family still has ten lists", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
     eq("every red list is still twenty words (the screener's page)",
        W.all.filter(function(l){ return l.family === "red" && l.words.length !== 20; }).length, 0);
     /* ── the four pattern lists (2026-11-27) ── */
-    eq("the four pattern families, between Nonsense Words and oi / oy",
+    eq("the four pattern families between Nonsense Words and oi / oy, Endings before Multisyllable",
        W.families().map(function(f){ return f.key; }).join(","),
-       "blends-start,blends-end,nonsense,digraphs,silent-e,r-vowels,vowel-teams,oi-oy,multi,red");
+       "blends-start,blends-end,nonsense,digraphs,silent-e,r-vowels,vowel-teams,oi-oy,endings,multi,red");
     ["digraphs","silent-e","r-vowels","vowel-teams"].forEach(function(k){
       var f = W.familyOf(k);
       eq(k + " offers say, spell, cards, match", W.offeredModesOf(k).map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
@@ -2577,6 +2577,43 @@
     });
     eq("the pattern words count 118", ["digraphs","silent-e","r-vowels","vowel-teams"]
       .reduce(function(n, k){ return n + W.wordsOf(k + "-1-say").length; }, 0), 118);
+
+    /* ── Endings (2026-11-27): the ending's sound comes from the base word,
+       and only at a "+" a list entry marks. ── */
+    var PH = function(w){ return window.GameCore.phonemes(w).join(" "); };
+    eq("Endings offers say, spell, cards, match", W.offeredModesOf("endings").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
+    eq("  …one box on Spell it", !!W.byId("endings-1-spell").config.boxes, false);
+    eq("  …thirty words", W.wordsOf("endings-1-say").length, 30);
+    eq("jumped ends in /t/: …P T", PH("jumped"), "J UH M P T");
+    eq("filled ends in /d/: …L D", PH("filled"), "F IH L D");
+    eq("landed ends in /id/: …D IH D", PH("landed"), "L AE N D IH D");
+    eq("tested ends in /id/ after t", PH("tested"), "T EH S T IH D");
+    eq("hands ends in /z/: …D Z", PH("hands"), "H AE N D Z");
+    eq("jumps ends in /s/", PH("jumps"), "J UH M P S");
+    eq("wishes ends in /iz/", PH("wishes"), "W IH SH IH Z");
+    eq("fishing ends in IH NG", PH("fishing"), "F IH SH IH NG");
+    eq("shed, with no mark, is unchanged", PH("shed"), "SH EH D");
+    eq("…and so are bed and red", PH("bed") + " / " + PH("red"), "B EH D / R EH D");
+    eq("the ending spans still cover the word, letter for letter",
+       window.GameCore.phonemeSpans("jumped").map(function(sp){ return "jumped".slice(sp.start, sp.end); }).join("|"), "j|u|m|p|ed");
+    var leaky = [];
+    W.families().forEach(function(f){
+      if(f.key === "endings") return;
+      W.listNumsOf(f.key).forEach(function(n){
+        var id = W.all.filter(function(l){ return l.family === f.key && l.listNum === n; })[0].id;
+        W.wordsOf(id).forEach(function(w){ if(W.endingAt(w) !== -1) leaky.push(w); });
+      });
+    });
+    eq("no word on any other list has an ending boundary, so none encodes differently", leaky.length, 0, leaky.join(","));
+    eq("endingAt finds the boundary", W.endingAt("jumped") + "," + W.endingAt("Jumped") + "," + W.endingAt("shed"), "4,4,-1");
+    // The mark is for the encoder only: never shown, matched or stored.
+    var marked = W.all.filter(function(l){ return W.wordsOf(l.id).some(function(w){ return w.indexOf("+") !== -1; }); });
+    eq("no plain word carries the + mark (stat keys, matching, Firestore)", marked.length, 0);
+    eq("entryMap keys are plain", Object.keys(W.entryMap("endings-1-say")).filter(function(k){ return k.indexOf("+") !== -1; }).length, 0);
+    eq("…and map back to the marked entry", W.entryMap("endings-1-say")["jumped"], "jump+ed");
+    eq("parseEntry drops the mark", window.GameCore.parseEntry("jump+ed").word, "jumped");
+    eq("…alongside the other two marks", window.GameCore.parseEntry("res·t{e}+d").word, "rested");
+    eq("a stat key never holds it", window.Adaptive.keyFor("endings-1-say", W.plain("jump+ed")), "endings-1-say|jumped");
 
     eq("the red family declares say, spell, cards then match",
        W.modesOf("red").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
@@ -4332,9 +4369,9 @@
       eq("…each with Say it and Cards", red.every(function(st){ return st.ids.length === 2 && /-say$/.test(st.ids[0]) && /-cards$/.test(st.ids[1]); }), true);
       eq("…in order", red[0].ids[0] + " " + red[9].ids[0], "red-1-say red-10-say");
       var snd = T.readyMadeSteps("sounding");
-      eq("Sounding it out is eight steps", snd.length, 8);
-      eq("…Starting Blends, Blend Words, sh / ch / th, Silent e, ar / or / er, Vowel Teams, oi / oy, Multisyllable, in that order",
-         snd.map(function(st){ return W4.byId(st.ids[0]).family; }).join(","), "blends-start,blends-end,digraphs,silent-e,r-vowels,vowel-teams,oi-oy,multi");
+      eq("Sounding it out is nine steps", snd.length, 9);
+      eq("…Starting Blends, Blend Words, sh / ch / th, Silent e, ar / or / er, Vowel Teams, oi / oy, Endings, Multisyllable, in that order",
+         snd.map(function(st){ return W4.byId(st.ids[0]).family; }).join(","), "blends-start,blends-end,digraphs,silent-e,r-vowels,vowel-teams,oi-oy,endings,multi");
       eq("…each with Say it and Cards", snd.every(function(st){
         return st.ids.length === 2 && W4.byId(st.ids[0]).mode === "say" && W4.byId(st.ids[1]).mode === "cards"; }), true);
       eq("every id is a real, live id", red.concat(snd).every(function(st){ return st.ids.every(function(id){ return W4.exists(id) && !W4.isRetired(id); }); }), true);
@@ -5454,7 +5491,7 @@
       T.reset(); feed(fx()); T.open("u1"); T.renderDetail();
       body.querySelector("#seqReady2").value = "rm:sounding";  // Multisyllable is new
       body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
-      eq("one that adds something still replaces what is still to come", T.getDraft2().steps.map(function(x){ return W4.byId(x.ids[0]).family; }).join(",") + "/" + T.seqDirty(), "blends-start,blends-end,digraphs,silent-e,r-vowels,vowel-teams,oi-oy,multi/true");
+      eq("one that adds something still replaces what is still to come", T.getDraft2().steps.map(function(x){ return W4.byId(x.ids[0]).family; }).join(",") + "/" + T.seqDirty(), "blends-start,blends-end,digraphs,silent-e,r-vowels,vowel-teams,oi-oy,endings,multi/true");
       eq("addsAny asks on a copy: the draft is not touched", (function(){
         var d = { steps: [{ ids: [TB1] }, { ids: [TB2] }, { ids: [TB3] }], at: 1 };
         var r = T.addsAny(d, 1, [{ ids: ["red-1-say"] }], ["red:1"]);
@@ -5823,8 +5860,8 @@
       body.querySelectorAll(".seqEditor")[1].querySelector('[data-seq="ready-go"]').click();
       return T.seqAct("save").then(function(){
         var d = (db.log[0] || {}).data || {};
-        eq("Red Words is written back as stored in plan, Other lists new in plan2", d.plan.setAt + "/" + d.plan2.steps.length, SETAT + "/8");
-        eq("…and the page now shows both with lists", body.querySelectorAll(".seqEditor .seqRow").length, 3 + 8);
+        eq("Red Words is written back as stored in plan, Other lists new in plan2", d.plan.setAt + "/" + d.plan2.steps.length, SETAT + "/9");
+        eq("…and the page now shows both with lists", body.querySelectorAll(".seqEditor .seqRow").length, 3 + 9);
       });
     });
     guardAsync("stopping Red Words leaves Other lists as it is", function(){

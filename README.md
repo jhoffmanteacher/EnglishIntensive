@@ -189,7 +189,7 @@ and finding it among look-alikes are three separate things. So the
 registry generates **one entry per (family, list, mode)**, each with its
 own id and therefore its own stats.
 
-The ten families:
+The eleven families:
 
 | family | lists | modes |
 |---|---|---|
@@ -201,6 +201,7 @@ The ten families:
 | ar / or / er | 1 | 🎤 ⌨️ 🃏 🎯 |
 | Vowel Teams | 1 | 🎤 ⌨️ 🃏 🎯 |
 | oi / oy | 1 | 🎤 ⌨️ 🃏 🎯 |
+| Endings | 1 | 🎤 ⌨️ 🃏 🎯 |
 | Multisyllable | 1 | 🎤 ⌨️ 🃏 🎯 ✂️ |
 | Red Words | 10 | 🎤 ⌨️ 🃏 🎯 |
 
@@ -220,6 +221,17 @@ says the few words a listener could spell another way (*which*, *herd*,
 *plane*…) with a sentence. The word list choices are explained above
 the families in `word-lists.js` (*girl* left out, *gray* swapped for
 *tray*).
+
+**Endings** (`endings`, added 2026-11-27) sits after oi / oy and before
+Multisyllable: base words a student can already read, plus -s, -es, -ed
+or -ing. Each entry marks where the base word stops with a `+`
+(`"jump+ed"`), and that mark is the only reason the encoder gives
+*jumped* a /t/ at the end (see *Which part went wrong*). Like the dot and
+the braces it is display-free and stripped by `WordLists.plain()` and
+`GameCore.parseEntry`, so no stat key, match or Firestore write ever sees
+it; `tests.html` checks that no word on any other list has one. Spell it
+has one box, because the lesson is that -ed is spelled the same whichever
+of its three sounds it makes, and a /t/ box would say the opposite.
 
 Some gaps are deliberate. **Nonsense words** have no Match It: that game
 *says* a word and asks the student to find it, and a synthesiser handed
@@ -743,7 +755,8 @@ sound boxes; every other list plays on the shared `spell-game.html`, with
 sound boxes on sh / ch / th, ar / or / er and Vowel Teams. Starting
 Blends, Blend Words and Multisyllable (`?list=blends-start-1-spell` and so
 on) have one box, because every letter in a blend word is its own sound and
-the boxes would only say how long the word is. Each family's rule box is its
+the boxes would only say how long the word is. Endings has one box too
+(see the families above). Each family's rule box is its
 `modeConfig.spell.rule` in `word-lists.js`. The engine takes library
 entries, so a dotted multisyllable word is spoken, checked, boxed and
 stored as the plain word (`Core.parseEntry`), and the reveal after a
@@ -1195,6 +1208,26 @@ It is built on `phonemeSpans()`, which is `phonemes()` with the letters kept:
 each sound carries the slice of the word that spells it, so the reveal can
 light up **cr** rather than say "the second phoneme". Silent letters fold
 into the sound before them, so every letter belongs to something.
+
+**Endings are read only at a marked boundary.** The encoder has no
+morphology, and a rule on every word-final -ed would turn *shed*, *bed* and
+*red* into two sounds. So the Endings list marks the boundary (`"jump+ed"`),
+`WordLists.endingAt()` hands its position to `phonemeSpans`, and only there
+does the suffix get its real sound, decided by the last sound of the base:
+
+- **-ed** is /ɪd/ after /t/ or /d/ (*landed*, *tested*), /t/ after a
+  voiceless sound (*jumped*, *wished*), /d/ otherwise (*filled*).
+- **-s** is /z/ after a voiced sound (*hands*), /s/ after a voiceless one
+  (*jumps*).
+- **-es** is /ɪz/ (*wishes*), **-ing** is /ɪŋ/.
+
+The ending stays one piece (`j|u|m|p|ed`), so tap-to-hear plays the -ed of
+*jumped* as one /t/ and "You dropped a sound: ed" points at the whole
+ending. A word with no mark encodes exactly as before: on the day this went
+in, every one of the 481 words on the other lists encoded the same before
+and after. `game-core.js` loads before `word-lists.js` on `tests.html` and
+`mic-takes.html`, so it reads `WordLists` when it encodes, not when it
+loads.
 
 The first miss doesn't get any of this — just "I heard: *bred*", because the
 student is about to retry and an unasked-for hint slows that down. The
@@ -2268,7 +2301,7 @@ The two ready-made sequences are built from the library when asked for, not
 stored, so nothing goes stale when a list is added or retired: *Red Words, Lists
 1 to 10* (offered in Red Words) and *Sounding it out* (Starting Blends, Blend
 Words, sh / ch / th, Silent e, ar / or / er, Vowel Teams, oi / oy,
-Multisyllable; offered in Other lists), each with Say it and Cards. An order
+Endings, Multisyllable; offered in Other lists), each with Say it and Cards. An order
 given before a list was added keeps its steps: it is a copy. Using one — or a saved order, or copying another student's — uses only
 the steps of the section's kind and replaces only the lists still to come,
 after a confirm that names them; the finished lists and the one they are on
@@ -2485,7 +2518,7 @@ A live line under the picker — *"Ticked: Starting Blends: 🎤🃏 · Red
 Words: 1–3 🃏 · 1 🎯"* — says in words what the ticks add up to, and it is
 the same line the roster shows, so what a student *has* and what you're
 *setting* read the same way. The button row under a picker is sticky, so
-Save stays on screen however far down the ten families you've scrolled.
+Save stays on screen however far down the eleven families you've scrolled.
 
 ### Roster import
 

@@ -214,8 +214,50 @@ window.GameCore = (function(){
   // of it. A silent letter has no sound of its own, so it is folded into
   // the span before it ("said" is S + ai + D, "slide" is S+L + i + d-e)
   // rather than left as a hole a highlight could fall through.
+  /* ---- endings ----
+     -s, -es, -ed and -ing sound different depending on the word they are
+     added to: jumped ends in /t/, filled in /d/, landed in /ɪd/; hands
+     ends in /z/, jumps in /s/. Letters alone can't tell — "shed", "bed"
+     and "red" end in -ed and are not base + ending — so these rules run
+     ONLY where a list entry marks the boundary ("jump+ed", see the Endings
+     family in word-lists.js). WordLists.endingAt(word) says where it is;
+     every other word, on every other list, encodes exactly as before.
+
+     The base word is encoded on its own, then the ending:
+       -ed   /ɪd/ (IH D) after T or D, /t/ after a voiceless sound, else /d/
+       -s    /s/ after a voiceless sound, else /z/
+       -es   /ɪz/ (IH Z)
+       -ing  /ɪŋ/ (IH NG) — what the plain rules already gave
+     Read lazily, because game-core.js loads before word-lists.js on some
+     pages (tests.html, mic-takes.html); with no library, nothing is marked. */
+  var VOICELESS = { P:1, T:1, K:1, F:1, TH:1, S:1, SH:1, C:1, KS:1 };
+  function endingAt(word){
+    var W = typeof window !== "undefined" ? window.WordLists : null;
+    return W && typeof W.endingAt === "function" ? W.endingAt(word) : -1;
+  }
+  function endingSpans(word, cut){
+    var out = plainSpans(word.slice(0, cut)), suf = word.slice(cut);
+    var last = out.length ? out[out.length-1].ph : "";
+    function add(ph, s, e){ out.push({ ph: ph, start: cut + s, end: cut + e }); }
+    if(suf === "ed"){
+      if(last === "T" || last === "D"){ add("IH", 0, 1); add("D", 1, 2); }
+      else add(VOICELESS[last] ? "T" : "D", 0, 2);
+    }
+    else if(suf === "s")   add(VOICELESS[last] ? "S" : "Z", 0, 1);
+    else if(suf === "es"){ add("IH", 0, 1); add("Z", 1, 2); }
+    else if(suf === "ing"){ add("IH", 0, 1); add("NG", 1, 3); }
+    else return plainSpans(word);       // an ending these rules don't know
+    return out;
+  }
+
   function phonemeSpans(word){
     word = String(word||"").toLowerCase().replace(/[^a-z]/g,"");
+    var cut = endingAt(word);
+    return cut > 0 && cut < word.length ? endingSpans(word, cut) : plainSpans(word);
+  }
+
+  // The spelling rules alone, with no knowledge of endings.
+  function plainSpans(word){
     var out = [], i = 0, n = word.length;
     function at(s){ return word.substr(i, s.length) === s; }
     function push(ph, len){ out.push({ ph: ph, start: i, end: i + len }); i += len; }
@@ -755,10 +797,13 @@ window.GameCore = (function(){
      Braces and dots combine ("al{th}·ough" is legal) and both are display
      only: the plain word is the ONLY form that reaches matching, TTS or a
      stored stat key, exactly as with the dots alone. */
-  var HEART_OPEN = "{", HEART_CLOSE = "}";
+  var HEART_OPEN = "{", HEART_CLOSE = "}", ENDING_MARK = "+";
 
   function parseEntry(entry){
-    var s = String(entry == null ? "" : entry);
+    /* A third mark, "+", sits before an ending ("jump+ed"). It is for the
+       encoder only (WordLists.endingAt, read by phonemeSpans): nothing
+       displays it, so it goes first, before the other two are read. */
+    var s = String(entry == null ? "" : entry).split(ENDING_MARK).join("");
     var hasHeart = s.indexOf(HEART_OPEN) !== -1;
     var hasChunk = s.indexOf(CHUNK_SEP) !== -1;
     if(!hasHeart){

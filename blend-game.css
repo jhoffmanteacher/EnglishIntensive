@@ -190,6 +190,11 @@ h1{font-size:clamp(28px,5vw,46px);margin:0 0 6px;letter-spacing:-.5px}
 /* The reveal is made of buttons when the phoneme clips are available, so
    the same gold has to reach a .tapbit as well as a bare span. */
 .word .tapbit.dx{color:var(--accent);text-shadow:0 0 22px rgba(255,201,77,.45)}
+/* ...except while it plays, when the piece turns gold itself: gold on gold
+   hid the letters of the very piece the student pressed (the -ed of
+   "jumped" is the usual one). Dark letters, as site.css gives any other
+   piece that is playing. */
+.word .tapbit.dx.playing{color:#1a1206;text-shadow:none}
 .dxmsg{
   display:inline-block;margin-top:8px;font-size:17px;font-weight:700;
   color:var(--accent);

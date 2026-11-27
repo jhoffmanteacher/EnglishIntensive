@@ -465,7 +465,7 @@
   });
   // README "A student's page": the two ready-made sequences, Say it and Cards where the family offers them.
   function readyMade(key){
-    var fams = key === "red" ? ["red"] : ["blends-start", "blends-end", "digraphs", "silent-e", "r-vowels", "vowel-teams", "oi-oy", "multi"], steps = [];
+    var fams = key === "red" ? ["red"] : ["blends-start", "blends-end", "digraphs", "silent-e", "r-vowels", "vowel-teams", "oi-oy", "endings", "multi"], steps = [];
     fams.forEach(function(fk){
       W.listNumsOf(fk).forEach(function(n){
         var offered = W.idsOfList(fk, n);

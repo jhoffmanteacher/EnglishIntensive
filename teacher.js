@@ -2042,7 +2042,7 @@
      has Say it and Cards ticked, where the family offers them. */
   var READY_MADE = [
     { key: "red", title: "Red Words, Lists 1 to 10", families: ["red"], kind: "red" },
-    { key: "sounding", title: "Sounding it out", families: ["blends-start", "blends-end", "digraphs", "silent-e", "r-vowels", "vowel-teams", "oi-oy", "multi"], kind: "other" }
+    { key: "sounding", title: "Sounding it out", families: ["blends-start", "blends-end", "digraphs", "silent-e", "r-vowels", "vowel-teams", "oi-oy", "endings", "multi"], kind: "other" }
   ];
   function readyMadeSteps(key){
     var def = READY_MADE.filter(function(r){ return r.key === key; })[0];

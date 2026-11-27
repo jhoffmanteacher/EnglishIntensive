@@ -498,6 +498,10 @@ var VOWEL_TEAM_SENTENCES = {
   throw: "Throw the ball to me."
 };
 
+var ENDINGS_RULE =
+  '<p style="margin:0"><b>-ed</b> can sound like /t/, /d/ or /id/, but it is always spelled <b>ed</b>.</p>' +
+  '<p class="tip">Spell the base word first, then add the ending.</p>';
+
 /* ══════════════════════════════════════════════════════════════════════
    The families.
 
@@ -745,6 +749,37 @@ window.LIST_FAMILIES = [
     lists: [{ n: 1, ids: { say: "oi-oy-read", spell: "oi-oy-spell" }, words: OI_OY_WORDS }]
   },
 
+  /* Endings: -s, -es, -ed, -ing on a base word the student already reads.
+     The "+" in each entry marks where the base word ends. Like the
+     syllable dot it is never shown, spoken, matched or stored (plain()
+     and GameCore.parseEntry drop it); its one job is to tell phonemes()
+     where the ending starts, because the ending's sound depends on the
+     base word's last sound: jump+ed ends in /t/, fill+ed in /d/, land+ed
+     in /id/, hand+s in /z/. phonemes() applies those rules ONLY at a
+     marked boundary — a rule on every word-final "ed" would break shed,
+     bed and red — so no word on any other list encodes differently (a
+     test checks). One box on Spell it, as on the blends. */
+  {
+    key: "endings",
+    title: "Endings",
+    pattern: "word ending",
+    icon: "🔚",
+    section: "decode",
+    note: "Base words with an ending — -s, -es, -ed, -ing. The -ed can sound like /t/, /d/ or /id/.",
+    description: "Words with -s, -es, -ed or -ing — jumps, wishes, jumped, landed, fishing.",
+    modes: ["say", "spell", "cards", "match"],
+    config: { highlight: /(?:ing|ed|es|s)$/i },
+    modeConfig: {
+      say:   { blend: "start", blendLength: 0, theme: "race" },
+      spell: { rule: ENDINGS_RULE }
+    },
+    lists: [{ n: 1,
+      words: ["jump+s","hand+s","camp+s","lift+s","wish+es","box+es","bench+es","dish+es",
+              "jump+ed","help+ed","wish+ed","camp+ed","pick+ed","fill+ed","spell+ed","yell+ed","smell+ed",
+              "rest+ed","land+ed","plant+ed","melt+ed","hunt+ed","test+ed",
+              "jump+ing","help+ing","think+ing","fish+ing","rest+ing","stand+ing","crush+ing"] }]
+  },
+
   {
     key: "multi",
     title: "Multisyllable",
@@ -920,13 +955,35 @@ window.WordLists = (function(){
   var pageServes = {};
   all.forEach(function(l){ pageServes[l.page] = (pageServes[l.page] || 0) + 1; });
 
-  var CHUNK_SEP = "·";
-  // The plain word, with the two display marks removed — the syllable dots
-  // and the braces round a red word's heart letters ("s{ai}d"). This is the
-  // form every stat key, every match and every bit of stored data uses;
-  // the marked-up forms never leave the engine's display code.
+  var CHUNK_SEP = "·", ENDING_MARK = "+";
+  // The plain word, with the three marks removed — the syllable dots, the
+  // braces round a red word's heart letters ("s{ai}d") and the "+" before
+  // an ending ("jump+ed"). This is the form every stat key, every match
+  // and every bit of stored data uses; the marked-up forms never leave
+  // the engine's display code (and, for "+", the encoder).
   function plain(entry){
-    return String(entry || "").split(CHUNK_SEP).join("").replace(/[{}]/g, "");
+    return String(entry || "").split(CHUNK_SEP).join("").replace(/[{}+]/g, "");
+  }
+
+  /* Where each marked word's ending starts, by plain word: "jumped" -> 4.
+     GameCore.phonemes() reads it through endingAt() to encode the ending
+     by the base word's last sound. Letters-only and lowercase, because
+     that is the form the encoder works on. A word with no "+" is not in
+     here and encodes exactly as it always did. */
+  var ENDINGS = {};
+  all.forEach(function(l){
+    l.words.forEach(function(e){
+      var s = String(e || "").split(CHUNK_SEP).join("").replace(/[{}]/g, "");
+      var at = s.indexOf(ENDING_MARK);
+      if(at <= 0 || s.indexOf(ENDING_MARK, at + 1) !== -1) return;
+      var base = s.slice(0, at).toLowerCase().replace(/[^a-z]/g, "");
+      var word = s.replace(ENDING_MARK, "").toLowerCase().replace(/[^a-z]/g, "");
+      if(base && word.length > base.length) ENDINGS[word] = base.length;
+    });
+  });
+  function endingAt(word){
+    var w = String(word || "").toLowerCase().replace(/[^a-z]/g, "");
+    return Object.prototype.hasOwnProperty.call(ENDINGS, w) ? ENDINGS[w] : -1;
   }
 
   function familyOf(key){
@@ -983,6 +1040,7 @@ window.WordLists = (function(){
       return m;
     },
     plain: plain,
+    endingAt: endingAt,
 
     /* The home page's two shelves. They used to be one per modality —
        speaking games, typing games — which stopped meaning anything the

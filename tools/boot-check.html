@@ -162,6 +162,40 @@
       });
     }),
 
+    /* Endings: the reveal after two misses is pressable sound by sound,
+       and the -ed of "jumped" is one piece that plays /t/, the sound the
+       encoder gives it at the list's "+" mark (not the e and d of
+       "shed"). This page sits in tools/, where the phoneme clips are out
+       of reach, so a stand-in player records what a press asks for. */
+    "say-ending-reveal": (function(){
+      var g = sayOne("endings-1-say", "jump+ed", function(rec, card, mic, wait){
+        rec.emit(0, "jump", true);
+        return wait(1000).then(function(){
+          rec.emit(1, "jump", true);
+          return wait(600);
+        }).then(function(){
+          must(mic.textContent.indexOf("The word was") !== -1, "no reveal after two misses");
+          var bits = document.querySelectorAll("#uiWord .tapbit");
+          var text = Array.prototype.map.call(bits, function(b){ return b.textContent; }).join("|");
+          must(text === "j|u|m|p|ed", "the reveal's pieces are " + (text || "none"));
+          bits[bits.length - 1].click();
+          must(window.__played.join(" ") === "T", "pressing ed played " + (window.__played.join(" ") || "nothing"));
+        });
+      });
+      var base = g.cfg;
+      g.cfg = function(c){
+        base(c);
+        window.__played = [];
+        window.GameCore.phonemeAudio = function(){
+          return Promise.resolve({
+            estimate: function(){ return 100; },
+            play: function(t){ window.__played.push(t.join("+")); return Promise.resolve(false); }
+          });
+        };
+      };
+      return g;
+    })(),
+
     "say-red":    { engine: "BlendGame",   list: "red-1-say" },
 
     /* Noise that was never an attempt at the word must not cost a try —
