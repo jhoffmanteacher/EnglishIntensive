@@ -51,7 +51,8 @@
    THE ANSWER KEY. Written again here from the README, never by calling adaptive.js, store.js or teacher.js: a ledger
    of every answer (a word is solid when it is in the top box, 5, and right on at least 90 % of first tries; a right
    answer moves it up a box, a miss down one); "finished" a step when every way in it has at least
-   ceil(bar × words) solid words; the walk (start at `at`; if the student's own mark is this plan's and further on,
+   ceil(bar × words) solid words; one way at a time (the first way of the step is open, the next when every way
+   before it is finished so, or once it has been played) and the teaching order of each family; the walk (start at `at`; if the student's own mark is this plan's and further on,
    start there; if held, stop; else walk on while finished); the high-water mark (written by the student's own page
    when the walk comes out further than what is stored for this plan); and each dashboard control as the README
    words it (Move on now, Go back, the percent, Add a list, ▲▼, Take out, a saved / ready-made / copied sequence
@@ -63,12 +64,14 @@
 
    THE CHECKS — after every step, for every student:
      S1 agree. The dashboard (the Students row: Now on / Place, and the student's page: the editor's rows, Now, the
-        held line, the percent) states for each sequence the list they are on, "List N of M", finished, held; the
-        student's freshly loaded home page shows current tiles, the "Lists you finished (N)" fold and the notice;
+        held line, the percent, the Now row's "Open: … · Next: …") states for each sequence the list they are on,
+        "List N of M", finished, held, which of its ways are open; the student's freshly loaded home page shows the
+        open ways of each current list, the "Lists you finished (N)" fold and the notice ("New list: …", "New: Cards
+        for …");
         each equals the answer key, and the dashboard's Now / Finished rows name the same lists as the home page's
         tiles and fold. Also: what was stored is the plan the key expects (steps, percent, at, hold).
-     S2 only theirs. The home page never shows a list beyond the current step, one never given, or one the teacher
-        took out (unless the other sequence holds it).
+     S2 only theirs. The home page never shows a list beyond the current step, a way of the current list not open
+        yet, one never given, or one the teacher took out (unless the other sequence holds it).
      S3 independent. A step that touches one sequence (a practice batch on its lists; Move on now, Go back, the
         percent or any edit to it) leaves the other's stored plan byte for byte and its stated position unchanged.
      S4 no backwards. Replaying a finished list with misses never moves a student back; Go back to this list does,
@@ -88,9 +91,14 @@
      S8 the preview. Student view (index.html?preview=…) shows the same current tiles, fold and finished line as the
         student's own page, and writes nothing.
      S9 Say it in every step. Every step of every stored sequence and of every saved sequence holds its list's Say it
-        id; the home page shows each current list's Say it tile; no step is walked past while its Say it is below
-        the bar; Add a list and Change ways show Say it ticked and locked with the line that says why, and stay so
-        when the harness tries to untick it.
+        id; the home page shows each current list's Say it tile once it is open; no step is walked past while its
+        Say it is below the bar; Add a list and Change ways show Say it ticked and locked with the line that says
+        why, and stay so when the harness tries to untick it.
+     S10 one way at a time. Every stored step and every saved sequence is in its family's teaching order (the
+        README's table, written again as ORDER below); Add a list and Change ways show their boxes in that order; a
+        way the student has played never disappears from the home page while they are on that list (read from the
+        pages one load to the next, not from the key's rule — "slip" practice drops an earlier way below the bar to
+        try it); and the Now row's "Open: …" names exactly the ways the home page shows of that list.
 
    THE FAMILIES (round robin): one-sequence, two-sequences, teacher-steps-in, re-plan, bulk, roster-first, stop.
    Each case has 1-3 students, a class with three saved sequences (one of red lists, one of other lists, one of any
@@ -470,24 +478,39 @@
       W.listNumsOf(fk).forEach(function(n){
         var offered = W.idsOfList(fk, n);
         var ids = ["say", "cards"].map(function(m){ return W.idFor(fk, n, m); }).filter(function(id){ return id && offered.indexOf(id) !== -1; });
-        if(ids.length) steps.push({ ids: keySay(ids) });
+        if(ids.length) steps.push({ ids: keyStep(ids) });
       });
     });
     return steps;
   }
 
-  /* SAY IT IN EVERY STEP, in the key's own words: a step of a sequence holds its list's Say it way, first, whatever
-     else it holds; a list with no Say it way is left as it is. */
-  function keySay(ids){
+  /* SAY IT IN EVERY STEP, and THE TEACHING ORDER, in the key's own words (README "Families and modes", "Sequences"):
+     a step of a sequence holds its list's Say it way, whatever else it holds (a list with no Say it way is left as
+     it is), and its ways are in the family's one teaching order — the site sets it, the teacher only ticks. A way
+     the table does not name (a retired one) goes after the named ones; an id the library does not know goes last.
+     The table is the README's, written again here, never read from word-lists.js. */
+  var ORDER = { "blends-start": ["match", "say", "cards"], "blends-end": ["match", "say", "cards"],
+                "nonsense": ["blendit", "say", "cards", "fluency"], "oi-oy": ["match", "say", "cards", "spell"],
+                "multi": ["split", "match", "say", "cards"], "red": ["match", "cards", "say"] };
+  function orderRank(id){
+    var l = W.byId(id); if(!l) return 1e6;
+    var k = (ORDER[l.family] || []).indexOf(l.mode);
+    return k !== -1 ? k : 1000 + ["say", "spell", "cards", "match", "fluency", "blendit", "split"].indexOf(l.mode);
+  }
+  function keyOrder(ids){
+    return ids.map(function(id, i){ return { id: id, i: i }; })
+      .sort(function(a, b){ return orderRank(a.id) - orderRank(b.id) || a.i - b.i; }).map(function(x){ return x.id; });
+  }
+  function keyStep(ids){
     var l = null;
     for(var i = 0; i < ids.length && !l; i++) l = W.byId(ids[i]);
     if(!l) return ids.slice();
     var say = null;
     W.all.forEach(function(x){ if(x.family === l.family && x.listNum === l.listNum && x.mode === "say" && !x.retired) say = x.id; });
-    return say ? [say].concat(ids.filter(function(id){ return id !== say; })) : ids.slice();
+    return keyOrder(say && ids.indexOf(say) === -1 ? ids.concat([say]) : ids.slice());
   }
-  function saySteps(steps){ return steps.map(function(st){ return { ids: keySay(st.ids) }; }); }
-  function sayIdOf(step){ var k = keySay(step.ids)[0], l = W.byId(k); return l && l.mode === "say" ? k : null; }
+  function saySteps(steps){ return steps.map(function(st){ return { ids: keyStep(st.ids) }; }); }
+  function sayIdOf(step){ return keyStep(step.ids).filter(function(id){ var l = W.byId(id); return l && l.mode === "say"; })[0] || null; }
   function lacksSay(step){ var k = sayIdOf(step); return !!k && step.ids.indexOf(k) === -1; }
 
   /* RED WORDS AND OTHER LISTS, in the key's own words (README "Sequences"): a student has at most one Red Words
@@ -515,6 +538,32 @@
   function needOf(bar, tot){ var pct = Math.round(bar * 100); return Math.floor((pct * tot + 99) / 100); }
   function stepDone(step, bar, stats){
     return step.ids.every(function(id){ var tot = total(id); return tot <= 0 || solidCount(stats, id) >= needOf(bar, tot); });
+  }
+  /* ONE WAY AT A TIME (README "Sequences"): of the step they are on, the first way is open; each next one opens when
+     every way before it has reached the bar (a list the library does not have is skipped); and a way they have
+     played (any answer on it) stays open whatever the ones before it say. */
+  function played(stats, id){ var p = id + "|"; return Object.keys(stats).some(function(k){ return k.indexOf(p) === 0; }); }
+  function keyOpen(step, bar, stats){
+    var out = [], reached = true;
+    step.ids.forEach(function(id){
+      if(reached || played(stats, id)) out.push(id);
+      var tot = total(id);
+      if(tot > 0 && solidCount(stats, id) < needOf(bar, tot)) reached = false;
+    });
+    return out;
+  }
+  // The home page's sentence when ways open on the list they are on: "New: Cards for Blend Words." / "New: Cards and Say it for …".
+  function modeTitle(id){ var l = W.byId(id), m = l && W.modeOf(l.mode); return m ? m.title : id; }
+  function openedLine(ids){
+    var names = ids.map(modeTitle);
+    var said = names.length < 2 ? names.join("") : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+    return "New: " + said + " for " + titleOf(ids[0]) + ".";
+  }
+  // The dashboard's line on the Now row of a step with more than one way: "Open: Match It · Next: Say it, then Cards".
+  function openLineOf(step, open){
+    var live = step.ids.filter(exists), shut = live.filter(function(id){ return open.indexOf(id) === -1; });
+    return "Open: " + live.filter(function(id){ return open.indexOf(id) !== -1; }).map(modeTitle).join(", ") +
+      (shut.length ? " · Next: " + shut.map(modeTitle).join(", then ") : "");
   }
   function walk(plan, stats, mark){
     var n = plan.steps.length, start = plan.at;
@@ -552,6 +601,8 @@
   Stu.prototype.plansList = function(){ return this.plans.filter(Boolean); };
   Stu.prototype.pos = function(k){ var p = this.plans[k]; return p ? walk(p, this.stats, this.marks[k]) : null; };
   Stu.prototype.answer = function(id, w, right){ var key = id + "|" + w; this.stats[key] = answerStat(this.stats[key], right); };
+  // The ways of sequence k's current list that are open (none when it is finished).
+  Stu.prototype.open = function(k){ var p = this.plans[k], pos = this.pos(k); return p && !pos.finished ? keyOpen(p.steps[pos.index], p.bar, this.stats) : []; };
   // Where sequence k is in the Students row: Red Words first, so Other lists is second only beside Red Words.
   Stu.prototype.disp = function(k){ return k === 1 && this.plans[0] ? 1 : 0; };
 
@@ -565,17 +616,24 @@
     var cur = [], fin = [], count = 0, allFin = true, lines = [], seenNext = [null, null];
     s.plans.forEach(function(p, k){
       if(!p) return;
-      var pos = s.pos(k), n = p.steps.length;
-      if(!pos.finished) p.steps[pos.index].ids.forEach(function(id){ if(exists(id)) cur.push(id); });
-      else allFin = allFin && true;
+      var pos = s.pos(k), n = p.steps.length, open = s.open(k).filter(exists);
+      open.forEach(function(id){ cur.push(id); });
       if(!pos.finished) allFin = false;
       for(var i = 0; i < Math.min(pos.index, n); i++){
         if(p.steps[i].ids.some(exists)) count++;
         p.steps[i].ids.forEach(function(id){ if(exists(id)) fin.push(id); });
       }
-      var prev = s.seen[k];
-      if(prev && prev.setAt === p.setAt && prev.index < pos.index && !pos.finished) lines.push({ k: k, line: "New list: " + titleOf(p.steps[pos.index].ids[0]) + "." });
-      seenNext[k] = { setAt: p.setAt, index: pos.index };
+      /* The notice, per sequence: "New list: …" the first load after moving on; "New: Cards for …" the first load
+         that shows a way of the same list it had not shown before (the note remembers every way it has shown for
+         this list, so one that hid and came back is not said twice); nothing on the first load ever. */
+      var prev = s.seen[k], same = !!prev && prev.setAt === p.setAt;
+      var seen = same && prev.index === pos.index && prev.open ? prev.open : null;
+      if(!pos.finished && same && prev.index < pos.index){ if(open.length) lines.push({ k: k, line: "New list: " + titleOf(open[0]) + "." }); }
+      else if(!pos.finished && seen){
+        var fresh = open.filter(function(id){ return seen.indexOf(id) === -1; });
+        if(fresh.length) lines.push({ k: k, line: openedLine(fresh) });
+      }
+      seenNext[k] = { setAt: p.setAt, index: pos.index, open: (seen || []).concat(open.filter(function(id){ return !seen || seen.indexOf(id) === -1; })) };
     });
     cur = uniq(cur);
     fin = uniq(fin).filter(function(id){ return cur.indexOf(id) === -1; });
@@ -598,17 +656,19 @@
     }
     // The row and the page: one entry per sequence they have, Red Words first, labelled only when there are two.
     return { kind: ps.length > 1 ? "two" : "one", seqs: [0, 1].filter(function(k){ return !!s.plans[k]; }).map(function(k){
-      var p = s.plans[k], pos = s.pos(k), n = p.steps.length;
+      var p = s.plans[k], pos = s.pos(k), n = p.steps.length, now = pos.finished ? null : p.steps[pos.index];
       return { index: Math.min(pos.index, n), n: n, finished: pos.finished, held: pos.hold && !pos.finished,
                label: ps.length > 1 ? SECTION_NAME[k] : "",
-               pct: Math.round(p.bar * 100), titles: p.steps.map(function(st){ return titleOf(st.ids[0]); }) };
+               pct: Math.round(p.bar * 100), titles: p.steps.map(function(st){ return titleOf(st.ids[0]); }),
+               // README "A student's page": the Now row of a list with more than one way says which are open.
+               openLine: now && now.ids.length > 1 ? openLineOf(now, s.open(k)) : "" };
     }) };
   }
   function seqText(q, withTitles){
     if(!q) return "none";
     if(q.other) return "unreadable: " + q.other;
     var t = q.finished ? "finished all " + q.n : "List " + (q.index + 1) + " of " + q.n + (q.held ? " · held" : "");
-    if(withTitles && q.titles) t += " · " + q.pct + "% · [" + q.titles.join(" | ") + "]";
+    if(withTitles && q.titles) t += " · " + q.pct + "% · [" + q.titles.join(" | ") + "]" + (q.openLine ? " · " + q.openLine : "");
     return t;
   }
   function dashText(d, withTitles){
@@ -653,7 +713,7 @@
     var used = stepKeysOf(keep).concat(exclude || []), added = 0;
     steps.forEach(function(st){
       if(stepKindOf(st.ids) !== d.kind) return;
-      var kk = listKey(st.ids[0]); if(used.indexOf(kk) === -1){ used.push(kk); keep.push({ ids: keySay(st.ids) }); added++; }
+      var kk = listKey(st.ids[0]); if(used.indexOf(kk) === -1){ used.push(kk); keep.push({ ids: keyStep(st.ids) }); added++; }
     });
     return { steps: keep, added: added };
   }
@@ -810,6 +870,7 @@
                pct: pct ? parseInt(pct.textContent, 10) : null,
                titles: rows.map(function(r){ return r.querySelector(".seqName").textContent; }),
                nowTitles: rows.filter(function(r, i){ return kinds[i] === "now"; }).map(function(r){ return r.querySelector(".seqName").textContent; }),
+               openLine: (ed.querySelector(".seqRow.now .seqOpen") || {}).textContent || "",
                finTitles: rows.filter(function(r, i){ return kinds[i] === "fin"; }).map(function(r){ return r.querySelector(".seqName").textContent; }) };
     }).filter(function(q){ return q.n > 0; });
     if(!seqs.length) return { kind: "none" };
@@ -881,21 +942,33 @@
     checkSayStored(c, "after the first load");
   }
 
-  // S9: every step of every stored sequence, and of every saved sequence on the class, holds its list's Say it.
+  /* S9: every step of every stored sequence, and of every saved sequence on the class, holds its list's Say it.
+     S10: and its ways are in the family's teaching order (the order the student will meet them, one at a time). */
+  function outOfOrder(st){ return !same(st.ids, keyOrder(st.ids)); }
   function checkSayStored(c, when){
     c.students.forEach(function(s){
-      var d = storedSource(s).doc, bad = [];
+      var d = storedSource(s).doc, bad = [], disorder = [];
       FIELDS.forEach(function(f){
         var p = d[f];
         if(!p || !Array.isArray(p.steps)) return;
-        p.steps.forEach(function(st, i){ if(st && Array.isArray(st.ids) && lacksSay(st)) bad.push(f + "." + (i + 1) + " " + st.ids.join("+")); });
+        p.steps.forEach(function(st, i){
+          if(!st || !Array.isArray(st.ids)) return;
+          if(lacksSay(st)) bad.push(f + "." + (i + 1) + " " + st.ids.join("+"));
+          if(outOfOrder(st)) disorder.push(f + "." + (i + 1) + " " + st.ids.join("+") + " (the order is " + keyOrder(st.ids).join("+") + ")");
+        });
       });
       if(bad.length) c.fail("S9", when + ": " + s.letter + "'s stored steps", "Say it in every step", "missing in " + bad.join(", "));
       else if(d.plan || d.plan2) c.ok("S9", when + ": every stored step of " + s.letter + " has Say it");
+      if(disorder.length) c.fail("S10", when + ": " + s.letter + "'s stored steps", "every step in its family's teaching order", "out of order: " + disorder.join(", "));
+      else if(d.plan || d.plan2) c.ok("S10", when + ": every stored step of " + s.letter + " is in teaching order");
     });
-    var cl = SV.read("classes/" + CLASS_ID) || {}, sb = [];
-    Object.keys(cl.sequences || {}).forEach(function(k){ (cl.sequences[k].steps || []).forEach(function(st, i){ if(lacksSay(st)) sb.push(cl.sequences[k].name + " " + (i + 1)); }); });
+    var cl = SV.read("classes/" + CLASS_ID) || {}, sb = [], so = [];
+    Object.keys(cl.sequences || {}).forEach(function(k){ (cl.sequences[k].steps || []).forEach(function(st, i){
+      if(lacksSay(st)) sb.push(cl.sequences[k].name + " " + (i + 1));
+      if(outOfOrder(st)) so.push(cl.sequences[k].name + " " + (i + 1) + " " + st.ids.join("+"));
+    }); });
     if(sb.length) c.fail("S9", when + ": the class's saved sequences", "Say it in every step", "missing in " + sb.join(", "));
+    if(so.length) c.fail("S10", when + ": the class's saved sequences", "every step in its family's teaching order", "out of order: " + so.join(", "));
   }
 
   /* Every write that lands: the marks (S4), and anything written by the preview (S8). */
@@ -926,12 +999,13 @@
   }
   // The key's side effects of a student's own page load: the notice note and the high-water marks.
   function keyAfterHome(s){
+    var exp = expectHome(s);
     s.plans.forEach(function(p, k){
       if(!p) return;
       var pos = s.pos(k), mark = s.marks[k];
       var stored = (mark && mark.of === p.setAt && mark.at > p.at) ? mark.at : p.at;
       if(pos.index > stored) s.marks[k] = { at: pos.index, of: p.setAt };
-      s.seen[k] = { setAt: p.setAt, index: pos.index };
+      s.seen[k] = exp.seenNext[k];
     });
   }
   function compareHome(c, s, got, label){
@@ -939,13 +1013,30 @@
     var e = homeText(exp), g = homeText(got);
     if(e === g) c.ok("S1", label + " home page of " + s.letter + ": " + g);
     else c.fail("S1", label + " home page of " + s.letter, e, g);
-    // S9: the Say it of every current step is on the page
+    // S9: the Say it of every current step is on the page once it is open (one way at a time: it need not be first)
     if(!got.failed) s.plans.forEach(function(p, k){
       if(!p) return;
       var pos = s.pos(k); if(pos.finished) return;
-      var sid = sayIdOf(p.steps[pos.index]); if(!sid) return;
-      c.check("S9", label + " home page of " + s.letter + ": the Say it tile of " + SECTION_NAME[k] + "' current list", sid + " shown", got.current.indexOf(sid) !== -1 ? sid + " shown" : sid + " missing");
+      var sid = sayIdOf(p.steps[pos.index]); if(!sid || s.open(k).indexOf(sid) === -1) return;
+      c.check("S9", label + " home page of " + s.letter + ": the Say it tile of " + SECTION_NAME[k] + "' current list, open", sid + " shown", got.current.indexOf(sid) !== -1 ? sid + " shown" : sid + " missing");
     });
+    // S10: a way they have played never disappears while they are on that list (from the pages, not the key's rule)
+    if(!got.failed){
+      s.lastOpen = s.lastOpen || [null, null];
+      s.plans.forEach(function(p, k){
+        if(!p) return;
+        var pos = s.pos(k), was = s.lastOpen[k];
+        if(pos.finished){ s.lastOpen[k] = null; return; }
+        var stepIds = p.steps[pos.index].ids, here = got.current.filter(function(id){ return stepIds.indexOf(id) !== -1; });
+        if(was && was.setAt === p.setAt && was.index === pos.index){
+          var gone = was.ids.filter(function(id){ return played(s.stats, id) && here.indexOf(id) === -1; });
+          if(gone.length) c.fail("S10", label + " home page of " + s.letter + ", " + SECTION_NAME[k] + " step " + (pos.index + 1),
+            "every way they played still shown (" + was.ids.join(", ") + ")", "a way they played disappeared: " + gone.join(", "));
+          else if(was.ids.some(function(id){ return played(s.stats, id); })) c.ok("S10", s.letter + "'s played ways of " + SECTION_NAME[k] + " are still shown");
+        }
+        s.lastOpen[k] = { setAt: p.setAt, index: pos.index, ids: here };
+      });
+    }
     // S2: nothing beyond where they are, nothing never given, nothing taken out
     if(!got.failed){
       var allowed = exp.current.concat(exp.fold || []);
@@ -957,7 +1048,11 @@
         s.plans.forEach(function(p, k){
           if(!p) return;
           var pos = s.pos(k);
-          p.steps.forEach(function(st, i){ if(st.ids.indexOf(id) !== -1 && i > pos.index) why = "a later step of " + SECTION_NAME[k] + " (step " + (i + 1) + ", they are on " + (pos.index + 1) + ")"; });
+          p.steps.forEach(function(st, i){
+            if(st.ids.indexOf(id) === -1) return;
+            if(i > pos.index) why = "a later step of " + SECTION_NAME[k] + " (step " + (i + 1) + ", they are on " + (pos.index + 1) + ")";
+            else if(i === pos.index) why = "a way of " + SECTION_NAME[k] + "' current list that is not open yet (open: " + s.open(k).join(", ") + ")";
+          });
         });
         if(s.removed[id]) why = "taken out of sequence " + s.removed[id];
         c.fail("S2", s.letter + "'s home page shows " + id, "only lists of their current or finished steps", id + " — " + why);
@@ -986,6 +1081,13 @@
     var e = "now [" + dn.join(" | ") + "] finished [" + df.join(" | ") + "]";
     var g = "now [" + home.currentTitles.join(" | ") + "] finished [" + home.foldTitles.join(" | ") + "]";
     c.check("S1", "dashboard and home page of " + s.letter + " agree", e, g);
+    // S10: the Now row's "Open: …" names exactly the ways the home page shows of that list
+    det.seqs.forEach(function(q){
+      if(!q.openLine || !q.nowTitles.length) return;
+      var m = /^Open: (.*?)(?: · Next: .*)?$/.exec(q.openLine), said = m ? m[1].split(", ").sort() : ["(unreadable: " + q.openLine + ")"];
+      var shown = home.current.filter(function(id){ return titleOf(id) === q.nowTitles[0]; }).map(modeTitle).sort();
+      c.check("S10", "the dashboard's Open line for " + q.nowTitles[0] + " and " + s.letter + "'s home page agree", shown.join(", "), said.join(", "));
+    });
   }
   async function readDash(c, s){
     var row = (goRoster(c), readRow(c, s));
@@ -1205,6 +1307,30 @@
         });
       });
       said = kind + " " + SECTION_NAME[k] + " step " + (pos.index + 1) + " (" + step.ids.join(", ") + ")";
+    } else if(kind === "touch"){
+      // A few right answers on every open way of the list they are on that is below the bar: played, not finished.
+      if(!p || pos.finished) return "nothing to touch";
+      var tstep = p.steps[pos.index], touchedIds = [];
+      tstep.ids.filter(function(id){ return shown.indexOf(id) !== -1 && total(id) > 0 && solidCount(s.stats, id) < needOf(p.bar, total(id)); }).forEach(function(id){
+        r.shuffle(words(id)).slice(0, 3).forEach(function(w){ record(c, s, id, w, true); });
+        touchedIds.push(id);
+      });
+      if(!touchedIds.length) return "nothing to touch";
+      said = "touch " + touchedIds.join(", ") + " (" + SECTION_NAME[k] + " step " + (pos.index + 1) + ")";
+    } else if(kind === "slip"){
+      /* A way at the bar, with a way after it they have played, drops one word below the bar (a miss takes a word out
+         of the top box). The played way must stay on the page (S10); a way after it not yet played closes again. */
+      if(!p || pos.finished) return "nothing to slip";
+      var sstep = p.steps[pos.index], j = -1;
+      for(var i = 0; i < sstep.ids.length - 1 && j < 0; i++){
+        var sid0 = sstep.ids[i], tot0 = total(sid0);
+        if(tot0 > 0 && shown.indexOf(sid0) !== -1 && solidCount(s.stats, sid0) >= needOf(p.bar, tot0) &&
+           sstep.ids.slice(i + 1).some(function(x){ return played(s.stats, x) && shown.indexOf(x) !== -1; })) j = i;
+      }
+      if(j < 0) return "nothing to slip";
+      var sid = sstep.ids[j], drop = solidCount(s.stats, sid) - needOf(p.bar, total(sid)) + 1;
+      words(sid).filter(function(w){ return solid(s.stats[sid + "|" + w]); }).slice(0, drop).forEach(function(w){ record(c, s, sid, w, false); });
+      said = "slip: " + drop + " words of " + sid + " out of the top box (" + SECTION_NAME[k] + " step " + (pos.index + 1) + ")";
     } else if(kind === "replay" || kind === "replay-last"){
       if(!p || pos.index === 0) return "nothing finished to replay";
       var j = kind === "replay-last" ? Math.min(pos.index, p.steps.length) - 1 : r.int(0, Math.min(pos.index, p.steps.length) - 1), ids = p.steps[j].ids.filter(function(id){ return shown.indexOf(id) !== -1; });
@@ -1236,6 +1362,12 @@
     var cb = ed && ed.querySelector(sel), why = ed && ed.querySelector(".seqSayWhy");
     c.check("S9", where + " for " + s.letter + ": Say it", "ticked, locked, and why: " + SAY_WHY,
       (cb ? (cb.checked ? "ticked" : "unticked") + ", " + (cb.disabled ? "locked" : "can be unticked") : "no Say it box") + ", and why: " + (why ? why.textContent : "(no line)"));
+  }
+
+  // S10: a chooser's boxes are in the order the student will meet the ways.
+  function boxOrder(c, s, ed, attr, where){
+    var ids = Array.prototype.map.call(ed.querySelectorAll("[" + attr + "]"), function(cb){ return cb.getAttribute(attr); });
+    c.check("S10", where + " for " + s.letter + ": the boxes in the teaching order", keyOrder(ids).join(","), ids.join(","));
   }
 
   /* One edit in section k's editor (0 Red Words, 1 Other lists), on the dashboard and in the key together. Returns a
@@ -1306,6 +1438,7 @@
         ed = editorEl(c, k);
         var sayW = sayIdOf(d.steps[wi]);
         if(sayW) sayLocked(c, s, ed, '[data-ways="' + sayW + '"]', "Change ways on step " + (wi + 1));
+        boxOrder(c, s, ed, "data-ways", "Change ways on step " + (wi + 1));
         var others = Array.prototype.map.call(ed.querySelectorAll("[data-ways]"), function(cb){ return cb.getAttribute("data-ways"); })
           .filter(function(id){ return id !== sayW && !W.byId(id).retired; });
         var chosen = c.rng.shuffle(others).slice(0, c.rng.int(0, others.length));
@@ -1317,7 +1450,7 @@
         var wd = ed.querySelector('[data-seq="ways-done"][data-i="' + wi + '"]');
         if(!need(wd, "Done (Change ways)")) return null;
         click(wd);
-        d.steps[wi] = { ids: keySay(libSort(chosen.concat(sayW ? [sayW] : []))) };
+        d.steps[wi] = { ids: keyStep(libSort(chosen.concat(sayW ? [sayW] : []))) };
         return "Change ways on step " + (wi + 1) + " to " + d.steps[wi].ids.join("+");
       }
       case "add": {
@@ -1338,6 +1471,7 @@
         ed = editorEl(c, k);
         var sayA = sayIdOf({ ids: L.ids });
         if(sayA) sayLocked(c, s, ed, '[data-addway="' + sayA + '"]', "Add a list (" + L.key + ")");
+        boxOrder(c, s, ed, "data-addway", "Add a list (" + L.key + ")");
         Array.prototype.forEach.call(ed.querySelectorAll("[data-addway]"), function(cb){
           var want = e.ids.indexOf(cb.getAttribute("data-addway")) !== -1;
           if(cb.checked !== want) click(cb);       // for Say it, the harness tries to untick it
@@ -1347,7 +1481,7 @@
         var go = ed.querySelector('[data-seq="add-go"]');
         if(!need(go, "Add to the end")) return null;
         click(go);
-        d.steps.push({ ids: keySay(libSort(e.ids)) });
+        d.steps.push({ ids: keyStep(libSort(e.ids)) });
         return "Add " + e.ids.join(" + ");
       }
       case "use": case "copy": {
@@ -1385,7 +1519,7 @@
         // Red games to Red Words in list order, the rest to Other lists in the library's order.
         var groups = {}, order = [];
         libSort((s.plain || []).filter(exists)).forEach(function(id){ var kk = listKey(id); if(!groups[kk]){ groups[kk] = []; order.push(kk); } groups[kk].push(id); });
-        var all = order.map(function(kk){ return { ids: keySay(groups[kk]) }; });
+        var all = order.map(function(kk){ return { ids: keyStep(groups[kk]) }; });
         KINDS.forEach(function(kind, sec){
           var mine = ofKind(all, kind);
           s.drafts[sec] = mine.length ? { kind: kind, steps: mine, bar: 0.9, at: 0, hold: false, hasPlan: false, base: null } : null;
@@ -1643,7 +1777,7 @@
   function practiceAction(c, s){
     var r = c.rng, ks = s.plans.map(function(p, k){ return p ? k : -1; }).filter(function(k){ return k >= 0; });
     var k = ks.length ? r.pick(ks) : 0;
-    var kind = r.pick(["finish", "finish", "edge", "replay", "noise"]);
+    var kind = r.pick(["finish", "finish", "edge", "replay", "noise", "touch", "slip"]);
     return { kind: "practise", s: s, what: kind, k: k };
   }
   function teacherEditAction(c, s, flavours){
@@ -1687,6 +1821,14 @@
   function scriptFor(c){
     var r = c.rng, s0 = c.students[0], live = function(){ return !s0.pending; };
     var withPlan = function(k){ return function(){ return live() && !!s0.plans[k]; }; };
+    /* One way at a time: Red Words (Cards, then Say it) given, the first way finished, the next one opens and is
+       played, then the first slips below the bar — the way they played must stay. */
+    if(c.fam === "one-sequence" && r.chance(0.7)) return [
+      function(){ return live() && !s0.plans[0] ? { kind: "edit", s: s0, edits: [{ k: 0, op: "give-red" }], label: "Give Red Words to " + s0.letter + ", Save" } : null; },
+      function(){ return withPlan(0)() ? { kind: "practise", s: s0, what: "finish", k: 0 } : null; },
+      function(){ return withPlan(0)() ? { kind: "practise", s: s0, what: "touch", k: 0 } : null; },
+      function(){ return withPlan(0)() ? { kind: "practise", s: s0, what: "slip", k: 0 } : null; }
+    ];
     if(c.fam === "stop" && r.chance(0.6)) return [
       function(){ return live() ? { kind: "start", s: s0, two: true } : null; },
       function(){ return withPlan(1)() ? { kind: "finish-all", s: s0, k: 1 } : null; },
@@ -1759,10 +1901,11 @@
     return practiceAction(c, s);
   }
 
-  /* Finish every list of one sequence, a page load between lists (the student only sees the list they are on). */
+  /* Finish every list of one sequence, a page load between lists and between the ways of a list (the student only
+     sees the list they are on, and of it only the ways open so far). */
   async function finishAll(c, s, k){
     var said = [];
-    for(var guard = 0; guard < 12; guard++){
+    for(var guard = 0; guard < 32; guard++){
       var pos = s.pos(k);
       if(!s.plans[k] || pos.finished || pos.hold) break;
       said.push(await practise(c, s, "finish", k));
@@ -1772,7 +1915,7 @@
       keyAfterHome(s); s.home = h;
       await sleep(2500); await quiet(50);
     }
-    return said.length + " lists finished in " + SECTION_NAME[k];
+    return said.length + " rounds of finishing in " + SECTION_NAME[k];
   }
 
   async function perform(c, a){

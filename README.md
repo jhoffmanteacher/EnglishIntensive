@@ -200,6 +200,30 @@ The six families:
 | Multisyllable | 1 | 🎤 🃏 🎯 ✂️ |
 | Red Words | 10 | 🎤 🃏 🎯 |
 
+**The teaching order.** Inside a sequence a student meets a list's ways one at
+a time (see *Sequences*), in one fixed order per family — hear it, read it with
+help, read it alone and checked, read it fast; spelling after reading (the
+teacher, 2026-11-27). The site sets it; the teacher only ticks which ways. It is
+the family's `order` in `word-lists.js`:
+
+| family | a student meets its ways in this order |
+|---|---|
+| Starting Blends | 🎯 Match It → 🎤 Say it → 🃏 Cards |
+| Blend Words | 🎯 Match It → 🎤 Say it → 🃏 Cards |
+| Nonsense Words | 🔊 Blend it → 🎤 Say it → 🃏 Cards → ⏱ One minute |
+| oi / oy | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
+| Multisyllable | ✂️ Split it → 🎯 Match It → 🎤 Say it → 🃏 Cards |
+| Red Words | 🎯 Match It → 🃏 Cards → 🎤 Say it |
+
+`order` names every mode the family offers, once, and no retired one (a test
+pins that). `WordLists.inTeachingOrder(ids)` sorts a list's ids by it — a mode it
+does not name (a retired one a student still holds) after the named ones, an id
+the library does not know last, nothing added or lost — and `withSay` (*Say it
+is in every step*, under *Sequences*) runs it, so every step the dashboard
+writes is in this order. `orderOf(family)` gives the mode keys. Lists given
+without a sequence are not affected: their home page rows stay in the family's
+`modes` order, every way at once.
+
 Some gaps are deliberate. **Nonsense words** have no Match It: that game
 *says* a word and asks the student to find it, and a synthesiser handed
 "vab" guesses — often "verb", so the answer key would be wrong. A list with
@@ -275,15 +299,18 @@ What happens to a student who already has one:
   still opens for a retired id.
 - "Everything" in a description means everything on offer.
 
-To un-retire a mode, delete its string from `retired`. Nothing else
-changes.
+To un-retire a mode, delete its string from `retired`, and add it to the
+family's `order` where a student should meet it in a sequence (until then a
+held one sorts after the ordered ways; the test that `order` names every
+offered mode goes red as a reminder). Nothing else changes.
 
 ### Adding to the library
 
 - **another red list** — one array in `RED_LISTS`. Nothing else.
 - **another mode on an existing list** — one key in that family's
   `modes`.
-- **a whole new family** — one entry in `LIST_FAMILIES`. Every mode has
+- **a whole new family** — one entry in `LIST_FAMILIES`, with its teaching
+  `order` (every mode it offers, in the order a sequence opens them). Every mode has
   a shared page that takes the list from `?list=` — `cards-game.html`,
   `match-game.html`, `say-game.html`, `fluency-game.html`,
   `blend-it-game.html` — so nothing new is needed unless the family wants
@@ -298,7 +325,8 @@ The home page and the dashboard pick it all up with no further edits.
 
 Helpers on `WordLists`: `families()`, `familyOf()`, `modesOf(family)`,
 `listNumsOf(family)`, `idFor(family, n, mode)`, `idsOfList(family, n)`,
-`idsOfFamily(family)`, `hrefOf(id)`, and the pure `describeAssignment(ids)`
+`idsOfFamily(family)`, `hrefOf(id)`, `orderOf(family)`, `inTeachingOrder(ids)`,
+`withSay(ids)`, and the pure `describeAssignment(ids)`
 / `describeFamily(family, ids)` that turn a set of ids into the one line
 the roster, the picker and a student's page all show: *"Starting Blends: 🎤🃏 ·
 Red Words: 1–3 🃏 · 1 🎯"*. A family with one list prints only the modes;
@@ -392,9 +420,17 @@ chooser would carry the same title (Multisyllable has a Cards list and a
 Split it list), each tile adds its mode's name. A list id belonging to a
 different page redirects there.
 
+A student in a sequence sees, of the list they are on, only the ways open so
+far (*One way at a time*, under *Sequences*): a new Play row appears on the
+tile as each opens, and the finished fold shows every way. "What they were
+given" is then what is open: `EIStore.myLists()` holds only the open ways of
+the current list, so a way not yet open is exactly an unassigned id to a game
+page.
+
 A student only ever plays what they were given. Opening a list they weren't
-assigned — an address copied off a neighbour's screen — shows the same
-chooser, or one line saying the game isn't on their list. A student with
+assigned — an address copied off a neighbour's screen, or a way of their list
+that has not opened yet — shows the same chooser, or one line saying the game
+isn't on their list. A student with
 nothing assigned gets an empty home page saying the teacher will add games,
 not the whole library. The teacher's account (and the localhost dev bypass)
 sees every list, so a game can be tried before it's handed out; the
@@ -911,8 +947,9 @@ the mic-check screen first: a quiet input is an OS-level microphone setting
 `node tools/sequence-loop.mjs` answers what the save loop can't reach,
 because it never opens the dashboard: when a teacher gives, changes and
 removes sequences and students practise, do the dashboard and the student's
-own home page **agree** about which list the student is on, which lists they
-can play and which are finished — with one sequence and with two — and is
+own home page **agree** about which list the student is on, which lists (and
+which ways of that list, one at a time) they can play and which are finished —
+with one sequence and with two — and is
 that what *Sequences*, *A student's page*, *The class page* and *Saved
 sequences* say? Node 22 and a Chrome (`CHROME=…`, as for the other scripts),
 no dependencies, no server of your own: it serves the site itself on a free
@@ -941,19 +978,22 @@ The fake checks itself before every batch (T1–T10), and
 
 The **answer key** is the README written again — it never calls
 `adaptive.js`: a ledger of every answer (a word is solid in the top box with
-90 % right), whole-word bars, the walk, the high-water mark, and each
-dashboard control as this README words it. After every step, for every
+90 % right), whole-word bars, the walk, the high-water mark, one way at a time
+and the teaching order (the table under *Families and modes*, typed in again),
+and each dashboard control as this README words it. After every step, for every
 student:
 
 - **S1 agree** — the Students row (Now on, Place, Red Words first, labelled)
   and the student's page (each section's rows, Now, the held line, the
-  percent) state the same place in each sequence as the key; the freshly
-  loaded home page shows the key's current tiles, *Lists you finished (N)* and
-  notice; the dashboard's Now and Finished rows name the home page's tiles;
+  percent, the Now row's *"Open: … · Next: …"*) state the same place in each
+  sequence as the key; the freshly loaded home page shows the key's open ways of
+  each current list, *Lists you finished (N)* and the notice (*New list*,
+  *New: Cards for …*); the dashboard's Now and Finished rows name the home page's tiles;
   Give's warning says what the key counts; and what was stored in `plan` and
   `plan2` is the plan the key expects.
-- **S2 only theirs** — the home page never shows a later list, one never
-  given, or one taken out (unless the other sequence holds it).
+- **S2 only theirs** — the home page never shows a later list, a way of the
+  current list not open yet, one never given, or one taken out (unless the
+  other sequence holds it).
 - **S3 independent** — a step on one sequence leaves the other's stored plan
   byte for byte and its place unchanged.
 - **S4 no backwards** — replaying a finished list with misses never moves a
@@ -979,9 +1019,19 @@ student:
   and writes nothing.
 - **S9 Say it in every step** — every stored step and every saved sequence
   holds its list's Say it; the home page shows the Say it tile of each current
-  list; no step is walked past with its Say it below the bar; Say it is ticked
-  and locked in Add a list and Change ways (the harness tries to untick it),
-  with the line that says why.
+  list once it is open (it is no longer always first); no step is walked past
+  with its Say it below the bar; Say it is ticked and locked in Add a list and
+  Change ways (the harness tries to untick it), with the line that says why.
+- **S10 one way at a time** — every stored step and every saved sequence is in
+  its family's teaching order; Add a list and Change ways show their boxes in
+  it; a way the student has played never disappears from the home page while
+  they are on that list (read from one page load to the next, not from the
+  key's rule); and the Now row's *"Open: …"* names exactly the ways the home
+  page shows of that list. The student's practice includes *touch* (a few right
+  answers on each open way below the bar: played, not finished) and *slip* (a
+  way at the bar, with a played way after it, drops one word below), and the
+  one-sequence family usually opens with Red Words given, its first way
+  finished, the next touched, then the first slipping.
 
 Seven families (`--list`) play seeded schedules: one-sequence, two-sequences,
 teacher-steps-in, re-plan, bulk, roster-first and stop. A student given Other
@@ -1020,7 +1070,11 @@ and Google API address, and a loop fails if a page asks for one.
 `node tools/plant-faults.mjs` plants one mistake at a time in a scratch copy
 and requires the loop that should notice to go red; GitHub runs it beside the
 loops. `--list` (no emulator needed) checks that each planted line still
-exists. A new loop should come with a planted mistake.
+exists. A new loop should come with a planted mistake. Two of them are the
+sequence loop's (S10: a played way closing again, and steps written out of
+teaching order); they need only a Chrome, so
+`node tools/plant-faults.mjs --only=played-way-closes,ways-out-of-order` runs
+them anywhere.
 
 `node tools/live-check.mjs` compares every published file with the repo.
 `.github/workflows/live.yml` runs it after each push to `main`.
@@ -1985,14 +2039,18 @@ answered — is asked out loud (the *No lists yet* card and pill).
 ### Sequences
 
 A teacher can give a student their lists **in order** instead of all at once.
-The student works on one list; when they have finished it, the next one
-replaces it on their home page. Finished lists move to one closed fold, *"Lists
-you finished (N)"*, where they stay playable and keep their stats; lists the
-student has not reached are not shown at all — no locks, no "coming soon".
-Three strings are the only new words a student sees: that fold's title,
-*"New list: Red Words · List 3."* (the first time the home page loads after
-they moved on) and *"You finished all your lists. Ask your teacher what comes
-next."*
+The student works on one list, and meets its ways of playing **one at a time**,
+in the family's teaching order (*One way at a time*, below); when they have
+finished the list, the next one replaces it on their home page. Finished lists
+move to one closed fold, *"Lists you finished (N)"*, where they stay playable,
+every way, and keep their stats; lists the student has not reached, and ways
+of their list not yet open, are not shown at all — no locks, no "coming soon".
+Four strings are the only new words a student sees: that fold's title, *"New
+list: Red Words · List 3."* (the first time the home page loads after they
+moved on), *"New: Cards for Blend Words."* (the first time it shows a way that
+opened on the list they were already on; two at once: *"New: Cards and Say it
+for Red Words · List 3."*) and *"You finished all your lists. Ask your teacher
+what comes next."*
 
 **Red Words and Other lists.** A student has at most two sequences, named by
 what they hold: **Red Words** (the red-word lists, and nothing else) and
@@ -2010,11 +2068,14 @@ lists…"* only when **every** sequence they have is finished: one finished
 beside one still going says nothing, and the list still going is simply there.
 `EIStore.plan()` gives the home page `{ uid, current, finishedIds,
 finishedCount, finished, sequences: [...] }`: the first five across both
-(`finished` only when all are), and one entry per sequence with its `which` (0
-Red Words, 1 Other lists), `setAt`, `index`, `count`, `finished`, `hold`,
-`current`, `finishedIds` and `finishedCount`. The "new list" note is kept per
+(`finished` only when all are; `current` is the open ways of each current
+list), and one entry per sequence with its `which` (0 Red Words, 1 Other
+lists), `setAt`, `index`, `count`, `finished`, `hold`, `current`, `finishedIds`
+and `finishedCount`. The notes behind *"New list"* and *"New: …"* are kept per
 sequence (`ei.plan.seen:<uid>` for Red Words, `ei.plan.seen2:<uid>` for Other
-lists).
+lists) as `{ setAt, index, open }`: `open` is every way the page has shown on
+that list, so a way that was shown, hid again and came back is not announced
+twice. A teacher previewing reads and writes neither.
 
 **What is stored.** Each in its own fixed field of `assignments/{uid}` — or of
 `roster/{email}` for a student who has not signed in — next to `lists`:
@@ -2025,7 +2086,7 @@ lists).
 Both have one shape:
 
     {
-      steps: [ { ids: ["red-1-say", "red-1-cards"] }, { ids: ["red-2-say", "red-2-cards"] } ],
+      steps: [ { ids: ["red-1-cards", "red-1-say"] }, { ids: ["red-2-cards", "red-2-say"] } ],
       bar:   0.9,    // 0.5 to 1 in steps of 0.05
       at:    0,      // the step the teacher last set as current (0-based);
                      // the number of steps means past the end: finished every list
@@ -2035,7 +2096,8 @@ Both have one shape:
 
 A step is a **map**, not a bare array — Firestore refuses an array directly
 inside an array. Every id in one step is a way of playing the same list; one
-list per step. Everything below is true of each sequence on its own.
+list per step; the ids in the family's teaching order, the order the student
+opens them in. Everything below is true of each sequence on its own.
 `firestore.rules` has no list of allowed fields on these documents, so none of
 this needed a rules change.
 
@@ -2086,15 +2148,47 @@ it*, and a Got it counts as right — and a step finishes when every way of
 playing it reaches the bar, so a Cards-only (or Match-only) step would let a
 student move on without anything having heard them read. One pure function,
 `WordLists.withSay(ids)`, returns a step's ids with that list's Say it id
-present and first (a list that offers no Say it is left alone), and every step
-the dashboard makes goes through it: Give Red Words, Add a list, Change ways, a
+present, in the family's teaching order (`inTeachingOrder`; until 2026-11-27 it
+put Say it **first**, which the teaching order replaced: Say it is in every
+step, but on Red Words it is the last way to open). A list that offers no Say
+it gets only the ordering. Every step the dashboard makes goes through it:
+Give Red Words, Add a list, Change ways, a
 ready-made, saved or copied order, Put these in order, Give a sequence to N
 selected, and Save this sequence. In Add a list and Change ways the Say it box
 is ticked and disabled, with one line under the boxes: *"Say it is always part
 of a sequence. It is the one mode that hears the student read."* (and
 `draftWays` / `draftAdd` put it back if anything else took it out). The
 dashboard is the only writer of a plan, so nothing patches a stored step on
-read. Lists given without a sequence are unchanged.
+read (nor re-sorts one: a step's stored order is the order its ways open). Lists
+given without a sequence are unchanged.
+
+**One way at a time** (the teacher, 2026-11-27: hear it, read it with help, read
+it alone and checked, read it fast, spelling after reading; the next activity
+opens when the one before it reaches the bar). Only inside a sequence: lists
+given without one show every way at once, as before. `Adaptive.openIds(step,
+bar, stats, totalOf)` says which of the current step's ids are open, in the
+step's order:
+
+- the first is always open;
+- each next one opens when **every** one before it has reached the bar — the
+  same whole-word measure as *What "finished" means* (`listSolid` against
+  `stepNeed`, solid and at pace), so 18 of 20 opens the next and 17 does not;
+  an id the library no longer has is skipped, as `stepFinished` skips it;
+- an id the student has **already played** (any stat under it) is open whatever
+  the ones before it say. A word can drop out of the top box, and a way the
+  student has played must never disappear again (no stored field needed: stats
+  only grow). A way opened but never played can close again until the ones
+  before it are back at the bar.
+
+Without `totalOf`, only the first (and anything played) is open. It is pure and
+stores nothing, and the step is still finished exactly when every way reaches
+the bar, so `planState` and the walk are unchanged; the last way to open is the
+last to finish. `Adaptive.planPosition` returns it as `current` (the open ways:
+what the student can play now; `step` is all of the step's ids), so the home
+page, `EIStore.myLists()`, a game page's "is this assigned", the dashboard's
+`effectiveLists` and the flag line all see the same open ways. Like the
+position, it is worked out once per page load: a way that opens mid-round is
+there on the next page.
 
 **Where the position is worked out, and why there.** In the *student's*
 browser, in `store.js`, by `Adaptive.planState(plan, stats, totalOf, seq)`
@@ -2145,7 +2239,11 @@ anything being written for them.
 `tests.html` pins every function (a bar of 18 of 20 finishes and 17 does not,
 two ticked ways with one short, a slow word, `hold`, an old `seq`, replaying a
 finished list, a deleted id, a wrong-kind id, Other lists alone, and the check
-that a student with no plan gets exactly what `effectiveLists` gives them).
+that a student with no plan gets exactly what `effectiveLists` gives them), the
+teaching order of each family, and the open rule (first open; the next at
+exactly the bar and not one word below; a played way stays open; a slow word
+does not count; a deleted id skipped; the dashboard and `store.js` agreeing on
+the open ways).
 
 ### A student's page
 
@@ -2187,16 +2285,22 @@ top to bottom, numbered. A **finished** row says which list, the ways it is
 played in words (*"Say it · Cards"*), and *"Finished 14 Nov · 19 of 20 solid"*
 (the date is `seq.when`, which is only the latest move, so earlier finished rows
 show the count alone), with **Go back to this list**. The row they are on is
-marked **Now**: a bar for each way of playing with a tick at the percent, and
+marked **Now**: when it has more than one way, one line saying which are open to
+the student — *"Open: Match It, Say it · Next: Cards"* (*"· Next: Say it, then
+Cards"* when two are waiting; just *"Open: …"* once all are), from the same
+`Adaptive.openIds` the student's page runs — then a bar for each way of playing,
+in the teaching order, with a tick at the percent, and
 the count in whole words — *"Say it: 14 of 20 solid. 4 more to finish (18 of
 20). 2 more are right but slow."* — with **Move on now** (not on the last list,
 which finishes at the bar). Later rows — the first is *Next* — can be moved
 earlier or later (buttons, not drag), have their ways of playing changed
-(**Change ways**: Say it stays ticked, locked, with the line that says why —
-*Say it is in every step*, above), or be taken out. Under the rows: **Add a list** (one list not already there, at least
-one way ticked; Say it is always ticked and cannot be unticked, and the other
-ticks start as a copy of the step above when it is the same family; the chooser
-opens on the next list of that family),
+(**Change ways**: the boxes in the teaching order, the order the student will
+meet them; Say it stays ticked, locked, with the line that says why — *Say it
+is in every step*, above), or be taken out. There is no reordering the ways of a
+list: the site sets it. Under the rows: **Add a list** (one list not already there, at least
+one way ticked, the boxes in the teaching order; Say it is always ticked and
+cannot be unticked, and the other ticks start as a copy of the step above when
+it is the same family; the chooser opens on the next list of that family),
 **Use a saved sequence** (the section's own ready-made one, then each class's
 saved ones — *Saved sequences*, below) and **Copy from another student** (each
 other student's sequence of the same kind, by name), and **Save this sequence**
@@ -2208,7 +2312,8 @@ The two ready-made sequences are built from the library when asked for, not
 stored, so nothing goes stale when a list is added or retired: *Red Words, Lists
 1 to 10* (offered in Red Words) and *Sounding it out* (Starting Blends, Blend
 Words, oi / oy, Multisyllable; offered in Other lists), each with Say it and
-Cards. Using one — or a saved order, or copying another student's — uses only
+Cards, in the teaching order (Cards then Say it on Red Words, Say it then Cards
+on the rest). Using one — or a saved order, or copying another student's — uses only
 the steps of the section's kind and replaces only the lists still to come,
 after a confirm that names them; the finished lists and the one they are on
 stay, and no list is ever in a sequence twice. A *saved* sequence also brings
@@ -2385,7 +2490,7 @@ confirm says so.
 
 The **Saved sequences** view (sidebar, *Assign*) lists each class's, under a
 heading per class: the name, the class, the steps in words (*"10 lists: Red Words
-· List 1, … Red Words · List 10 — Say it · Cards, finished at 90%."*), and
+· List 1, … Red Words · List 10 — Cards · Say it, finished at 90%."*), and
 **Rename** (inline) and **Delete** (after a confirm that says deleting changes no
 student). A rename writes the whole entry again with its new name (so one a co-teacher
 deleted since the page loaded comes back whole, never as a bare name with no
@@ -2496,7 +2601,9 @@ next action.
    on the same words (or Match It where the family has no Say It).
 2. **The two in the wrong order** — under 50 % on Match It for a list whose
    cards are under 60 % solid. Picking a word out of six look-alikes is
-   harder than reading it, not easier.
+   harder than reading it, not easier. Not for a student in a sequence: there
+   the site sets the order, with Match It first on purpose, and the teacher
+   cannot change it, so *"Cards first"* would be advice nobody can take.
 3. **Finished everything.** For a student in a sequence: the whole sequence is
    done — *"Finished every list. Add the next ones."* For a plain set (no
    sequence) it is the old *coasting*: every list 90 %+ solid. A student part way
@@ -2509,7 +2616,8 @@ next action.
    old. Last, because it needs a teacher least, and gone after a week.
 
 A student in a sequence is judged on the list they are on now, not the ones they
-have finished (`nextStepInfo` passes only the current step's ways of playing).
+have finished (`nextStepInfo` passes only the current step's open ways of
+playing: what the student can play).
 A student with two sequences is still one line: the current lists of both are
 passed (the first rule that fires, on either, wins), *Finished every list*
 fires only when both are finished, and *Moved to a new list* is the more recent
