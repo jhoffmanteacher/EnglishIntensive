@@ -444,6 +444,60 @@ var MULTI_RULE =
   '<p style="margin:0">Say the word one syllable at a time. Spell each syllable, then put them together.</p>' +
   '<p class="tip">Every syllable has a vowel.</p>';
 
+/* ── The four pattern lists (2026-11-27) ───────────────────────────────
+   sh / ch / th, Silent e, ar / or / er and Vowel Teams: the patterns
+   between the blends and oi/oy that the site used to skip. Programs for
+   older readers teach all four before multisyllable words, which are
+   full of them.
+
+   The words were chosen so phonemes() encodes every one sensibly and,
+   on the three sound-box lists, phonemeSpans() puts the pattern in one
+   box (tests.html checks both). One known flaw is left alone: "these"
+   ends in S, not Z — one sound off. "girl" is not here: the encoder
+   reads its g as soft (J·ER·L). "gray" was on the draft list and was
+   swapped for "tray": "grey" is a correct spelling of the same word,
+   so Spell it would mark a right answer wrong.
+
+   Spell it says a few words with a sentence: the ones a listener could
+   spell another way (which / witch, herd / heard, plane / plain…). The
+   rest are said alone, as on the blends. Spelling only: no other mode
+   reads these. */
+var DIGRAPH_RULE =
+  '<p style="margin:0">Two letters, one sound. <b>sh</b>, <b>ch</b>, <b>th</b>, <b>wh</b> and <b>ck</b> each go in one box.</p>';
+var DIGRAPH_SENTENCES = {
+  which: "Which one do you want?",
+  check: "Check your answer before you hand it in.",
+  cash:  "I paid in cash."
+};
+
+var SILENT_E_RULE =
+  '<p style="margin:0">The <b>e</b> at the end is silent. It makes the vowel say its name: <b>hop</b> → <b>hope</b>.</p>';
+var SILENT_E_SENTENCES = {
+  plane: "The plane took off at noon.",
+  prize: "She won first prize.",
+  time:  "What time is it?"
+};
+
+var R_VOWEL_RULE =
+  '<p style="margin:0">The <b>r</b> changes the vowel. <b>er</b>, <b>ir</b> and <b>ur</b> sound the same, so you have to remember which one a word uses.</p>';
+var R_VOWEL_SENTENCES = {
+  herd: "A herd of cows crossed the road.",
+  turn: "Turn left at the light."
+};
+
+var VOWEL_TEAM_RULE =
+  '<p style="margin:0">Two vowels, one sound. <b>ai</b> in the middle, <b>ay</b> at the end. <b>ee</b> and <b>ea</b> both say /ē/.</p>';
+var VOWEL_TEAM_SENTENCES = {
+  rain:  "Take a jacket in case of rain.",
+  wait:  "Wait for me by the door.",
+  road:  "The road was closed for repairs.",
+  feet:  "My feet hurt after the hike.",
+  team:  "Our team won the game.",
+  beach: "We swam at the beach.",
+  cheap: "The shirt was cheap.",
+  throw: "Throw the ball to me."
+};
+
 /* ══════════════════════════════════════════════════════════════════════
    The families.
 
@@ -571,6 +625,94 @@ window.LIST_FAMILIES = [
               "lif","vip","pid","tix","rit","sig","lim","zid",
               "vop","pon","com","fod","hom","rof","jom","loz",
               "bup","rup","sug","lun","sud","hux","gud","muv"] }]
+  },
+
+  /* The four pattern lists. Say it plays on say-game.html with the
+     plain coaching every list without its own page gets (blend "start",
+     blendLength 0, as on Multisyllable): each list has several target
+     sounds, and `sound` takes one. No One minute and no Blend it, for the
+     reasons on Starting Blends. Sound boxes on three of them; Silent e
+     gets one box, because the boxes split "make" as m|a|ke and the lesson
+     is that the e belongs to the vowel. */
+  {
+    key: "digraphs",
+    title: "sh / ch / th",
+    pattern: "digraph",
+    icon: "🔗",
+    section: "decode",
+    note: "Two letters that make one sound — sh, ch, th, wh, and ck at the end of a word.",
+    description: "Words with sh, ch, th, wh or ck — ship, chop, math, when, back.",
+    modes: ["say", "spell", "cards", "match"],
+    config: { highlight: /sh|ch|th|wh|ck/i },
+    modeConfig: {
+      say:   { blend: "start", blendLength: 0, theme: "race" },
+      spell: { rule: DIGRAPH_RULE, sentences: DIGRAPH_SENTENCES, boxes: true }
+    },
+    lists: [{ n: 1,
+      words: ["shop","shed","ship","shut","dash","fish","rush","cash","chip","chop",
+              "chat","much","rich","lunch","bench","thin","thick","math","path","moth",
+              "bath","when","whip","which","back","neck","luck","rock","check","shock"] }]
+  },
+
+  {
+    key: "silent-e",
+    title: "Silent e",
+    pattern: "silent e",
+    icon: "🔕",
+    section: "decode",
+    note: "A silent e at the end makes the vowel say its name — hop becomes hope.",
+    description: "Words that end in a silent e — make, bike, hope, cute.",
+    modes: ["say", "spell", "cards", "match"],
+    // The vowel, the consonant after it and the e: the unit the rule is about.
+    config: { highlight: /[aeiou][^aeiou]e$/i },
+    modeConfig: {
+      say:   { blend: "start", blendLength: 0, theme: "race" },
+      spell: { rule: SILENT_E_RULE, sentences: SILENT_E_SENTENCES }
+    },
+    lists: [{ n: 1,
+      words: ["make","game","late","shade","grape","snake","plane","bike","time","ride",
+              "slide","smile","prize","white","hope","home","joke","stone","broke","code",
+              "cute","mule","tune","flute","rude","theme","these","huge"] }]
+  },
+
+  {
+    key: "r-vowels",
+    title: "ar / or / er",
+    pattern: "r-controlled vowel",
+    icon: "🚗",
+    section: "decode",
+    note: "An r after a vowel changes its sound. er, ir and ur all sound the same.",
+    description: "Words with ar, or, er, ir or ur — car, fork, her, bird, burn.",
+    modes: ["say", "spell", "cards", "match"],
+    config: { highlight: /ar|or|er|ir|ur/i },
+    modeConfig: {
+      say:   { blend: "start", blendLength: 0, theme: "race" },
+      spell: { rule: R_VOWEL_RULE, sentences: R_VOWEL_SENTENCES, boxes: true }
+    },
+    lists: [{ n: 1,
+      words: ["car","park","dark","farm","sharp","start","card","smart","fork","corn",
+              "storm","short","sport","horn","north","torch","her","term","fern","herd",
+              "perk","bird","skirt","first","shirt","dirt","burn","turn","hurt","curb"] }]
+  },
+
+  {
+    key: "vowel-teams",
+    title: "Vowel Teams",
+    pattern: "vowel team",
+    icon: "⛵",
+    section: "decode",
+    note: "Two vowels side by side that make one sound — ai, ay, ee, ea, oa, ow.",
+    description: "Words with ai, ay, ee, ea, oa or ow — rain, day, feet, team, boat, snow.",
+    modes: ["say", "spell", "cards", "match"],
+    config: { highlight: /ai|ay|ee|ea|oa|ow/i },
+    modeConfig: {
+      say:   { blend: "start", blendLength: 0, theme: "race" },
+      spell: { rule: VOWEL_TEAM_RULE, sentences: VOWEL_TEAM_SENTENCES, boxes: true }
+    },
+    lists: [{ n: 1,
+      words: ["rain","paint","train","chain","wait","day","play","stay","tray","spray",
+              "feet","green","sheep","speed","street","team","beach","cheap","dream","least",
+              "boat","coat","road","goal","toast","show","grow","snow","throw","bowl"] }]
   },
 
   {

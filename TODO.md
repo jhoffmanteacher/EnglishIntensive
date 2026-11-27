@@ -28,8 +28,20 @@ Two things worth watching once it has had one:
   word was read right and the mic wrote something else, never a dropped or
   swapped sound. It holds one entry (*tent* ← "tenth").
 
-- **Consider Spell it for blends.** Hearing a word and typing it would suit
-  the blend lists. Separate plan.
+- **Say it coaching for the four pattern lists.** sh / ch / th, Silent e,
+  ar / or / er and Vowel Teams use the plain coaching (`blend: "start",
+  blendLength: 0`) because `sound` takes one phoneme token and each list
+  has several target sounds. Letting `sound` take a set (`["SH","C","TH"]`,
+  any one of them) would let Say it's reveal name the pattern sound the
+  way oi / oy does. It is a matcher change (`findPhonemeSeq`), so it needs
+  the listen-loop before/after.
+- **Sound-alikes on the pattern lists.** A correct reading of *herd* can
+  come back as "heard", *which* as "witch", *plane* as "plain", *wait* as
+  "weight", *road* as "rode", *rain* as "reign", *beach* as "beech". Say it
+  would mark those wrong. The fix is a `soundalikes` map on those families,
+  as the red words have, added only when the dashboard's "most often heard
+  as" shows it, with the listen-loop before/after. (Spell it already says
+  these words with a sentence.)
 - **Consider one 59-word blends list** (Starting Blends and Blend Words
   merged) so One minute has enough words. It is a new list id and a new
   family decision, so it needs its own plan.

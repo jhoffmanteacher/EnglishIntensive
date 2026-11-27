@@ -189,16 +189,37 @@ and finding it among look-alikes are three separate things. So the
 registry generates **one entry per (family, list, mode)**, each with its
 own id and therefore its own stats.
 
-The six families:
+The ten families:
 
 | family | lists | modes |
 |---|---|---|
 | Starting Blends | 1 | 🎤 ⌨️ 🃏 🎯 (⏱ 🔊 retired) |
 | Blend Words | 1 | 🎤 ⌨️ 🃏 🎯 (⏱ 🔊 retired) |
 | Nonsense Words | 1 | 🎤 🃏 ⏱ 🔊 |
+| sh / ch / th | 1 | 🎤 ⌨️ 🃏 🎯 |
+| Silent e | 1 | 🎤 ⌨️ 🃏 🎯 |
+| ar / or / er | 1 | 🎤 ⌨️ 🃏 🎯 |
+| Vowel Teams | 1 | 🎤 ⌨️ 🃏 🎯 |
 | oi / oy | 1 | 🎤 ⌨️ 🃏 🎯 |
 | Multisyllable | 1 | 🎤 ⌨️ 🃏 🎯 ✂️ |
 | Red Words | 10 | 🎤 ⌨️ 🃏 🎯 |
+
+**The four pattern lists** (`digraphs`, `silent-e`, `r-vowels`,
+`vowel-teams`, added 2026-11-27) fill the gap between the blends and
+oi / oy: digraphs, silent e, r-controlled vowels and long-vowel teams.
+Programs for older readers teach all four before multisyllable words,
+which are full of them. They have no page of their own: Say it is
+`say-game.html` with the plain coaching (`blend: "start", blendLength:
+0`, as on Multisyllable), because each list has several target sounds and
+the `sound` option takes one. Spell it is `spell-game.html` with sound
+boxes on three of them; Silent e has one box, because `phonemeSpans` puts
+the e with the consonant (`m|a|ke`) and the lesson is that it belongs to
+the vowel. No One minute and no Blend it, for the reasons under *Retired
+modes*. `config.highlight` colours each list's target letters. Spell it
+says the few words a listener could spell another way (*which*, *herd*,
+*plane*…) with a sentence. The word list choices are explained above
+the families in `word-lists.js` (*girl* left out, *gray* swapped for
+*tray*).
 
 Some gaps are deliberate. **Nonsense words** have no Match It: that game
 *says* a word and asks the student to find it, and a synthesiser handed
@@ -630,9 +651,9 @@ the matcher needs: "they have" is the expansion of "they've" and also a
 student reading *have* with a run-up.
 
 The mode runs on a generic `say-game.html?list=red-3-say`, the way
-`cards-game.html` already works. The five phonics families keep their own
-pages, because each carries a rule box or mic note that only makes sense
-for that list.
+`cards-game.html` already works; so do the four pattern lists. The five
+older phonics families keep their own pages, because each carries a rule
+box or mic note that only makes sense for that list.
 
 Three matching modes for `blend`, depending on what's being drilled:
 
@@ -718,10 +739,11 @@ stars and the missed-words list match the blend games, and the pure helpers
 are covered by `tests.html`.
 
 Every list but Nonsense Words can be spelled. oi/oy has its own page and
-sound boxes; Starting Blends, Blend Words and Multisyllable play on the
-shared `spell-game.html` (`?list=blends-start-1-spell` and so on) with
-one box, because every letter in a blend word is its own sound and the
-boxes would only say how long the word is. Each family's rule box is its
+sound boxes; every other list plays on the shared `spell-game.html`, with
+sound boxes on sh / ch / th, ar / or / er and Vowel Teams. Starting
+Blends, Blend Words and Multisyllable (`?list=blends-start-1-spell` and so
+on) have one box, because every letter in a blend word is its own sound and
+the boxes would only say how long the word is. Each family's rule box is its
 `modeConfig.spell.rule` in `word-lists.js`. The engine takes library
 entries, so a dotted multisyllable word is spoken, checked, boxed and
 stored as the plain word (`Core.parseEntry`), and the reveal after a
@@ -2245,8 +2267,9 @@ steps of 5 from 50 to 100; changing it redraws the counts at once.
 The two ready-made sequences are built from the library when asked for, not
 stored, so nothing goes stale when a list is added or retired: *Red Words, Lists
 1 to 10* (offered in Red Words) and *Sounding it out* (Starting Blends, Blend
-Words, oi / oy, Multisyllable; offered in Other lists), each with Say it and
-Cards. Using one — or a saved order, or copying another student's — uses only
+Words, sh / ch / th, Silent e, ar / or / er, Vowel Teams, oi / oy,
+Multisyllable; offered in Other lists), each with Say it and Cards. An order
+given before a list was added keeps its steps: it is a copy. Using one — or a saved order, or copying another student's — uses only
 the steps of the section's kind and replaces only the lists still to come,
 after a confirm that names them; the finished lists and the one they are on
 stay, and no list is ever in a sequence twice. A *saved* sequence also brings
@@ -2462,7 +2485,7 @@ A live line under the picker — *"Ticked: Starting Blends: 🎤🃏 · Red
 Words: 1–3 🃏 · 1 🎯"* — says in words what the ticks add up to, and it is
 the same line the roster shows, so what a student *has* and what you're
 *setting* read the same way. The button row under a picker is sticky, so
-Save stays on screen however far down the six families you've scrolled.
+Save stays on screen however far down the ten families you've scrolled.
 
 ### Roster import
 
@@ -2561,8 +2584,9 @@ nothing to write.) A student who hasn't signed in never gets a line.
 
 Thirty words all going wrong on the same vowel team is **one** problem with
 one lesson behind it, and a list of thirty words hides that. So every
-family carries a `pattern` — *initial blend*, *final blend*, *vowel team
-oi/oy*, *multisyllable*, *irregular*, *nonsense CVC* — in the words a
+family carries a `pattern` — *initial blend*, *final blend*, *digraph*,
+*silent e*, *r-controlled vowel*, *vowel team*, *vowel team oi/oy*,
+*multisyllable*, *irregular*, *nonsense CVC* — in the words a
 teacher would use in a plan, and **Trouble spots** has a second table
 grouped by it, following the class filter like the first.
 
