@@ -278,8 +278,9 @@ window.EIPractice = (function(){
 
   /* The shelves of tiles for a set of list ids, appended to `container`;
      returns how many lists were drawn. Used for a student's current list
-     and, again, for the finished fold. */
-  function appendSections(container, mine){
+     and, again, for the finished fold. `inOrder`: the ids are a sequence's,
+     so each tile's rows go in the family's teaching order (see familyTile). */
+  function appendSections(container, mine, inOrder){
     var shown = 0;
     WordLists.sectionsOf().forEach(function(sec){
       var lists = WordLists.all.filter(function(l){
@@ -304,7 +305,7 @@ window.EIPractice = (function(){
         if(!byList[k]){ byList[k] = []; order.push(k); }
         byList[k].push(l);
       });
-      order.forEach(function(k){ grid.appendChild(familyTile(byList[k])); });
+      order.forEach(function(k){ grid.appendChild(familyTile(byList[k], inOrder)); });
       wrap.appendChild(grid);
       container.appendChild(wrap);
     });
@@ -423,14 +424,14 @@ window.EIPractice = (function(){
           pn.textContent = note;
           mount.appendChild(pn);
         }
-        shown = appendSections(mount, pl.current);
+        shown = appendSections(mount, pl.current, true);
         if(pl.finishedIds.length){
           var fold = document.createElement("details");
           fold.className = "finishedFold";
           var sum = document.createElement("summary");
           sum.textContent = "Lists you finished (" + pl.finishedCount + ")";
           fold.appendChild(sum);
-          appendSections(fold, pl.finishedIds);
+          appendSections(fold, pl.finishedIds, true);
           mount.appendChild(fold);
         }
       } else {
@@ -462,7 +463,7 @@ window.EIPractice = (function(){
      There used to be a second, simpler tile for lists that had only one
      way to play them. Every list has several now, so that tile had
      nothing left to render and went away with the distinction. */
-  function familyTile(entries){
+  function familyTile(entries, inOrder){
     var first = entries[0];
     var fam = WordLists.familyOf(first.family) || { icon:"", title:"", lists:[], description:"" };
     var d = document.createElement("div");
@@ -483,10 +484,15 @@ window.EIPractice = (function(){
     d.appendChild(icon); d.appendChild(title); d.appendChild(p);
 
     // Rows in the family's declared mode order, not assignment order, so
-    // the same list looks the same however it was ticked.
-    WordLists.modesOf(fam.key).forEach(function(m){
-      var l = entries.filter(function(e){ return e.mode === m.key; })[0];
-      if(!l) return;
+    // the same list looks the same however it was ticked. Inside a sequence,
+    // in its teaching order instead: the ways open one at a time in that
+    // order, so a new row only ever appears at the bottom.
+    var rows = inOrder
+      ? WordLists.inTeachingOrder(entries.map(function(e){ return e.id; })).map(function(id){ return WordLists.byId(id); })
+      : WordLists.modesOf(fam.key).map(function(m){ return entries.filter(function(e){ return e.mode === m.key; })[0]; });
+    rows.forEach(function(l){
+      var m = l && WordLists.modeOf(l.mode);
+      if(!m) return;
       var row = document.createElement("a");
       row.className = "gameRow";
       row.href = WordLists.hrefOf(l.id);
@@ -567,5 +573,5 @@ window.EIPractice = (function(){
 
   return { play: play, renderHome: renderHome, drawRound: drawRound, SESSION_SIZE: SESSION_SIZE,
            _internals: { queryList: queryList, pageName: pageName, previewText: previewText,
-                         planNotice: planNotice, seenKey: seenKey, appendSections: appendSections, testBar: testBar } };
+                         planNotice: planNotice, seenKey: seenKey, appendSections: appendSections, familyTile: familyTile, testBar: testBar } };
 })();

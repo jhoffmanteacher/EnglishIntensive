@@ -807,12 +807,15 @@ window.Adaptive = (function(){
       var l = lists[i];
       if(l.mode !== "cards") continue;
       if(l.attempts < STUCK_ATTEMPTS || l.share >= STUCK_SHARE) continue;
-      if(l.hasSay && l.sayId){
+      /* Inside a sequence the ways of a list open one at a time in the site's
+         order, so "try Say It" or "Match It first" is advice the teacher
+         cannot take: the plain line only. */
+      if(!info.plan && l.hasSay && l.sayId){
         return { rule: "stuck", listId: l.id, addId: l.sayId,
           text: "Stuck on " + l.title + " — " + Math.round(l.share * 100) +
                 "% solid after " + l.attempts + " answers. Try Say It on the same words." };
       }
-      if(l.hasMatch && l.matchId){
+      if(!info.plan && l.hasMatch && l.matchId){
         return { rule: "stuck", listId: l.id, addId: l.matchId,
           text: "Stuck on " + l.title + " — " + Math.round(l.share * 100) +
                 "% solid after " + l.attempts + " answers. Match It first might be kinder." };

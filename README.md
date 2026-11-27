@@ -220,9 +220,10 @@ pins that). `WordLists.inTeachingOrder(ids)` sorts a list's ids by it — a mode
 does not name (a retired one a student still holds) after the named ones, an id
 the library does not know last, nothing added or lost — and `withSay` (*Say it
 is in every step*, under *Sequences*) runs it, so every step the dashboard
-writes is in this order. `orderOf(family)` gives the mode keys. Lists given
-without a sequence are not affected: their home page rows stay in the family's
-`modes` order, every way at once.
+writes is in this order. `orderOf(family)` gives the mode keys. On the home
+page, a sequence's tiles list their Play rows in this order too, so a way that
+opens only ever adds a row at the bottom. Lists given without a sequence are
+not affected: their rows stay in the family's `modes` order, every way at once.
 
 Some gaps are deliberate. **Nonsense words** have no Match It: that game
 *says* a word and asks the student to find it, and a synthesiser handed
@@ -421,8 +422,10 @@ Split it list), each tile adds its mode's name. A list id belonging to a
 different page redirects there.
 
 A student in a sequence sees, of the list they are on, only the ways open so
-far (*One way at a time*, under *Sequences*): a new Play row appears on the
-tile as each opens, and the finished fold shows every way. "What they were
+far (*One way at a time*, under *Sequences*): a new Play row appears at the
+bottom of the tile as each opens (a sequence's tiles list their rows in the
+teaching order, `appendSections(…, inOrder)` → `familyTile`; a plain set keeps
+the `modes` order), and the finished fold shows every way. "What they were
 given" is then what is open: `EIStore.myLists()` holds only the open ways of
 the current list, so a way not yet open is exactly an unassigned id to a game
 page.
@@ -2270,9 +2273,9 @@ Below 900px the columns stack.
 beside it, what it holds — **Red Words** *10 lists*; **Other lists** *Starting
 Blends, Blend Words, oi / oy, Multisyllable · 4 lists*. **Red Words, when the student has none,** is one
 button, **Give Red Words**, with one line beside it: *"Every Red Words list in
-order, List 1 to List 10, with Say it and Cards. Nothing changes until you press
-Save."* It fills the section with every red list in list-number order, Say it
-and Cards (the ready-made *Red Words, Lists 1 to 10*), at the usual percent, as
+order, List 1 to List 10, with Cards and Say it. Nothing changes until you press
+Save."* It fills the section with every red list in list-number order, Cards
+and Say it (the ready-made *Red Words, Lists 1 to 10*), at the usual percent, as
 a draft: nothing is given to anyone until Save, so *a student sees what they
 were given* still holds — no student is ever given Red Words without the
 teacher pressing something. After that it is the same editor as Other lists.
@@ -2416,8 +2419,9 @@ teacher chooses per student.
 A row is: a tick box; the student (name, class, a ✎ if there is a note) with at
 most one **flag line** under it; **Now on**, the list they are on; **Progress**,
 a bar with a tick at that student's percent and the count in whole words
-(*"14 of 20"*; with more than one way ticked, the way furthest from finished,
-named: *"14 of 20 · Say it"*); and **Place**, *"List 3 of 6"* (plus *· held*). A
+(*"14 of 20"*; with more than one way ticked, the way the student is working
+toward — the first in the step's order still below the bar, since the later ways
+open one at a time — named: *"14 of 20 · Say it"*); and **Place**, *"List 3 of 6"* (plus *· held*). A
 finished sequence reads *"Finished all 6"*. A student with games and no order
 shows today's sentence and *no order*. A student with nothing shows a
 *No lists yet* pill. A student on the roster who has not signed in stays greyed,
@@ -2598,7 +2602,10 @@ next action.
 1. **Stuck on cards** — 30+ answers on a card list under 40 % solid. That
    student is being shown a word, saying "not yet", and being shown it
    again; the answer is almost never more cards, so the line says to try Say It
-   on the same words (or Match It where the family has no Say It).
+   on the same words (or Match It where the family has no Say It). Not inside a
+   sequence: there the ways open one at a time in the site's order, so the line
+   says only that they are stuck (*"Stuck on Red Words · List 1 — 20% solid after
+   40 answers."*).
 2. **The two in the wrong order** — under 50 % on Match It for a list whose
    cards are under 60 % solid. Picking a word out of six look-alikes is
    harder than reading it, not easier. Not for a student in a sequence: there

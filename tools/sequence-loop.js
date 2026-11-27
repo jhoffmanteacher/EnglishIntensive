@@ -722,7 +722,8 @@
     if(!d || !d.steps.length) return null;
     if(!draftDirty(d)) return { plan: s.plans[sec], fresh: false };
     var idx = draftNow(s, sec, d), n = d.steps.length, at = Math.max(0, Math.min(idx, n));
-    return { plan: { steps: cloneSteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at && at < n, setAt: null }, fresh: true };
+    // Save writes every step through Say it and the teaching order, the ones not edited too.
+    return { plan: { steps: saySteps(d.steps), bar: d.bar, at: at, hold: !!d.hold && at === d.at && at < n, setAt: null }, fresh: true };
   }
   // Entries by section → { plans, fresh }.
   function keyBody(entries){
