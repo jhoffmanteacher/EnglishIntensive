@@ -58,8 +58,12 @@ window.SpellGame = (function(){
     return window.GameCore.phonemeSpans(w).map(function(sp){ return w.slice(sp.start, sp.end); });
   }
 
+  /* Accents fold to the plain letter before anything else: "resumé" is on
+     a red list, a Chromebook has no é key, and stripping the é as
+     punctuation (as this did) made "resum" the answer. */
   function normalizeAnswer(s){
     return String(s === null || s === undefined ? "" : s)
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .replace(/[‘’ʼ]/g, "'")   // smart quotes -> plain
       .replace(/[^a-z']/g, "");                // spaces, digits, punctuation
@@ -129,6 +133,9 @@ window.SpellGame = (function(){
   /* The reveal's syllable line (partsLine) — the dotted form, in the
      chunk colours the cards' back uses. */
   .parts{display:inline-block;margin-top:8px}
+  /* …and on a red word, its heart letters in red, as on the card back. */
+  .parts .hword{font-size:26px;font-weight:800;letter-spacing:.5px;color:var(--ink)}
+  .parts .heart{color:var(--bad);text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:5px}
 
   /* The big slot on the word card echoes what the student is typing, then
      becomes the reveal after a second miss. Smaller than the blend games'
@@ -195,8 +202,10 @@ window.SpellGame = (function(){
       <button class="btn ghost" id="btnDirections" type="button" style="margin-bottom:16px">🔊 Read directions aloud</button>
       <ol class="steps">
         <li>Put on your <b>headphones</b>.</li>
-        <li>${cfg.hasSentences
+        <li>${cfg.hasSentences === "all"
           ? "Listen to the word and the sentence. Click <b>🔊 Say it again</b> to hear just the word — click it twice for a slower read."
+          : cfg.hasSentences === "some"
+          ? "Listen to the word. Some words come with a sentence. Click <b>🔊 Say it again</b> to hear just the word — click it twice for a slower read."
           : "Listen to the word. Click <b>🔊 Say it again</b> to hear it again — click it twice for a slower read."}</li>
         <li><b>Type</b> the word, then press <kbd>Enter</kbd>.</li>
         <li>Every 5 right in a row is bonus points.</li>
@@ -316,7 +325,14 @@ window.SpellGame = (function(){
       intro: cfg.intro || "Listen to the word, then type it.<br>You get two tries. Every 5 right in a row earns bonus points.",
       rule: cfg.rule || "",
       count: WORDS.length,
-      hasSentences: Object.keys(SENTENCES).length > 0,
+      /* "all" when every word of the list has a sentence (oi/oy), "some"
+         when only a few do (the red words: just the ones a listener could
+         spell another way), "" for none. The second step says which. */
+      hasSentences: (function(){
+        var pool = plainList(cfg.allWords && cfg.allWords.length ? cfg.allWords : cfg.words);
+        var n = pool.filter(function(w){ return SENTENCES[w]; }).length;
+        return !n ? "" : n === pool.length ? "all" : "some";
+      })(),
       progress: prog.markup()
     });
     // The Reading view panel is markup the core supplied; the core wires it.
@@ -419,8 +435,13 @@ window.SpellGame = (function(){
        Empty for a word with no marks. */
     function partsLine(word){
       var p = ENTRY[word];
-      if(!p || !p.chunks) return "";
-      return '<br><span class="parts">Syllables: ' + Core.chunkMarkup(p.chunks, null) + "</span>";
+      if(!p) return "";
+      if(p.chunks) return '<br><span class="parts">Syllables: ' + Core.chunkMarkup(p.chunks, p.heart) + "</span>";
+      /* A red word's heart letters, as the card back shows them. The
+         plain front-first rule of the cards doesn't apply: the student
+         has not seen the word at all until this reveal. */
+      if(p.heart) return '<br><span class="parts">Remember the red letters: <span class="hword">' + Core.heartMarkup(p.word, p.heart) + "</span></span>";
+      return "";
     }
 
     function focusInput(){

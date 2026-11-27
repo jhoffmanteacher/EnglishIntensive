@@ -198,7 +198,7 @@ The six families:
 | Nonsense Words | 1 | 🎤 🃏 ⏱ 🔊 |
 | oi / oy | 1 | 🎤 ⌨️ 🃏 🎯 |
 | Multisyllable | 1 | 🎤 ⌨️ 🃏 🎯 ✂️ |
-| Red Words | 10 | 🎤 🃏 🎯 |
+| Red Words | 10 | 🎤 ⌨️ 🃏 🎯 |
 
 Some gaps are deliberate. **Nonsense words** have no Match It: that game
 *says* a word and asks the student to find it, and a synthesiser handed
@@ -728,6 +728,27 @@ stored as the plain word (`Core.parseEntry`), and the reveal after a
 second miss adds its syllables (`partsLine`). Adding Spell it to a list
 adds nothing to any student's assignment or sequence: it is offered on
 the Assign board and in the pickers, and a teacher ticks it.
+
+**Red Words** spell on the same page (`red-1-spell` … `red-10-spell`). The
+red-word rule that sounding out teaches the wrong thing is about
+*reading*; spelling a red word is mostly by sound plus the heart letters,
+and that is the rule box (`RED_SPELL_RULE`). Two things are red-only:
+
+- every red word a listener could spell another way is said with a
+  sentence — each member of `RED_HOMOPHONES` and each key of
+  `RED_SOUNDALIKES`. The map is `RED_SPELL_SENTENCES`: `RED_SENTENCES` plus
+  a sentence for each sound-alike that had none. The cards and Match It
+  keep `RED_SENTENCES` unchanged. `tests.html` fails on a sound-alike key
+  without one.
+- the reveal adds the word with its heart letters in red (`partsLine`),
+  as on the card back. The cards' front-first rule doesn't apply: the
+  student hasn't seen the word until the reveal.
+
+Answers are strict about letters and apostrophes (`aren't` needs its
+apostrophe; a curly one is fine) and fold accents (`resumé` takes
+`resume`, since a Chromebook has no é key). The start screen's second step
+says "Some words come with a sentence" when only some of the list's words
+have one.
 
 ### How the listening works
 

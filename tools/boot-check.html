@@ -314,6 +314,28 @@
                       q("#uiInput").value = "zz";
                       click(q("#btnCheck"));
                     } },
+    /* Red Words · Spell it: the heart letters on the reveal, in red, and
+       a contraction needs its apostrophe. */
+    "spell-red":  { engine: "SpellGame",   list: "red-2-spell", cfg: function(cfg){ cfg.words = ["th{eir}"]; },
+                    drive: function(q, click){
+                      click(q("#btnStart"));
+                      q("#uiInput").value = "there";
+                      click(q("#btnCheck"));
+                      q("#uiInput").value = "there";
+                      click(q("#btnCheck"));
+                      if(q("#uiWord").textContent !== "their") throw new Error("the reveal shows \"" + q("#uiWord").textContent + "\"");
+                      if(q("#uiMsg .heart").textContent !== "eir") throw new Error("no red letters on the reveal");
+                    } },
+    "spell-red-contraction": { engine: "SpellGame", list: "red-3-spell", cfg: function(cfg){ cfg.words = ["aren't"]; },
+                    drive: function(q, click){
+                      click(q("#btnStart"));
+                      q("#uiInput").value = "arent";
+                      click(q("#btnCheck"));
+                      if(q("#wordCard").className.indexOf("wrong") === -1) throw new Error("arent passed for aren't");
+                      q("#uiInput").value = "aren’t";
+                      click(q("#btnCheck"));
+                      if(q("#wordCard").className.indexOf("correct") === -1) throw new Error("aren’t (curly) was not accepted");
+                    } },
     "cards":      { engine: "CardGame",    list: "red-1-cards", drive: function(q, click){
                       click(q("#btnStart"));
                       click(q("#btnFlip"));

@@ -282,6 +282,71 @@ var RED_SENTENCES = {
   "wind":    "The wind blew my hat off."
 };
 
+/* Spell it on the red words says every word that a listener could spell
+   another way with a sentence, spelling-bee style: every member of
+   RED_HOMOPHONES and every key of RED_SOUNDALIKES. A student who hears
+   "would" alone could fairly type "wood"; "Would you like a snack?" leaves
+   only one spelling. RED_SENTENCES already covers the homophones; these
+   cover the sound-alikes that had none. Each is short and plain, uses the
+   word once, and fits only the list spelling. Spelling only: the cards
+   and Match It keep RED_SENTENCES as they were. tests.html checks that
+   every sound-alike key has one. */
+var RED_SPELL_SENTENCES = (function(){
+  var out = {}, k;
+  for(k in RED_SENTENCES) out[k] = RED_SENTENCES[k];
+  var more = {
+    "would":    "Would you like a snack?",
+    "do":       "Do you like pizza?",
+    "into":     "The cat ran into the house.",
+    "whose":    "Whose phone is this?",
+    "here":     "Come over here and sit down.",
+    "some":     "Can I have some chips?",
+    "where":    "Where did you park the car?",
+    "right":    "Turn right at the corner.",
+    "great":    "We had a great time at the game.",
+    "very":     "The test was very hard.",
+    "been":     "She has been sick all week.",
+    "none":     "None of the pizza was left.",
+    "buy":      "Did you buy the tickets?",
+    "straight": "Walk straight down the hall.",
+    "worn":     "My jeans are worn at the knees.",
+    "clothes":  "She folded her clothes and packed them.",
+    "break":    "Don't break the glass.",
+    "steak":    "He ordered a steak for dinner.",
+    "tough":    "The math test was tough.",
+    "rough":    "The road was rough and bumpy.",
+    "anyone":   "Is anyone home?",
+    "through":  "The ball went through the window.",
+    "almost":   "The bus is almost full.",
+    "always":   "She always eats breakfast.",
+    "though":   "It was cold, though the sun was out.",
+    "build":    "We will build a fort out of boxes.",
+    "carrot":   "The rabbit ate a carrot.",
+    "roll":     "Roll the ball across the floor.",
+    "sew":      "She can sew a button on a shirt.",
+    "shoe":     "My left shoe is untied.",
+    "heart":    "The heart pumps blood.",
+    "forward":  "Step forward when the coach calls you.",
+    "son":      "Her son plays soccer.",
+    "four":     "The table has four legs.",
+    "hour":     "The movie lasted an hour.",
+    "wore":     "He wore a red jacket.",
+    "already":  "I already finished my homework.",
+    "fair":     "The game was not fair.",
+    "pair":     "I need a new pair of shoes.",
+    "eye":      "Dust got in my eye.",
+    "mall":     "We met at the mall.",
+    "air":      "The air smelled like rain.",
+    "know":     "I know her name."
+  };
+  for(k in more) out[k] = more[k];
+  return out;
+})();
+
+var RED_SPELL_RULE =
+  '<p style="margin:0">Most of a red word is spelled the way it sounds. One part isn\'t: the <b>red letters</b>.</p>' +
+  '<p class="tip">Spell the rest by sound, and remember the red part.</p>';
+
 var RED_NOTE_CARDS = `
     <p><b>Red words</b> are the words that break the rules. Sounding out
     <b>said</b> gives you "sayed". Sounding out <b>would</b> gives you
@@ -619,7 +684,11 @@ window.LIST_FAMILIES = [
        genuinely were problems — homophones and contractions — are fixed
        where they belong (RED_HOMOPHONES below, and the contraction fold
        in GameCore.normalize), not by leaving the mode out. */
-    modes: ["say", "cards", "match"],
+    /* Spell it came last (2026-11-27). Reading a red word is by sight;
+       spelling one is mostly by sound plus the red letters, which the
+       rule box says. One box; a contraction is typed with its apostrophe,
+       and a missing one is a miss. */
+    modes: ["say", "spell", "cards", "match"],
     /* Teacher-facing one-liners, shown as a tooltip on the mode wherever
        the board or a picker names it. Match It stays here as the no-mic
        option, but it is not what red words are for: it gives the student
@@ -631,6 +700,7 @@ window.LIST_FAMILIES = [
         note: RED_NOTE_SAY, homophones: RED_HOMOPHONES, soundalikes: RED_SOUNDALIKES,
         intro: "Read each word out loud. The computer listens and tells you if you're right.<br>These are read by sight, so say the whole word."
       },
+      spell: { rule: RED_SPELL_RULE, sentences: RED_SPELL_SENTENCES },
       // The homophone groups are here for the same reason Match It has
       // them: with the Listen toggle on, the cards judge a spoken answer,
       // and no recogniser separates "to" from "two".

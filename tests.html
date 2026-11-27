@@ -628,6 +628,12 @@
   eq('normalizeAnswer drops inner spaces', S.normalizeAnswer("co in"), "coin");
   eq('normalizeAnswer straightens a curly apostrophe', S.normalizeAnswer("boy’s"), "boy's");
   eq('normalizeAnswer of null is empty', S.normalizeAnswer(null), "");
+  // resumé is on a red list, and a Chromebook has no é key.
+  eq('normalizeAnswer folds an accent to its letter', S.normalizeAnswer("Resumé"), "resume");
+  eq('…so resume typed for resumé is right', S.isCorrect("resume", "resumé"), true);
+  eq('…and a dropped letter is still wrong', S.isCorrect("resum", "resumé"), false);
+  eq('a contraction without its apostrophe is a miss', S.isCorrect("arent", "aren't"), false);
+  eq('…and with a curly one it is right', S.isCorrect("aren’t", "aren't"), true);
   eq('normalizeAnswer of undefined is empty', S.normalizeAnswer(undefined), "");
   eq("isCorrect ignores case and spacing", S.isCorrect("  COIN. ", "coin"), true);
   eq("isCorrect rejects the other spelling (coyn)", S.isCorrect("coyn","coin"), false);
@@ -2508,7 +2514,7 @@
       return l.id !== l.family + "-" + l.listNum + "-" + l.mode;
     }).map(function(l){ return l.id; });
     eq("every generated id is <family>-<n>-<mode>", misshapen.length, 0, misshapen.join(","));
-    eq("55 entries: six families, times their modes", W.all.length, 55);
+    eq("65 entries: six families, times their modes", W.all.length, 65);
 
     // ---- families and modes agree with each other ----
     var badMode = W.all.filter(function(l){
@@ -2543,8 +2549,8 @@
     eq("the red family still has ten lists", W.listNumsOf("red").join(","), "1,2,3,4,5,6,7,8,9,10");
     eq("every red list is still twenty words (the screener's page)",
        W.all.filter(function(l){ return l.family === "red" && l.words.length !== 20; }).length, 0);
-    eq("the red family declares say, cards then match",
-       W.modesOf("red").map(function(m){ return m.key; }).join(","), "say,cards,match");
+    eq("the red family declares say, spell, cards then match",
+       W.modesOf("red").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
     eq("oi/oy is the one list with all four modes",
        W.modesOf("oi-oy").map(function(m){ return m.key; }).join(","), "say,spell,cards,match");
     // A synthesiser can't say "vab", so there is nothing for Match It to
@@ -2614,8 +2620,8 @@
     eq("idFor() finds a real entry", W.idFor("red", 3, "match"), "red-3-match");
     eq("idFor() is null for a list that doesn't exist", W.idFor("red", 11, "cards"), null);
     eq("idFor() is null for a mode the family doesn't have", W.idFor("nonsense", 1, "match"), null);
-    eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-say,red-3-cards,red-3-match");
-    eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 30);
+    eq("idsOfList gives every mode of one list", W.idsOfList("red", 3).join(","), "red-3-say,red-3-spell,red-3-cards,red-3-match");
+    eq("idsOfFamily gives the whole family", W.idsOfFamily("red").length, 40);
 
     /* ── retired modes: out of circulation, never out of the registry ── */
     ["blends-start-1-blendit","blends-start-1-fluency","blends-end-1-blendit","blends-end-1-fluency"].forEach(function(id){
@@ -2677,6 +2683,32 @@
     }).map(function(l){ return l.id; });
     eq("every Spell it has a rule box with words in it", ruleless.length, 0, ruleless.join(","));
     eq("Nonsense Words has no Spell it (nothing to hear)", W.idFor("nonsense", 1, "spell"), null);
+
+    /* Red Words · Spell it. Every red word a listener could spell another
+       way is said with its sentence: each member of RED_HOMOPHONES and
+       each key of RED_SOUNDALIKES. */
+    var r3 = W.byId("red-3-spell");
+    eq("red-3-spell exists", !!r3, true);
+    eq("  …on the spell engine and the shared page", r3 && r3.engine + " " + r3.page, "spell spell-game.html");
+    eq("  …one box", !!(r3 && r3.config.boxes), false);
+    eq("  …still irregular, like every red mode", !!(r3 && r3.config.irregular), true);
+    eq("red-1-spell to red-10-spell all exist",
+       W.listNumsOf("red").filter(function(n){ return W.exists("red-" + n + "-spell"); }).length, 10);
+    var rsent = r3 ? r3.config.sentences : {};
+    var noSent = Object.keys(RED_SOUNDALIKES).filter(function(k){ return !rsent[k]; });
+    eq("every RED_SOUNDALIKES key has a spelling sentence", noSent.length, 0, noSent.join(","));
+    var homNoSent = [].concat.apply([], RED_HOMOPHONES).filter(function(w){ return !rsent[w]; });
+    eq("every RED_HOMOPHONES word has a spelling sentence", homNoSent.length, 0, homNoSent.join(","));
+    var redWords = {};
+    RED_LISTS.forEach(function(l){ l.forEach(function(e){ redWords[W.plain(e).toLowerCase()] = true; }); });
+    var strays = Object.keys(rsent).filter(function(k){ return !redWords[k]; });
+    eq("every spelling sentence is for a word on a red list", strays.length, 0, strays.join(","));
+    var twice = Object.keys(rsent).filter(function(k){
+      return (rsent[k].toLowerCase().match(new RegExp("(^|[^a-z'])" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![a-z'])", "g")) || []).length !== 1;
+    });
+    eq("each spelling sentence uses its word exactly once", twice.length, 0, twice.join(","));
+    eq("the cards and Match It keep the sentences they had",
+       W.byId("red-3-cards").config.sentences === RED_SENTENCES && W.byId("red-3-match").config.sentences === RED_SENTENCES, true);
   })();
 
   /* ══════════════════════════════════════════════════════════════════
@@ -2785,7 +2817,7 @@
     T.bindPickers(host);
     host.querySelector('[data-pk-row="probe|red|3"]').click();
     eq("a row toggle still toggles after three binds",
-       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 3);
+       [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 4);
     host.querySelector('[data-pk-row="probe|red|3"]').click();
     eq("…and toggles back", 
        [...host.querySelectorAll('input[data-list^="red-3-"]')].filter(function(cb){ return cb.checked; }).length, 0);
@@ -4378,7 +4410,7 @@
 
       // Change the ways, take one out, add one.
       body.querySelector('.seqRow.later [data-seq="ways"]').click();
-      eq("Change ways opens the ways of that list", body.querySelectorAll("[data-ways]").length, 3);
+      eq("Change ways opens the ways of that list", body.querySelectorAll("[data-ways]").length, 4);
       eq("…with the current ones ticked", Array.prototype.filter.call(body.querySelectorAll("[data-ways]"), function(c){ return c.checked; }).length, 1);
       body.querySelector('[data-ways="red-3-cards"]').checked = true;
       body.querySelector('[data-seq="ways-done"]').click();
