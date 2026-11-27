@@ -4,13 +4,15 @@
      node tools/sequence-loop.mjs [options]
 
    THE QUESTION. When a teacher gives, changes and removes sequences on the dashboard, and students practise, do the
-   teacher's dashboard and the student's own home page AGREE about which list the student is on, which lists they can
-   play and which are finished — for one sequence and for two at once — and is that the answer the written rules
-   (README "Sequences", "A student's page", "The class page", "Saved sequences") give?
+   teacher's dashboard and the student's own home page AGREE about which list the student is on, which lists (and
+   which ways of that list, one at a time) they can play and which are finished — for one sequence and for two at
+   once — and is that the answer the written rules (README "Sequences", "A student's page", "The class page",
+   "Saved sequences") give?
 
    WHEN TO RUN IT. After any change to teacher.js (the sequence editor, Save, Stop, Give a sequence, the Students
-   rows), to store.js (resolve, settle, the marks, plan()), to adaptive.js (planState, planPosition, sanitizePlans,
-   listSolid, stepNeed, isMastered), or to practice.js (the home page: renderHome, planNotice, the finished fold).
+   rows), to store.js (resolve, settle, the marks, plan()), to adaptive.js (planState, openIds, planPosition,
+   sanitizePlans, listSolid, stepNeed, isMastered), to word-lists.js (a family's `order`, withSay, inTeachingOrder),
+   or to practice.js (the home page: renderHome, planNotice, the finished fold).
    About 70-90 s for the default 56 cases on two cores. Needs Node 22 and a Chrome (CHROME=…, else chromium,
    google-chrome or chrome on the PATH); no dependencies, no network, no server of your own — it serves the site
    itself on a free localhost port.
@@ -54,7 +56,7 @@
 
    WHAT IS FAKE (self-tested at the start of every batch: T1-T10) — see the header of tools/sequence-loop.js.
 
-   THE CHECKS (S1-S9) and THE FAMILIES — see the header of tools/sequence-loop.js; `--list` names them.
+   THE CHECKS (S1-S10) and THE FAMILIES — see the header of tools/sequence-loop.js; `--list` names them.
 
    KNOWN (printed as "~ known", not failed) — see KNOWN in tools/sequence-loop.js.
 */

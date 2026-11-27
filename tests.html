@@ -2282,6 +2282,8 @@
          A2.nextSteps(info([match({ accuracy:0.8 })])), null);
       eq("a list with no accuracy yet says nothing",
          A2.nextSteps(info([match({ accuracy:null })])), null);
+      // In a sequence the site sets the order (Match It first on purpose), so "Cards first" is not said.
+      eq("…and in a sequence it is not said: the order is the site's", A2.nextSteps(info([match()], { plan: { finished: false, movedAt: 0 } })), null);
     })();
 
     // 3. coasting
@@ -2673,6 +2675,27 @@
     eq("idsOfFamily leaves the retired out", W.idsOfFamily("blends-end").join(","), "final-blends,blends-end-1-spell,blends-end-1-cards,blends-end-1-match");
     eq("idFor still finds a retired id (the board needs it to show one)", W.idFor("blends-start", 1, "blendit"), "blends-start-1-blendit");
     eq("nonsense keeps Blend it and One minute", W.idsOfList("nonsense", 1).join(","), "nonsense,nonsense-1-cards,nonsense-1-fluency,nonsense-1-blendit");
+
+    /* ── the teaching order: one per family, set by the site (2026-11-27) ── */
+    var ORDERS = { "blends-start": "match,say,cards", "blends-end": "match,say,cards", "nonsense": "blendit,say,cards,fluency",
+                   "oi-oy": "match,say,cards,spell", "multi": "split,match,say,cards", "red": "match,cards,say" };
+    W.families().forEach(function(f){
+      eq(f.title + " is met in this order: " + ORDERS[f.key], W.orderOf(f.key).join(","), ORDERS[f.key]);
+      eq("…which is every mode it offers, each once, and no retired one",
+         W.orderOf(f.key).slice().sort().join(","), W.offeredModesOf(f.key).map(function(m){ return m.key; }).sort().join(","));
+    });
+    eq("an unknown family has no order", W.orderOf("nope").length, 0);
+    eq("inTeachingOrder puts a list's ways in its family's order",
+       W.inTeachingOrder(["multisyllable", "multi-1-cards", "multi-1-split", "multi-1-match"]).join(","), "multi-1-split,multi-1-match,multisyllable,multi-1-cards");
+    eq("…Nonsense Words: Blend it, Say it, Cards, One minute",
+       W.inTeachingOrder(["nonsense-1-fluency", "nonsense", "nonsense-1-blendit", "nonsense-1-cards"]).join(","), "nonsense-1-blendit,nonsense,nonsense-1-cards,nonsense-1-fluency");
+    eq("…a retired way a student still holds goes after the ordered ones",
+       W.inTeachingOrder(["blends-start-1-fluency", "blends-start-1-cards", "initial-blends"]).join(","), "initial-blends,blends-start-1-cards,blends-start-1-fluency");
+    eq("…an unknown id goes last, and nothing is lost or added",
+       W.inTeachingOrder(["gone", "red-2-say", "red-2-match"]).join(","), "red-2-match,red-2-say,gone");
+    eq("…it changes nothing it is given", (function(){ var a = ["red-2-say", "red-2-cards"]; W.inTeachingOrder(a); return a.join(","); })(), "red-2-say,red-2-cards");
+    eq("…and an empty or missing list is empty", W.inTeachingOrder([]).length + W.inTeachingOrder(null).length, 0);
+    eq("…ordering twice is ordering once", W.inTeachingOrder(W.inTeachingOrder(["red-1-say", "red-1-cards", "red-1-match"])).join(","), "red-1-match,red-1-cards,red-1-say");
 
     eq("a shared page needs a ?list=", W.hrefOf("red-3-match"), "match-game.html?list=red-3-match");
     eq("a page that serves one list doesn't", W.hrefOf("final-blends"), "blend-words-game.html");
@@ -3846,6 +3869,40 @@
          trace.join(" "), "1 1 2 2 3 3 done");
     })();
 
+    /* ---- one way at a time: openIds ---- */
+    var STEP3 = { ids: ["a", "b", "c"] };
+    function OP(stats, bar, step, tot){ return A3.openIds(step || STEP3, bar == null ? 0.9 : bar, stats, tot === undefined ? TOT20 : tot).join(","); }
+    eq("the first way is always open", OP({}), "a");
+    eq("the next opens when the one before reaches the bar (18 of 20)", OP(solid("a", 18)), "a,b");
+    eq("…and not one word below it (17 of 20)", OP(solid("a", 17)), "a");
+    eq("…a slow word does not count", OP(solid("a", 18, 9000)), "a");
+    eq("…the bar is the step's (70% of 20 is 14)", OP(solid("a", 14), 0.7), "a,b");
+    eq("the third waits for every way before it", OP(merge(solid("a", 18), solid("b", 17))), "a,b");
+    eq("…and opens when both are at the bar", OP(merge(solid("a", 18), solid("b", 18))), "a,b,c");
+    eq("a way they have played stays open when a word drops out of the top box",
+       OP(merge(solid("a", 17), { "b|w0": A3.sanitizeStat({ n: 1, r: 0, box: 0, last: 1 }) })), "a,b");
+    eq("…but the one after it does not open through it", OP(merge(solid("a", 17), solid("b", 20))), "a,b");
+    eq("a way played before its turn is open (any stat for it)", OP({ "c|w3": A3.sanitizeStat({ n: 1, r: 1, box: 1, last: 1 }) }), "a,c");
+    eq("another list's stats do not open anything", OP(solid("d", 28)), "a");
+    eq("a list the library no longer has is skipped, as stepFinished skips it", OP({}, 0.9, { ids: ["gone", "a", "b"] }), "gone,a");
+    eq("…and does not hold back the ones after it", OP(solid("a", 18), 0.9, { ids: ["a", "gone", "b"] }), "a,gone,b");
+    eq("no totalOf, no evidence: only the first (and what they have played)", OP(merge(solid("a", 20), solid("c", 2)), 0.9, null, null), "a,c");
+    eq("one way is open", OP({}, 0.9, { ids: ["b"] }), "b");
+    eq("an empty step opens nothing", OP({}, 0.9, { ids: [] }), "");
+    eq("a step finishes exactly when its last way, the last to open, reaches the bar (stepFinished unchanged)",
+       [A3.planState(plan([["a", "b"], ["c"]]), merge(solid("a", 18), solid("b", 17)), TOT20).index,
+        A3.planState(plan([["a", "b"], ["c"]]), merge(solid("a", 18), solid("b", 18)), TOT20).index].join(","), "0,1");
+    (function(){
+      var pp = A3.planPosition(plan([["a"], ["b", "c"], ["d"]]), merge(solid("a", 18)), TOT20);
+      eq("planPosition: on the step, `current` is its open ways and `step` all of them", pp.current.join(",") + "/" + pp.step.join(","), "b/b,c");
+      eq("…the finished step's ways are all there", pp.finishedIds.join(","), "a");
+      eq("…and `ids` is finished, then open", pp.ids.join(","), "a,b");
+      var pf = A3.planPosition(plan([["a", "b"]]), merge(solid("a", 18), solid("b", 18)), TOT20);
+      eq("…a finished step shows every way, and nothing is current", pf.finishedIds.join(",") + "/" + pf.current.length + "/" + pf.step.length, "a,b/0/0");
+      var ph = A3.planPosition(plan([["a", "b"], ["c"]], { hold: true }), merge(solid("a", 18), solid("b", 18)), TOT20);
+      eq("…a held step opens its ways by the same rule", ph.current.join(","), "a,b");
+    })();
+
     });
 
     guard("which plan, which lists", function(){
@@ -3886,14 +3943,17 @@
                  bar: 0.9, at: 0, hold: false, setAt: 5 };
       function tot(id){ return W3.exists(id) ? W3.wordsOf(id).length : 0; }
       var r0 = S3.resolve({ plan: P3 }, null, {}, null, tot);
-      eq("on step 1 you have step 1's lists", r0.ids.join(","), "red-1-say,red-1-cards");
+      eq("on step 1 you have step 1's first way: the others open one at a time", r0.ids.join(","), "red-1-say");
+      eq("…and the position names the whole step", r0.positions[0].step.join(","), "red-1-say,red-1-cards");
       eq("…and none of the later ones", r0.ids.indexOf("red-2-say") === -1 && r0.ids.indexOf("red-3-say") === -1, true);
       eq("…and nothing is finished yet", r0.finishedIds.length, 0);
       var st = merge(solid("red-1-say", 18), solid("red-1-cards", 18));
       var r1 = S3.resolve({ plan: P3 }, null, st, null, tot);
-      eq("finish step 1 and step 2 is current", r1.current.join(","), "red-2-say,red-2-cards");
-      eq("…step 1 stays playable, in the finished set", r1.finishedIds.join(","), "red-1-say,red-1-cards");
-      eq("…the lists are finished-then-current", r1.ids.join(","), "red-1-say,red-1-cards,red-2-say,red-2-cards");
+      eq("finish step 1 and step 2 is current, its first way open", r1.current.join(","), "red-2-say");
+      eq("…step 1 stays playable, every way, in the finished set", r1.finishedIds.join(","), "red-1-say,red-1-cards");
+      eq("…the lists are finished-then-current", r1.ids.join(","), "red-1-say,red-1-cards,red-2-say");
+      eq("…and step 2's second way opens when its first reaches the bar",
+         S3.resolve({ plan: P3 }, null, merge(st, solid("red-2-say", 18)), null, tot).current.join(","), "red-2-say,red-2-cards");
       eq("…and step 3 is not there", r1.ids.indexOf("red-3-say"), -1);
       var all = merge(st, solid("red-2-say", 18), solid("red-2-cards", 18), solid("red-3-say", 18));
       var r2 = S3.resolve({ plan: P3 }, null, all, null, tot);
@@ -3912,15 +3972,19 @@
       function feed(o){ I._feed(o); I.settle(); }
 
       feed({ assignment: { plan: PLAN3 }, stats: {} });
-      eq("myLists on step 1 is step 1's lists", ST.myLists().join(","), "red-1-say,red-1-cards");
+      eq("myLists on step 1 is step 1's open way", ST.myLists().join(","), "red-1-say");
+      feed({ assignment: { plan: PLAN3 }, stats: solid("red-1-say", 18) });
+      eq("…and both ways once the first is at the bar", ST.myLists().join(","), "red-1-say,red-1-cards");
+      eq("…which plan() gives the home page as current", ST.plan().current.join(","), "red-1-say,red-1-cards");
+      feed({ assignment: { plan: PLAN3 }, stats: {} });
       eq("plan() says step 1 of 3", ST.plan().sequences[0].index + "/" + ST.plan().sequences[0].count, "0/3");
       eq("nothing moved, so nothing is written", I.dirtySeq(), false);
       eq("…and the payload has no seq", "seq" in I.payload(), false);
 
       var done1 = merge(solid("red-1-say", 18), solid("red-1-cards", 18));
       feed({ assignment: { plan: PLAN3 }, stats: done1 });
-      eq("finishing step 1 puts them on step 2", ST.plan().current.join(","), "red-2-say,red-2-cards");
-      eq("myLists is finished-then-current", ST.myLists().join(","), "red-1-say,red-1-cards,red-2-say,red-2-cards");
+      eq("finishing step 1 puts them on step 2, its first way", ST.plan().current.join(","), "red-2-say");
+      eq("myLists is finished-then-current", ST.myLists().join(","), "red-1-say,red-1-cards,red-2-say");
       eq("plan() counts one finished list", ST.plan().finishedCount, 1);
       eq("the high-water mark moves to step 2", I.seq().at, 1);
       eq("…belongs to this plan", I.seq().of, 777);
@@ -3962,7 +4026,7 @@
 
       // Not a student's business.
       feed({ assignment: { plan: PLAN3 }, stats: done1, preview: { id: "u", name: "A", failed: false } });
-      eq("a teacher previewing a student sees that student's step", ST.plan().current.join(","), "red-2-say,red-2-cards");
+      eq("a teacher previewing a student sees that student's step, as they see it", ST.plan().current.join(","), "red-2-say");
       eq("…and nothing is written for them", I.dirtySeq(), false);
       eq("…and the mark is not touched", I.seq(), null);
 
@@ -3971,7 +4035,7 @@
 
       // A roster row's plan, for a student who has not signed in.
       feed({ roster: { plan: PLAN3 }, stats: {} });
-      eq("a roster row's plan applies before they have an assignment", ST.myLists().join(","), "red-1-say,red-1-cards");
+      eq("a roster row's plan applies before they have an assignment", ST.myLists().join(","), "red-1-say");
 
       // A plan naming a list the library has since deleted.
       feed({ assignment: { plan: { steps: [{ ids: ["not-a-list"] }, { ids: ["red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: 9 } }, stats: {} });
@@ -4006,6 +4070,43 @@
       eq("a teacher's preview says nothing about a new list", N(pl(2, false, ["red-3-say"], 99), { id: "u" }), "");
       eq("…but still says everything is finished", N(pl(3, true, [], 99), { id: "u" }), "You finished all your lists. Ask your teacher what comes next.");
       try{ localStorage.removeItem(KEY); }catch(e){}
+    });
+
+    /* ---- the notice when a way of playing opens ---- */
+    guard("the home page notice: one way at a time", function(){
+      var N = window.EIPractice._internals.planNotice, K = window.EIPractice._internals.seenKey, UID = "notice-ways";
+      function sq(index, current, setAt, which){ return { which: which || 0, setAt: setAt || 5, index: index, finished: false, current: current }; }
+      function pl(){ var s = Array.prototype.slice.call(arguments); return { uid: UID, finished: false, current: [].concat.apply([], s.map(function(x){ return x.current; })), sequences: s }; }
+      function clear(){ try{ localStorage.removeItem(K(UID, 0)); localStorage.removeItem(K(UID, 1)); }catch(e){} }
+      var B = W3.idFor("blends-start", 1, "match"), BS = W3.idFor("blends-start", 1, "say");
+      clear();
+      eq("the first load ever announces nothing", N(pl(sq(0, ["red-1-match"])), null), "");
+      eq("a way that opens on the list they are on is announced", N(pl(sq(0, ["red-1-match", "red-1-cards"])), null), "New: Cards for Red Words · List 1.");
+      eq("…once", N(pl(sq(0, ["red-1-match", "red-1-cards"])), null), "");
+      eq("…and the next one when it opens", N(pl(sq(0, ["red-1-match", "red-1-cards", "red-1-say"])), null), "New: Say it for Red Words · List 1.");
+      eq("a way that hid again (a word slipped before it was played) is quiet", N(pl(sq(0, ["red-1-match"])), null), "");
+      eq("…and is not announced a second time when it comes back", N(pl(sq(0, ["red-1-match", "red-1-cards"])), null), "");
+      eq("arriving on a new list says only New list", N(pl(sq(1, ["red-2-match", "red-2-cards"])), null), "New list: Red Words · List 2.");
+      eq("…and its next way is announced when it opens", N(pl(sq(1, ["red-2-match", "red-2-cards", "red-2-say"])), null), "New: Say it for Red Words · List 2.");
+      clear();
+      N(pl(sq(0, ["red-3-match"], 6)), null);
+      eq("two opening at once are one sentence", N(pl(sq(0, ["red-3-match", "red-3-cards", "red-3-say"], 6)), null), "New: Cards and Say it for Red Words · List 3.");
+      eq("a teacher saving the sequence afresh announces nothing", N(pl(sq(0, ["red-3-match", "red-3-cards", "red-3-say"], 7)), null), "");
+      clear();
+      N(pl(sq(0, ["red-1-match"])), null);
+      var before = localStorage.getItem(K(UID, 0));
+      eq("a teacher's preview announces nothing", N(pl(sq(0, ["red-1-match", "red-1-cards"])), { id: "u" }), "");
+      eq("…and writes nothing", localStorage.getItem(K(UID, 0)), before);
+      eq("…so the student still hears it", N(pl(sq(0, ["red-1-match", "red-1-cards"])), null), "New: Cards for Red Words · List 1.");
+      clear();
+      N(pl(sq(0, ["red-1-match"]), sq(0, [B], 9, 1)), null);
+      eq("two sequences: one sentence each, Red Words first", N(pl(sq(0, ["red-1-match", "red-1-cards"]), sq(0, [B, BS], 9, 1)), null),
+         "New: Cards for Red Words · List 1. New: Say it for Starting Blends.");
+      eq("…each kept under its own key", JSON.parse(localStorage.getItem(K(UID, 1))).open.join(","), B + "," + BS);
+      clear();
+      try{ localStorage.setItem(K(UID, 0), JSON.stringify({ setAt: 5, index: 0 })); }catch(e){}
+      eq("a note that remembers no ways announces nothing", N(pl(sq(0, ["red-1-match", "red-1-cards"])), null), "");
+      clear();
     });
 
     /* ---- two sequences at once: Red Words in plan (seq), Other lists in plan2 (seq2) ---- */
@@ -4254,10 +4355,41 @@
       eq("a roster row's plan is the plan for a student who has not signed in", T.planFor("u1") && T.planFor("u1").setAt, SETAT);
     });
 
+    /* ---- one way at a time: the dashboard and the student's page agree ---- */
+    guard("one way at a time, on both sides", function(){
+      function tot(id){ return W4.exists(id) ? W4.wordsOf(id).length : 0; }
+      var RP = { steps: [{ ids: ["red-1-match", "red-1-cards", "red-1-say"] }, { ids: ["red-2-cards", "red-2-say"] }], bar: 0.9, at: 0, hold: false, setAt: SETAT };
+      var played = { "red-1-say|said": A4.sanitizeStat({ n: 1, r: 0, box: 0, last: 1 }) };
+      var cases = [
+        [{}, "red-1-match", "Open: Match It · Next: Cards, then Say it"],
+        [solid("red-1-match", 17), "red-1-match", "Open: Match It · Next: Cards, then Say it"],
+        [solid("red-1-match", 18), "red-1-match,red-1-cards", "Open: Match It, Cards · Next: Say it"],
+        [merge(solid("red-1-match", 18), solid("red-1-cards", 18)), "red-1-match,red-1-cards,red-1-say", "Open: Match It, Cards, Say it"],
+        [merge(solid("red-1-match", 17), solid("red-1-cards", 3)), "red-1-match,red-1-cards", "Open: Match It, Cards · Next: Say it"],
+        [played, "red-1-match,red-1-say", "Open: Match It, Say it · Next: Cards"]
+      ];
+      var agree = 0;
+      cases.forEach(function(c, i){
+        feed({ students: [kid("u1", "Ana", { stats: c[0] })], assignments: { u1: merge({ plan: RP }, stamp) } });
+        var teacher = T.positionOf("u1"), student = ST4.resolve({ plan: RP }, null, c[0], [null, null], tot);
+        if(JSON.stringify(teacher.current) === JSON.stringify(student.current) && JSON.stringify(teacher.ids) === JSON.stringify(student.ids)) agree++;
+        eq("case " + (i + 1) + ": the student can play " + c[1], student.current.join(","), c[1]);
+        T.open("u1"); T.renderDetail();
+        eq("…and their page on the dashboard says " + c[2], (body.querySelector(".seqRow.now .seqOpen") || {}).textContent, c[2]);
+        T.reset(); body.innerHTML = "";
+      });
+      eq("the dashboard and the student's code agree on the open ways in all " + cases.length + " cases", agree, cases.length);
+      feed({ students: [kid("u1", "Ana", { stats: merge(solid("red-1-match", 18), solid("red-1-cards", 18), solid("red-1-say", 18)) })], assignments: { u1: merge({ plan: RP }, stamp) } });
+      eq("a finished list's ways are all playable, and the next list opens on its first", T.effectiveLists("u1").ids.join(","), "red-1-match,red-1-cards,red-1-say,red-2-cards");
+      eq("a one-way step has no Open line", (function(){ feed({ students: [kid("u1", "Ana")], assignments: { u1: merge({ plan: planDoc({ steps: [{ ids: ["red-1-say"] }] }) }, stamp) } });
+         T.open("u1"); T.renderDetail(); return body.querySelectorAll(".seqOpen").length; })(), 0);
+      eq("the Open line leaves out a list the library no longer has", T.openText({ ids: ["gone", "red-1-cards", "red-1-say"] }, ["gone", "red-1-cards"]), "Open: Cards · Next: Say it");
+    });
+
     guard("what a sequence student has", function(){
       feed(fixture());
-      eq("effectiveLists for a sequence student is finished-then-current", T.effectiveLists("u1").ids.join(","),
-         "red-1-say,red-1-cards,red-2-say,red-2-cards");
+      eq("effectiveLists for a sequence student is finished-then-current: every way of step 1, and step 2's open way (its Say it, at 14 of 20, has not reached the bar)", T.effectiveLists("u1").ids.join(","),
+         "red-1-say,red-1-cards,red-2-say");
       eq("…and says it came from the plan", T.effectiveLists("u1").from, "plan");
       eq("a student with only lists is unchanged", T.effectiveLists("u2").ids.join(","), "red-1-say,red-1-cards,initial-blends");
       eq("…and says student", T.effectiveLists("u2").from, "student");
@@ -4287,13 +4419,16 @@
       eq("Now cannot be taken out", T.draftRemove(d, 1, 1), false);
       eq("a finished step cannot be taken out", T.draftRemove(d, 0, 1), false);
       d = { uid: "u1", steps: [{ ids: ["red-1-say", "red-1-cards"] }], bar: 0.9, at: 0, hold: false };
-      eq("the ways of a list can be changed", T.draftWays(d, 0, ["red-1-match", "red-1-say"]), true);
-      eq("…and are kept in the library's order", d.steps[0].ids.join(","), "red-1-say,red-1-match");
+      eq("the ways of a list can be changed", T.draftWays(d, 0, ["red-1-say", "red-1-match"]), true);
+      eq("…and are kept in the family's teaching order (Red Words: Match It, Cards, Say it)", d.steps[0].ids.join(","), "red-1-match,red-1-say");
       eq("at least one way is needed", T.draftWays(d, 0, []), false);
       eq("every way must be the same list", T.draftWays(d, 0, ["red-1-say", "red-2-say"]), false);
-      eq("…and the step was not changed by the refusals", d.steps[0].ids.join(","), "red-1-say,red-1-match");
-      eq("a list is added at the end", T.draftAdd(d, ["red-2-cards", "red-2-say"]), true);
-      eq("…with its ways in order", d.steps[1].ids.join(","), "red-2-say,red-2-cards");
+      eq("…and the step was not changed by the refusals", d.steps[0].ids.join(","), "red-1-match,red-1-say");
+      eq("a list is added at the end", T.draftAdd(d, ["red-2-say", "red-2-cards"]), true);
+      eq("…with its ways in the teaching order", d.steps[1].ids.join(","), "red-2-cards,red-2-say");
+      var od = { which: 1, steps: [], bar: 0.9, at: 0, hold: false };
+      T.draftAdd(od, ["oi-oy-spell", "oi-oy-1-cards", "oi-oy-1-match"]);
+      eq("…in Other lists too (oi / oy: Match It, Say it, Cards, Spell it)", od.steps[0].ids.join(","), "oi-oy-1-match,oi-oy-read,oi-oy-1-cards,oi-oy-spell");
       eq("a list already in the sequence is refused", T.draftAdd(d, ["red-1-cards"]), false);
       eq("an empty list of ways is refused", T.draftAdd(d, []), false);
       eq("ways from two lists are refused", T.draftAdd(d, ["red-3-say", "red-4-say"]), false);
@@ -4329,8 +4464,8 @@
     guard("ready-made sequences and putting games in order", function(){
       var red = T.readyMadeSteps("red");
       eq("Red Words, Lists 1 to 10 is ten steps", red.length, 10);
-      eq("…each with Say it and Cards", red.every(function(st){ return st.ids.length === 2 && /-say$/.test(st.ids[0]) && /-cards$/.test(st.ids[1]); }), true);
-      eq("…in order", red[0].ids[0] + " " + red[9].ids[0], "red-1-say red-10-say");
+      eq("…each with Cards, then Say it (the Red Words teaching order)", red.every(function(st){ return st.ids.length === 2 && /-cards$/.test(st.ids[0]) && /-say$/.test(st.ids[1]); }), true);
+      eq("…in order", red[0].ids[1] + " " + red[9].ids[1], "red-1-say red-10-say");
       var snd = T.readyMadeSteps("sounding");
       eq("Sounding it out is eight steps", snd.length, 8);
       eq("…Starting Blends, Blend Words, sh / ch / th, Silent e, ar / or / er, Vowel Teams, oi / oy, Multisyllable, in that order",
@@ -4340,8 +4475,8 @@
       eq("every id is a real, live id", red.concat(snd).every(function(st){ return st.ids.every(function(id){ return W4.exists(id) && !W4.isRetired(id); }); }), true);
       eq("an unknown key is no steps", T.readyMadeSteps("nope").length, 0);
       var st = T.stepsFromIds(["red-2-cards", "initial-blends", "red-1-say", "red-2-say", "red-1-cards", "not-a-list"]);
-      eq("games go one step per list, in the library's order",
-         st.map(function(x){ return x.ids.join("+"); }).join(" | "), "initial-blends | red-1-say+red-1-cards | red-2-say+red-2-cards");
+      eq("games go one step per list, lists in the library's order, ways in the teaching order",
+         st.map(function(x){ return x.ids.join("+"); }).join(" | "), "initial-blends | red-1-cards+red-1-say | red-2-cards+red-2-say");
     });
 
     guard("what Save writes", function(){
@@ -4398,6 +4533,8 @@
       eq("…and says it in words, in whole words",
          body.querySelector(".seqRow.now .seqLine").textContent, "Say it: 14 of 20 solid. 4 more to finish (18 of 20).");
       eq("…the other way too", body.querySelectorAll(".seqRow.now .seqLine")[1].textContent, "Cards: 0 of 20 solid. 18 more to finish (18 of 20).");
+      eq("…and which ways are open to the student, one at a time", body.querySelector(".seqRow.now .seqOpen").textContent, "Open: Say it · Next: Cards");
+      eq("…only on Now", body.querySelectorAll(".seqOpen").length, 1);
       eq("Now offers Move on now", body.querySelector('.seqRow.now [data-seq="moveon"]').textContent, "Move on now");
       eq("the last step has no Move on now (it finishes at the bar)", body.querySelectorAll('[data-seq="moveon"]').length, 1);
       eq("a later step can be moved earlier, later, changed or taken out",
@@ -4440,10 +4577,12 @@
       // Change the ways, take one out, add one.
       body.querySelector('.seqRow.later [data-seq="ways"]').click();
       eq("Change ways opens the ways of that list", body.querySelectorAll("[data-ways]").length, 4);
+      eq("…in the order the student meets them (Red Words: Match It, Cards, Say it, Spell it)",
+         Array.prototype.map.call(body.querySelectorAll("[data-ways]"), function(c){ return c.dataset.ways; }).join(","), "red-3-match,red-3-cards,red-3-say,red-3-spell");
       eq("…with the current ones ticked", Array.prototype.filter.call(body.querySelectorAll("[data-ways]"), function(c){ return c.checked; }).length, 1);
       body.querySelector('[data-ways="red-3-cards"]').checked = true;
       body.querySelector('[data-seq="ways-done"]').click();
-      eq("Done keeps the ticks", T.getDraft().steps[2].ids.join(","), "red-3-say,red-3-cards");
+      eq("Done keeps the ticks, in the teaching order", T.getDraft().steps[2].ids.join(","), "red-3-cards,red-3-say");
       body.querySelector('[data-seq="add-open"]').click();
       eq("Add a list opens a chooser of lists not already in the sequence", !!body.querySelector("#seqAddList"), true);
       eq("…which starts on the next list of the family the sequence ends in",
@@ -4463,6 +4602,8 @@
       sel2.value = "blends-start:1"; sel2.dispatchEvent(new Event("change", { bubbles: true }));
       eq("choosing a list of another family starts with Say it alone ticked (Say it is in every step of a sequence)",
          Array.prototype.filter.call(body.querySelectorAll('[data-which="1"] [data-addway]'), function(c){ return c.checked; }).map(function(c){ return c.dataset.addway; }).join(","), "initial-blends");
+      eq("…its boxes in the teaching order (Starting Blends: Match It, Say it, Cards)",
+         Array.prototype.map.call(body.querySelectorAll('[data-which="1"] [data-addway]'), function(c){ return c.dataset.addway; }).join(","), "blends-start-1-match,initial-blends,blends-start-1-cards");
       eq("…locked: it cannot be unticked", body.querySelector('[data-addway="initial-blends"]').disabled, true);
       eq("…with one line saying why", body.querySelector("#seqSayWhy2").textContent, "Say it is always part of a sequence. It is the one mode that hears the student read.");
       eq("…and Add is ready", body.querySelector("#seqAddGo2").disabled, false);
@@ -4535,7 +4676,7 @@
       eq("…with the old Save games button", !!body.querySelector("#tSaveA"), true);
       body.querySelector('[data-seq="inorder"]').click();
       eq("Put these in order puts the red games in Red Words, in list order",
-         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-say+red-1-cards");
+         T.getDraft().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "red-1-cards+red-1-say");
       eq("…and the others in Other lists", T.getDraft2().steps.map(function(x){ return x.ids.join("+"); }).join(" | "), "initial-blends");
       eq("…and offers to save it", body.querySelector("#seqSave").hidden, false);
       eq("…with Save enabled", body.querySelector('[data-seq="save"]').disabled, false);
@@ -4551,7 +4692,7 @@
       asked.length = 0;
       body.querySelector('[data-seq="give-red"]').click();
       eq("Give Red Words fills Red Words with every red list, in order", T.getDraft().steps.map(function(x){ return W4.byId(x.ids[0]).listNum; }).join(","), "1,2,3,4,5,6,7,8,9,10");
-      eq("…each with Say it first, then Cards", T.getDraft().steps.every(function(x, i){ return x.ids.join(",") === "red-" + (i + 1) + "-say,red-" + (i + 1) + "-cards"; }), true);
+      eq("…each with Cards, then Say it (the teaching order)", T.getDraft().steps.every(function(x, i){ return x.ids.join(",") === "red-" + (i + 1) + "-cards,red-" + (i + 1) + "-say"; }), true);
       eq("…at the usual percent", T.getDraft().bar, A4.defaultBar);
       eq("…without asking, and without writing: it is a draft", asked.length + "/" + T.seqDirty() + "/" + body.querySelector("#seqSave").hidden, "0/true/false");
       eq("…and the button gives way to the editor", !!body.querySelector('[data-seq="give-red"]') + "/" + body.querySelectorAll('[data-which="0"] .seqRow').length, "false/10");
@@ -4909,10 +5050,10 @@
       var b1 = T.giveBody(T.studentByUid("u1"), steps, 0.9, NOWT), b2 = T.giveBody(T.studentByUid("u2"), steps, 0.9, NOWT),
           b3 = T.giveBody(T.studentByUid("u3"), steps, 0.9, NOWT), bp = T.giveBody(T.studentByUid("roster:pat@seq.org"), steps, 0.9, NOWT);
       eq("every plan starts at 0, not held, saved now", [b1, b2, b3].every(function(b){ return b.plan.at === 0 && b.plan.hold === false && b.plan.setAt === NOWT; }), true);
-      eq("a student solid on step 1 lands on step 2 (`lists` is that step)", b1.lists.join(","), "red-2-say,red-2-cards");
-      eq("one solid on steps 1 and 2 lands on step 3", b2.lists.join(","), "red-3-say,red-3-cards");
-      eq("one who has not practiced lands on step 1", b3.lists.join(","), "red-1-say,red-1-cards");
-      eq("a student on the roster lands on step 1", bp.lists.join(","), "red-1-say,red-1-cards");
+      eq("a student solid on step 1 lands on step 2 (`lists` is that step, every way)", b1.lists.join(","), "red-2-cards,red-2-say");
+      eq("one solid on steps 1 and 2 lands on step 3", b2.lists.join(","), "red-3-cards,red-3-say");
+      eq("one who has not practiced lands on step 1", b3.lists.join(","), "red-1-cards,red-1-say");
+      eq("a student on the roster lands on step 1", bp.lists.join(","), "red-1-cards,red-1-say");
       eq("the body is exactly both fields, the lists, the time and the class stamp", Object.keys(b1).sort().join(","), "classId,lists,plan,plan2,teachers,updatedAt");
       eq("…Other lists, which the order does not hold and they do not have, deleted", b1.plan2, "\u0000delete");
       eq("…with the percent given", T.giveBody(T.studentByUid("u1"), steps, 0.8, NOWT).plan.bar, 0.8);
@@ -5085,26 +5226,28 @@
 
     /* SAY IT IN EVERY STEP OF EVERY SEQUENCE: every way the dashboard makes a step. */
     guard("Say it in every step of a sequence", function(){
-      eq("withSay adds the list's Say it, first", W4.withSay(["red-3-cards"]).join(","), "red-3-say,red-3-cards");
-      eq("…moves it first when it is there", W4.withSay(["red-3-match", "red-3-say"]).join(","), "red-3-say,red-3-match");
+      eq("withSay adds the list's Say it, in the teaching order (Red Words: Match It, Cards, Say it)", W4.withSay(["red-3-cards"]).join(","), "red-3-cards,red-3-say");
+      eq("…puts the step in that order when Say it is there", W4.withSay(["red-3-say", "red-3-match"]).join(","), "red-3-match,red-3-say");
+      eq("…in the family's own order (Starting Blends: Match It, Say it, Cards)", W4.withSay([W4.idFor("blends-start", 1, "cards"), W4.idFor("blends-start", 1, "match")]).join(","),
+         [W4.idFor("blends-start", 1, "match"), "initial-blends", W4.idFor("blends-start", 1, "cards")].join(","));
       eq("…uses the family's own Say it id", W4.withSay(["oi-oy-spell"]).join(","), "oi-oy-read,oi-oy-spell");
       eq("…leaves a step it does not know alone", W4.withSay(["not-a-list"]).join(","), "not-a-list");
       eq("…and an empty step", W4.withSay([]).length, 0);
-      eq("…and never adds twice", W4.withSay(W4.withSay(["red-3-cards"])).join(","), "red-3-say,red-3-cards");
+      eq("…and never adds twice", W4.withSay(W4.withSay(["red-3-cards"])).join(","), "red-3-cards,red-3-say");
       feed({ students: [kid("u1", "Lee Gray")], assignments: { u1: merge({ plan: planDoc() }, stamp) } });
 
       // Every way a step is made.
       var d = { steps: [{ ids: ["red-1-say", "red-1-cards"] }], bar: 0.9, at: 0, hold: false };
       T.draftWays(d, 0, ["red-1-cards"]);
-      eq("Change ways cannot take Say it out", d.steps[0].ids.join(","), "red-1-say,red-1-cards");
+      eq("Change ways cannot take Say it out", d.steps[0].ids.join(","), "red-1-cards,red-1-say");
       T.draftAdd(d, ["red-2-match"]);
-      eq("Add a list adds its Say it", d.steps[1].ids.join(","), "red-2-say,red-2-match");
+      eq("Add a list adds its Say it", d.steps[1].ids.join(","), "red-2-match,red-2-say");
       T.draftReplaceLater(d, 0, [{ ids: ["red-3-cards"] }]);
-      eq("a saved, ready-made or copied order brings Say it", d.steps[1].ids.join(","), "red-3-say,red-3-cards");
-      eq("putting games in order gives each list its Say it", T.stepsFromIds(["red-4-cards"])[0].ids.join(","), "red-4-say,red-4-cards");
+      eq("a saved, ready-made or copied order brings Say it", d.steps[1].ids.join(","), "red-3-cards,red-3-say");
+      eq("putting games in order gives each list its Say it", T.stepsFromIds(["red-4-cards"])[0].ids.join(","), "red-4-cards,red-4-say");
       eq("Add a list's ticks start with Say it", T.defaultAddIds({ steps: [] }, "red:5").join(","), "red-5-say");
-      eq("a saved sequence is saved with Say it", T.savedBody("x", [{ ids: ["red-6-match"] }], 0.9, 1).steps[0].ids.join(","), "red-6-say,red-6-match");
-      eq("Give a sequence gives Say it", T.giveBody(T.positionOf("u1") && kid("u2", "Bo"), [{ ids: ["red-7-cards"] }], 0.9, 1).plan.steps[0].ids.join(","), "red-7-say,red-7-cards");
+      eq("a saved sequence is saved with Say it", T.savedBody("x", [{ ids: ["red-6-match"] }], 0.9, 1).steps[0].ids.join(","), "red-6-match,red-6-say");
+      eq("Give a sequence gives Say it", T.giveBody(T.positionOf("u1") && kid("u2", "Bo"), [{ ids: ["red-7-cards"] }], 0.9, 1).plan.steps[0].ids.join(","), "red-7-cards,red-7-say");
       eq("…to Other lists beside a Red Words sequence too", T.giveBody(kid("u1", "Lee Gray"), [{ ids: [TB1C] }], 0.9, 1).plan2.steps[0].ids.join(","), TB1 + "," + TB1C);
       T.reset();
 
@@ -5237,7 +5380,7 @@
       row = body.querySelector('tr[data-uid="u1"]');
       eq("…and still one flag line at most", row.querySelectorAll(".stFlag").length <= 1, true);
       eq("a one-sequence student's row is as it was", body.querySelector('tr[data-uid="u2"] .stNow').textContent, "Red Words · List 1");
-      eq("the flag line's lists are the current lists of both", T.nextStepInfo(T.studentByUid("u1")).lists.map(function(l){ return l.id; }).join(","), "red-2-say,red-2-cards," + TB2);
+      eq("the flag line's lists are the open ways of the current list of both", T.nextStepInfo(T.studentByUid("u1")).lists.map(function(l){ return l.id; }).join(","), "red-2-say," + TB2);
 
       var NOWT = Date.now(), DAYMS = 86400000;
       var firstDone = merge(solid("red-1-say", 20), solid("red-1-cards", 20), solid("red-2-say", 20), solid("red-2-cards", 20), solid("red-3-say", 20));
@@ -5283,12 +5426,12 @@
         return b[f] === "\u0000delete" ? "del" : (A4.isRedId(b[f].steps[0].ids[0]) ? "red" : "other") + "@" + b[f].setAt; }).join(" "); }
       // A Red Words order.
       eq("Red to no sequence: it is their Red Words, and plan2 is deleted", kinds(gb("u1", red)), "red@" + NOWT + " del");
-      eq("…landing on the first red list they have not finished", gb("u1", red).lists.join(","), "red-2-say,red-2-cards");
-      eq("Red to loose games: the games are replaced", kinds(gb("u2", red)) + " " + gb("u2", red).lists.join(","), "red@" + NOWT + " del red-1-say,red-1-cards");
+      eq("…landing on the first red list they have not finished", gb("u1", red).lists.join(","), "red-2-cards,red-2-say");
+      eq("Red to loose games: the games are replaced", kinds(gb("u2", red)) + " " + gb("u2", red).lists.join(","), "red@" + NOWT + " del red-1-cards,red-1-say");
       eq("Red to Red Words only: it replaces it", kinds(gb("u3", red)), "red@" + NOWT + " del");
       eq("Red to both: Red Words replaced, Other lists written back exactly as stored", kinds(gb("u4", red)) + " " + (JSON.stringify(gb("u4", red).plan2) === JSON.stringify(A4.sanitizePlan(plan2Doc()))), "red@" + NOWT + " other@" + SETAT2 + " true");
       eq("Red to Other lists only: Other lists kept as stored, Red Words beside it", kinds(gb("u5", red)), "red@" + NOWT + " other@9");
-      eq("…`lists` the current list of each", gb("u5", red).lists.join(","), "red-1-say,red-1-cards," + snd[0].ids.join(","));
+      eq("…`lists` the current list of each", gb("u5", red).lists.join(","), "red-1-cards,red-1-say," + snd[0].ids.join(","));
       // An Other lists order.
       eq("Other to both: Red Words written back as stored, Other lists replaced", kinds(gb("u4", snd)), "red@" + SETAT + " other@" + NOWT);
       eq("Other to Red Words only: Red Words kept, Other lists beside it", kinds(gb("u3", snd)), "red@" + SETAT + " other@" + NOWT);
@@ -5510,7 +5653,7 @@
          T.sequenceSources(false, "other").filter(function(x){ return !x.saved; }).map(function(x){ return x.label; }).join(","), "Red Words, Lists 1 to 10 | Sounding it out");
       eq("a saved one says it is saved, a ready-made one does not", !!src[2].saved && !src[0].saved, true);
       eq("a preview names the lists, the ways and the percent",
-         T.sequencePreview(T.readyMadeSteps("red"), 0.9), "10 lists: Red Words · List 1, Red Words · List 2, Red Words · List 3 … Red Words · List 10 — Say it · Cards, finished at 90%.");
+         T.sequencePreview(T.readyMadeSteps("red"), 0.9), "10 lists: Red Words · List 1, Red Words · List 2, Red Words · List 3 … Red Words · List 10 — Cards · Say it, finished at 90%.");
       eq("…one list is singular", T.sequencePreview([{ ids: ["initial-blends"] }]), "1 list: Starting Blends — Say it.");
       var b = T.savedBody("  Mine  ", [{ ids: ["red-1-say"] }], 0.8, 99);
       eq("what is saved is exactly a name, the steps, the bar and the time", Object.keys(b).sort().join(",") + "/" + b.name + "/" + b.bar + "/" + b.createdAt, "bar,createdAt,name,steps/Mine/0.8/99");
@@ -5744,9 +5887,9 @@
         eq("…to assignments/u1, assignments/u2 and the pending student's roster row",
            db.log.map(function(w){ return w.col + "/" + w.id; }).join(", "), "assignments/u1, assignments/u2, roster/pat@seq.org");
         eq("…each a merge", db.log.every(function(w){ return JSON.stringify(w.opts) === '{"merge":true}'; }), true);
-        eq("…and each lands where their stats say", db.log.map(function(w){ return w.data.lists[0]; }).join(","), "red-2-say,red-3-say,red-1-say");
+        eq("…and each lands where their stats say", db.log.map(function(w){ return w.data.lists[0]; }).join(","), "red-2-cards,red-3-cards,red-1-cards");
         eq("…never to a student's own document", db.log.every(function(w){ return w.col !== "students"; }), true);
-        eq("the page's own copies moved with them", T.planFor("u1").steps.length + "/" + T.effectiveLists("u1").ids.join(","), "10/red-1-say,red-1-cards,red-2-say,red-2-cards");
+        eq("the page's own copies moved with them (step 2's first way open: Cards)", T.planFor("u1").steps.length + "/" + T.effectiveLists("u1").ids.join(","), "10/red-1-cards,red-1-say,red-2-cards");
         eq("…including the one on the roster", !!T.planFor("roster:pat@seq.org"), true);
       });
     });
@@ -6123,7 +6266,7 @@
         eq("a teacher normally has no plan() and writes no mark", ST5.plan() === null && S5.dirtySeq() === false, true);
         S5._feed({ asTest: true, assignment: { plan: PLAN }, stats: {} }); S5.settle();
         eq("a test student has a plan(): step 1 of 2", ST5.plan().sequences[0].index + "/" + ST5.plan().sequences[0].count, "0/2");
-        eq("…and myLists is step 1's lists", ST5.myLists().join(","), "red-1-say,red-1-cards");
+        eq("…and myLists is step 1's open way", ST5.myLists().join(","), "red-1-say");
         S5._feed({ asTest: true, assignment: { plan: PLAN }, stats: done1 }); S5.settle();
         eq("finishing step 1 moves a test student to step 2", ST5.plan().sequences[0].index, 1);
         eq("…and the mark is queued to be saved, as for any student", S5.dirtySeq(), true);
