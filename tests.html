@@ -2718,8 +2718,8 @@
     eq("nonsense keeps Blend it and One minute", W.idsOfList("nonsense", 1).join(","), "nonsense,nonsense-1-cards,nonsense-1-fluency,nonsense-1-blendit");
 
     /* ── the teaching order: one per family, set by the site (2026-11-27) ── */
-    var ORDERS = { "blends-start": "match,say,cards", "blends-end": "match,say,cards", "nonsense": "blendit,say,cards,fluency",
-                   "oi-oy": "match,say,cards,spell", "multi": "split,match,say,cards", "red": "match,cards,say" };
+    var ORDERS = { "blends-start": "match,say,cards,spell", "blends-end": "match,say,cards,spell", "nonsense": "blendit,say,cards,fluency",
+                   "oi-oy": "match,say,cards,spell", "multi": "split,match,say,cards,spell", "red": "match,cards,say,spell" };
     W.families().forEach(function(f){
       eq(f.title + " is met in this order: " + ORDERS[f.key], W.orderOf(f.key).join(","), ORDERS[f.key]);
       eq("…which is every mode it offers, each once, and no retired one",
@@ -2737,6 +2737,17 @@
     eq("…it changes nothing it is given", (function(){ var a = ["red-2-say", "red-2-cards"]; W.inTeachingOrder(a); return a.join(","); })(), "red-2-say,red-2-cards");
     eq("…and an empty or missing list is empty", W.inTeachingOrder([]).length + W.inTeachingOrder(null).length, 0);
     eq("…ordering twice is ordering once", W.inTeachingOrder(W.inTeachingOrder(["red-1-say", "red-1-cards", "red-1-match"])).join(","), "red-1-match,red-1-cards,red-1-say");
+    /* Spelling after reading: wherever a family offers Spell it, it is the last way of its order. */
+    W.families().forEach(function(f){
+      var o = W.orderOf(f.key);
+      if(o.indexOf("spell") !== -1) eq(f.title + ": Spell it comes last, after every way of reading", o[o.length - 1], "spell");
+    });
+    eq("inTeachingOrder puts Spell it last on Red Words, however it was ticked",
+       W.inTeachingOrder(["red-4-spell", "red-4-say", "red-4-match", "red-4-cards"]).join(","), "red-4-match,red-4-cards,red-4-say,red-4-spell");
+    eq("…on Multisyllable, after Cards",
+       W.inTeachingOrder(["multi-1-spell", "multisyllable", "multi-1-split"]).join(","), "multi-1-split,multisyllable,multi-1-spell");
+    eq("…and a retired way a student still holds still goes after it",
+       W.inTeachingOrder(["blends-end-1-fluency", "blends-end-1-spell", "final-blends", "blends-end-1-match"]).join(","), "blends-end-1-match,final-blends,blends-end-1-spell,blends-end-1-fluency");
 
     eq("a shared page needs a ?list=", W.hrefOf("red-3-match"), "match-game.html?list=red-3-match");
     eq("a page that serves one list doesn't", W.hrefOf("final-blends"), "blend-words-game.html");
@@ -4124,8 +4135,10 @@
       var RED = ["red-1-say", "red-1-cards", "red-1-match"];
       eq("inside a sequence a tile's rows are in the teaching order, so a new one appears at the bottom", rowsOf(RED, true), "Match It,Cards,Say it");
       eq("…the same while only the first two are open", rowsOf(["red-1-cards", "red-1-match"], true), "Match It,Cards");
-      eq("…and on another family (Starting Blends: Match It, Say it, Cards)", rowsOf(W3.idsOfList("blends-start", 1), true), "Match It,Say it,Cards");
+      eq("…and on another family (Starting Blends: Match It, Say it, Cards, Spell it)", rowsOf(W3.idsOfList("blends-start", 1), true), "Match It,Say it,Cards,Spell it");
+      eq("…every way of a red list, Spell it last", rowsOf(W3.idsOfList("red", 1), true), "Match It,Cards,Say it,Spell it");
       eq("lists given without a sequence keep the family's own mode order, as before", rowsOf(RED, false), "Say it,Cards,Match It");
+      eq("…Spell it included (the family's modes: Say it, Spell it, Cards, Match It)", rowsOf(W3.idsOfList("red", 1), false), "Say it,Spell it,Cards,Match It");
       eq("…and so does a call that says nothing", rowsOf(RED), "Say it,Cards,Match It");
     });
 
@@ -4662,8 +4675,8 @@
       sel2.value = "blends-start:1"; sel2.dispatchEvent(new Event("change", { bubbles: true }));
       eq("choosing a list of another family starts with Say it alone ticked (Say it is in every step of a sequence)",
          Array.prototype.filter.call(body.querySelectorAll('[data-which="1"] [data-addway]'), function(c){ return c.checked; }).map(function(c){ return c.dataset.addway; }).join(","), "initial-blends");
-      eq("…its boxes in the teaching order (Starting Blends: Match It, Say it, Cards)",
-         Array.prototype.map.call(body.querySelectorAll('[data-which="1"] [data-addway]'), function(c){ return c.dataset.addway; }).join(","), "blends-start-1-match,initial-blends,blends-start-1-cards");
+      eq("…its boxes in the teaching order (Starting Blends: Match It, Say it, Cards, Spell it)",
+         Array.prototype.map.call(body.querySelectorAll('[data-which="1"] [data-addway]'), function(c){ return c.dataset.addway; }).join(","), "blends-start-1-match,initial-blends,blends-start-1-cards,blends-start-1-spell");
       eq("…locked: it cannot be unticked", body.querySelector('[data-addway="initial-blends"]').disabled, true);
       eq("…with one line saying why", body.querySelector("#seqSayWhy2").textContent, "Say it is always part of a sequence. It is the one mode that hears the student read.");
       eq("…and Add is ready", body.querySelector("#seqAddGo2").disabled, false);
@@ -5295,11 +5308,12 @@
 
     /* SAY IT IN EVERY STEP OF EVERY SEQUENCE: every way the dashboard makes a step. */
     guard("Say it in every step of a sequence", function(){
-      eq("withSay adds the list's Say it, in the teaching order (Red Words: Match It, Cards, Say it)", W4.withSay(["red-3-cards"]).join(","), "red-3-cards,red-3-say");
+      eq("withSay adds the list's Say it, in the teaching order (Red Words: Match It, Cards, Say it, Spell it)", W4.withSay(["red-3-cards"]).join(","), "red-3-cards,red-3-say");
       eq("…puts the step in that order when Say it is there", W4.withSay(["red-3-say", "red-3-match"]).join(","), "red-3-match,red-3-say");
-      eq("…in the family's own order (Starting Blends: Match It, Say it, Cards)", W4.withSay([W4.idFor("blends-start", 1, "cards"), W4.idFor("blends-start", 1, "match")]).join(","),
+      eq("…in the family's own order (Starting Blends: Match It, Say it, Cards, Spell it)", W4.withSay([W4.idFor("blends-start", 1, "cards"), W4.idFor("blends-start", 1, "match")]).join(","),
          [W4.idFor("blends-start", 1, "match"), "initial-blends", W4.idFor("blends-start", 1, "cards")].join(","));
       eq("…uses the family's own Say it id", W4.withSay(["oi-oy-spell"]).join(","), "oi-oy-read,oi-oy-spell");
+      eq("…and a Spell it step gets Say it before it, spelling after reading", W4.withSay(["red-3-spell"]).join(","), "red-3-say,red-3-spell");
       eq("…leaves a step it does not know alone", W4.withSay(["not-a-list"]).join(","), "not-a-list");
       eq("…and an empty step", W4.withSay([]).length, 0);
       eq("…and never adds twice", W4.withSay(W4.withSay(["red-3-cards"])).join(","), "red-3-cards,red-3-say");

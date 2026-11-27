@@ -68,7 +68,8 @@
 
    ── Adding to the library ─────────────────────────────────────────────
    · another red list        one array in RED_LISTS. Nothing else.
-   · another mode on a list  one key in that family's `modes`.
+   · another mode on a list  one key in that family's `modes`, and in
+                             its `order` (where a sequence opens it).
    · a whole new family      one entry in LIST_FAMILIES. Its cards and
                              Match It modes need no new page — they share
                              cards-game.html and match-game.html, and Say
@@ -550,8 +551,9 @@ window.LIST_FAMILIES = [
        /m/ first) and a minute is lapped twice, so the rate is mostly
        noise. Both stay on Nonsense Words, where they are the point. */
     retired: ["blendit", "fluency"],
-    // Hear it (Match It), read it aloud and checked, then read it alone.
-    order: ["match", "say", "cards"],
+    // Hear it (Match It), read it aloud and checked, then read it alone;
+    // spelling after reading.
+    order: ["match", "say", "cards", "spell"],
     pages: { say: "initial-blends-game.html" },
     modeConfig: {
       say: { blend: "start", theme: "maze" },
@@ -576,7 +578,7 @@ window.LIST_FAMILIES = [
     description: "Words that end with a consonant blend — soft, pond, risk, milk.",
     modes: ["say", "spell", "cards", "match", "fluency", "blendit"],
     retired: ["blendit", "fluency"],   // same reasons as Starting Blends, above
-    order: ["match", "say", "cards"],
+    order: ["match", "say", "cards", "spell"],
     pages: { say: "blend-words-game.html" },
     modeConfig: {
       say: { blend: "end", theme: "race" },
@@ -807,8 +809,9 @@ window.LIST_FAMILIES = [
     note: "Two- and three-syllable words. The trick is taking them one chunk at a time.",
     description: "Two- and three-syllable words like napkin, picnic and fantastic.",
     modes: ["say", "spell", "cards", "match", "split"],
-    // Take the word apart first, then hear it, read it aloud, read it alone.
-    order: ["split", "match", "say", "cards"],
+    // Take the word apart first, then hear it, read it aloud, read it alone;
+    // spelling after reading.
+    order: ["split", "match", "say", "cards", "spell"],
     pages: { say: "multisyllable-words-game.html" },
     modeConfig: {
       say: {
@@ -886,8 +889,9 @@ window.LIST_FAMILIES = [
        rule box says. One box; a contraction is typed with its apostrophe,
        and a missing one is a miss. */
     modes: ["say", "spell", "cards", "match"],
-    // Hear it, know it on sight, then read it aloud to the computer.
-    order: ["match", "cards", "say"],
+    // Hear it, know it on sight, then read it aloud to the computer;
+    // spelling after reading.
+    order: ["match", "cards", "say", "spell"],
     /* Teacher-facing one-liners, shown as a tooltip on the mode wherever
        the board or a picker names it. Match It stays here as the no-mic
        option, but it is not what red words are for: it gives the student
