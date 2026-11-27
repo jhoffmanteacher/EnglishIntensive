@@ -151,7 +151,7 @@ export const loops = [
       for (const a of [ana, ben]) await dash.click(`#tBody [data-pick="${a.uid}"]`);
       await dash.click("#stGive");
       /* "Red Words, Lists 1 to 10", written out here from the README rather than read back from the dashboard: Say it
-         and Cards, in the Red Words teaching order (Match It, Cards, Say it), so Cards first. */
+         and Cards, in the Red Words teaching order (Match It, Cards, Say it, Spell it), so Cards first. */
       const steps = Array.from({ length: 10 }, (_, i) => [`red-${i + 1}-cards`, `red-${i + 1}-say`]);
       await dash.wait(`!!document.querySelector('#giveSrc option[value="rm:red"]')`, "the ready-made Red Words sequence");
       await dash.set("#giveSrc", "rm:red");

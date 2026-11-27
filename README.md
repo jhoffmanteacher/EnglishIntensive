@@ -208,12 +208,12 @@ the family's `order` in `word-lists.js`:
 
 | family | a student meets its ways in this order |
 |---|---|
-| Starting Blends | 🎯 Match It → 🎤 Say it → 🃏 Cards |
-| Blend Words | 🎯 Match It → 🎤 Say it → 🃏 Cards |
+| Starting Blends | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
+| Blend Words | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
 | Nonsense Words | 🔊 Blend it → 🎤 Say it → 🃏 Cards → ⏱ One minute |
 | oi / oy | 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
-| Multisyllable | ✂️ Split it → 🎯 Match It → 🎤 Say it → 🃏 Cards |
-| Red Words | 🎯 Match It → 🃏 Cards → 🎤 Say it |
+| Multisyllable | ✂️ Split it → 🎯 Match It → 🎤 Say it → 🃏 Cards → ⌨️ Spell it |
+| Red Words | 🎯 Match It → 🃏 Cards → 🎤 Say it → ⌨️ Spell it |
 
 `order` names every mode the family offers, once, and no retired one (a test
 pins that). `WordLists.inTeachingOrder(ids)` sorts a list's ids by it — a mode it
@@ -310,7 +310,8 @@ offered mode goes red as a reminder). Nothing else changes.
 
 - **another red list** — one array in `RED_LISTS`. Nothing else.
 - **another mode on an existing list** — one key in that family's
-  `modes`.
+  `modes`, and the same key in its `order`, where a sequence should open it
+  (the test that `order` names every offered mode fails until it is there).
 - **a whole new family** — one entry in `LIST_FAMILIES`, with its teaching
   `order` (every mode it offers, in the order a sequence opens them). Every mode has
   a shared page that takes the list from `?list=` — `cards-game.html`,
